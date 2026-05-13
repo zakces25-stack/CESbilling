@@ -16,7 +16,7 @@ exports.handler = async (event) => {
 
   let body;
   try {
-    body = event.body ? JSON.parse(event.body) : {};
+    body = JSON.parse(event.body);
   } catch {
     return { statusCode: 400, headers, body: JSON.stringify({ error: 'Invalid request body' }) };
   }
@@ -56,7 +56,6 @@ exports.handler = async (event) => {
         isAdmin:    user.is_admin,
       }),
     };
-
   } catch (err) {
     console.error('Auth error:', err);
     return { statusCode: 500, headers, body: JSON.stringify({ error: 'Server error' }) };
