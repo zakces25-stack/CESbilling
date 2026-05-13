@@ -1,4 +1,4 @@
-const { Client } = require('pg');
+const { Client } = require('@neondatabase/serverless');
 
 exports.handler = async (event) => {
   const headers = {
