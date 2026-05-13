@@ -1,7 +1,9 @@
 {
-  "name": "cesbilling",
+  "name": "cesbilling-functions",
   "version": "1.0.0",
+  "description": "Netlify Functions for CES Billing Portal",
   "dependencies": {
-    "@neondatabase/serverless": "^0.9.0"
+    "@neondatabase/serverless": "^0.9.0",
+    "@netlify/blobs": "^8.1.0"
   }
 }
