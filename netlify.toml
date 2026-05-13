@@ -2,8 +2,11 @@
   publish = "public"
   functions = "netlify/functions"
 
+[functions]
+  node_bundler = "esbuild"
+
 [[redirects]]
-  from = "/"
+  from = "/*"
   to = "/index.html"
   status = 200
 
@@ -14,10 +17,3 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Cache-Control = "no-store, no-cache, must-revalidate"
-
-[[headers]]
-  for = "/netlify/functions/*"
-  [headers.values]
-    Access-Control-Allow-Origin = "*"
-    Access-Control-Allow-Headers = "Content-Type, x-admin-secret"
-    Access-Control-Allow-Methods = "GET, POST, OPTIONS"
