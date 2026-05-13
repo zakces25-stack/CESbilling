@@ -1,0 +1,8 @@
+{
+  "name": "cesbilling-functions",
+  "version": "1.0.0",
+  "description": "Netlify Functions for CES Billing Portal",
+  "dependencies": {
+    "pg": "^8.11.3"
+  }
+}
