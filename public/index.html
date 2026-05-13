@@ -1338,9 +1338,8 @@ async function doUpload() {
                       'July','August','September','October','November','December'];
   const month = monthNames[parseInt(monthNum) - 1];
 
-  const btn = document.getElementById('uploadBtn');
-  btn.disabled    = true;
-  btn.textContent = 'Uploading…';
+ const btn = document.querySelector('#tab-upload .btn-primary');
+if (btn) { btn.disabled = true; btn.textContent = 'Uploading…'; }
 
   try {
     const res = await fetch(API.saveReport, {
@@ -1363,9 +1362,8 @@ async function doUpload() {
     if (!res.ok) {
       alert('Upload failed: ' + (data.error || 'Unknown error'));
       btn.disabled    = false;
-      btn.textContent = 'Add report to portal';
+    if (btn) { btn.disabled = false; btn.textContent = 'Add report to portal'; }
       return;
-    }
 
     document.getElementById('uploadOk').classList.add('show');
     clearFile();
@@ -1381,7 +1379,7 @@ async function doUpload() {
     alert('Upload failed. Please check your connection and try again.');
   } finally {
     btn.disabled    = false;
-    btn.textContent = 'Add report to portal';
+  if (btn) { btn.disabled = false; btn.textContent = 'Add report to portal'; }
   }
 }
 
