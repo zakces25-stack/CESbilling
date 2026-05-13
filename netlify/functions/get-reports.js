@@ -1,38 +1,51 @@
-const { getStore } = require('@netlify/blobs');
+const { Client } = require('@neondatabase/serverless');
 
 exports.handler = async (event) => {
+  if (event.httpMethod !== 'GET') {
+    return { statusCode: 405, body: 'Method Not Allowed' };
+  }
+
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Content-Type': 'application/json',
   };
 
-  if (event.httpMethod !== 'GET') {
-    return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method Not Allowed' }) };
+  const customerId = event.queryStringParameters && event.queryStringParameters.customerId;
+  if (!customerId) {
+    return { statusCode: 400, headers, body: JSON.stringify({ error: 'customerId required' }) };
   }
 
-  const reportId = event.queryStringParameters && event.queryStringParameters.reportId;
-  if (!reportId) {
-    return { statusCode: 400, headers, body: JSON.stringify({ error: 'reportId required' }) };
-  }
+  const client = new Client({ connectionString: process.env.NETLIFY_DATABASE_URL });
 
   try {
-    const store = getStore('reports');
-    const content = await store.get(reportId);
+    await client.connect();
 
-    if (!content) {
-      return { statusCode: 404, headers, body: JSON.stringify({ error: 'Report file not found' }) };
+    if (customerId === '__admin__') {
+      const result = await client.query(`
+        SELECT r.id, r.customer_id, c.company_name, r.month, r.year, r.period,
+               r.sites, r.issues, r.fail_count, r.warn_count, r.total_net,
+               r.uploaded_at, r.has_file
+        FROM reports r
+        JOIN customers c ON c.customer_id = r.customer_id
+        ORDER BY r.year DESC, r.month_num DESC
+      `);
+      return { statusCode: 200, headers, body: JSON.stringify({ reports: result.rows }) };
     }
 
-    const base64 = Buffer.from(content).toString('base64');
+    const result = await client.query(`
+      SELECT id, customer_id, month, year, period, sites, issues,
+             fail_count, warn_count, total_net, uploaded_at, has_file
+      FROM reports
+      WHERE customer_id = $1
+      ORDER BY year DESC, month_num DESC
+    `, [customerId]);
 
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ fileContent: base64 }),
-    };
+    return { statusCode: 200, headers, body: JSON.stringify({ reports: result.rows }) };
 
   } catch (err) {
-    console.error('Get report file error:', err);
-    return { statusCode: 500, headers, body: JSON.stringify({ error: 'Server error: ' + err.message }) };
+    console.error('Get reports error:', err);
+    return { statusCode: 500, headers, body: JSON.stringify({ error: 'Server error' }) };
+  } finally {
+    await client.end();
   }
 };
