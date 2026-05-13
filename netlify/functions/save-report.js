@@ -1,5 +1,4 @@
 const { Client } = require('@neondatabase/serverless');
-const { getStore } = require('@netlify/blobs');
 
 exports.handler = async (event) => {
   const headers = {
@@ -41,21 +40,24 @@ exports.handler = async (event) => {
   const issues    = (parseInt(failCount) || 0) + (parseInt(warnCount) || 0);
   const reportId  = `${customerId}-${shortMon.toLowerCase()}-${String(year).slice(2)}`;
 
+  // Attempt Blobs storage — completely isolated, never blocks the database write
   let hasFile = false;
-  if (fileContent) {
-    try {
-      const store = getStore('reports', {
-        siteID: process.env.NETLIFY_SITE_ID,
-        token:  process.env.NETLIFY_API_TOKEN,
-      });
-      const htmlContent = Buffer.from(fileContent, 'base64').toString('utf8');
-      await store.set(reportId, htmlContent);
-      hasFile = true;
-    } catch (blobErr) {
-      console.error('Blob storage error:', blobErr.message);
-    }
+  try {
+    const { getStore } = require('@netlify/blobs');
+    const store = getStore('reports', {
+      siteID: process.env.NETLIFY_SITE_ID,
+      token:  process.env.NETLIFY_API_TOKEN,
+    });
+    const htmlContent = Buffer.from(fileContent, 'base64').toString('utf8');
+    await store.set(reportId, htmlContent);
+    hasFile = true;
+    console.log('Blob stored successfully:', reportId);
+  } catch (blobErr) {
+    console.error('Blob storage error (non-fatal):', blobErr.message);
+    // hasFile remains false — metadata still saves below
   }
 
+  // Database write always executes regardless of Blobs outcome
   const client = new Client({ connectionString: process.env.NETLIFY_DATABASE_URL });
 
   try {
