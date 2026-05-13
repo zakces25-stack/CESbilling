@@ -45,16 +45,14 @@ exports.handler = async (event) => {
   if (fileContent) {
     try {
       const store = getStore('reports', {
-  siteID: process.env.NETLIFY_SITE_ID,
-  token:  process.env.NETLIFY_TOKEN,
-});
-      const htmlContent = Buffer.from(fileContent, 'base64').toString('utf8');
-      await store.set(reportId, htmlContent, {
-        metadata: { customerId, month, year, period }
+        siteID: process.env.NETLIFY_SITE_ID,
+        token:  process.env.NETLIFY_TOKEN,
       });
+      const htmlContent = Buffer.from(fileContent, 'base64').toString('utf8');
+      await store.set(reportId, htmlContent);
       hasFile = true;
     } catch (blobErr) {
-      console.error('Blob storage error:', blobErr);
+      console.error('Blob storage error:', blobErr.message);
     }
   }
 
