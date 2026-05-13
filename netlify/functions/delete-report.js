@@ -1,18 +1,14 @@
-const { Client } = require('pg');
+const { Client } = require('@neondatabase/serverless');
 
 exports.handler = async (event) => {
+  if (event.httpMethod !== 'GET') {
+    return { statusCode: 405, body: 'Method Not Allowed' };
+  }
+
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Content-Type': 'application/json',
   };
-
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 200, headers };
-  }
-
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, headers, body: 'Method Not Allowed' };
-  }
 
   // Verify admin secret
   const secret = event.headers['x-admin-secret'];
@@ -20,36 +16,30 @@ exports.handler = async (event) => {
     return { statusCode: 403, headers, body: JSON.stringify({ error: 'Forbidden' }) };
   }
 
-  let body;
-  try {
-    body = JSON.parse(event.body);
-  } catch {
-    return { statusCode: 400, headers, body: JSON.stringify({ error: 'Invalid request body' }) };
-  }
-
-  const { reportId } = body;
-  if (!reportId) {
-    return { statusCode: 400, headers, body: JSON.stringify({ error: 'reportId required' }) };
-  }
-
   const client = new Client({ connectionString: process.env.NETLIFY_DATABASE_URL });
 
   try {
     await client.connect();
 
-    const result = await client.query(
-      'DELETE FROM reports WHERE id = $1',
-      [reportId]
-    );
+    const result = await client.query(`
+      SELECT
+        c.id, c.username, c.password_hash, c.customer_id,
+        c.company_name, c.is_admin, c.created_at,
+        COUNT(r.id) AS report_count
+      FROM customers c
+      LEFT JOIN reports r ON r.customer_id = c.customer_id
+      WHERE c.is_admin = false
+      GROUP BY c.id, c.username, c.password_hash, c.customer_id, c.company_name, c.is_admin, c.created_at
+      ORDER BY c.company_name ASC
+    `);
 
-    if (result.rowCount === 0) {
-      return { statusCode: 404, headers, body: JSON.stringify({ error: 'Report not found' }) };
-    }
-
-    return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
-
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ customers: result.rows }),
+    };
   } catch (err) {
-    console.error('Delete report error:', err);
+    console.error('Get customers error:', err);
     return { statusCode: 500, headers, body: JSON.stringify({ error: 'Server error' }) };
   } finally {
     await client.end();

@@ -1,15 +1,25 @@
-const { Client } = require('pg');
+const { Client } = require('@neondatabase/serverless');
 
 exports.handler = async (event) => {
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: 'Method Not Allowed' };
+  }
+
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Content-Type': 'application/json',
   };
 
-  // Protect with admin secret — only run this once
-  const secret = event.queryStringParameters && event.queryStringParameters.secret;
-  if (secret !== process.env.ADMIN_SECRET) {
-    return { statusCode: 403, headers, body: JSON.stringify({ error: 'Forbidden' }) };
+  let body;
+  try {
+    body = JSON.parse(event.body);
+  } catch {
+    return { statusCode: 400, headers, body: JSON.stringify({ error: 'Invalid request body' }) };
+  }
+
+  const { username, password } = body;
+  if (!username || !password) {
+    return { statusCode: 400, headers, body: JSON.stringify({ error: 'Username and password required' }) };
   }
 
   const client = new Client({ connectionString: process.env.NETLIFY_DATABASE_URL });
@@ -17,71 +27,35 @@ exports.handler = async (event) => {
   try {
     await client.connect();
 
-    // ── Create customers table ──
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS customers (
-        id           SERIAL PRIMARY KEY,
-        username     VARCHAR(100) UNIQUE NOT NULL,
-        password_hash VARCHAR(255) NOT NULL,
-        customer_id  VARCHAR(100) UNIQUE NOT NULL,
-        company_name VARCHAR(255) NOT NULL,
-        is_admin     BOOLEAN DEFAULT false,
-        created_at   TIMESTAMP DEFAULT NOW()
-      )
-    `);
+    const result = await client.query(
+      'SELECT id, username, password_hash, customer_id, company_name, is_admin FROM customers WHERE username = $1',
+      [username.toLowerCase().trim()]
+    );
 
-    // ── Create reports table ──
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS reports (
-        id           VARCHAR(100) PRIMARY KEY,
-        customer_id  VARCHAR(100) NOT NULL,
-        month        VARCHAR(20) NOT NULL,
-        month_num    INTEGER NOT NULL,
-        year         INTEGER NOT NULL,
-        period       VARCHAR(20) NOT NULL,
-        sites        INTEGER DEFAULT 0,
-        issues       INTEGER DEFAULT 0,
-        fail_count   INTEGER DEFAULT 0,
-        warn_count   INTEGER DEFAULT 0,
-        total_net    VARCHAR(50) DEFAULT '—',
-        file_content TEXT,
-        has_file     BOOLEAN DEFAULT false,
-        uploaded_at  TIMESTAMP DEFAULT NOW()
-      )
-    `);
+    if (result.rows.length === 0) {
+      return { statusCode: 401, headers, body: JSON.stringify({ error: 'Invalid credentials' }) };
+    }
 
-    // ── Seed admin account (skip if already exists) ──
-    await client.query(`
-      INSERT INTO customers (username, password_hash, customer_id, company_name, is_admin)
-      VALUES ('admin', 'CESadmin2025!', '__admin__', 'CES Admin', true)
-      ON CONFLICT (username) DO NOTHING
-    `);
+    const user = result.rows[0];
 
-    // ── Seed Blank Table Ltd (skip if already exists) ──
-    await client.query(`
-      INSERT INTO customers (username, password_hash, customer_id, company_name, is_admin)
-      VALUES ('blanktable', 'ces2025!', 'blank-table', 'Blank Table Ltd', false)
-      ON CONFLICT (username) DO NOTHING
-    `);
-
-    // Count what's in the tables
-    const custCount   = await client.query('SELECT COUNT(*) FROM customers');
-    const reportCount = await client.query('SELECT COUNT(*) FROM reports');
+    // Simple password comparison (plain text for now — upgrade to bcrypt when ready)
+    if (user.password_hash !== password) {
+      return { statusCode: 401, headers, body: JSON.stringify({ error: 'Invalid credentials' }) };
+    }
 
     return {
       statusCode: 200,
       headers,
       body: JSON.stringify({
-        success:   true,
-        message:   'Database initialised successfully',
-        customers: parseInt(custCount.rows[0].count),
-        reports:   parseInt(reportCount.rows[0].count),
+        username:    user.username,
+        customerId:  user.customer_id,
+        name:        user.company_name,
+        isAdmin:     user.is_admin,
       }),
     };
-
   } catch (err) {
-    console.error('Init DB error:', err);
-    return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
+    console.error('Auth error:', err);
+    return { statusCode: 500, headers, body: JSON.stringify({ error: 'Server error' }) };
   } finally {
     await client.end();
   }
