@@ -18,7 +18,7 @@ exports.handler = async (event) => {
   try {
     const store = getStore('reports', {
       siteID: process.env.NETLIFY_SITE_ID,
-      token:  process.env.NETLIFY_TOKEN,
+      token:  process.env.NETLIFY_API_TOKEN,
     });
 
     const content = await store.get(reportId);
