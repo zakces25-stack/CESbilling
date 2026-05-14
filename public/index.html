@@ -626,67 +626,43 @@
     }
 
     // ───── REPORT VIEWER ─────
-   async function openViewer(r) {
-  document.getElementById('viewerTitle').textContent  = r.month + ' ' + r.year + ' — Bill Validation';
-  document.getElementById('viewerPeriod').textContent = r.period;
-  document.getElementById('viewerOverlay').classList.add('open');
+    async function openViewer(r) {
+      document.getElementById('viewerTitle').textContent  = r.month + ' ' + r.year + ' — Bill Validation';
+      document.getElementById('viewerPeriod').textContent = r.period;
+      document.getElementById('viewerOverlay').classList.add('open');
 
-  const frame    = document.getElementById('viewerFrame');
-  const noReport = document.getElementById('noReportMsg');
-  const xlBtn    = document.getElementById('viewerXlsxBtn');
+      const frame    = document.getElementById('viewerFrame');
+      const noReport = document.getElementById('noReportMsg');
+      const xlBtn    = document.getElementById('viewerXlsxBtn');
 
-  // Reset
-  frame.style.display = 'none';
-  noReport.style.display = 'none';
-  xlBtn.style.display = 'none';
-  frame.srcdoc = '';
-  frame.src = 'about:blank';
+      // Reset
+      frame.style.display = 'none';
+      noReport.style.display = 'none';
+      xlBtn.style.display = 'none';
+      frame.srcdoc = '';
+      frame.src = 'about:blank';
 
-  if (!r.html_path) {
-    noReport.style.display = 'flex';
-    return;
-  }
-
-  // Download the file as a Blob, then inject the HTML via srcdoc.
-  // Avoids content-type/CORS issues with signed URLs in iframes.
-  const { data: blob, error } = await sb.storage.from('report-html').download(r.html_path);
-  if (error) {
-    console.error('Download error:', error);
-    noReport.style.display = 'flex';
-    noReport.querySelector('h3').textContent = 'Could not load report';
-    noReport.querySelector('p').textContent = error.message;
-    return;
-  }
-
-  const html = await blob.text();
-  frame.srcdoc = html;
-  frame.style.display = 'block';
-
-  // Excel download button — still uses a signed URL (real download)
-  if (r.xlsx_path) {
-    xlBtn.style.display = 'inline-flex';
-    xlBtn.onclick = async () => {
-      const { data: xSigned, error: xErr } = await sb.storage.from('report-xlsx')
-        .createSignedUrl(r.xlsx_path, 60, { download: true });
-      if (xErr) { alert('Download failed: ' + xErr.message); return; }
-      window.location.href = xSigned.signedUrl;
-    };
-  }
-}
-
-      // Signed URL for HTML (1 hour)
-      const { data: htmlSigned, error: htmlErr } = await sb.storage.from('report-html')
-        .createSignedUrl(r.html_path, 3600);
-      if (htmlErr) {
+      if (!r.html_path) {
         noReport.style.display = 'flex';
-        noReport.querySelector('h3').textContent = 'Could not load report';
-        noReport.querySelector('p').textContent = htmlErr.message;
         return;
       }
-      frame.src = htmlSigned.signedUrl;
+
+      // Download the file as a Blob, then inject via srcdoc.
+      // Avoids content-type/CORS issues with signed URLs in iframes.
+      const { data: blob, error } = await sb.storage.from('report-html').download(r.html_path);
+      if (error) {
+        console.error('Download error:', error);
+        noReport.style.display = 'flex';
+        noReport.querySelector('h3').textContent = 'Could not load report';
+        noReport.querySelector('p').textContent = error.message;
+        return;
+      }
+
+      const html = await blob.text();
+      frame.srcdoc = html;
       frame.style.display = 'block';
 
-      // Excel download button
+      // Excel download button — signed URL (forced download)
       if (r.xlsx_path) {
         xlBtn.style.display = 'inline-flex';
         xlBtn.onclick = async () => {
@@ -700,7 +676,9 @@
 
     function closeViewer() {
       document.getElementById('viewerOverlay').classList.remove('open');
-      document.getElementById('viewerFrame').src = 'about:blank';
+      const frame = document.getElementById('viewerFrame');
+      frame.srcdoc = '';
+      frame.src = 'about:blank';
     }
 
     // ───── ADMIN ─────
