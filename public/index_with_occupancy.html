@@ -885,7 +885,7 @@
       try {
         if (htmlFile) {
           const { error } = await sb.storage.from('report-html')
-            .upload(htmlPath, htmlFile, { upsert: true, contentType: 'text/html' });
+            .upload(htmlPath, htmlFile, { upsert: true, contentType: 'text/html; charset=utf-8' });
           if (error) throw new Error('HTML upload: ' + error.message);
         }
         if (xlsxFile) {
@@ -972,7 +972,7 @@
       btn.disabled = true; btn.textContent = 'Uploading…';
       try {
         const { error: upErr } = await sb.storage.from('report-html').upload(htmlPath, htmlFile, {
-          upsert: true, contentType: 'text/html'
+          upsert: true, contentType: 'text/html; charset=utf-8'
         });
         if (upErr) throw new Error('HTML upload: ' + upErr.message);
         const upsertPayload = {
