@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';" />
+  <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
   <title>CES Billing Portal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -534,7 +537,7 @@
       </div>
     </div>
     <div class="viewer-body">
-      <iframe id="viewerFrame"></iframe>
+      <iframe id="viewerFrame" sandbox="allow-scripts allow-downloads" referrerpolicy="no-referrer"></iframe>
       <div class="no-report-msg" id="noReportMsg">
         <h3>No file attached</h3>
         <p>The admin hasn't uploaded the report file for this period yet.</p>
@@ -614,9 +617,15 @@
       e.preventDefault();
       const email = document.getElementById('loginEmail').value.trim();
       if (!email) { alert('Enter your email above first.'); return; }
+      // Customer accounts use pseudo-emails (e.g. customer@cesgb.com) that don't receive mail —
+      // route them to support instead of sending a reset link nowhere.
+      if (/@cesgb\.com$/i.test(email)) {
+        alert('This is a managed CES account. Contact your CES administrator to reset the password.');
+        return;
+      }
       const { error } = await sb.auth.resetPasswordForEmail(email);
-      if (error) { alert('Reset failed: ' + error.message); return; }
-      alert('Password reset link sent to ' + email);
+      if (error) { alert('Reset request failed. Please contact CES support.'); console.error(error); return; }
+      alert('If an account exists for ' + email + ', a reset link has been sent.');
     }
     // ───── CUSTOMER DASHBOARD ─────
     function renderReportGrid(reports) {
