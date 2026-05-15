@@ -583,6 +583,47 @@
       auth: { persistSession: true, autoRefreshToken: true }
     });
     let currentUser = null;
+    // ───── AUDIT LOG + IDLE TIMEOUT ─────
+    // logAction() records an event to the audit_log table for accountability.
+    // Failures are non-fatal — never block a real action because logging failed.
+    async function logAction(action, targetId, metadata) {
+      if (!currentUser) return;
+      try {
+        await sb.from('audit_log').insert({
+          user_id:     currentUser.userId,
+          customer_id: currentUser.customerId === '__admin__' ? null : currentUser.customerId,
+          action:      action,
+          target_id:   targetId || null,
+          metadata:    metadata || {}
+        });
+      } catch (e) {
+        console.warn('Audit log write failed for', action, e);
+      }
+    }
+    // Auto-logout after 30 minutes of no mouse/keyboard/scroll/touch.
+    const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+    let _idleTimer = null;
+    let _lastActivity = Date.now();
+    function _resetIdleActivity() { _lastActivity = Date.now(); }
+    function setupIdleTimeout() {
+      _lastActivity = Date.now();
+      ['mousedown','keydown','scroll','touchstart'].forEach(ev =>
+        document.addEventListener(ev, _resetIdleActivity, { passive: true }));
+      if (_idleTimer) clearInterval(_idleTimer);
+      _idleTimer = setInterval(() => {
+        if (!currentUser) return;
+        if (Date.now() - _lastActivity > IDLE_TIMEOUT_MS) {
+          clearInterval(_idleTimer);
+          _idleTimer = null;
+          alert('Your session has expired due to inactivity. Please sign in again.');
+          doSignOut();
+        }
+      }, 60 * 1000);
+    }
+    function teardownIdleTimeout() {
+      if (_idleTimer) { clearInterval(_idleTimer); _idleTimer = null; }
+    }
+
     // ───── ERROR HANDLING + FILE TYPE VALIDATION ─────
     // safeAlert() shows a generic message to the user and logs the real error
     // to the browser console (visible to admin in DevTools, hidden from users).
@@ -662,9 +703,13 @@
         isAdmin:    !!profile.is_admin
       };
       showPage(currentUser.isAdmin ? 'adminPage' : 'dashPage');
+      setupIdleTimeout();
+      logAction('login', null, { is_admin: currentUser.isAdmin });
       if (currentUser.isAdmin) loadAdmin(); else loadDash();
     }
     async function doSignOut() {
+      await logAction('logout', null, {});
+      teardownIdleTimeout();
       await sb.auth.signOut();
       currentUser = null;
       document.getElementById('loginEmail').value = '';
@@ -874,6 +919,7 @@
       frame.addEventListener('load', () => setTimeout(reveal, 300), { once: true });
       setTimeout(reveal, 4000);
       frame.srcdoc = html;
+      logAction('view_report', r.id, { type: r.report_type || 'bill_validation', period: r.period });
       // Excel + Invoices only show for bill validation reports
       if (!isOccupancy && r.xlsx_path) {
         xlBtn.style.display = 'inline-flex';
@@ -881,6 +927,7 @@
           const { data: xSigned, error: xErr } = await sb.storage.from('report-xlsx')
             .createSignedUrl(r.xlsx_path, 60, { download: true });
           if (xErr) { safeAlert('Download failed. Please try again.', xErr); return; }
+          logAction('download_xlsx', r.id, {});
           window.location.href = xSigned.signedUrl;
         };
       }
@@ -890,6 +937,7 @@
           const { data: iSigned, error: iErr } = await sb.storage.from('report-invoices')
             .createSignedUrl(r.invoices_path, 60, { download: true });
           if (iErr) { safeAlert('Download failed. Please try again.', iErr); return; }
+          logAction('download_invoices', r.id, {});
           window.location.href = iSigned.signedUrl;
         };
       }
@@ -1073,6 +1121,7 @@
         const { error: dbErr } = await sb.from('reports').upsert(upsertPayload);
         if (dbErr) throw new Error('DB write: ' + dbErr.message);
         ok.classList.add('show');
+        logAction('upload_validation', reportId, { sites: sites, fails: fails, warns: warns });
         document.getElementById('upHtmlFile').value     = '';
         document.getElementById('upXlsxFile').value     = '';
         document.getElementById('upInvoicesFile').value = '';
@@ -1130,6 +1179,7 @@
         const { error: dbErr } = await sb.from('reports').upsert(upsertPayload);
         if (dbErr) throw new Error('DB write: ' + dbErr.message);
         ok.classList.add('show');
+        logAction('upload_occupancy', reportId, { level: level, period_start: startDate, period_end: endDate });
         document.getElementById('upOccHtmlFile').value = '';
         document.getElementById('upOccStart').value = '';
         document.getElementById('upOccEnd').value = '';
@@ -1153,6 +1203,7 @@
       if (!name || !id) { err.textContent = 'Both fields required.'; err.style.display = 'block'; return; }
       const { error } = await sb.from('customers').insert({ customer_id: id, company_name: name });
       if (error) { console.error('Add customer:', error); err.textContent = 'Could not add customer. The customer ID may already exist.'; err.style.display = 'block'; return; }
+      logAction('add_customer', id, { name: name });
       ok.classList.add('show');
       document.getElementById('ncName').value = '';
       document.getElementById('ncId').value = '';
@@ -1165,6 +1216,7 @@
       if (!confirm('Delete customer "' + id + '"? This also deletes all their reports.')) return;
       const { error } = await sb.from('customers').delete().eq('customer_id', id);
       if (error) { safeAlert('Could not delete customer. Please contact support.', error); return; }
+      logAction('delete_customer', id, {});
       await refreshCustomerDropdown();
       await refreshCustTable();
       await refreshReportFilter();
@@ -1178,6 +1230,7 @@
       if (invoicesPath) await sb.storage.from('report-invoices').remove([invoicesPath]);
       const { error } = await sb.from('reports').delete().eq('id', id);
       if (error) { safeAlert('Could not delete report. Please contact support.', error); return; }
+      logAction('delete_report', id, {});
       await refreshAdminReportTable();
       await refreshAdminStats();
     }
