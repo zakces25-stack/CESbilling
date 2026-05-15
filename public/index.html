@@ -282,7 +282,7 @@
     .usage-filters .filter-side { display: flex; flex-direction: column; gap: 10px; }
     .usage-filters .filter-side .btn-primary { margin-top: 6px; width: auto; }
 
-    .usage-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px; }
+    .usage-kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 22px; }
     .usage-kpi {
       background: var(--surface); border: 1.5px solid var(--border); border-radius: 10px;
       padding: 18px 22px; position: relative; overflow: hidden;
@@ -300,6 +300,8 @@
     .usage-chart-head h3 { font-size: 14px; font-weight: 800; }
     .usage-chart-head .btn-secondary { width: auto; padding: 8px 14px; font-size: 12.5px; }
     #usageChart { min-height: 280px; }
+    #dashPage .dash-section[data-page="usage"] { max-width: 1400px; }
+    #usageChart { max-width: 900px; margin: 0 auto; }
     #usageChart svg { width: 100%; height: 280px; display: block; }
 
     .usage-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -2103,12 +2105,11 @@
     }
 
     function renderUsageKPIs(rows) {
-      let totalKwh = 0, totalCO2 = 0, verifiedKwh = 0;
+      let totalKwh = 0, verifiedKwh = 0;
       const sites = new Set();
       for (const r of rows) {
         const k = Number(r.total_kwh || 0);
         totalKwh += k;
-        totalCO2 += k * (BEIS_FACTORS[r.utility] || 0);
         if (r.source === 'HHD' || r.source === 'MIXED') verifiedKwh += k;
         sites.add(r.site_name + '|' + r.site_postcode);
       }
@@ -2116,7 +2117,6 @@
       const verifiedBadge = verifiedPct >= 95 ? '✓ ESOS-ready' : (verifiedPct >= 80 ? 'Chase missing actuals' : 'Below ESOS threshold');
       const html = ''
         + '<div class="usage-kpi"><div class="usage-kpi__label">Total Consumption</div><div class="usage-kpi__value">' + _fmtNum(totalKwh, 1) + ' kWh</div><div class="usage-kpi__sub">' + rows.length + ' month-rows across ' + sites.size + ' site(s)</div></div>'
-        + '<div class="usage-kpi"><div class="usage-kpi__label">Carbon Footprint</div><div class="usage-kpi__value">' + _fmtNum(totalCO2, 0) + ' kgCO₂e</div><div class="usage-kpi__sub">BEIS ' + BEIS_YEAR_LABEL + ' factors</div></div>'
         + '<div class="usage-kpi"><div class="usage-kpi__label">% Data Verified</div><div class="usage-kpi__value">' + _fmtNum(verifiedPct, 1) + '%</div><div class="usage-kpi__sub">' + verifiedBadge + '</div></div>'
         + '<div class="usage-kpi"><div class="usage-kpi__label">Sites Included</div><div class="usage-kpi__value">' + sites.size + '</div><div class="usage-kpi__sub">of ' + _usageSites.length + ' available</div></div>';
       document.getElementById('usageKpis').innerHTML = html;
@@ -2159,48 +2159,47 @@
     }
 
     function renderUsageTable(rows) {
-      // Pivot: months × sites
+      // Pivot: sites × months  (sites down the rows, months across)
       const monthKeys = new Set(); const siteKeys = new Set();
-      const pivot = {}; // month → site → {kwh, source}
+      const pivot = {}; // site → month → { kwh, sources }
       const siteLabel = {};
       for (const r of rows) {
         const mk = _periodKey(r);
         const sk = r.site_name + '|' + r.site_postcode;
         monthKeys.add(mk); siteKeys.add(sk);
-        siteLabel[sk] = r.site_name + ' (' + r.site_postcode + ')';
-        if (!pivot[mk]) pivot[mk] = {};
-        if (!pivot[mk][sk]) pivot[mk][sk] = { kwh: 0, sources: {} };
-        pivot[mk][sk].kwh += Number(r.total_kwh || 0);
-        pivot[mk][sk].sources[r.source] = (pivot[mk][sk].sources[r.source] || 0) + 1;
+        siteLabel[sk] = { name: r.site_name, postcode: r.site_postcode };
+        if (!pivot[sk]) pivot[sk] = {};
+        if (!pivot[sk][mk]) pivot[sk][mk] = { kwh: 0, sources: {} };
+        pivot[sk][mk].kwh += Number(r.total_kwh || 0);
+        pivot[sk][mk].sources[r.source] = (pivot[sk][mk].sources[r.source] || 0) + 1;
       }
       const months = Array.from(monthKeys).sort();
-      const sites  = Array.from(siteKeys).sort(function(a,b){ return siteLabel[a].localeCompare(siteLabel[b]); });
+      const sites  = Array.from(siteKeys).sort(function(a,b){ return siteLabel[a].name.localeCompare(siteLabel[b].name); });
 
-      let html = '<thead><tr><th>Period</th>';
-      for (const s of sites) html += '<th class="num">' + escapeHtml(siteLabel[s]) + '</th>';
+      let html = '<thead><tr><th>Site</th>';
+      for (const m of months) html += '<th class="num">' + _periodLabel(m) + '</th>';
       html += '<th class="num">Total</th></tr></thead><tbody>';
-      const colTotals = sites.map(function(){ return 0; });
+      const colTotals = months.map(function(){ return 0; });
       let grandTotal = 0;
-      for (const m of months) {
+      sites.forEach(function(s) {
+        const lbl = siteLabel[s];
         let rowTotal = 0;
-        html += '<tr><td><strong>' + _periodLabel(m) + '</strong></td>';
-        sites.forEach(function(s, i) {
-          const cell = pivot[m][s];
+        html += '<tr><td><strong>' + escapeHtml(lbl.name) + '</strong><br><span style="font-family:JetBrains Mono;font-size:11px;color:var(--muted);">' + escapeHtml(lbl.postcode) + '</span></td>';
+        months.forEach(function(m, i) {
+          const cell = pivot[s][m];
           if (!cell) { html += '<td class="num">—</td>'; return; }
-          // Resolve a single dominant source for the cell
           let bestSrc = 'BILLED', bestN = -1;
           for (const k in cell.sources) {
             if (cell.sources[k] > bestN) { bestN = cell.sources[k]; bestSrc = k; }
           }
-          html += '<td class="num">' + _fmtNum(cell.kwh, 1) + ' <span class="usage-source-pill src-' + bestSrc + '">' + bestSrc + '</span></td>';
+          html += '<td class="num">' + _fmtNum(cell.kwh, 1) + '<br><span class="usage-source-pill src-' + bestSrc + '" style="margin-left:0;">' + bestSrc + '</span></td>';
           colTotals[i] += cell.kwh; rowTotal += cell.kwh;
         });
         html += '<td class="num"><strong>' + _fmtNum(rowTotal, 1) + '</strong></td></tr>';
         grandTotal += rowTotal;
-      }
-      // Totals row
+      });
       html += '<tr class="totals-row"><td>Total kWh</td>';
-      sites.forEach(function(s, i){ html += '<td class="num">' + _fmtNum(colTotals[i], 1) + '</td>'; });
+      months.forEach(function(m, i){ html += '<td class="num">' + _fmtNum(colTotals[i], 1) + '</td>'; });
       html += '<td class="num">' + _fmtNum(grandTotal, 1) + '</td></tr>';
       html += '</tbody>';
       document.getElementById('usageTable').innerHTML = html;
