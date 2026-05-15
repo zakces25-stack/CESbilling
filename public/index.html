@@ -314,6 +314,7 @@
       text-transform: uppercase; letter-spacing: 0.4px; margin-left: 6px;
     }
     .usage-source-pill.src-HHD       { background: var(--ok-bg);   color: var(--ok); }
+    .usage-source-pill.src-NHH       { background: var(--ok-bg);   color: var(--ok); }
     .usage-source-pill.src-MIXED     { background: var(--warn-bg); color: var(--warn); }
     .usage-source-pill.src-BILLED    { background: rgba(47,61,126,0.10); color: var(--navy); }
     .usage-source-pill.src-ESTIMATED { background: var(--fail-bg); color: var(--fail); }
@@ -573,6 +574,7 @@
               <p class="usage-source-legend">
                 <span class="usage-source-pill src-HHD">HHD</span> half-hourly data ·
                 <span class="usage-source-pill src-MIXED">Mixed</span> HH with some estimates ·
+                <span class="usage-source-pill src-NHH">NHH</span> non-half-hourly meter (billed = read) ·
                 <span class="usage-source-pill src-BILLED">Billed</span> from invoice ·
                 <span class="usage-source-pill src-ESTIMATED">Estimated</span> estimated reads
               </p>
@@ -1805,7 +1807,12 @@
       const rt = (entry.read_type || '').toUpperCase();
       const est = Number(entry.est_count || 0);
       const act = Number(entry.act_count || 0);
-      const hasHH = entry.hh_verdict != null;
+      // hh_verdict is the string 'No HH data' for NHH meters, a real verdict
+      // ('PASS' / 'FAIL') for HH meters with data, or null/missing for some legacy cases.
+      const hv = entry.hh_verdict;
+      const isNHH = (hv === 'No HH data' || hv === 'NHH' || hv == null) && act === 0 && est === 0;
+      if (isNHH && rt !== 'E') return 'NHH';
+      const hasHH = hv != null && hv !== 'No HH data' && hv !== 'NHH';
       if (hasHH && act > 0 && est === 0) return 'HHD';
       if (hasHH && act > 0 && est > 0)   return 'MIXED';
       if (rt === 'E')                    return 'ESTIMATED';
@@ -1817,6 +1824,25 @@
       const act = Number(entry.act_count || 0);
       if (est + act === 0) return null;
       return act + 'A / ' + est + 'E';
+    }
+
+    function _periodFromMeta(period) {
+      // "March 2026" → { start: "2026-03-01", end: "2026-03-31" }
+      // Also accepts "Mar 2026", "Mar-26", etc.
+      if (!period) return null;
+      const MON = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+      const m = String(period).match(/([A-Za-z]{3,9})[\s\-/]+(\d{2,4})/);
+      if (!m) return null;
+      const mm = MON[m[1].slice(0,3).toLowerCase()];
+      if (!mm) return null;
+      let y = parseInt(m[2], 10);
+      if (y < 100) y = 2000 + y;
+      const lastDay = new Date(y, mm, 0).getDate();
+      const pad = function(n){ return String(n).padStart(2,'0'); };
+      return {
+        start: y + '-' + pad(mm) + '-01',
+        end:   y + '-' + pad(mm) + '-' + pad(lastDay)
+      };
     }
 
     function parseValidationHTML(htmlText, reportRow) {
@@ -1886,13 +1912,15 @@
       }
 
       const gas = (bv.summary && bv.summary.gas) || [];
+      const fallback = _periodFromMeta(meta.period);
       for (const g of gas) {
         const mpr = g.mpr || g.mprn;
         if (!mpr) continue;
-        const ps = _parseLooseDate(g.period_start);
-        const pe = _parseLooseDate(g.period_end);
-        if (!ps || !pe) continue;
-        const site = _splitSite(g.site);
+        let ps = _parseLooseDate(g.period_start);
+        let pe = _parseLooseDate(g.period_end);
+        if ((!ps || !pe) && fallback) { ps = fallback.start; pe = fallback.end; }
+        if (!ps || !pe) { out.warnings.push('Gas ' + mpr + ': could not derive period'); continue; }
+        const site = _splitSite(g.address || g.site);
         const src = (g.read_type || '').toUpperCase() === 'E' ? 'ESTIMATED' : 'BILLED';
         out.rows.push({
           customer_id:   reportRow.customer_id,
@@ -2111,12 +2139,16 @@
         const k = Number(r.total_kwh || 0);
         totalKwh += k;
         totalCO2kg += k * (BEIS_FACTORS[r.utility] || 0);
-        if (r.source === 'HHD' || r.source === 'MIXED') verifiedKwh += k;
+        // Verified definition:
+        //   - Anything based on an actual meter read counts (HHD / MIXED / NHH / BILLED)
+        //   - Only ESTIMATED rows are unverified — those are made-up reads
+        const isVerified = r.source !== 'ESTIMATED';
+        if (isVerified) verifiedKwh += k;
         sites.add(r.site_name + '|' + r.site_postcode);
       }
-      const totalCO2t = totalCO2kg / 1000;  // kg → tonnes
+      const totalCO2t = totalCO2kg / 1000;
       const verifiedPct = totalKwh > 0 ? Math.round((verifiedKwh / totalKwh) * 1000) / 10 : 0;
-      const verifiedBadge = verifiedPct >= 95 ? '✓ ESOS-ready' : (verifiedPct >= 80 ? 'Chase missing actuals' : 'Below ESOS threshold');
+      const verifiedBadge = verifiedPct >= 95 ? '✓ SECR + ESOS ready' : (verifiedPct >= 80 ? 'Chase missing actuals' : 'Below SECR / ESOS threshold');
       const html = ''
         + '<div class="usage-kpi"><div class="usage-kpi__label">Total Consumption</div><div class="usage-kpi__value">' + _fmtNum(totalKwh, 1) + ' kWh</div><div class="usage-kpi__sub">' + rows.length + ' month-rows across ' + sites.size + ' site(s)</div></div>'
         + '<div class="usage-kpi"><div class="usage-kpi__label">Carbon Footprint</div><div class="usage-kpi__value">' + _fmtNum(totalCO2t, 2) + ' tCO₂e</div><div class="usage-kpi__sub">Electricity 0.17700, Gas 0.18296 kgCO₂e/kWh</div></div>'
