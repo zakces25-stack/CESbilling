@@ -245,6 +245,86 @@
     .util-gas .bdot { background: #c0392b; }
     .util-water { background: rgba(12,83,148,0.12); color: #0c5394; }
     .util-water .bdot { background: #0c5394; }
+    /* ───── USAGE REPORT (Phase 10) ───── */
+    .usage-filters {
+      background: var(--surface); border: 1.5px solid var(--border); border-radius: 10px;
+      padding: 22px; margin-bottom: 22px;
+      display: grid; grid-template-columns: 1.4fr 1fr; gap: 28px;
+    }
+    .usage-filters .filter-block { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+    .usage-filters label {
+      font-size: 11.5px; font-weight: 700; color: var(--text-2);
+      text-transform: uppercase; letter-spacing: 0.55px;
+    }
+    .usage-filters input[type=month] {
+      padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 7px;
+      font-family: inherit; font-size: 13.5px; color: var(--text); background: var(--surface);
+    }
+    .usage-filters input[type=month]:focus { border-color: var(--navy); outline: none; box-shadow: 0 0 0 3px rgba(47,61,126,0.10); }
+    .usage-filters .site-actions { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 12px; }
+    .usage-filters .link-btn {
+      background: none; border: none; color: var(--navy); cursor: pointer;
+      font-size: 12px; font-weight: 600; padding: 0; text-decoration: underline;
+    }
+    .usage-filters .dot-sep { color: var(--muted); }
+    .usage-filters .sites-list {
+      max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: 7px;
+      padding: 8px 10px; background: var(--surface-2);
+    }
+    .usage-filters .sites-list label {
+      display: flex; align-items: center; gap: 8px; padding: 4px 0;
+      font-size: 13px; font-weight: 500; color: var(--text); text-transform: none; letter-spacing: 0;
+      cursor: pointer;
+    }
+    .usage-filters .sites-list label small { color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 11.5px; }
+    .usage-filters .util-checks { display: flex; gap: 14px; }
+    .usage-filters .util-check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); text-transform: none; letter-spacing: 0; }
+    .usage-filters .filter-side { display: flex; flex-direction: column; gap: 10px; }
+    .usage-filters .filter-side .btn-primary { margin-top: 6px; width: auto; }
+
+    .usage-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px; }
+    .usage-kpi {
+      background: var(--surface); border: 1.5px solid var(--border); border-radius: 10px;
+      padding: 18px 22px; position: relative; overflow: hidden;
+    }
+    .usage-kpi::before {
+      content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--navy);
+    }
+    .usage-kpi:nth-child(even)::before { background: var(--lime); }
+    .usage-kpi__label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; font-weight: 700; margin-bottom: 8px; }
+    .usage-kpi__value { font-family: 'JetBrains Mono', monospace; font-size: 24px; font-weight: 700; color: var(--text); }
+    .usage-kpi__sub { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+
+    .card { background: var(--surface); border: 1.5px solid var(--border); border-radius: 10px; padding: 22px; margin-bottom: 22px; }
+    .usage-chart-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .usage-chart-head h3 { font-size: 14px; font-weight: 800; }
+    .usage-chart-head .btn-secondary { width: auto; padding: 8px 14px; font-size: 12.5px; }
+    #usageChart { min-height: 280px; }
+    #usageChart svg { width: 100%; height: 280px; display: block; }
+
+    .usage-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .usage-table th, .usage-table td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    .usage-table th { background: var(--surface-2); font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: 0.45px; color: var(--text-2); }
+    .usage-table .num { text-align: right; font-family: 'JetBrains Mono', monospace; }
+    .usage-table .totals-row { background: var(--surface-2); font-weight: 700; }
+    .usage-source-pill {
+      display: inline-block; font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 100px;
+      text-transform: uppercase; letter-spacing: 0.4px; margin-left: 6px;
+    }
+    .usage-source-pill.src-HHD       { background: var(--ok-bg);   color: var(--ok); }
+    .usage-source-pill.src-MIXED     { background: var(--warn-bg); color: var(--warn); }
+    .usage-source-pill.src-BILLED    { background: rgba(47,61,126,0.10); color: var(--navy); }
+    .usage-source-pill.src-ESTIMATED { background: var(--fail-bg); color: var(--fail); }
+    .usage-source-legend { font-size: 11.5px; color: var(--muted); margin-top: 12px; }
+
+    @media print {
+      body * { visibility: hidden; }
+      #dashPage .dash-section[data-page="usage"], #dashPage .dash-section[data-page="usage"] * { visibility: visible; }
+      #dashPage .dash-section[data-page="usage"] { position: absolute; left: 0; top: 0; width: 100%; padding: 24px; }
+      .usage-chart-head .btn-secondary, .usage-filters { display: none !important; }
+      .sidebar, .topbar-right .avatar, .topbar-ces-logo { display: none !important; }
+    }
+
     .cust-table-logo {
       height: 28px; max-width: 50px; object-fit: contain;
       vertical-align: middle; margin-right: 8px;
@@ -380,6 +460,7 @@
         <div class="sidebar-nav">
           <div class="nav-item active" data-page="reports">Reports</div>
           <div class="nav-item" data-page="contracts">Contract Information</div>
+          <div class="nav-item" data-page="usage">Usage Report</div>
         </div>
         <div class="sidebar-foot">
           <button class="signout-btn" onclick="doSignOut()">Sign out</button>
@@ -437,6 +518,67 @@
         <div class="dash-section" data-page="contracts" style="display:none;">
           <div class="section-head"><h2>Your contracts</h2></div>
           <div class="report-grid" id="contractsGrid"></div>
+        </div>
+        <!-- Page: Usage Report (ESOS / SECR) -->
+        <div class="dash-section" data-page="usage" style="display:none;">
+          <div class="section-head">
+            <h2>Usage Report</h2>
+            <div class="section-meta">Aggregate kWh and kgCO<sub>2</sub>e across selected sites and periods · uses Half-Hourly Data where available, falls back to billed where not.</div>
+          </div>
+          <div class="usage-filters" id="usageFilters">
+            <div class="filter-block">
+              <label>Sites</label>
+              <div class="site-actions">
+                <button type="button" class="link-btn" onclick="usageSitesToggleAll(true)">Select all</button>
+                <span class="dot-sep">·</span>
+                <button type="button" class="link-btn" onclick="usageSitesToggleAll(false)">Clear</button>
+              </div>
+              <div class="sites-list" id="usageSitesList"><em style="color:var(--muted);">Loading sites…</em></div>
+            </div>
+            <div class="filter-side">
+              <div class="filter-block">
+                <label>From</label>
+                <input type="month" id="usageFrom" />
+              </div>
+              <div class="filter-block">
+                <label>To</label>
+                <input type="month" id="usageTo" />
+              </div>
+              <div class="filter-block">
+                <label>Utilities</label>
+                <div class="util-checks">
+                  <label class="util-check"><input type="checkbox" id="usageUtilElec" checked /> Electricity</label>
+                  <label class="util-check"><input type="checkbox" id="usageUtilGas" /> Gas</label>
+                </div>
+              </div>
+              <button class="btn-primary" id="usageRunBtn" onclick="runUsageReport()">Generate</button>
+            </div>
+          </div>
+          <div id="usageResults" style="display:none;">
+            <div class="usage-kpi-grid" id="usageKpis"></div>
+            <div class="card" id="usageChartCard">
+              <div class="usage-chart-head">
+                <h3>Monthly consumption</h3>
+                <button class="btn-secondary" onclick="exportUsagePDF()">Download PDF summary</button>
+              </div>
+              <div id="usageChart"></div>
+            </div>
+            <div class="card">
+              <h3 style="margin-bottom:14px;font-size:14px;font-weight:800;">Breakdown</h3>
+              <div style="overflow-x:auto;">
+                <table class="usage-table" id="usageTable"></table>
+              </div>
+              <p class="usage-source-legend">
+                <span class="usage-source-pill src-HHD">HHD</span> half-hourly data ·
+                <span class="usage-source-pill src-MIXED">Mixed</span> HH with some estimates ·
+                <span class="usage-source-pill src-BILLED">Billed</span> from invoice ·
+                <span class="usage-source-pill src-ESTIMATED">Estimated</span> estimated reads
+              </p>
+            </div>
+          </div>
+          <div id="usageEmpty" style="display:none;">
+            <div class="empty-state">No usage data found for the selected filters.</div>
+          </div>
         </div>
       </main>
     </div>
@@ -1820,6 +1962,261 @@
         btn.textContent = 'Backfill Usage Data';
       }
     }
+
+    // ═════════════════════════════════════════════════════════════════════
+    //  USAGE REPORT — customer-facing page (Phase 4)
+    // ═════════════════════════════════════════════════════════════════════
+    // BEIS conversion factors (DESNZ greenhouse gas factors, FY 2025/26).
+    // Update annually when DESNZ publishes new factors (usually June).
+    const BEIS_FACTORS = {
+      electricity: 0.20705,  // kgCO2e per kWh — UK grid, scope 2 location-based
+      gas:         0.18290   // kgCO2e per kWh — natural gas, scope 1
+    };
+    const BEIS_YEAR_LABEL = '2025/26';
+
+    let _usageSites = [];   // [{site_name, site_postcode, key}]
+    let _usageRows  = [];   // last fetched dataset
+
+    async function loadUsageReport() {
+      // Populate the site multi-select with the distinct sites for this customer
+      const list = document.getElementById('usageSitesList');
+      if (!list) return;
+      list.innerHTML = '<em style="color:var(--muted);">Loading sites…</em>';
+      document.getElementById('usageResults').style.display = 'none';
+      document.getElementById('usageEmpty').style.display = 'none';
+
+      const { data, error } = await sb
+        .from('usage_data')
+        .select('site_name, site_postcode, period_start')
+        .eq('customer_id', currentUser.customerId)
+        .order('site_name', { ascending: true });
+      if (error) {
+        list.innerHTML = '<em style="color:var(--fail);">Could not load sites.</em>';
+        console.error('Usage sites:', error);
+        return;
+      }
+      // Distinct sites
+      const seen = new Set();
+      const sites = [];
+      let minDate = null, maxDate = null;
+      for (const r of data || []) {
+        const key = r.site_name + '|' + r.site_postcode;
+        if (!seen.has(key)) {
+          seen.add(key);
+          sites.push({ site_name: r.site_name, site_postcode: r.site_postcode, key });
+        }
+        if (r.period_start) {
+          if (!minDate || r.period_start < minDate) minDate = r.period_start;
+          if (!maxDate || r.period_start > maxDate) maxDate = r.period_start;
+        }
+      }
+      _usageSites = sites;
+      if (sites.length === 0) {
+        list.innerHTML = '<em style="color:var(--muted);">No usage data yet — once your validation reports have been processed, sites will appear here.</em>';
+        return;
+      }
+      list.innerHTML = sites.map(function(s, i) {
+        return '<label><input type="checkbox" class="site-cb" value="' + escapeHtml(s.key) + '" checked /> ' +
+               escapeHtml(s.site_name) + ' <small>· ' + escapeHtml(s.site_postcode) + '</small></label>';
+      }).join('');
+
+      // Default date range = the full span we have
+      if (minDate) document.getElementById('usageFrom').value = minDate.slice(0, 7);
+      if (maxDate) document.getElementById('usageTo').value   = maxDate.slice(0, 7);
+    }
+
+    function usageSitesToggleAll(checked) {
+      document.querySelectorAll('#usageSitesList .site-cb').forEach(function(cb) { cb.checked = checked; });
+    }
+
+    function _yyyymm(monthInput) {
+      // "2026-04" → { start: "2026-04-01", end: "2026-04-30" }
+      if (!monthInput) return null;
+      const parts = monthInput.split('-');
+      if (parts.length !== 2) return null;
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      const last = new Date(y, m, 0).getDate();  // last day of that month
+      return {
+        start: y + '-' + String(m).padStart(2,'0') + '-01',
+        end:   y + '-' + String(m).padStart(2,'0') + '-' + String(last).padStart(2,'0')
+      };
+    }
+
+    async function runUsageReport() {
+      const btn = document.getElementById('usageRunBtn');
+      btn.disabled = true; btn.textContent = 'Loading…';
+      try {
+        const selectedSiteKeys = Array.from(document.querySelectorAll('#usageSitesList .site-cb:checked')).map(function(cb){return cb.value;});
+        const from = _yyyymm(document.getElementById('usageFrom').value);
+        const to   = _yyyymm(document.getElementById('usageTo').value);
+        const utils = [];
+        if (document.getElementById('usageUtilElec').checked) utils.push('electricity');
+        if (document.getElementById('usageUtilGas').checked)  utils.push('gas');
+
+        if (selectedSiteKeys.length === 0 || utils.length === 0 || !from || !to) {
+          showUsageEmpty();
+          return;
+        }
+
+        let q = sb.from('usage_data').select('*').eq('customer_id', currentUser.customerId)
+          .in('utility', utils)
+          .gte('period_start', from.start).lte('period_start', to.end)
+          .order('period_start', { ascending: true });
+        const { data, error } = await q;
+        if (error) { console.error('Usage query:', error); showUsageEmpty(); return; }
+        const filtered = (data || []).filter(function(r){
+          return selectedSiteKeys.indexOf(r.site_name + '|' + r.site_postcode) !== -1;
+        });
+        _usageRows = filtered;
+        if (filtered.length === 0) { showUsageEmpty(); return; }
+
+        renderUsageKPIs(filtered);
+        renderUsageChart(filtered);
+        renderUsageTable(filtered);
+        document.getElementById('usageResults').style.display = '';
+        document.getElementById('usageEmpty').style.display = 'none';
+      } finally {
+        btn.disabled = false; btn.textContent = 'Generate';
+      }
+    }
+
+    function showUsageEmpty() {
+      document.getElementById('usageResults').style.display = 'none';
+      document.getElementById('usageEmpty').style.display = '';
+    }
+
+    function _periodKey(r) {
+      // YYYY-MM
+      return r.period_start ? r.period_start.slice(0, 7) : '?';
+    }
+
+    function _periodLabel(key) {
+      const parts = key.split('-');
+      if (parts.length !== 2) return key;
+      return monthNames[parseInt(parts[1],10)-1].slice(0,3) + ' ' + parts[0].slice(2);
+    }
+
+    function _fmtNum(n, dp) {
+      if (n == null || isNaN(n)) return '—';
+      return Number(n).toLocaleString('en-GB', { minimumFractionDigits: dp||0, maximumFractionDigits: dp||0 });
+    }
+
+    function renderUsageKPIs(rows) {
+      let totalKwh = 0, totalCO2 = 0, verifiedKwh = 0;
+      const sites = new Set();
+      for (const r of rows) {
+        const k = Number(r.total_kwh || 0);
+        totalKwh += k;
+        totalCO2 += k * (BEIS_FACTORS[r.utility] || 0);
+        if (r.source === 'HHD' || r.source === 'MIXED') verifiedKwh += k;
+        sites.add(r.site_name + '|' + r.site_postcode);
+      }
+      const verifiedPct = totalKwh > 0 ? Math.round((verifiedKwh / totalKwh) * 1000) / 10 : 0;
+      const verifiedBadge = verifiedPct >= 95 ? '✓ ESOS-ready' : (verifiedPct >= 80 ? 'Chase missing actuals' : 'Below ESOS threshold');
+      const html = ''
+        + '<div class="usage-kpi"><div class="usage-kpi__label">Total Consumption</div><div class="usage-kpi__value">' + _fmtNum(totalKwh, 1) + ' kWh</div><div class="usage-kpi__sub">' + rows.length + ' month-rows across ' + sites.size + ' site(s)</div></div>'
+        + '<div class="usage-kpi"><div class="usage-kpi__label">Carbon Footprint</div><div class="usage-kpi__value">' + _fmtNum(totalCO2, 0) + ' kgCO₂e</div><div class="usage-kpi__sub">BEIS ' + BEIS_YEAR_LABEL + ' factors</div></div>'
+        + '<div class="usage-kpi"><div class="usage-kpi__label">% Data Verified</div><div class="usage-kpi__value">' + _fmtNum(verifiedPct, 1) + '%</div><div class="usage-kpi__sub">' + verifiedBadge + '</div></div>'
+        + '<div class="usage-kpi"><div class="usage-kpi__label">Sites Included</div><div class="usage-kpi__value">' + sites.size + '</div><div class="usage-kpi__sub">of ' + _usageSites.length + ' available</div></div>';
+      document.getElementById('usageKpis').innerHTML = html;
+    }
+
+    function renderUsageChart(rows) {
+      // Group by month, sum kWh
+      const byMonth = {};
+      for (const r of rows) {
+        const k = _periodKey(r);
+        byMonth[k] = (byMonth[k] || 0) + Number(r.total_kwh || 0);
+      }
+      const months = Object.keys(byMonth).sort();
+      if (months.length === 0) { document.getElementById('usageChart').innerHTML = ''; return; }
+      const max = Math.max.apply(null, months.map(function(m){return byMonth[m];}));
+      const W = 1000, H = 280, padL = 60, padR = 18, padT = 18, padB = 38;
+      const innerW = W - padL - padR, innerH = H - padT - padB;
+      const barW = Math.max(8, Math.min(54, innerW / months.length * 0.7));
+      const gap = (innerW - barW * months.length) / Math.max(1, months.length - 1);
+
+      let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">';
+      // y-axis gridlines + labels
+      for (let g = 0; g <= 4; g++) {
+        const y = padT + innerH * (1 - g/4);
+        const val = max * g / 4;
+        svg += '<line x1="' + padL + '" y1="' + y + '" x2="' + (W-padR) + '" y2="' + y + '" stroke="#e6e1d6" stroke-width="1"/>';
+        svg += '<text x="' + (padL - 8) + '" y="' + (y + 4) + '" text-anchor="end" font-family="JetBrains Mono" font-size="10" fill="#7a7e8c">' + _fmtNum(val, 0) + '</text>';
+      }
+      // Bars
+      months.forEach(function(m, i) {
+        const x = padL + (i * (barW + gap));
+        const h = max > 0 ? (byMonth[m] / max) * innerH : 0;
+        const y = padT + (innerH - h);
+        svg += '<rect x="' + x + '" y="' + y + '" width="' + barW + '" height="' + h + '" rx="3" fill="#2f3d7e"/>';
+        svg += '<text x="' + (x + barW/2) + '" y="' + (padT + innerH + 18) + '" text-anchor="middle" font-family="Manrope" font-size="11" fill="#4a4e5c">' + _periodLabel(m) + '</text>';
+        svg += '<text x="' + (x + barW/2) + '" y="' + (y - 4) + '" text-anchor="middle" font-family="JetBrains Mono" font-size="10" font-weight="600" fill="#1c1f2a">' + _fmtNum(byMonth[m], 0) + '</text>';
+      });
+      svg += '</svg>';
+      document.getElementById('usageChart').innerHTML = svg;
+    }
+
+    function renderUsageTable(rows) {
+      // Pivot: months × sites
+      const monthKeys = new Set(); const siteKeys = new Set();
+      const pivot = {}; // month → site → {kwh, source}
+      const siteLabel = {};
+      for (const r of rows) {
+        const mk = _periodKey(r);
+        const sk = r.site_name + '|' + r.site_postcode;
+        monthKeys.add(mk); siteKeys.add(sk);
+        siteLabel[sk] = r.site_name + ' (' + r.site_postcode + ')';
+        if (!pivot[mk]) pivot[mk] = {};
+        if (!pivot[mk][sk]) pivot[mk][sk] = { kwh: 0, sources: {} };
+        pivot[mk][sk].kwh += Number(r.total_kwh || 0);
+        pivot[mk][sk].sources[r.source] = (pivot[mk][sk].sources[r.source] || 0) + 1;
+      }
+      const months = Array.from(monthKeys).sort();
+      const sites  = Array.from(siteKeys).sort(function(a,b){ return siteLabel[a].localeCompare(siteLabel[b]); });
+
+      let html = '<thead><tr><th>Period</th>';
+      for (const s of sites) html += '<th class="num">' + escapeHtml(siteLabel[s]) + '</th>';
+      html += '<th class="num">Total</th></tr></thead><tbody>';
+      const colTotals = sites.map(function(){ return 0; });
+      let grandTotal = 0;
+      for (const m of months) {
+        let rowTotal = 0;
+        html += '<tr><td><strong>' + _periodLabel(m) + '</strong></td>';
+        sites.forEach(function(s, i) {
+          const cell = pivot[m][s];
+          if (!cell) { html += '<td class="num">—</td>'; return; }
+          // Resolve a single dominant source for the cell
+          let bestSrc = 'BILLED', bestN = -1;
+          for (const k in cell.sources) {
+            if (cell.sources[k] > bestN) { bestN = cell.sources[k]; bestSrc = k; }
+          }
+          html += '<td class="num">' + _fmtNum(cell.kwh, 1) + ' <span class="usage-source-pill src-' + bestSrc + '">' + bestSrc + '</span></td>';
+          colTotals[i] += cell.kwh; rowTotal += cell.kwh;
+        });
+        html += '<td class="num"><strong>' + _fmtNum(rowTotal, 1) + '</strong></td></tr>';
+        grandTotal += rowTotal;
+      }
+      // Totals row
+      html += '<tr class="totals-row"><td>Total kWh</td>';
+      sites.forEach(function(s, i){ html += '<td class="num">' + _fmtNum(colTotals[i], 1) + '</td>'; });
+      html += '<td class="num">' + _fmtNum(grandTotal, 1) + '</td></tr>';
+      html += '</tbody>';
+      document.getElementById('usageTable').innerHTML = html;
+    }
+
+    function exportUsagePDF() {
+      // Browser print → save as PDF. The @media print rules in <style> already
+      // strip the filters/sidebar/buttons so the printed page is the result only.
+      window.print();
+    }
+
+    // Hook up the customer sidebar so clicking "Usage Report" loads the data
+    document.addEventListener('click', function(e) {
+      const navItem = e.target.closest && e.target.closest('#dashPage .sidebar-nav .nav-item[data-page="usage"]');
+      if (navItem) loadUsageReport();
+    });
 
     // ───── BOOT ─────
     async function init() {
