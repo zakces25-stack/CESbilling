@@ -309,6 +309,15 @@
     .usage-table th { background: var(--surface-2); font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: 0.45px; color: var(--text-2); }
     .usage-table .num { text-align: right; font-family: 'JetBrains Mono', monospace; }
     .usage-table .totals-row { background: var(--surface-2); font-weight: 700; }
+    .usage-table .section-row td {
+      background: var(--navy); color: #fff; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px;
+      padding: 7px 12px; font-weight: 700;
+    }
+    .usage-table .grand-total-row td {
+      background: var(--navy-xdark); color: #fff; font-size: 13px;
+      padding: 11px 12px; font-weight: 800; border-top: 2px solid var(--lime);
+    }
+    .usage-table .grand-total-row td.num { font-family: 'JetBrains Mono', monospace; }
     .usage-source-pill {
       display: inline-block; font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 100px;
       text-transform: uppercase; letter-spacing: 0.4px; margin-left: 6px;
@@ -2194,48 +2203,85 @@
     }
 
     function renderUsageTable(rows) {
-      // Pivot: sites × months  (sites down the rows, months across)
-      const monthKeys = new Set(); const siteKeys = new Set();
-      const pivot = {}; // site → month → { kwh, sources }
-      const siteLabel = {};
+      // Group by (utility, site_name, site_postcode, meter_id) — one row per meter
+      // pivoted across months. Sectioned by utility with subtotals + grand total.
+      const monthKeys = new Set();
+      const rowMap = {};
       for (const r of rows) {
         const mk = _periodKey(r);
-        const sk = r.site_name + '|' + r.site_postcode;
-        monthKeys.add(mk); siteKeys.add(sk);
-        siteLabel[sk] = { name: r.site_name, postcode: r.site_postcode };
-        if (!pivot[sk]) pivot[sk] = {};
-        if (!pivot[sk][mk]) pivot[sk][mk] = { kwh: 0, sources: {} };
-        pivot[sk][mk].kwh += Number(r.total_kwh || 0);
-        pivot[sk][mk].sources[r.source] = (pivot[sk][mk].sources[r.source] || 0) + 1;
+        monthKeys.add(mk);
+        const rk = r.utility + '|' + r.site_name + '|' + r.site_postcode + '|' + r.meter_id;
+        if (!rowMap[rk]) {
+          rowMap[rk] = {
+            utility: r.utility,
+            site_name: r.site_name,
+            site_postcode: r.site_postcode,
+            meter_id: r.meter_id,
+            months: {}
+          };
+        }
+        const mm = rowMap[rk].months;
+        if (!mm[mk]) mm[mk] = { kwh: 0, sources: {} };
+        mm[mk].kwh += Number(r.total_kwh || 0);
+        mm[mk].sources[r.source] = (mm[mk].sources[r.source] || 0) + 1;
       }
       const months = Array.from(monthKeys).sort();
-      const sites  = Array.from(siteKeys).sort(function(a,b){ return siteLabel[a].name.localeCompare(siteLabel[b].name); });
+      const all = Object.values(rowMap);
+      const elec = all.filter(function(r){return r.utility === 'electricity';})
+                      .sort(function(a,b){return a.site_name.localeCompare(b.site_name);});
+      const gas  = all.filter(function(r){return r.utility === 'gas';})
+                      .sort(function(a,b){return a.site_name.localeCompare(b.site_name);});
 
-      let html = '<thead><tr><th>Site</th>';
-      for (const m of months) html += '<th class="num">' + _periodLabel(m) + '</th>';
-      html += '<th class="num">Total</th></tr></thead><tbody>';
-      const colTotals = months.map(function(){ return 0; });
-      let grandTotal = 0;
-      sites.forEach(function(s) {
-        const lbl = siteLabel[s];
-        let rowTotal = 0;
-        html += '<tr><td><strong>' + escapeHtml(lbl.name) + '</strong><br><span style="font-family:JetBrains Mono;font-size:11px;color:var(--muted);">' + escapeHtml(lbl.postcode) + '</span></td>';
-        months.forEach(function(m, i) {
-          const cell = pivot[s][m];
-          if (!cell) { html += '<td class="num">—</td>'; return; }
-          let bestSrc = 'BILLED', bestN = -1;
-          for (const k in cell.sources) {
-            if (cell.sources[k] > bestN) { bestN = cell.sources[k]; bestSrc = k; }
-          }
-          html += '<td class="num">' + _fmtNum(cell.kwh, 1) + '<br><span class="usage-source-pill src-' + bestSrc + '" style="margin-left:0;">' + bestSrc + '</span></td>';
-          colTotals[i] += cell.kwh; rowTotal += cell.kwh;
+      function renderSection(label, sectionRows, factor) {
+        if (sectionRows.length === 0) return { html: '', kwh: 0, co2t: 0 };
+        const colspanLeft = 1;
+        const colspanTotals = months.length + 2; // Total kWh + tCO2e
+        const totalCols = colspanLeft + months.length + 2;
+        let html = '<tr class="section-row"><td colspan="' + totalCols + '">' + label + '</td></tr>';
+        let subKwh = 0, subCO2t = 0;
+        const colTotals = months.map(function(){return 0;});
+        sectionRows.forEach(function(r) {
+          let rowKwh = 0;
+          html += '<tr><td><strong>' + escapeHtml(r.site_name) + '</strong><br><span style="font-family:JetBrains Mono;font-size:11px;color:var(--muted);">' + escapeHtml(r.site_postcode) + ' &middot; ' + escapeHtml(r.meter_id) + '</span></td>';
+          months.forEach(function(m, i) {
+            const cell = r.months[m];
+            if (!cell) { html += '<td class="num">&mdash;</td>'; return; }
+            let bestSrc = 'BILLED', bestN = -1;
+            for (const k in cell.sources) {
+              if (cell.sources[k] > bestN) { bestN = cell.sources[k]; bestSrc = k; }
+            }
+            html += '<td class="num">' + _fmtNum(cell.kwh, 1) + '<br><span class="usage-source-pill src-' + bestSrc + '" style="margin-left:0;">' + bestSrc + '</span></td>';
+            colTotals[i] += cell.kwh;
+            rowKwh += cell.kwh;
+          });
+          const rowCO2t = rowKwh * factor / 1000;
+          html += '<td class="num"><strong>' + _fmtNum(rowKwh, 1) + '</strong></td>';
+          html += '<td class="num"><strong>' + _fmtNum(rowCO2t, 2) + '</strong></td>';
+          html += '</tr>';
+          subKwh += rowKwh;
+          subCO2t += rowCO2t;
         });
-        html += '<td class="num"><strong>' + _fmtNum(rowTotal, 1) + '</strong></td></tr>';
-        grandTotal += rowTotal;
-      });
-      html += '<tr class="totals-row"><td>Total kWh</td>';
-      months.forEach(function(m, i){ html += '<td class="num">' + _fmtNum(colTotals[i], 1) + '</td>'; });
-      html += '<td class="num">' + _fmtNum(grandTotal, 1) + '</td></tr>';
+        // Subtotal row
+        html += '<tr class="totals-row"><td>Subtotal ' + label.toLowerCase() + '</td>';
+        months.forEach(function(m, i){ html += '<td class="num">' + _fmtNum(colTotals[i], 1) + '</td>'; });
+        html += '<td class="num">' + _fmtNum(subKwh, 1) + '</td>';
+        html += '<td class="num">' + _fmtNum(subCO2t, 2) + '</td></tr>';
+        return { html: html, kwh: subKwh, co2t: subCO2t };
+      }
+
+      let html = '<thead><tr><th>Site &middot; Meter</th>';
+      for (const m of months) html += '<th class="num">' + _periodLabel(m) + '</th>';
+      html += '<th class="num">Total kWh</th><th class="num">tCO&#8322;e</th></tr></thead><tbody>';
+      const eSec = renderSection('Electricity', elec, BEIS_FACTORS.electricity);
+      const gSec = renderSection('Gas', gas, BEIS_FACTORS.gas);
+      html += eSec.html + gSec.html;
+      // Grand total row
+      const grandKwh  = eSec.kwh  + gSec.kwh;
+      const grandCO2t = eSec.co2t + gSec.co2t;
+      html += '<tr class="grand-total-row"><td>GRAND TOTAL</td>';
+      months.forEach(function(){ html += '<td></td>'; });
+      html += '<td class="num">' + _fmtNum(grandKwh, 1) + ' kWh</td>';
+      html += '<td class="num">' + _fmtNum(grandCO2t, 2) + ' tCO&#8322;e</td></tr>';
       html += '</tbody>';
       document.getElementById('usageTable').innerHTML = html;
     }
