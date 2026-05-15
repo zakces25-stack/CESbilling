@@ -207,6 +207,23 @@
       font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-2); font-weight: 700; }
     table.list td { padding: 14px 18px; border-top: 1px solid var(--line); font-size: 13.5px; color: var(--text); vertical-align: middle; }
     .mono { font-family: 'JetBrains Mono', monospace; }
+    
+    /* Portal footer — privacy policy + legal links */
+    .portal-footer {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: var(--bg); border-top: 1px solid var(--border);
+      padding: 10px 20px; font-size: 12px; color: var(--muted);
+      display: flex; justify-content: space-between; align-items: center;
+      z-index: 50; pointer-events: none;
+    }
+    .portal-footer span, .portal-footer a { pointer-events: auto; }
+    .portal-footer a {
+      color: var(--navy); text-decoration: none; font-weight: 600;
+      margin-left: 14px;
+    }
+    .portal-footer a:hover { text-decoration: underline; }
+    /* Dashboard pages need bottom padding so content doesn't sit under footer */
+    .dash-wrap .main-area { padding-bottom: 70px; }
     /* ───── REPORT VIEWER MODAL ───── */
     .viewer-overlay {
       display: none; position: fixed; inset: 0; z-index: 200;
@@ -1263,5 +1280,12 @@
       if (e.key === 'Enter') doLogin();
     });
   </script>
+  <!-- Privacy policy footer — visible on every page, link opens PDF in new tab -->
+  <footer class="portal-footer">
+    <span>© Commercial Energy Solutions Ltd · Company no. 06257655 · ICO ZB326783</span>
+    <span>
+      <a href="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/CES_Privacy_Policy_with_ICO_Certificate.pdf" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
+    </span>
+  </footer>
 </body>
 </html>
