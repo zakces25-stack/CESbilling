@@ -836,8 +836,10 @@
       xlBtn.style.display = 'none';
       invBtn.style.display = 'none';
       loading.classList.add('show');
-      frame.srcdoc = '';
-      frame.src = 'about:blank';
+      // Note: we no longer clear srcdoc/src here — the new srcdoc assignment
+      // below replaces any previous content. Clearing first would fire spurious
+      // about:blank load events that competed with the real reveal trigger.
+      frame.srcdoc = 'about:blank';
       if (!r.html_path) {
         noReport.style.display = 'flex';
         return;
@@ -859,12 +861,18 @@
         noReport.querySelector('p').textContent = 'The report file could not be retrieved. Please try again or contact CES support.';
         return;
       }
-      const showWhenReady = () => {
+      // Two-track reveal: either the iframe fires its 'load' event (then
+      // we wait 300ms for React to mount), or after 4s we reveal anyway.
+      // Idempotent — once revealed, further events are ignored.
+      let _revealed = false;
+      const reveal = () => {
+        if (_revealed) return;
+        _revealed = true;
         loading.classList.remove('show');
         frame.style.display = 'block';
-        frame.removeEventListener('load', showWhenReady);
       };
-      frame.addEventListener('load', showWhenReady);
+      frame.addEventListener('load', () => setTimeout(reveal, 300), { once: true });
+      setTimeout(reveal, 4000);
       frame.srcdoc = html;
       // Excel + Invoices only show for bill validation reports
       if (!isOccupancy && r.xlsx_path) {
