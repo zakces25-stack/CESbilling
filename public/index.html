@@ -2174,6 +2174,33 @@
     let _usageSites = [];   // [{site_name, site_postcode, key}]
     let _usageRows  = [];   // last fetched dataset
 
+    async function loadCarbonForUsage() {
+      // Load global carbon factors (admin-editable). Graceful fallback to defaults.
+      try {
+        const { data: factors, error: fErr } = await sb.from('carbon_factors')
+          .select('utility, factor_kgco2e_per_kwh');
+        if (fErr) console.warn('[Usage] carbon_factors error:', fErr);
+        if (factors && factors.length) {
+          factors.forEach(function(f) { BEIS_FACTORS[f.utility] = Number(f.factor_kgco2e_per_kwh); });
+        }
+        console.log('[Usage] Carbon factors loaded:', BEIS_FACTORS, '(rows:', (factors||[]).length + ')');
+      } catch (e) { console.warn('[Usage] carbon_factors fetch failed', e); }
+
+      // Load per-meter green energy % for the current customer
+      _greenByMeter = {};
+      try {
+        const { data: mc, error: mErr } = await sb
+          .from('customer_meter_config')
+          .select('meter_id, utility, green_pct')
+          .eq('customer_id', currentUser.customerId);
+        if (mErr) console.warn('[Usage] customer_meter_config error:', mErr);
+        (mc || []).forEach(function(r) {
+          _greenByMeter[r.meter_id] = Number(r.green_pct || 0);
+        });
+        console.log('[Usage] Green % loaded for', currentUser.customerId, ':', _greenByMeter, '(rows:', (mc||[]).length + ')');
+      } catch (e) { console.warn('[Usage] customer_meter_config fetch failed', e); }
+    }
+
     async function loadUsageReport() {
       // Populate the site multi-select with the distinct sites for this customer
       const list = document.getElementById('usageSitesList');
@@ -2182,25 +2209,7 @@
       document.getElementById('usageResults').style.display = 'none';
       document.getElementById('usageEmpty').style.display = 'none';
 
-      // Load global carbon factors (admin-editable) — graceful fallback to defaults
-      try {
-        const { data: factors } = await sb.from('carbon_factors').select('utility, factor_kgco2e_per_kwh');
-        if (factors && factors.length) {
-          factors.forEach(function(f) { BEIS_FACTORS[f.utility] = Number(f.factor_kgco2e_per_kwh); });
-        }
-      } catch (e) { console.warn('carbon_factors load failed', e); }
-
-      // Load per-meter green energy % for this customer
-      _greenByMeter = {};
-      try {
-        const { data: mc } = await sb
-          .from('customer_meter_config')
-          .select('meter_id, utility, green_pct')
-          .eq('customer_id', currentUser.customerId);
-        (mc || []).forEach(function(r) {
-          _greenByMeter[r.meter_id] = Number(r.green_pct || 0);
-        });
-      } catch (e) { console.warn('customer_meter_config load failed', e); }
+      await loadCarbonForUsage();
 
       const { data, error } = await sb
         .from('usage_data')
@@ -2264,6 +2273,9 @@
       const btn = document.getElementById('usageRunBtn');
       btn.disabled = true; btn.textContent = 'Loading…';
       try {
+        // Re-fetch carbon factors + green % on every Generate so admin changes
+        // propagate without the customer having to reload the page.
+        await loadCarbonForUsage();
         const selectedSiteKeys = Array.from(document.querySelectorAll('#usageSitesList .site-cb:checked')).map(function(cb){return cb.value;});
         const from = _yyyymm(document.getElementById('usageFrom').value);
         const to   = _yyyymm(document.getElementById('usageTo').value);
