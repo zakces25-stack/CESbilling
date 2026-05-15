@@ -606,6 +606,16 @@
         </div>
         <!-- REPORTS TAB -->
         <div class="tab-pane" id="tab-reports">
+          <div class="form-card" style="margin-bottom:24px;background:var(--surface-2);">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;">
+              <div>
+                <h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Usage Data — ESOS / SECR backfill</h3>
+                <p style="font-size:12.5px;color:var(--muted);margin:0;">Parses every bill validation HTML and populates the usage_data table for the Usage Report. Safe to re-run — re-uploads overwrite existing rows.</p>
+              </div>
+              <button class="btn-primary" id="backfillBtn" onclick="backfillUsageData()" style="width:auto;padding:11px 18px;flex-shrink:0;">Backfill Usage Data</button>
+            </div>
+            <div id="backfillStatus" style="display:none;margin-top:14px;font-size:13px;font-family:'JetBrains Mono',monospace;background:#fff;border:1px solid var(--border);border-radius:6px;padding:11px 14px;max-height:240px;overflow-y:auto;white-space:pre-wrap;"></div>
+          </div>
           <div class="section-head">
             <h2>All reports</h2>
             <div class="section-meta" style="display:flex;gap:8px;align-items:center;">
@@ -1603,6 +1613,185 @@
       const navItem = e.target.closest('#dashPage .sidebar-nav .nav-item[data-page]');
       if (navItem) showCustomerPage(navItem.dataset.page);
     });
+
+
+    // ═════════════════════════════════════════════════════════════════════
+    //  USAGE-DATA PARSER + BACKFILL  (Phase 10 — ESOS / SECR Usage Report)
+    // ═════════════════════════════════════════════════════════════════════
+    // Parses a CES bill-validation HTML and yields one row per (meter, period)
+    // for the usage_data table. Source of truth = window.BV embedded in the
+    // validation HTML; HHD totals (window.BV_HH) are preferred when the read
+    // type is fully actual, otherwise we fall back to billed kWh.
+
+    const UK_POSTCODE_RX = /[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}/i;
+
+    function _bfLog(msg) {
+      const el = document.getElementById('backfillStatus');
+      if (!el) return;
+      el.style.display = 'block';
+      el.textContent += msg + '\n';
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function _splitSite(addr) {
+      if (!addr) return { name: '—', postcode: '—' };
+      const m = addr.match(UK_POSTCODE_RX);
+      if (!m) return { name: addr.trim(), postcode: '—' };
+      const postcode = m[0].toUpperCase().replace(/\s+/g, ' ');
+      const name = addr.replace(m[0], '').replace(/[,\s]+$/, '').trim();
+      return { name: name || addr.trim(), postcode };
+    }
+
+    function _parseLooseDate(s) {
+      if (!s) return null;
+      s = String(s).trim();
+      let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (m) return m[3] + '-' + m[2].padStart(2,'0') + '-' + m[1].padStart(2,'0');
+      const MON = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',
+                   jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+      m = s.match(/^(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})$/);
+      if (m) {
+        const mm = MON[m[2].slice(0,3).toLowerCase()];
+        if (mm) return m[3] + '-' + mm + '-' + m[1].padStart(2,'0');
+      }
+      return null;
+    }
+
+    function _detectSource(entry) {
+      const rt = (entry.read_type || '').toUpperCase();
+      const est = Number(entry.est_count || 0);
+      const act = Number(entry.act_count || 0);
+      const hasHH = entry.hh_verdict != null;
+      if (hasHH && act > 0 && est === 0) return 'HHD';
+      if (hasHH && act > 0 && est > 0)   return 'MIXED';
+      if (rt === 'E')                    return 'ESTIMATED';
+      return 'BILLED';
+    }
+
+    function _sourceDetail(entry) {
+      const est = Number(entry.est_count || 0);
+      const act = Number(entry.act_count || 0);
+      if (est + act === 0) return null;
+      return act + 'A / ' + est + 'E';
+    }
+
+    function parseValidationHTML(htmlText, reportRow) {
+      const out = { rows: [], warnings: [] };
+      const m = htmlText.match(/window\.BV\s*=\s*(\{[\s\S]*?\});\s*\n/);
+      if (!m) { out.warnings.push('window.BV block not found'); return out; }
+      let bv;
+      try { bv = JSON.parse(m[1]); }
+      catch (e) { out.warnings.push('BV JSON parse failed: ' + e.message); return out; }
+      const meta = bv.meta || {};
+      const periodLabel = meta.period || '';
+
+      const elec = (bv.summary && bv.summary.electricity) || [];
+      for (const e of elec) {
+        if (!e.mpan) continue;
+        const ps = _parseLooseDate(e.period_start);
+        const pe = _parseLooseDate(e.period_end);
+        if (!ps || !pe) { out.warnings.push('Elec ' + e.mpan + ': unparseable period'); continue; }
+        const site = _splitSite(e.site);
+        out.rows.push({
+          customer_id:   reportRow.customer_id,
+          report_id:     reportRow.id,
+          utility:       'electricity',
+          meter_id:      e.mpan,
+          supplier:      e.supplier || null,
+          site_name:     site.name,
+          site_postcode: site.postcode,
+          site_address:  e.site || null,
+          period_start:  ps,
+          period_end:    pe,
+          period_label:  periodLabel,
+          source:        _detectSource(e),
+          source_detail: _sourceDetail(e),
+          day_kwh:       e.day_kwh != null ? Number(e.day_kwh) : null,
+          night_kwh:     e.night_kwh != null ? Number(e.night_kwh) : null,
+          total_kwh:     Number(e.cur_kwh || 0),
+          hhd_variance_kwh: e.hh_diff != null ? Number(e.hh_diff) : null
+        });
+      }
+
+      const gas = (bv.summary && bv.summary.gas) || [];
+      for (const g of gas) {
+        const mpr = g.mpr || g.mprn;
+        if (!mpr) continue;
+        const ps = _parseLooseDate(g.period_start);
+        const pe = _parseLooseDate(g.period_end);
+        if (!ps || !pe) continue;
+        const site = _splitSite(g.site);
+        const src = (g.read_type || '').toUpperCase() === 'E' ? 'ESTIMATED' : 'BILLED';
+        out.rows.push({
+          customer_id:   reportRow.customer_id,
+          report_id:     reportRow.id,
+          utility:       'gas',
+          meter_id:      mpr,
+          supplier:      g.supplier || null,
+          site_name:     site.name,
+          site_postcode: site.postcode,
+          site_address:  g.site || null,
+          period_start:  ps,
+          period_end:    pe,
+          period_label:  periodLabel,
+          source:        src,
+          source_detail: _sourceDetail(g),
+          day_kwh:       null,
+          night_kwh:     null,
+          total_kwh:     Number(g.cur_kwh || 0),
+          hhd_variance_kwh: null
+        });
+      }
+      return out;
+    }
+
+    async function backfillUsageData() {
+      const btn = document.getElementById('backfillBtn');
+      const statusEl = document.getElementById('backfillStatus');
+      if (!btn) return;
+      btn.disabled = true;
+      btn.textContent = 'Backfilling…';
+      statusEl.textContent = '';
+      statusEl.style.display = 'block';
+      _bfLog('▶  Starting usage-data backfill at ' + new Date().toLocaleString('en-GB'));
+      try {
+        const { data: reports, error } = await sb
+          .from('reports')
+          .select('id, customer_id, period, html_path, uploaded_at')
+          .eq('report_type', 'bill_validation')
+          .not('html_path', 'is', null)
+          .order('uploaded_at', { ascending: true });
+        if (error) throw error;
+        _bfLog('   Found ' + reports.length + ' validation report(s) to parse.\n');
+        let totalRows = 0, totalWarnings = 0;
+        for (let i = 0; i < reports.length; i++) {
+          const r = reports[i];
+          const tag = '[' + (i+1) + '/' + reports.length + '] ' + r.customer_id + ' · ' + (r.period || '?');
+          try {
+            const { data: blob, error: dlErr } = await sb.storage.from('report-html').download(r.html_path);
+            if (dlErr) { _bfLog('   ' + tag + '  ✗  download failed: ' + dlErr.message); continue; }
+            const text = await blob.text();
+            const { rows, warnings } = parseValidationHTML(text, r);
+            for (const w of warnings) { _bfLog('   ' + tag + '  ⚠  ' + w); totalWarnings++; }
+            if (rows.length === 0) { _bfLog('   ' + tag + '  —  no usage rows extracted'); continue; }
+            const { error: upErr } = await sb
+              .from('usage_data')
+              .upsert(rows, { onConflict: 'customer_id,meter_id,period_start,utility' });
+            if (upErr) { _bfLog('   ' + tag + '  ✗  upsert failed: ' + upErr.message); continue; }
+            _bfLog('   ' + tag + '  ✓  ' + rows.length + ' usage row(s) upserted');
+            totalRows += rows.length;
+          } catch (innerErr) {
+            _bfLog('   ' + tag + '  ✗  ' + (innerErr.message || innerErr));
+          }
+        }
+        _bfLog('\n✅  Done. ' + totalRows + ' usage row(s) written. ' + totalWarnings + ' warning(s).');
+      } catch (e) {
+        _bfLog('\n❌  Aborted: ' + (e.message || e));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Backfill Usage Data';
+      }
+    }
 
     // ───── BOOT ─────
     async function init() {
