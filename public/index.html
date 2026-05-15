@@ -282,7 +282,7 @@
     .usage-filters .filter-side { display: flex; flex-direction: column; gap: 10px; }
     .usage-filters .filter-side .btn-primary { margin-top: 6px; width: auto; }
 
-    .usage-kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 22px; }
+    .usage-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px; }
     .usage-kpi {
       background: var(--surface); border: 1.5px solid var(--border); border-radius: 10px;
       padding: 18px 22px; position: relative; overflow: hidden;
@@ -1971,8 +1971,8 @@
     // BEIS conversion factors (DESNZ greenhouse gas factors, FY 2025/26).
     // Update annually when DESNZ publishes new factors (usually June).
     const BEIS_FACTORS = {
-      electricity: 0.20705,  // kgCO2e per kWh — UK grid, scope 2 location-based
-      gas:         0.18290   // kgCO2e per kWh — natural gas, scope 1
+      electricity: 0.17700,  // kgCO2e per kWh — UK grid (CES-supplied factor)
+      gas:         0.18296   // kgCO2e per kWh — natural gas (CES-supplied factor)
     };
     const BEIS_YEAR_LABEL = '2025/26';
 
@@ -2105,18 +2105,21 @@
     }
 
     function renderUsageKPIs(rows) {
-      let totalKwh = 0, verifiedKwh = 0;
+      let totalKwh = 0, totalCO2kg = 0, verifiedKwh = 0;
       const sites = new Set();
       for (const r of rows) {
         const k = Number(r.total_kwh || 0);
         totalKwh += k;
+        totalCO2kg += k * (BEIS_FACTORS[r.utility] || 0);
         if (r.source === 'HHD' || r.source === 'MIXED') verifiedKwh += k;
         sites.add(r.site_name + '|' + r.site_postcode);
       }
+      const totalCO2t = totalCO2kg / 1000;  // kg → tonnes
       const verifiedPct = totalKwh > 0 ? Math.round((verifiedKwh / totalKwh) * 1000) / 10 : 0;
       const verifiedBadge = verifiedPct >= 95 ? '✓ ESOS-ready' : (verifiedPct >= 80 ? 'Chase missing actuals' : 'Below ESOS threshold');
       const html = ''
         + '<div class="usage-kpi"><div class="usage-kpi__label">Total Consumption</div><div class="usage-kpi__value">' + _fmtNum(totalKwh, 1) + ' kWh</div><div class="usage-kpi__sub">' + rows.length + ' month-rows across ' + sites.size + ' site(s)</div></div>'
+        + '<div class="usage-kpi"><div class="usage-kpi__label">Carbon Footprint</div><div class="usage-kpi__value">' + _fmtNum(totalCO2t, 2) + ' tCO₂e</div><div class="usage-kpi__sub">Electricity 0.17700, Gas 0.18296 kgCO₂e/kWh</div></div>'
         + '<div class="usage-kpi"><div class="usage-kpi__label">% Data Verified</div><div class="usage-kpi__value">' + _fmtNum(verifiedPct, 1) + '%</div><div class="usage-kpi__sub">' + verifiedBadge + '</div></div>'
         + '<div class="usage-kpi"><div class="usage-kpi__label">Sites Included</div><div class="usage-kpi__value">' + sites.size + '</div><div class="usage-kpi__sub">of ' + _usageSites.length + ' available</div></div>';
       document.getElementById('usageKpis').innerHTML = html;
