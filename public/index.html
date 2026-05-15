@@ -628,7 +628,20 @@
       alert('If an account exists for ' + email + ', a reset link has been sent.');
     }
     // ───── CUSTOMER DASHBOARD ─────
+    // XSS-safe escape — replaces &<>"' with HTML entities so user-controlled strings
+    // can't break out of an attribute or open a tag.
+    function escapeHtml(s) {
+      if (s == null) return '';
+      return String(s).replace(/[&<>"']/g, c => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      })[c]);
+    }
+    // Held in module scope so click listeners can look up the full record by id
+    // without having to re-stringify it into HTML attributes.
+    let dashReports = [];
+    let dashOccupancy = [];
     function renderReportGrid(reports) {
+      dashReports = reports;
       const grid = document.getElementById('reportGrid');
       if (!reports.length) {
         grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><h3>No reports yet</h3><p>Your validation reports will appear here once CES uploads them.</p></div>';
@@ -636,8 +649,8 @@
       }
       grid.innerHTML = reports.map((r, i) => {
         const badges = [];
-        if ((r.fail_count || 0) > 0) badges.push(`<span class="badge badge-fail"><span class="bdot"></span>${r.fail_count} fail</span>`);
-        if ((r.warn_count || 0) > 0) badges.push(`<span class="badge badge-warn"><span class="bdot"></span>${r.warn_count} info</span>`);
+        if ((r.fail_count || 0) > 0) badges.push(`<span class="badge badge-fail"><span class="bdot"></span>${escapeHtml(r.fail_count)} fail</span>`);
+        if ((r.warn_count || 0) > 0) badges.push(`<span class="badge badge-warn"><span class="bdot"></span>${escapeHtml(r.warn_count)} info</span>`);
         if (!badges.length) badges.push(`<span class="badge badge-ok"><span class="bdot"></span>All clean</span>`);
         const fileLabels = [
           r.html_path ? 'HTML' : null,
@@ -646,42 +659,55 @@
         ].filter(Boolean);
         const filesText = fileLabels.length ? fileLabels.join(' + ') : '—';
         return `
-          <div class="report-card ${i === 0 ? 'latest' : ''}" onclick='openViewer(${JSON.stringify(r).replace(/'/g, "&#39;")})'>
-            <div class="report-month">${r.month}</div>
-            <div class="report-year">${r.year}</div>
+          <div class="report-card ${i === 0 ? 'latest' : ''}" data-source="dash" data-report-id="${escapeHtml(r.id)}">
+            <div class="report-month">${escapeHtml(r.month)}</div>
+            <div class="report-year">${escapeHtml(r.year)}</div>
             <div class="badge-row">${badges.join('')}</div>
             <div class="report-meta">
-              <div class="row"><span>Sites</span><span class="v">${r.sites || 0}</span></div>
-              <div class="row"><span>Total</span><span class="v">${r.total_net || '—'}</span></div>
-              <div class="row"><span>Files</span><span class="v">${filesText}</span></div>
+              <div class="row"><span>Sites</span><span class="v">${escapeHtml(r.sites || 0)}</span></div>
+              <div class="row"><span>Total</span><span class="v">${escapeHtml(r.total_net || '—')}</span></div>
+              <div class="row"><span>Files</span><span class="v">${escapeHtml(filesText)}</span></div>
             </div>
           </div>
         `;
       }).join('');
+      grid.querySelectorAll('.report-card[data-source="dash"]').forEach(card => {
+        card.addEventListener('click', () => {
+          const r = dashReports.find(x => x.id === card.dataset.reportId);
+          if (r) openViewer(r);
+        });
+      });
     }
     function renderOccupancyGrid(reports) {
+      dashOccupancy = reports;
       const grid = document.getElementById('occupancyGrid');
       if (!reports.length) {
         grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><h3>No occupancy reports yet</h3><p>Occupancy analysis reports will appear here once CES uploads them.</p></div>';
         return;
       }
       grid.innerHTML = reports.map((r, i) => {
-        const level = r.unoccupied_level || 'Average';
+        const level = (r.unoccupied_level || 'Average').replace(/[^A-Za-z]/g, '');
         const range = fmtRange(r.period_start, r.period_end);
         return `
-          <div class="report-card ${i === 0 ? 'latest' : ''}" onclick='openViewer(${JSON.stringify(r).replace(/'/g, "&#39;")})'>
-            <div class="report-month" style="font-size:15px;line-height:1.4;">${range}</div>
+          <div class="report-card ${i === 0 ? 'latest' : ''}" data-source="occ" data-report-id="${escapeHtml(r.id)}">
+            <div class="report-month" style="font-size:15px;line-height:1.4;">${escapeHtml(range)}</div>
             <div class="report-year">Occupancy report</div>
             <div class="badge-row">
-              <span class="occ-level occ-level-${level}"><span class="bdot"></span>${level} unoccupied</span>
+              <span class="occ-level occ-level-${level}"><span class="bdot"></span>${escapeHtml(level)} unoccupied</span>
             </div>
             <div class="report-meta">
-              <div class="row"><span>Sites</span><span class="v">${r.sites || 0}</span></div>
+              <div class="row"><span>Sites</span><span class="v">${escapeHtml(r.sites || 0)}</span></div>
               <div class="row"><span>Files</span><span class="v">${r.html_path ? 'HTML' : '—'}</span></div>
             </div>
           </div>
         `;
       }).join('');
+      grid.querySelectorAll('.report-card[data-source="occ"]').forEach(card => {
+        card.addEventListener('click', () => {
+          const r = dashOccupancy.find(x => x.id === card.dataset.reportId);
+          if (r) openViewer(r);
+        });
+      });
     }
     async function loadDash() {
       const cid = currentUser.customerId;
@@ -823,12 +849,13 @@
     async function refreshCustTable() {
       const { data } = await sb.from('customers').select('*').order('created_at', { ascending: false });
       const tbody = document.getElementById('custTable');
+      window._adminCustomers = data || [];
       tbody.innerHTML = (data || []).map(c => `
         <tr>
           <td><strong>${c.company_name}</strong></td>
           <td class="mono">${c.customer_id}</td>
           <td class="mono">${new Date(c.created_at).toLocaleDateString('en-GB')}</td>
-          <td><button class="btn-danger" onclick="deleteCustomer('${c.customer_id}')">Delete</button></td>
+          <td><button class="btn-danger" data-action="delete-customer" data-id="${escapeHtml(c.customer_id)}">Delete</button></td>
         </tr>
       `).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:32px;">No customers yet.</td></tr>';
     }
@@ -841,6 +868,7 @@
       const { data, error } = await q;
       const tbody = document.getElementById('adminReportTable');
       if (error) { tbody.innerHTML = `<tr><td colspan="8">Error: ${error.message}</td></tr>`; return; }
+      window._adminReports = data || [];
       tbody.innerHTML = (data || []).map(r => {
         const isOcc = r.report_type === 'occupancy';
         const typeLabel = isOcc
@@ -864,7 +892,7 @@
             <td class="mono">${totalLabel}</td>
             <td class="mono">${files}</td>
             <td class="mono">${new Date(r.uploaded_at).toLocaleDateString('en-GB')}</td>
-            <td><button class="btn-danger" onclick="deleteReport('${r.id}','${r.html_path||''}','${r.xlsx_path||''}','${r.invoices_path||''}','${r.report_type||'bill_validation'}')">Delete</button></td>
+            <td><button class="btn-danger" data-action="delete-report" data-id="${escapeHtml(r.id)}">Delete</button></td>
           </tr>
         `;
       }).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:32px;">No reports uploaded yet.</td></tr>';
@@ -1052,6 +1080,21 @@
       await refreshAdminReportTable();
       await refreshAdminStats();
     }
+    // ───── DELEGATED CLICK HANDLER for admin delete buttons ─────
+    // Uses data attributes instead of inline onclick — keeps user-controlled
+    // values out of HTML markup, eliminates XSS via the row data.
+    document.addEventListener('click', e => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const id = btn.dataset.id;
+      if (btn.dataset.action === 'delete-report') {
+        const r = (window._adminReports || []).find(x => x.id === id);
+        if (r) deleteReport(r.id, r.html_path || '', r.xlsx_path || '', r.invoices_path || '', r.report_type || 'bill_validation');
+      } else if (btn.dataset.action === 'delete-customer') {
+        deleteCustomer(id);
+      }
+    });
+
     // ───── BOOT ─────
     async function init() {
       const { data: { session } } = await sb.auth.getSession();
