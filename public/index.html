@@ -1677,11 +1677,22 @@
 
     function parseValidationHTML(htmlText, reportRow) {
       const out = { rows: [], warnings: [] };
-      const m = htmlText.match(/window\.BV\s*=\s*(\{[\s\S]*?\});\s*\n/);
-      if (!m) { out.warnings.push('window.BV block not found'); return out; }
+      // BV block — billed totals + invoice meta
+      const mBV = htmlText.match(/window\.BV\s*=\s*(\{[\s\S]*?\});\s*\n/);
+      if (!mBV) { out.warnings.push('window.BV block not found'); return out; }
       let bv;
-      try { bv = JSON.parse(m[1]); }
+      try { bv = JSON.parse(mBV[1]); }
       catch (e) { out.warnings.push('BV JSON parse failed: ' + e.message); return out; }
+
+      // BV_HH block — half-hourly totals already split by supplier-specific
+      // Day/Night boundary (Marble = HH1-14 night, nPower = HH1-12 + HH47-48 night)
+      let bvHH = {};
+      const mHH = htmlText.match(/window\.BV_HH\s*=\s*(\{[\s\S]*?\});\s*\n/);
+      if (mHH) {
+        try { bvHH = JSON.parse(mHH[1]); }
+        catch (e) { out.warnings.push('BV_HH JSON parse failed: ' + e.message); }
+      }
+
       const meta = bv.meta || {};
       const periodLabel = meta.period || '';
 
@@ -1692,6 +1703,23 @@
         const pe = _parseLooseDate(e.period_end);
         if (!ps || !pe) { out.warnings.push('Elec ' + e.mpan + ': unparseable period'); continue; }
         const site = _splitSite(e.site);
+        const src = _detectSource(e);
+
+        // Pick day/night/total: HHD-derived when available + trusted, else billed
+        const hh = bvHH[e.mpan];
+        let totalKwh, dayKwh, nightKwh, variance;
+        if ((src === 'HHD' || src === 'MIXED') && hh && hh.totals && hh.totals.total != null) {
+          totalKwh = Number(hh.totals.total);
+          dayKwh   = hh.totals.day   != null ? Number(hh.totals.day)   : null;
+          nightKwh = hh.totals.night != null ? Number(hh.totals.night) : null;
+          variance = hh.variance != null ? Number(hh.variance) : (e.hh_diff != null ? Number(e.hh_diff) : null);
+        } else {
+          totalKwh = Number(e.cur_kwh || 0);
+          dayKwh   = e.day_kwh   != null ? Number(e.day_kwh)   : null;
+          nightKwh = e.night_kwh != null ? Number(e.night_kwh) : null;
+          variance = e.hh_diff != null ? Number(e.hh_diff) : null;
+        }
+
         out.rows.push({
           customer_id:   reportRow.customer_id,
           report_id:     reportRow.id,
@@ -1704,12 +1732,12 @@
           period_start:  ps,
           period_end:    pe,
           period_label:  periodLabel,
-          source:        _detectSource(e),
+          source:        src,
           source_detail: _sourceDetail(e),
-          day_kwh:       e.day_kwh != null ? Number(e.day_kwh) : null,
-          night_kwh:     e.night_kwh != null ? Number(e.night_kwh) : null,
-          total_kwh:     Number(e.cur_kwh || 0),
-          hhd_variance_kwh: e.hh_diff != null ? Number(e.hh_diff) : null
+          day_kwh:       dayKwh,
+          night_kwh:     nightKwh,
+          total_kwh:     totalKwh,
+          hhd_variance_kwh: variance
         });
       }
 
