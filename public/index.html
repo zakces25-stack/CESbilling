@@ -2192,8 +2192,7 @@
         barW = (maxClusterW - gap * Math.max(0, months.length - 1)) / months.length;
         barW = Math.max(20, barW);
       }
-      const clusterW = barW * months.length + gap * Math.max(0, months.length - 1);
-      const startX = padL + (innerW - clusterW) / 2;
+      const startX = padL;  // left-align: first month on the far left
 
       let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">';
       // y-axis gridlines + labels
@@ -2361,6 +2360,9 @@
         let imgW = usableW;
         let imgH = c1.height * (imgW / c1.width);
         if (imgH > usableH) { imgH = usableH; imgW = c1.width * (imgH / c1.height); }
+        // Fill page 1 background beige to match CES house style
+        doc.setFillColor(245, 242, 236);
+        doc.rect(0, 0, pdfW, pdfH, 'F');
         doc.addImage(img1, 'PNG', margin + (usableW - imgW)/2, margin, imgW, imgH);
 
         // Page 2 — Breakdown
@@ -2385,6 +2387,9 @@
         let imgW2 = usableW;
         let imgH2 = c2.height * (imgW2 / c2.width);
         if (imgH2 > usableH) { imgH2 = usableH; imgW2 = c2.width * (imgH2 / c2.height); }
+        // Fill page 2 background beige
+        doc.setFillColor(245, 242, 236);
+        doc.rect(0, 0, pdfW, pdfH, 'F');
         doc.addImage(img2, 'PNG', margin + (usableW - imgW2)/2, margin, imgW2, imgH2);
 
         // Save with descriptive filename
