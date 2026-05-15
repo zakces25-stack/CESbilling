@@ -326,6 +326,15 @@
     }
     .usage-source-pill.src-HHD       { background: var(--ok-bg);   color: var(--ok); }
     .usage-source-pill.src-NHH       { background: var(--ok-bg);   color: var(--ok); }
+    .green-energy-pill {
+      display: inline-block; margin-top: 4px;
+      background: rgba(147,196,58,0.18); color: #4a6612;
+      font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 100px;
+      text-transform: uppercase; letter-spacing: 0.35px;
+    }
+    .green-energy-pill--full {
+      background: var(--lime); color: var(--navy-dark);
+    }
     .usage-source-pill.src-MIXED     { background: var(--warn-bg); color: var(--warn); }
     .usage-source-pill.src-BILLED    { background: rgba(47,61,126,0.10); color: var(--navy); }
     .usage-source-pill.src-ESTIMATED { background: var(--fail-bg); color: var(--fail); }
@@ -473,7 +482,6 @@
         </div>
         <div class="sidebar-nav">
           <div class="nav-item active" data-page="reports">Reports</div>
-          <div class="nav-item" data-page="contracts">Contract Information</div>
           <div class="nav-item" data-page="usage">Usage Report</div>
         </div>
         <div class="sidebar-foot">
@@ -528,12 +536,7 @@
             <div class="form-help" style="margin-top:10px;">If you've forgotten your current password, please email <a href="mailto:info@cesgb.com" style="color:var(--navy);text-decoration:underline;font-weight:600;">info@cesgb.com</a> to request a reset.</div>
           </div>
         </div>
-        <!-- Page: Contract Information -->
-        <div class="dash-section" data-page="contracts" style="display:none;">
-          <div class="section-head"><h2>Your contracts</h2></div>
-          <div class="report-grid" id="contractsGrid"></div>
-        </div>
-        <!-- Page: Usage Report (ESOS / SECR) -->
+<!-- Page: Usage Report (ESOS / SECR) -->
         <div class="dash-section" data-page="usage" style="display:none;">
           <div class="section-head">
             <h2>Usage Report</h2>
@@ -632,6 +635,7 @@
           <button class="admin-tab" onclick="adminTab('upload-contract')">Upload Contract</button>
           <button class="admin-tab" onclick="adminTab('reports')">All Reports</button>
           <button class="admin-tab" onclick="adminTab('customers')">Customers</button>
+          <button class="admin-tab" onclick="adminTab('carbon')">Carbon Config</button>
         </div>
         <!-- UPLOAD VALIDATION TAB -->
         <div class="tab-pane active" id="tab-upload">
@@ -794,6 +798,48 @@
             <tbody id="adminReportTable"></tbody>
           </table>
         </div>
+        <!-- CARBON CONFIG TAB -->
+        <div class="tab-pane" id="tab-carbon">
+          <div class="form-card" style="max-width:680px;margin-bottom:24px;">
+            <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Carbon conversion factors</h2>
+            <p style="font-size:13px;color:var(--muted);margin-bottom:22px;">Global kWh → kgCO₂e multipliers, applied to every customer's Usage Report. Update when DESNZ publishes new factors (typically June).</p>
+            <div class="success-box" id="carbonFactorsOk">Carbon factors saved.</div>
+            <div class="form-row-2">
+              <div class="form-group">
+                <label>Electricity (kgCO₂e per kWh)</label>
+                <input type="number" step="0.00001" min="0" id="carbonFactorElec" placeholder="0.17700" />
+              </div>
+              <div class="form-group">
+                <label>Gas (kgCO₂e per kWh)</label>
+                <input type="number" step="0.00001" min="0" id="carbonFactorGas" placeholder="0.18296" />
+              </div>
+            </div>
+            <button class="btn-primary" style="width:auto;padding:11px 18px;" onclick="saveCarbonFactors()">Save factors</button>
+          </div>
+
+          <div class="form-card" style="max-width:1100px;">
+            <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Per-meter green energy %</h2>
+            <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Set the percentage of consumption that comes from green / renewable sources for each meter. 0% = standard grid, 100% = fully renewable (zero carbon).</p>
+            <div class="form-group" style="max-width:380px;">
+              <label>Customer</label>
+              <select id="carbonCustomerSel" onchange="loadCarbonMeters()" style="width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:7px;font-family:inherit;font-size:13.5px;">
+                <option value="">Select a customer…</option>
+              </select>
+            </div>
+            <div class="success-box" id="carbonMetersOk">Green % saved.</div>
+            <div id="carbonMetersWrapper" style="display:none;">
+              <table class="list" style="margin-bottom:16px;">
+                <thead><tr>
+                  <th>Meter ID</th><th>Utility</th><th>Site</th><th>Green % (renewable)</th>
+                </tr></thead>
+                <tbody id="carbonMetersBody"></tbody>
+              </table>
+              <button class="btn-primary" style="width:auto;padding:11px 18px;" onclick="saveCarbonMeters()">Save green %</button>
+            </div>
+            <div id="carbonMetersEmpty" style="display:none;color:var(--muted);font-size:13px;">No usage data yet for this customer. Upload a validation report first.</div>
+          </div>
+        </div>
+
         <!-- CUSTOMERS TAB -->
         <div class="tab-pane" id="tab-customers">
           <div class="form-card" style="margin-bottom:24px;">
@@ -1258,6 +1304,7 @@
       document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
       document.querySelector(`.admin-tab[onclick*="'${name}'"]`).classList.add('active');
       document.getElementById('tab-' + name).classList.add('active');
+      if (name === 'carbon') loadCarbonConfig();
     }
     async function refreshAdminStats() {
       const { count: cust } = await sb.from('customers').select('*', { count: 'exact', head: true });
@@ -1773,6 +1820,110 @@
 
 
     // ═════════════════════════════════════════════════════════════════════
+    //  CARBON CONFIG ADMIN (Phase 11) — factors + per-meter green energy %
+    // ═════════════════════════════════════════════════════════════════════
+    async function loadCarbonConfig() {
+      // Called when admin clicks the Carbon Config tab.
+      // Populate factor inputs from DB.
+      try {
+        const { data } = await sb.from('carbon_factors').select('utility, factor_kgco2e_per_kwh');
+        (data || []).forEach(function(r) {
+          if (r.utility === 'electricity') document.getElementById('carbonFactorElec').value = Number(r.factor_kgco2e_per_kwh);
+          if (r.utility === 'gas')         document.getElementById('carbonFactorGas').value = Number(r.factor_kgco2e_per_kwh);
+        });
+      } catch (e) { console.error('Carbon factors load:', e); }
+
+      // Populate customer dropdown
+      try {
+        const { data: custs } = await sb.from('customers').select('customer_id, company_name').order('company_name');
+        const sel = document.getElementById('carbonCustomerSel');
+        sel.innerHTML = '<option value="">Select a customer…</option>' +
+          (custs || []).map(function(c) { return '<option value="' + escapeHtml(c.customer_id) + '">' + escapeHtml(c.company_name) + '</option>'; }).join('');
+      } catch (e) { console.error('Customer list:', e); }
+    }
+
+    async function saveCarbonFactors() {
+      const elec = parseFloat(document.getElementById('carbonFactorElec').value);
+      const gas  = parseFloat(document.getElementById('carbonFactorGas').value);
+      if (isNaN(elec) || elec < 0 || isNaN(gas) || gas < 0) {
+        safeAlert('Enter valid non-negative factors for both utilities.');
+        return;
+      }
+      const today = new Date().toISOString().slice(0, 10);
+      const { error } = await sb.from('carbon_factors').upsert([
+        { utility: 'electricity', factor_kgco2e_per_kwh: elec, effective_from: today },
+        { utility: 'gas',         factor_kgco2e_per_kwh: gas,  effective_from: today }
+      ], { onConflict: 'utility' });
+      if (error) { console.error(error); safeAlert('Save failed — see console.'); return; }
+      const ok = document.getElementById('carbonFactorsOk');
+      ok.classList.add('show');
+      setTimeout(function() { ok.classList.remove('show'); }, 2500);
+    }
+
+    async function loadCarbonMeters() {
+      const cid = document.getElementById('carbonCustomerSel').value;
+      const wrap = document.getElementById('carbonMetersWrapper');
+      const empty = document.getElementById('carbonMetersEmpty');
+      const body = document.getElementById('carbonMetersBody');
+      if (!cid) { wrap.style.display = 'none'; empty.style.display = 'none'; return; }
+
+      // Distinct meters from usage_data for this customer
+      const { data: udata, error } = await sb
+        .from('usage_data')
+        .select('meter_id, utility, site_name, site_postcode')
+        .eq('customer_id', cid)
+        .order('utility').order('meter_id');
+      if (error) { console.error(error); body.innerHTML = '<tr><td colspan="4">Load failed.</td></tr>'; wrap.style.display = 'block'; empty.style.display = 'none'; return; }
+      const seen = new Set();
+      const meters = [];
+      (udata || []).forEach(function(r) {
+        const k = r.meter_id + '|' + r.utility;
+        if (!seen.has(k)) { seen.add(k); meters.push(r); }
+      });
+      if (meters.length === 0) { wrap.style.display = 'none'; empty.style.display = 'block'; return; }
+
+      // Existing config rows for this customer
+      const { data: cfg } = await sb.from('customer_meter_config').select('meter_id, utility, green_pct').eq('customer_id', cid);
+      const cfgMap = {};
+      (cfg || []).forEach(function(r) { cfgMap[r.meter_id + '|' + r.utility] = Number(r.green_pct || 0); });
+
+      body.innerHTML = meters.map(function(m) {
+        const k = m.meter_id + '|' + m.utility;
+        const existing = cfgMap[k] != null ? cfgMap[k] : 0;
+        return '<tr>' +
+          '<td class="mono">' + escapeHtml(m.meter_id) + '</td>' +
+          '<td>' + escapeHtml(m.utility) + '</td>' +
+          '<td>' + escapeHtml(m.site_name) + ' <span style="color:var(--muted);">· ' + escapeHtml(m.site_postcode) + '</span></td>' +
+          '<td><input type="number" class="carbon-meter-input" data-meter="' + escapeHtml(m.meter_id) + '" data-utility="' + escapeHtml(m.utility) + '" min="0" max="100" step="0.5" value="' + existing + '" style="width:100px;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-family:JetBrains Mono;font-size:13px;text-align:right;" /></td>' +
+        '</tr>';
+      }).join('');
+      wrap.style.display = 'block';
+      empty.style.display = 'none';
+    }
+
+    async function saveCarbonMeters() {
+      const cid = document.getElementById('carbonCustomerSel').value;
+      if (!cid) return;
+      const rows = [];
+      document.querySelectorAll('.carbon-meter-input').forEach(function(inp) {
+        const v = parseFloat(inp.value);
+        if (isNaN(v) || v < 0 || v > 100) return;
+        rows.push({
+          customer_id: cid,
+          meter_id: inp.dataset.meter,
+          utility: inp.dataset.utility,
+          green_pct: v
+        });
+      });
+      if (rows.length === 0) return;
+      const { error } = await sb.from('customer_meter_config').upsert(rows, { onConflict: 'customer_id,meter_id,utility' });
+      if (error) { console.error(error); safeAlert('Save failed — see console.'); return; }
+      const ok = document.getElementById('carbonMetersOk');
+      ok.classList.add('show');
+      setTimeout(function() { ok.classList.remove('show'); }, 2500);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════
     //  USAGE-DATA PARSER + BACKFILL  (Phase 10 — ESOS / SECR Usage Report)
     // ═════════════════════════════════════════════════════════════════════
     // Parses a CES bill-validation HTML and yields one row per (meter, period)
@@ -2009,11 +2160,16 @@
     // ═════════════════════════════════════════════════════════════════════
     // BEIS conversion factors (DESNZ greenhouse gas factors, FY 2025/26).
     // Update annually when DESNZ publishes new factors (usually June).
-    const BEIS_FACTORS = {
-      electricity: 0.17700,  // kgCO2e per kWh — UK grid (CES-supplied factor)
-      gas:         0.18296   // kgCO2e per kWh — natural gas (CES-supplied factor)
+    // Carbon factors — loaded from carbon_factors DB table at usage report load time.
+    // Falls back to CES defaults if the fetch fails.
+    let BEIS_FACTORS = {
+      electricity: 0.17700,
+      gas:         0.18296
     };
-    const BEIS_YEAR_LABEL = '2025/26';
+    let BEIS_YEAR_LABEL = '2025/26';
+    // Per-meter green energy %, loaded from customer_meter_config when usage report loads.
+    // Key: meter_id (MPAN/MPR), Value: green_pct (0-100).
+    let _greenByMeter = {};
 
     let _usageSites = [];   // [{site_name, site_postcode, key}]
     let _usageRows  = [];   // last fetched dataset
@@ -2025,6 +2181,26 @@
       list.innerHTML = '<em style="color:var(--muted);">Loading sites…</em>';
       document.getElementById('usageResults').style.display = 'none';
       document.getElementById('usageEmpty').style.display = 'none';
+
+      // Load global carbon factors (admin-editable) — graceful fallback to defaults
+      try {
+        const { data: factors } = await sb.from('carbon_factors').select('utility, factor_kgco2e_per_kwh');
+        if (factors && factors.length) {
+          factors.forEach(function(f) { BEIS_FACTORS[f.utility] = Number(f.factor_kgco2e_per_kwh); });
+        }
+      } catch (e) { console.warn('carbon_factors load failed', e); }
+
+      // Load per-meter green energy % for this customer
+      _greenByMeter = {};
+      try {
+        const { data: mc } = await sb
+          .from('customer_meter_config')
+          .select('meter_id, utility, green_pct')
+          .eq('customer_id', currentUser.customerId);
+        (mc || []).forEach(function(r) {
+          _greenByMeter[r.meter_id] = Number(r.green_pct || 0);
+        });
+      } catch (e) { console.warn('customer_meter_config load failed', e); }
 
       const { data, error } = await sb
         .from('usage_data')
@@ -2149,7 +2325,10 @@
       for (const r of rows) {
         const k = Number(r.total_kwh || 0);
         totalKwh += k;
-        totalCO2kg += k * (BEIS_FACTORS[r.utility] || 0);
+        // Apply per-meter green energy % — green portion contributes 0 CO2
+        const greenPct = _greenByMeter[r.meter_id] || 0;
+        const taxableKwh = k * (1 - greenPct / 100);
+        totalCO2kg += taxableKwh * (BEIS_FACTORS[r.utility] || 0);
         // Verified definition:
         //   - Anything based on an actual meter read counts (HHD / MIXED / NHH / BILLED)
         //   - Only ESTIMATED rows are unverified — those are made-up reads
@@ -2255,7 +2434,14 @@
         const colTotals = months.map(function(){return 0;});
         sectionRows.forEach(function(r) {
           let rowKwh = 0;
-          html += '<tr><td><strong>' + escapeHtml(r.site_name) + '</strong><br><span style="font-family:JetBrains Mono;font-size:11px;color:var(--muted);">' + escapeHtml(r.site_postcode) + ' &middot; ' + escapeHtml(r.meter_id) + '</span></td>';
+          const greenPct = _greenByMeter[r.meter_id] || 0;
+          let greenPill = '';
+          if (greenPct >= 100) {
+            greenPill = '<br><span class="green-energy-pill green-energy-pill--full">⚡ 100% Green Energy</span>';
+          } else if (greenPct > 0) {
+            greenPill = '<br><span class="green-energy-pill">⚡ ' + _fmtNum(greenPct, 0) + '% Green</span>';
+          }
+          html += '<tr><td><strong>' + escapeHtml(r.site_name) + '</strong><br><span style="font-family:JetBrains Mono;font-size:11px;color:var(--muted);">' + escapeHtml(r.site_postcode) + ' &middot; ' + escapeHtml(r.meter_id) + '</span>' + greenPill + '</td>';
           months.forEach(function(m, i) {
             const cell = r.months[m];
             if (!cell) { html += '<td class="num">&mdash;</td>'; return; }
@@ -2267,7 +2453,9 @@
             colTotals[i] += cell.kwh;
             rowKwh += cell.kwh;
           });
-          const rowCO2t = rowKwh * factor / 1000;
+          // Apply green % to CO2 (kWh stays the same)
+          const taxableRowKwh = rowKwh * (1 - greenPct / 100);
+          const rowCO2t = taxableRowKwh * factor / 1000;
           html += '<td class="num"><strong>' + _fmtNum(rowKwh, 1) + '</strong></td>';
           html += '<td class="num"><strong>' + _fmtNum(rowCO2t, 2) + '</strong></td>';
           html += '</tr>';
