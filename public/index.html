@@ -16,6 +16,8 @@
   <link rel="preload" as="script" crossorigin href="https://unpkg.com/react@18.3.1/umd/react.development.js" />
   <link rel="preload" as="script" crossorigin href="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" />
   <link rel="preload" as="script" crossorigin href="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -575,7 +577,7 @@
               </div>
               <div id="usageChart"></div>
             </div>
-            <div class="card">
+            <div class="card" id="usageTableCard">
               <h3 style="margin-bottom:14px;font-size:14px;font-weight:800;">Breakdown</h3>
               <div style="overflow-x:auto;">
                 <table class="usage-table" id="usageTable"></table>
@@ -2178,8 +2180,20 @@
       const max = Math.max.apply(null, months.map(function(m){return byMonth[m];}));
       const W = 1000, H = 280, padL = 60, padR = 18, padT = 18, padB = 38;
       const innerW = W - padL - padR, innerH = H - padT - padB;
-      const barW = Math.max(8, Math.min(54, innerW / months.length * 0.7));
-      const gap = (innerW - barW * months.length) / Math.max(1, months.length - 1);
+      // Fixed-width bars + fixed gap, cluster centred horizontally.
+      // For small month counts this keeps bars close together (no huge spread).
+      // For larger counts (12+) bars shrink to fill the available width.
+      const gap = 32;
+      const idealBarW = 54;
+      const maxClusterW = innerW;
+      const naturalW = idealBarW * months.length + gap * Math.max(0, months.length - 1);
+      let barW = idealBarW;
+      if (naturalW > maxClusterW) {
+        barW = (maxClusterW - gap * Math.max(0, months.length - 1)) / months.length;
+        barW = Math.max(20, barW);
+      }
+      const clusterW = barW * months.length + gap * Math.max(0, months.length - 1);
+      const startX = padL + (innerW - clusterW) / 2;
 
       let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">';
       // y-axis gridlines + labels
@@ -2191,7 +2205,7 @@
       }
       // Bars
       months.forEach(function(m, i) {
-        const x = padL + (i * (barW + gap));
+        const x = startX + (i * (barW + gap));
         const h = max > 0 ? (byMonth[m] / max) * innerH : 0;
         const y = padT + (innerH - h);
         svg += '<rect x="' + x + '" y="' + y + '" width="' + barW + '" height="' + h + '" rx="3" fill="#2f3d7e"/>';
@@ -2286,10 +2300,103 @@
       document.getElementById('usageTable').innerHTML = html;
     }
 
-    function exportUsagePDF() {
-      // Browser print → save as PDF. The @media print rules in <style> already
-      // strip the filters/sidebar/buttons so the printed page is the result only.
-      window.print();
+    async function exportUsagePDF() {
+      // Direct PDF download via jsPDF + html2canvas. Page 1 = KPIs + chart,
+      // Page 2 = breakdown table. No print dialog.
+      const btn = document.querySelector('.usage-chart-head .btn-secondary');
+      const origLabel = btn ? btn.textContent : null;
+      if (btn) { btn.disabled = true; btn.textContent = 'Generating PDF…'; }
+      try {
+        if (!window.jspdf || !window.html2canvas) {
+          alert('PDF library still loading — please wait a few seconds and try again.');
+          return;
+        }
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+        const pdfW = doc.internal.pageSize.getWidth();
+        const pdfH = doc.internal.pageSize.getHeight();
+        const margin = 10;
+        const usableW = pdfW - margin * 2;
+        const usableH = pdfH - margin * 2;
+
+        // Build a temporary off-screen container for the page-1 capture
+        // (KPIs + chart). We deep-clone so the live page isn't disturbed.
+        const kpis = document.getElementById('usageKpis');
+        const chartCard = document.getElementById('usageChartCard');
+        const tableCard = document.getElementById('usageTableCard');
+        if (!kpis || !chartCard || !tableCard) {
+          alert('Usage report not ready — generate the report first.');
+          return;
+        }
+        const customerName = (currentUser && currentUser.name) || 'Customer';
+        const periodLabel = (function() {
+          const f = document.getElementById('usageFrom').value;
+          const t = document.getElementById('usageTo').value;
+          return (f && t) ? (f + ' to ' + t) : 'All periods';
+        })();
+        const today = new Date().toLocaleDateString('en-GB');
+
+        // Page 1 wrapper
+        const page1 = document.createElement('div');
+        page1.style.cssText = 'background:#f5f2ec;padding:24px;width:1100px;font-family:Manrope,sans-serif;';
+        page1.innerHTML =
+          '<div style="margin-bottom:18px;">' +
+          '<div style="font-size:22px;font-weight:800;color:#1c1f2a;">Usage Report — ' + customerName + '</div>' +
+          '<div style="font-size:13px;color:#7a7e8c;margin-top:4px;">Period: ' + periodLabel + ' · Generated ' + today + '</div>' +
+          '<div style="height:3px;background:#93c43a;width:48px;margin-top:8px;"></div>' +
+          '</div>';
+        page1.appendChild(kpis.cloneNode(true));
+        page1.appendChild(chartCard.cloneNode(true));
+        // Hide the "Download PDF" button in the clone
+        const btnClone = page1.querySelector('.usage-chart-head .btn-secondary');
+        if (btnClone) btnClone.style.display = 'none';
+        document.body.appendChild(page1);
+        page1.style.position = 'fixed';
+        page1.style.left = '-9999px';
+        page1.style.top = '0';
+
+        const c1 = await html2canvas(page1, { scale: 2, backgroundColor: '#f5f2ec', useCORS: true });
+        document.body.removeChild(page1);
+        const img1 = c1.toDataURL('image/png');
+        let imgW = usableW;
+        let imgH = c1.height * (imgW / c1.width);
+        if (imgH > usableH) { imgH = usableH; imgW = c1.width * (imgH / c1.height); }
+        doc.addImage(img1, 'PNG', margin + (usableW - imgW)/2, margin, imgW, imgH);
+
+        // Page 2 — Breakdown
+        doc.addPage();
+        const page2 = document.createElement('div');
+        page2.style.cssText = 'background:#f5f2ec;padding:24px;width:1100px;font-family:Manrope,sans-serif;';
+        page2.innerHTML =
+          '<div style="margin-bottom:14px;">' +
+          '<div style="font-size:18px;font-weight:800;color:#1c1f2a;">Breakdown — ' + customerName + '</div>' +
+          '<div style="font-size:12px;color:#7a7e8c;margin-top:4px;">Period: ' + periodLabel + '</div>' +
+          '<div style="height:2px;background:#93c43a;width:36px;margin-top:6px;"></div>' +
+          '</div>';
+        page2.appendChild(tableCard.cloneNode(true));
+        document.body.appendChild(page2);
+        page2.style.position = 'fixed';
+        page2.style.left = '-9999px';
+        page2.style.top = '0';
+
+        const c2 = await html2canvas(page2, { scale: 2, backgroundColor: '#f5f2ec', useCORS: true });
+        document.body.removeChild(page2);
+        const img2 = c2.toDataURL('image/png');
+        let imgW2 = usableW;
+        let imgH2 = c2.height * (imgW2 / c2.width);
+        if (imgH2 > usableH) { imgH2 = usableH; imgW2 = c2.width * (imgH2 / c2.height); }
+        doc.addImage(img2, 'PNG', margin + (usableW - imgW2)/2, margin, imgW2, imgH2);
+
+        // Save with descriptive filename
+        const safeName = customerName.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
+        const safePeriod = periodLabel.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
+        doc.save('CES_Usage_Report_' + safeName + '_' + safePeriod + '.pdf');
+      } catch (err) {
+        console.error('PDF export failed:', err);
+        alert('Could not generate PDF: ' + (err.message || err));
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = origLabel || 'Download PDF summary'; }
+      }
     }
 
     // Hook up the customer sidebar so clicking "Usage Report" loads the data
