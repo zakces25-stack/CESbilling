@@ -39,9 +39,11 @@
     .login-header {
       background: var(--bg); border-bottom: 3px solid var(--lime);
       padding: 0 48px; height: 78px; display: flex; align-items: center;
+      justify-content: space-between;
       box-shadow: 0 2px 10px rgba(28,31,42,0.07); flex-shrink: 0;
     }
     .login-header-title { display: flex; flex-direction: column; gap: 3px; }
+    .login-header-logo { height: 56px; width: auto; max-width: 160px; object-fit: contain; display: block; }
     .lht-main { font-size: 17px; font-weight: 800; color: var(--navy); letter-spacing: -0.3px; }
     .lht-sub { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.9px; }
     .login-panels { display: grid; grid-template-columns: 1fr 1fr; flex: 1; }
@@ -111,22 +113,10 @@
     /* ───── DASHBOARDS ───── */
     .dash-wrap { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
     .sidebar { background: var(--navy); padding: 0 0 24px 0; display: flex; flex-direction: column; }
-    /* Beige strip at the top of the sidebar — holds ONLY the CES logo.
-       Height matches the main-area topbar's bottom border so the dividers align. */
-    .sidebar-logo-strip {
-      background: var(--bg);
-      min-height: 100px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 14px 18px;
-      border-bottom: 1px solid var(--border);
-      box-sizing: border-box;
-    }
-    /* Navy brand section below the logo strip — holds "CES Billing" + client name */
+    /* Navy brand section at the top of the sidebar — holds "CES Billing" + client name */
     .sidebar-brand {
       background: transparent;
-      padding: 18px 24px 18px 24px;
+      padding: 28px 24px 20px 24px;
       border-bottom: 1px solid rgba(255,255,255,0.08);
     }
     .sidebar-brand .b1 { color: #fff; font-size: 16px; font-weight: 800; letter-spacing: -0.3px; }
@@ -226,14 +216,14 @@
     .mono { font-family: 'JetBrains Mono', monospace; }
     
     
-    .sidebar-logo {
-      max-width: 170px; max-height: 72px; width: auto; height: auto;
-      object-fit: contain; display: block;
-    }
-    .topbar-right { display: flex; align-items: center; gap: 14px; }
+    .topbar-right { display: flex; align-items: center; gap: 16px; }
     .customer-logo-display {
       height: 50px; max-width: 130px; object-fit: contain;
       background: transparent; padding: 0; border: none;
+    }
+    .topbar-ces-logo {
+      height: 56px; width: auto; max-width: 150px; object-fit: contain;
+      display: block; margin-left: 6px;
     }
     .account-card {
       background: var(--surface); border: 1.5px solid var(--border); border-radius: 10px;
@@ -334,6 +324,7 @@
         <span class="lht-main">CES Billing Portal</span>
         <span class="lht-sub">Commercial Energy Solutions</span>
       </div>
+      <img class="login-header-logo" src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES" onerror="this.style.display='none'" />
     </div>
     <div class="login-panels">
       <div class="login-left">
@@ -382,9 +373,6 @@
   <div id="dashPage" class="page">
     <div class="dash-wrap">
       <aside class="sidebar">
-        <div class="sidebar-logo-strip">
-          <img class="sidebar-logo" src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES" onerror="this.style.display='none'" />
-        </div>
         <div class="sidebar-brand">
           <div class="b1">CES Billing</div>
           <div class="b2" id="dashClientName">—</div>
@@ -406,6 +394,7 @@
           <div class="topbar-right">
             <img class="customer-logo-display" id="dashCustomerLogo" style="display:none;" alt="" onerror="this.style.display='none'" />
             <div class="avatar" id="dashAvatar">—</div>
+            <img class="topbar-ces-logo" src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES" onerror="this.style.display='none'" />
           </div>
         </div>
         <!-- Page: Reports (default) -->
@@ -458,9 +447,6 @@
   <div id="adminPage" class="page">
     <div class="dash-wrap">
       <aside class="sidebar">
-        <div class="sidebar-logo-strip">
-          <img class="sidebar-logo" src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES" onerror="this.style.display='none'" />
-        </div>
         <div class="sidebar-brand">
           <div class="b1">CES Billing</div>
           <div class="b2">Admin</div>
@@ -478,7 +464,10 @@
             <h1>Admin Dashboard</h1>
             <div class="meta" id="adminMeta">— customers · — reports</div>
           </div>
-          <div class="avatar">A</div>
+          <div class="topbar-right">
+            <div class="avatar">A</div>
+            <img class="topbar-ces-logo" src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES" onerror="this.style.display='none'" />
+          </div>
         </div>
         <div class="admin-tabs">
           <button class="admin-tab active" onclick="adminTab('upload')">Upload Validation</button>
@@ -783,32 +772,9 @@
         return { ok: false, reason: 'Could not read file for validation.' };
       }
     }
-    // ───── HEADER ALIGNMENT ─────
-    // Match the sidebar's beige logo strip height to the topbar's bottom border
-    // so the two divider lines run continuously. Works regardless of font size,
-    // zoom level, or content height.
-    function alignHeaderStrips() {
-      ['dashPage', 'adminPage'].forEach(pageId => {
-        const page = document.getElementById(pageId);
-        if (!page || !page.classList.contains('active')) return;
-        const topbar = page.querySelector('.topbar');
-        const strip = page.querySelector('.sidebar-logo-strip');
-        const main = page.querySelector('.main-area');
-        if (!topbar || !strip || !main) return;
-        const topbarRect = topbar.getBoundingClientRect();
-        const mainRect = main.getBoundingClientRect();
-        // From top of main-area to bottom of topbar (inclusive of its border)
-        const targetHeight = topbarRect.bottom - mainRect.top + 1;
-        strip.style.height = targetHeight + 'px';
-      });
-    }
-    window.addEventListener('resize', alignHeaderStrips);
-
     function showPage(id) {
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
       document.getElementById(id).classList.add('active');
-      // Wait for the browser to render the new page before measuring
-      requestAnimationFrame(() => requestAnimationFrame(alignHeaderStrips));
     }
     // Helpers
     const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -962,13 +928,11 @@
       // Show customer logo if available
       const logoImg = document.getElementById('dashCustomerLogo');
       if (currentUser.hasLogo) {
-        logoImg.onload = () => alignHeaderStrips();
         logoImg.src = CUST_LOGOS_BASE + '/' + encodeURIComponent(currentUser.customerId) + '.png?t=' + Date.now();
         logoImg.style.display = 'block';
       } else {
         logoImg.style.display = 'none';
       }
-      alignHeaderStrips();
       const grid = document.getElementById('reportGrid');
       const occGrid = document.getElementById('occupancyGrid');
       grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><p>Loading…</p></div>';
