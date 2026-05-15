@@ -115,12 +115,13 @@
        Height matches the main-area topbar's bottom border so the dividers align. */
     .sidebar-logo-strip {
       background: var(--bg);
-      height: 96px;
+      min-height: 100px;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 0 18px;
+      padding: 14px 18px;
       border-bottom: 1px solid var(--border);
+      box-sizing: border-box;
     }
     /* Navy brand section below the logo strip — holds "CES Billing" + client name */
     .sidebar-brand {
@@ -782,9 +783,32 @@
         return { ok: false, reason: 'Could not read file for validation.' };
       }
     }
+    // ───── HEADER ALIGNMENT ─────
+    // Match the sidebar's beige logo strip height to the topbar's bottom border
+    // so the two divider lines run continuously. Works regardless of font size,
+    // zoom level, or content height.
+    function alignHeaderStrips() {
+      ['dashPage', 'adminPage'].forEach(pageId => {
+        const page = document.getElementById(pageId);
+        if (!page || !page.classList.contains('active')) return;
+        const topbar = page.querySelector('.topbar');
+        const strip = page.querySelector('.sidebar-logo-strip');
+        const main = page.querySelector('.main-area');
+        if (!topbar || !strip || !main) return;
+        const topbarRect = topbar.getBoundingClientRect();
+        const mainRect = main.getBoundingClientRect();
+        // From top of main-area to bottom of topbar (inclusive of its border)
+        const targetHeight = topbarRect.bottom - mainRect.top + 1;
+        strip.style.height = targetHeight + 'px';
+      });
+    }
+    window.addEventListener('resize', alignHeaderStrips);
+
     function showPage(id) {
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
       document.getElementById(id).classList.add('active');
+      // Wait for the browser to render the new page before measuring
+      requestAnimationFrame(() => requestAnimationFrame(alignHeaderStrips));
     }
     // Helpers
     const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -938,11 +962,13 @@
       // Show customer logo if available
       const logoImg = document.getElementById('dashCustomerLogo');
       if (currentUser.hasLogo) {
+        logoImg.onload = () => alignHeaderStrips();
         logoImg.src = CUST_LOGOS_BASE + '/' + encodeURIComponent(currentUser.customerId) + '.png?t=' + Date.now();
         logoImg.style.display = 'block';
       } else {
         logoImg.style.display = 'none';
       }
+      alignHeaderStrips();
       const grid = document.getElementById('reportGrid');
       const occGrid = document.getElementById('occupancyGrid');
       grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><p>Loading…</p></div>';
