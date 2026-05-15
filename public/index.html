@@ -8,11 +8,12 @@
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <title>CES Billing Portal</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-<link rel="icon" type="image/x-icon" href="/favicon.ico">
-<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-<link rel="manifest" href="/site.webmanifest">
-<meta name="theme-color" content="#2f3d7e">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <meta name="theme-color" content="#2f3d7e">
+
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://unpkg.com" crossorigin />
@@ -346,6 +347,130 @@
     .usage-source-pill.src-ESTIMATED { background: var(--fail-bg); color: var(--fail); }
     .usage-source-legend { font-size: 11.5px; color: var(--muted); margin-top: 12px; }
 
+    /* ═════════════════════════════════════════════════════════════════ */
+    /*  MOBILE — phones (≤ 768px)                                          */
+    /*  Tablets / desktop keep the default layout.                         */
+    /* ═════════════════════════════════════════════════════════════════ */
+    .mobile-menu-toggle {
+      display: none; background: none; border: 0; padding: 8px;
+      cursor: pointer; align-items: center; justify-content: center;
+      width: 40px; height: 40px; border-radius: 8px; color: var(--text);
+    }
+    .mobile-menu-toggle:hover { background: rgba(28,31,42,0.05); }
+    .mobile-menu-toggle svg { width: 22px; height: 22px; }
+    .sidebar-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+      z-index: 99; backdrop-filter: blur(2px);
+    }
+    .sidebar-overlay.show { display: block; }
+
+    @media (max-width: 768px) {
+      body { -webkit-text-size-adjust: 100%; }
+
+      /* ── LOGIN ── */
+      .login-panels { grid-template-columns: 1fr; }
+      .login-left { padding: 28px 22px; min-height: 200px; }
+      .login-left .hero h1 { font-size: 24px; }
+      .login-left .feature-list { display: none; }
+      .login-left .login-footer { display: none; }
+      .login-right { padding: 28px 22px; }
+      .login-header { padding: 0 18px; height: 64px; }
+      .login-header-logo { height: 38px; max-width: 90px; }
+      .lht-main { font-size: 14px; }
+      .lht-sub { font-size: 10px; }
+
+      /* ── DASHBOARD WRAPPER ── */
+      .dash-wrap { display: block; }
+
+      /* ── SIDEBAR (slide-in overlay) ── */
+      .sidebar {
+        position: fixed; left: 0; top: 0; bottom: 0;
+        width: 260px; max-width: 80vw; z-index: 100;
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        box-shadow: 4px 0 16px rgba(0,0,0,0.25);
+      }
+      .sidebar.open { transform: translateX(0); }
+
+      /* ── MAIN AREA ── */
+      .main-area { padding: 16px 18px !important; max-width: 100% !important; }
+
+      /* ── TOPBAR ── */
+      .topbar { padding-bottom: 12px; margin-bottom: 18px; gap: 8px; }
+      .topbar-left h1 { font-size: 20px; line-height: 1.2; }
+      .topbar-left .meta { font-size: 11.5px; margin-top: 2px; }
+      .topbar-right { gap: 8px; }
+      .topbar-right .customer-logo-display { height: 36px; max-width: 80px; }
+      .topbar-right .avatar { width: 32px; height: 32px; font-size: 12px; }
+      .topbar-right .topbar-ces-logo { display: none; }  /* CES logo redundant in sidebar */
+      .mobile-menu-toggle { display: inline-flex; }
+
+      /* ── KPI GRIDS ── */
+      .kpi-grid, .stats-row, .usage-kpi-grid {
+        grid-template-columns: 1fr 1fr !important; gap: 10px;
+      }
+      .stat-card, .kpi, .usage-kpi { padding: 12px 14px; }
+      .stat-value, .kpi__value, .usage-kpi__value { font-size: 18px; }
+      .stat-label, .kpi__label, .usage-kpi__label { font-size: 10px; }
+      .usage-kpi__sub { font-size: 10.5px; }
+
+      /* ── REPORT CARDS ── */
+      .report-grid { grid-template-columns: 1fr !important; }
+      .report-card { padding: 16px 18px; }
+
+      /* ── INVOICE CARDS (in customer report iframes) ── */
+      .inv-card__head { grid-template-columns: 1fr !important; gap: 10px; padding: 14px 16px; }
+      .charge-grid { grid-template-columns: 1fr 1fr !important; }
+      .inv-card--gas .charge-grid { grid-template-columns: 1fr !important; }
+
+      /* ── TABLES — force horizontal scroll inside their container ── */
+      table { font-size: 12px; }
+      table.list, .table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .usage-table { font-size: 11.5px; }
+      .usage-table th, .usage-table td { padding: 6px 8px; }
+
+      /* ── FORM CARDS ── */
+      .form-card { padding: 18px 20px; max-width: 100% !important; }
+      .form-row-2 { grid-template-columns: 1fr; }
+
+      /* ── USAGE FILTERS ── */
+      .usage-filters { grid-template-columns: 1fr !important; gap: 14px; padding: 16px 18px; }
+      .usage-filters .filter-side { width: 100%; }
+
+      /* ── USAGE CHART ── */
+      #usageChart { max-width: 100% !important; }
+      #usageChart svg { height: 220px; }
+      .usage-chart-head { flex-wrap: wrap; gap: 8px; }
+      .usage-chart-head .btn-secondary { width: 100%; }
+
+      /* ── ADMIN TABS — horizontal scroll if too wide ── */
+      .admin-tabs { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+      .admin-tab { white-space: nowrap; flex-shrink: 0; padding: 10px 14px; font-size: 13px; }
+
+      /* ── BUTTONS ── */
+      .btn-primary, .btn-secondary { font-size: 14px; }
+      .btn-primary[style*="width:auto"] { width: 100% !important; }
+
+      /* ── ACCOUNT CARD ── */
+      .account-form { flex-direction: column; align-items: stretch; }
+      .account-form .form-group { flex: 1 1 100%; }
+      .account-form button { width: 100%; }
+
+      /* ── BACKFILL STATUS ── */
+      #backfillStatus { font-size: 11px; max-height: 180px; }
+
+      /* ── REPORT MODAL / FOOTER ── */
+      .portal-footer { padding: 10px 14px; font-size: 10.5px; flex-direction: column; gap: 4px; text-align: center; }
+    }
+
+    /* ── Smaller phones (≤ 400px) ── */
+    @media (max-width: 400px) {
+      .kpi-grid, .stats-row, .usage-kpi-grid { grid-template-columns: 1fr !important; }
+      .charge-grid { grid-template-columns: 1fr !important; }
+      .topbar-left h1 { font-size: 18px; }
+      .topbar-right .customer-logo-display { display: none; }
+    }
+
     @media print {
       body * { visibility: hidden; }
       #dashPage .dash-section[data-page="usage"], #dashPage .dash-section[data-page="usage"] * { visibility: visible; }
@@ -424,6 +549,7 @@
   </style>
 </head>
 <body>
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
   <!-- ═══════════════════════════════════
        LOGIN PAGE
   ════════════════════════════════════ -->
@@ -496,6 +622,7 @@
       </aside>
       <main class="main-area">
         <div class="topbar">
+          <button class="mobile-menu-toggle" onclick="toggleSidebar()" aria-label="Menu" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
           <div class="topbar-left">
             <h1 id="welcomeH">Welcome back.</h1>
             <div class="meta" id="rptCount">— reports available</div>
@@ -626,6 +753,7 @@
       </aside>
       <main class="main-area">
         <div class="topbar">
+          <button class="mobile-menu-toggle" onclick="toggleSidebar()" aria-label="Menu" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
           <div class="topbar-left">
             <h1>Admin Dashboard</h1>
             <div class="meta" id="adminMeta">— customers · — reports</div>
@@ -2614,6 +2742,27 @@
     document.addEventListener('click', function(e) {
       const navItem = e.target.closest && e.target.closest('#dashPage .sidebar-nav .nav-item[data-page="usage"]');
       if (navItem) loadUsageReport();
+    });
+
+    // ───── MOBILE SIDEBAR TOGGLE (≤ 768px) ─────
+    function toggleSidebar() {
+      const page = document.querySelector('.page.active');
+      if (!page) return;
+      const sidebar = page.querySelector('.sidebar');
+      const overlay = document.getElementById('sidebarOverlay');
+      if (!sidebar || !overlay) return;
+      const open = sidebar.classList.toggle('open');
+      overlay.classList.toggle('show', open);
+    }
+    // Close sidebar when a nav item is clicked (mobile UX)
+    document.addEventListener('click', function(e) {
+      if (window.innerWidth > 768) return;
+      const navItem = e.target.closest('.sidebar-nav .nav-item');
+      if (!navItem) return;
+      const sidebar = navItem.closest('.sidebar');
+      const overlay = document.getElementById('sidebarOverlay');
+      if (sidebar) sidebar.classList.remove('open');
+      if (overlay) overlay.classList.remove('show');
     });
 
     // ───── BOOT ─────
