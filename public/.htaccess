@@ -1,0 +1,72 @@
+# ═════════════════════════════════════════════════════════════════════════
+# CES Billing Portal — Apache config for IONOS Deploy Now
+# Sets Cache-Control headers so both browsers and Cloudflare cache files
+# correctly. Also enables Gzip + a couple of small performance wins.
+# ═════════════════════════════════════════════════════════════════════════
+
+# ───── 1. Cache-Control headers ────────────────────────────────────────
+# Per-file-type cache policy. Cloudflare reads these and respects them
+# at the edge. Browsers cache locally for the same durations.
+<IfModule mod_headers.c>
+
+  # HTML — short cache so updates roll out quickly when you push to GitHub.
+  # 5 minutes at edge + browser.
+  <FilesMatch "\.(html|htm)$">
+    Header set Cache-Control "public, max-age=300, must-revalidate"
+  </FilesMatch>
+
+  # Favicons + manifest — these change rarely. 30 days.
+  <FilesMatch "\.(ico|webmanifest)$">
+    Header set Cache-Control "public, max-age=2592000"
+  </FilesMatch>
+
+  # Images, fonts — long cache. 30 days.
+  <FilesMatch "\.(png|jpg|jpeg|gif|webp|svg|woff|woff2|ttf|otf)$">
+    Header set Cache-Control "public, max-age=2592000, immutable"
+  </FilesMatch>
+
+  # CSS + JS — long cache + immutable hint.
+  <FilesMatch "\.(css|js)$">
+    Header set Cache-Control "public, max-age=2592000, immutable"
+  </FilesMatch>
+
+  # PDFs (e.g. privacy policy) — 1 day. Long enough to ease load, short
+  # enough that policy updates aren't stuck for weeks.
+  <FilesMatch "\.pdf$">
+    Header set Cache-Control "public, max-age=86400"
+  </FilesMatch>
+
+</IfModule>
+
+# ───── 2. Gzip compression ─────────────────────────────────────────────
+# Compresses text-based assets before sending. Cloudflare will add Brotli
+# on top of this when proxying, which is even better.
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css
+  AddOutputFilterByType DEFLATE text/javascript application/javascript application/x-javascript
+  AddOutputFilterByType DEFLATE application/json application/xml application/manifest+json
+  AddOutputFilterByType DEFLATE image/svg+xml
+</IfModule>
+
+# ───── 3. Security headers ─────────────────────────────────────────────
+# CSP is already set inside index.html via a <meta> tag, so we don't repeat
+# it here. These are belt-and-braces extras that defend against framing
+# attacks and force HTTPS.
+<IfModule mod_headers.c>
+  # Block the page being framed inside a malicious site (clickjacking)
+  Header set X-Frame-Options "DENY"
+
+  # Forbid browsers from MIME-sniffing
+  Header set X-Content-Type-Options "nosniff"
+
+  # Tell browsers + intermediaries to only use HTTPS for billcesgb.com for
+  # a year (HSTS). Safe because Let's Encrypt cert is in place.
+  Header set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+  # Restrict what's sent in the Referer header to third-party requests
+  Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# ───── 4. Pretty error pages (optional) ───────────────────────────────
+# If a customer hits a missing path, send them to the portal root.
+ErrorDocument 404 /
