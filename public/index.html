@@ -557,6 +557,38 @@
       auth: { persistSession: true, autoRefreshToken: true }
     });
     let currentUser = null;
+    // ───── ERROR HANDLING + FILE TYPE VALIDATION ─────
+    // safeAlert() shows a generic message to the user and logs the real error
+    // to the browser console (visible to admin in DevTools, hidden from users).
+    function safeAlert(userMsg, internalErr) {
+      if (internalErr) console.error('[CES portal]', userMsg, '—', internalErr);
+      alert(userMsg);
+    }
+    // Reads first bytes of a File and confirms the type signature matches.
+    // Returns {ok: boolean, reason: string}.
+    async function validateFileMagicBytes(file, expectedType) {
+      try {
+        if (expectedType === 'html') {
+          const sample = (await file.slice(0, 1024).text()).replace(/^\ufeff/, '').trim().toLowerCase();
+          if (sample.startsWith('<!doctype html') || sample.startsWith('<html') ||
+              sample.startsWith('<head') || sample.startsWith('<body')) return { ok: true };
+          return { ok: false, reason: 'File does not look like a valid HTML document.' };
+        }
+        if (expectedType === 'zip' || expectedType === 'xlsx') {
+          const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+          // PK\x03\x04 — standard ZIP local file header signature
+          // (xlsx is a ZIP archive under the hood)
+          if (head[0] === 0x50 && head[1] === 0x4B && (head[2] === 0x03 || head[2] === 0x05 || head[2] === 0x07)) {
+            return { ok: true };
+          }
+          return { ok: false, reason: 'File does not look like a valid ' + expectedType.toUpperCase() + '.' };
+        }
+        return { ok: true };
+      } catch (e) {
+        console.error('Magic byte check failed:', e);
+        return { ok: false, reason: 'Could not read file for validation.' };
+      }
+    }
     function showPage(id) {
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
       document.getElementById(id).classList.add('active');
@@ -727,7 +759,7 @@
         .eq('report_type', 'bill_validation')
         .order('year', { ascending: false })
         .order('month_num', { ascending: false });
-      if (vErr) { grid.innerHTML = '<div class="empty-state">Error loading reports: ' + vErr.message + '</div>'; }
+      if (vErr) { console.error('Dashboard load (validations):', vErr); grid.innerHTML = '<div class="empty-state">Could not load reports. Please try refreshing the page.</div>'; }
       const validations = vData || [];
       // Load occupancy reports
       const { data: oData, error: oErr } = await sb
@@ -736,7 +768,7 @@
         .eq('customer_id', cid)
         .eq('report_type', 'occupancy')
         .order('period_end', { ascending: false });
-      if (oErr) { occGrid.innerHTML = '<div class="empty-state">Error loading reports: ' + oErr.message + '</div>'; }
+      if (oErr) { console.error('Dashboard load (occupancy):', oErr); occGrid.innerHTML = '<div class="empty-state">Could not load reports. Please try refreshing the page.</div>'; }
       const occupancies = oData || [];
       // Stats
       const totalFails = validations.reduce((s, r) => s + (r.fail_count || 0), 0);
@@ -780,7 +812,7 @@
         console.error('Download error:', error);
         noReport.style.display = 'flex';
         noReport.querySelector('h3').textContent = 'Could not load report';
-        noReport.querySelector('p').textContent = error.message;
+        noReport.querySelector('p').textContent = 'The report file could not be retrieved. Please try again or contact CES support.';
         return;
       }
       const html = await blob.text();
@@ -792,7 +824,7 @@
         xlBtn.onclick = async () => {
           const { data: xSigned, error: xErr } = await sb.storage.from('report-xlsx')
             .createSignedUrl(r.xlsx_path, 60, { download: true });
-          if (xErr) { alert('Download failed: ' + xErr.message); return; }
+          if (xErr) { safeAlert('Download failed. Please try again.', xErr); return; }
           window.location.href = xSigned.signedUrl;
         };
       }
@@ -801,7 +833,7 @@
         invBtn.onclick = async () => {
           const { data: iSigned, error: iErr } = await sb.storage.from('report-invoices')
             .createSignedUrl(r.invoices_path, 60, { download: true });
-          if (iErr) { alert('Download failed: ' + iErr.message); return; }
+          if (iErr) { safeAlert('Download failed. Please try again.', iErr); return; }
           window.location.href = iSigned.signedUrl;
         };
       }
@@ -867,7 +899,7 @@
       if (typeFilter) q = q.eq('report_type', typeFilter);
       const { data, error } = await q;
       const tbody = document.getElementById('adminReportTable');
-      if (error) { tbody.innerHTML = `<tr><td colspan="8">Error: ${error.message}</td></tr>`; return; }
+      if (error) { console.error('Admin reports load:', error); tbody.innerHTML = `<tr><td colspan="8">Could not load reports. Check the console for details.</td></tr>`; return; }
       window._adminReports = data || [];
       tbody.innerHTML = (data || []).map(r => {
         const isOcc = r.report_type === 'occupancy';
@@ -909,6 +941,19 @@
       if (!customerId) { alert('Pick a customer.'); return; }
       if (!period)     { alert('Pick a period.'); return; }
       if (!htmlFile && !xlsxFile && !invoicesFile) { alert('Provide at least one file.'); return; }
+      // Magic-byte validation — stops a renamed binary slipping through
+      if (htmlFile) {
+        const v = await validateFileMagicBytes(htmlFile, 'html');
+        if (!v.ok) { safeAlert(v.reason); return; }
+      }
+      if (xlsxFile) {
+        const v = await validateFileMagicBytes(xlsxFile, 'xlsx');
+        if (!v.ok) { safeAlert(v.reason); return; }
+      }
+      if (invoicesFile) {
+        const v = await validateFileMagicBytes(invoicesFile, 'zip');
+        if (!v.ok) { safeAlert(v.reason); return; }
+      }
       const [year, monthNum] = period.split('-');
       const month     = monthNames[parseInt(monthNum) - 1];
       const shortMon  = month.slice(0, 3).toLowerCase();
@@ -979,8 +1024,7 @@
         await refreshAdminStats();
         await refreshAdminReportTable();
       } catch (err) {
-        alert('Upload failed: ' + err.message);
-        console.error(err);
+        safeAlert('Upload failed. Please retry, then contact CES support if it continues.', err);
       } finally {
         btn.disabled = false; btn.textContent = 'Add report to portal';
       }
@@ -999,6 +1043,8 @@
       if (!startDate || !endDate) { alert('Pick a start and end date.'); return; }
       if (endDate < startDate) { alert('End date must be on or after start date.'); return; }
       if (!htmlFile)   { alert('Upload the HTML occupancy report.'); return; }
+      const _occv = await validateFileMagicBytes(htmlFile, 'html');
+      if (!_occv.ok) { safeAlert(_occv.reason); return; }
       const reportId = `${customerId}-occ-${startDate.replace(/-/g,'')}-${endDate.replace(/-/g,'')}`;
       const htmlPath = `${customerId}/occupancy/${startDate}-to-${endDate}.html`;
       const sDate = new Date(startDate);
@@ -1036,8 +1082,7 @@
         await refreshAdminStats();
         await refreshAdminReportTable();
       } catch (err) {
-        alert('Upload failed: ' + err.message);
-        console.error(err);
+        safeAlert('Upload failed. Please retry, then contact CES support if it continues.', err);
       } finally {
         btn.disabled = false; btn.textContent = 'Add occupancy report';
       }
@@ -1051,7 +1096,7 @@
       err.style.display = 'none'; ok.classList.remove('show');
       if (!name || !id) { err.textContent = 'Both fields required.'; err.style.display = 'block'; return; }
       const { error } = await sb.from('customers').insert({ customer_id: id, company_name: name });
-      if (error) { err.textContent = error.message; err.style.display = 'block'; return; }
+      if (error) { console.error('Add customer:', error); err.textContent = 'Could not add customer. The customer ID may already exist.'; err.style.display = 'block'; return; }
       ok.classList.add('show');
       document.getElementById('ncName').value = '';
       document.getElementById('ncId').value = '';
@@ -1063,7 +1108,7 @@
     async function deleteCustomer(id) {
       if (!confirm('Delete customer "' + id + '"? This also deletes all their reports.')) return;
       const { error } = await sb.from('customers').delete().eq('customer_id', id);
-      if (error) { alert('Failed: ' + error.message); return; }
+      if (error) { safeAlert('Could not delete customer. Please contact support.', error); return; }
       await refreshCustomerDropdown();
       await refreshCustTable();
       await refreshReportFilter();
@@ -1076,7 +1121,7 @@
       if (xlsxPath)     await sb.storage.from('report-xlsx').remove([xlsxPath]);
       if (invoicesPath) await sb.storage.from('report-invoices').remove([invoicesPath]);
       const { error } = await sb.from('reports').delete().eq('id', id);
-      if (error) { alert('Failed: ' + error.message); return; }
+      if (error) { safeAlert('Could not delete report. Please contact support.', error); return; }
       await refreshAdminReportTable();
       await refreshAdminStats();
     }
