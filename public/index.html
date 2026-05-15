@@ -208,6 +208,41 @@
     table.list td { padding: 14px 18px; border-top: 1px solid var(--line); font-size: 13.5px; color: var(--text); vertical-align: middle; }
     .mono { font-family: 'JetBrains Mono', monospace; }
     
+    
+    .sidebar-logo {
+      width: 100%; max-width: 170px; height: auto; display: block;
+      margin: 0 auto 12px auto;
+    }
+    .topbar-right { display: flex; align-items: center; gap: 14px; }
+    .customer-logo-display {
+      height: 46px; max-width: 110px; object-fit: contain;
+      background: var(--surface); padding: 4px 10px;
+      border: 1px solid var(--border); border-radius: 8px;
+    }
+    .account-card {
+      background: var(--surface); border: 1.5px solid var(--border); border-radius: 10px;
+      padding: 16px 20px; margin-bottom: 24px;
+    }
+    .account-card h3 { font-size: 13px; color: var(--text); margin-bottom: 12px; font-weight: 700; }
+    .account-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; max-width: 700px; }
+    .account-form .form-group { flex: 1 1 180px; margin-bottom: 0; }
+    .account-form .form-group label { font-size: 10.5px; }
+    .account-form button { padding: 12px 18px; flex-shrink: 0; }
+    .util-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 3px 10px; border-radius: 100px; font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    .util-electricity { background: rgba(200,140,30,0.12); color: #7a5010; }
+    .util-electricity .bdot { background: #c89030; }
+    .util-gas { background: rgba(192,57,43,0.10); color: #8b2015; }
+    .util-gas .bdot { background: #c0392b; }
+    .util-water { background: rgba(12,83,148,0.12); color: #0c5394; }
+    .util-water .bdot { background: #0c5394; }
+    .cust-table-logo {
+      height: 28px; max-width: 50px; object-fit: contain;
+      vertical-align: middle; margin-right: 8px;
+    }
     /* Portal footer — privacy policy + legal links */
     .portal-footer {
       position: fixed; bottom: 0; left: 0; right: 0;
@@ -332,6 +367,7 @@
     <div class="dash-wrap">
       <aside class="sidebar">
         <div class="sidebar-brand">
+          <img class="sidebar-logo" src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES" onerror="this.style.display='none'" />
           <div class="b1">CES Billing</div>
           <div class="b2" id="dashClientName">—</div>
         </div>
@@ -348,7 +384,10 @@
             <h1 id="welcomeH">Welcome back.</h1>
             <div class="meta" id="rptCount">— reports available</div>
           </div>
-          <div class="avatar" id="dashAvatar">—</div>
+          <div class="topbar-right">
+            <img class="customer-logo-display" id="dashCustomerLogo" style="display:none;" alt="" onerror="this.style.display='none'" />
+            <div class="avatar" id="dashAvatar">—</div>
+          </div>
         </div>
         <div class="stats-row">
           <div class="stat-card">
@@ -372,6 +411,25 @@
           <h2>Your occupancy reports</h2>
         </div>
         <div class="report-grid" id="occupancyGrid"></div>
+        <div class="section-head">
+          <h2>Your contracts</h2>
+        </div>
+        <div class="report-grid" id="contractsGrid"></div>
+        <div class="account-card">
+          <h3>Account</h3>
+          <div class="account-form">
+            <div class="form-group">
+              <label>New password</label>
+              <input type="password" id="newPassword" autocomplete="new-password" placeholder="At least 8 characters" />
+            </div>
+            <div class="form-group">
+              <label>Confirm new password</label>
+              <input type="password" id="confirmPassword" autocomplete="new-password" placeholder="Re-enter the new password" />
+            </div>
+            <button class="btn-primary" id="changePwBtn" onclick="doChangePassword()" style="width:auto;">Change password</button>
+          </div>
+          <div class="form-help" style="margin-top:10px;">If you've forgotten your current password, please email <a href="mailto:info@cesgb.com" style="color:var(--navy);text-decoration:underline;font-weight:600;">info@cesgb.com</a> to request a reset.</div>
+        </div>
       </main>
     </div>
   </div>
@@ -382,6 +440,7 @@
     <div class="dash-wrap">
       <aside class="sidebar">
         <div class="sidebar-brand">
+          <img class="sidebar-logo" src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES" onerror="this.style.display='none'" />
           <div class="b1">CES Billing</div>
           <div class="b2">Admin</div>
         </div>
@@ -403,6 +462,7 @@
         <div class="admin-tabs">
           <button class="admin-tab active" onclick="adminTab('upload')">Upload Validation</button>
           <button class="admin-tab" onclick="adminTab('upload-occ')">Upload Occupancy</button>
+          <button class="admin-tab" onclick="adminTab('upload-contract')">Upload Contract</button>
           <button class="admin-tab" onclick="adminTab('reports')">All Reports</button>
           <button class="admin-tab" onclick="adminTab('customers')">Customers</button>
         </div>
@@ -506,6 +566,34 @@
             <button class="btn-primary" onclick="doUploadOccupancy()" id="uploadOccBtn">Add occupancy report</button>
           </div>
         </div>
+        <!-- UPLOAD CONTRACT TAB -->
+        <div class="tab-pane" id="tab-upload-contract">
+          <div class="form-card">
+            <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Upload a contract</h2>
+            <p style="font-size:13px;color:var(--muted);margin-bottom:22px;">
+              Each customer can have up to three contracts visible on their dashboard — one each for electricity, gas and water. Uploading a new contract for the same utility replaces the previous one.
+            </p>
+            <div class="success-box" id="uploadContractOk">Contract uploaded successfully.</div>
+            <div class="form-group">
+              <label>Customer</label>
+              <select id="upContractCustomer"></select>
+            </div>
+            <div class="form-group">
+              <label>Utility</label>
+              <select id="upContractUtility">
+                <option value="electricity">Electricity</option>
+                <option value="gas">Gas</option>
+                <option value="water">Water</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Contract HTML report (required)</label>
+              <input type="file" id="upContractFile" accept=".html,.htm" />
+              <div class="form-help">A single self-contained <code>.html</code> file with projected spend and contract details.</div>
+            </div>
+            <button class="btn-primary" onclick="doUploadContract()" id="uploadContractBtn">Add contract to portal</button>
+          </div>
+        </div>
         <!-- REPORTS TAB -->
         <div class="tab-pane" id="tab-reports">
           <div class="section-head">
@@ -599,6 +687,7 @@
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
       auth: { persistSession: true, autoRefreshToken: true }
     });
+    const CUST_LOGOS_BASE = 'https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/customer-logos';
     let currentUser = null;
     // ───── AUDIT LOG + IDLE TIMEOUT ─────
     // logAction() records an event to the audit_log table for accountability.
@@ -703,7 +792,7 @@
     async function loadProfileAndRoute(user) {
       const { data: profile, error } = await sb
         .from('profiles')
-        .select('*, customers(company_name)')
+        .select('*, customers(company_name, has_logo)')
         .eq('id', user.id)
         .single();
       if (error || !profile) {
@@ -717,7 +806,8 @@
         userId:     user.id,
         customerId: profile.customer_id || '__admin__',
         name:       profile.is_admin ? 'CES Admin' : (profile.customers?.company_name || 'Customer'),
-        isAdmin:    !!profile.is_admin
+        isAdmin:    !!profile.is_admin,
+        hasLogo:    !!profile.customers?.has_logo
       };
       showPage(currentUser.isAdmin ? 'adminPage' : 'dashPage');
       setupIdleTimeout();
@@ -735,17 +825,7 @@
     }
     async function doReset(e) {
       e.preventDefault();
-      const email = document.getElementById('loginEmail').value.trim();
-      if (!email) { alert('Enter your email above first.'); return; }
-      // Customer accounts use pseudo-emails (e.g. customer@cesgb.com) that don't receive mail —
-      // route them to support instead of sending a reset link nowhere.
-      if (/@cesgb\.com$/i.test(email)) {
-        alert('This is a managed CES account. Contact your CES administrator to reset the password.');
-        return;
-      }
-      const { error } = await sb.auth.resetPasswordForEmail(email);
-      if (error) { alert('Reset request failed. Please contact CES support.'); console.error(error); return; }
-      alert('If an account exists for ' + email + ', a reset link has been sent.');
+      alert('To reset your password, please email info@cesgb.com.\n\nThe CES team will reply within one business day with a new temporary password.');
     }
     // ───── CUSTOMER DASHBOARD ─────
     // XSS-safe escape — replaces &<>"' with HTML entities so user-controlled strings
@@ -835,6 +915,14 @@
       document.getElementById('welcomeH').textContent = 'Welcome back, ' + currentUser.name + '.';
       const initials = currentUser.name.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
       document.getElementById('dashAvatar').textContent = initials;
+      // Show customer logo if available
+      const logoImg = document.getElementById('dashCustomerLogo');
+      if (currentUser.hasLogo) {
+        logoImg.src = CUST_LOGOS_BASE + '/' + encodeURIComponent(currentUser.customerId) + '.png?t=' + Date.now();
+        logoImg.style.display = 'block';
+      } else {
+        logoImg.style.display = 'none';
+      }
       const grid = document.getElementById('reportGrid');
       const occGrid = document.getElementById('occupancyGrid');
       grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><p>Loading…</p></div>';
@@ -866,8 +954,18 @@
       document.getElementById('rptCount').textContent =
         validations.length + ' validation' + (validations.length !== 1 ? 's' : '') +
         ' · ' + occupancies.length + ' occupancy report' + (occupancies.length !== 1 ? 's' : '');
+      // Load contracts
+      const { data: cData, error: cErr } = await sb
+        .from('reports')
+        .select('*')
+        .eq('customer_id', cid)
+        .eq('report_type', 'contract')
+        .order('utility');
+      if (cErr) { console.error('Dashboard load (contracts):', cErr); }
+      const contracts = cData || [];
       renderReportGrid(validations);
       renderOccupancyGrid(occupancies);
+      renderContractsGrid(contracts);
       // Background-prefetch the most-recent report so the FIRST click is fast.
       if (validations[0] && validations[0].html_path) {
         sb.storage.from('report-html').download(validations[0].html_path)
@@ -879,9 +977,14 @@
     // ───── REPORT VIEWER ─────
     async function openViewer(r) {
       const isOccupancy = r.report_type === 'occupancy';
+      const isContract = r.report_type === 'contract';
       if (isOccupancy) {
         document.getElementById('viewerTitle').textContent = (currentUser?.name || '') + ' — Occupancy Report';
         document.getElementById('viewerPeriod').textContent = fmtRange(r.period_start, r.period_end);
+      } else if (isContract) {
+        const utilLabel = (r.utility || 'contract').charAt(0).toUpperCase() + (r.utility || 'contract').slice(1);
+        document.getElementById('viewerTitle').textContent = (currentUser?.name || '') + ' — ' + utilLabel + ' Contract';
+        document.getElementById('viewerPeriod').textContent = 'Current contract';
       } else {
         document.getElementById('viewerTitle').textContent  = r.month + ' ' + r.year + ' — Bill Validation';
         document.getElementById('viewerPeriod').textContent = r.period;
@@ -938,7 +1041,7 @@
       frame.srcdoc = html;
       logAction('view_report', r.id, { type: r.report_type || 'bill_validation', period: r.period });
       // Excel + Invoices only show for bill validation reports
-      if (!isOccupancy && r.xlsx_path) {
+      if (!isOccupancy && !isContract && r.xlsx_path) {
         xlBtn.style.display = 'inline-flex';
         xlBtn.onclick = async () => {
           const { data: xSigned, error: xErr } = await sb.storage.from('report-xlsx')
@@ -948,7 +1051,7 @@
           window.location.href = xSigned.signedUrl;
         };
       }
-      if (!isOccupancy && r.invoices_path) {
+      if (!isOccupancy && !isContract && r.invoices_path) {
         invBtn.style.display = 'inline-flex';
         invBtn.onclick = async () => {
           const { data: iSigned, error: iErr } = await sb.storage.from('report-invoices')
@@ -990,6 +1093,7 @@
         (data || []).map(c => `<option value="${c.customer_id}">${c.company_name}</option>`).join('');
       document.getElementById('upCustomer').innerHTML = opts;
       document.getElementById('upOccCustomer').innerHTML = opts;
+      document.getElementById('upContractCustomer').innerHTML = opts;
     }
     async function refreshReportFilter() {
       const { data } = await sb.from('customers').select('*').order('company_name');
@@ -1005,10 +1109,16 @@
       window._adminCustomers = data || [];
       tbody.innerHTML = (data || []).map(c => `
         <tr>
-          <td><strong>${c.company_name}</strong></td>
-          <td class="mono">${c.customer_id}</td>
+          <td>${c.has_logo ? `<img class="cust-table-logo" src="${CUST_LOGOS_BASE}/${encodeURIComponent(c.customer_id)}.png?t=${c._t || ''}" onerror="this.style.display='none'" alt="" />` : ''}<strong>${escapeHtml(c.company_name)}</strong></td>
+          <td class="mono">${escapeHtml(c.customer_id)}</td>
           <td class="mono">${new Date(c.created_at).toLocaleDateString('en-GB')}</td>
-          <td><button class="btn-danger" data-action="delete-customer" data-id="${escapeHtml(c.customer_id)}">Delete</button></td>
+          <td>
+            ${c.has_logo
+              ? `<button class="btn-secondary" data-action="remove-logo" data-id="${escapeHtml(c.customer_id)}" style="margin-right:6px;">Remove Logo</button>`
+              : `<button class="btn-secondary" data-action="add-logo" data-id="${escapeHtml(c.customer_id)}" style="margin-right:6px;">Add Logo</button>`
+            }
+            <button class="btn-danger" data-action="delete-customer" data-id="${escapeHtml(c.customer_id)}">Delete</button>
+          </td>
         </tr>
       `).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:32px;">No customers yet.</td></tr>';
     }
@@ -1251,7 +1361,200 @@
       await refreshAdminReportTable();
       await refreshAdminStats();
     }
-    // ───── DELEGATED CLICK HANDLER for admin delete buttons ─────
+    // ───── CONTRACTS GRID ─────
+    let dashContracts = [];
+    function renderContractsGrid(contracts) {
+      dashContracts = contracts;
+      const grid = document.getElementById('contractsGrid');
+      if (!contracts.length) {
+        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><h3>No contracts uploaded yet</h3><p>Your contract details will appear here once CES uploads them.</p></div>';
+        return;
+      }
+      grid.innerHTML = contracts.map(function(r){
+        const utility = (r.utility || 'electricity').toLowerCase();
+        const label = utility.charAt(0).toUpperCase() + utility.slice(1);
+        return '<div class="report-card" data-source="contract" data-report-id="' + escapeHtml(r.id) + '">' +
+          '<div class="report-month">' + escapeHtml(label) + '</div>' +
+          '<div class="report-year">Contract details</div>' +
+          '<div class="badge-row"><span class="util-chip util-' + utility + '"><span class="bdot"></span>' + escapeHtml(label) + '</span></div>' +
+          '<div class="report-meta">' +
+            '<div class="row"><span>Type</span><span class="v">' + escapeHtml(utility) + '</span></div>' +
+            '<div class="row"><span>Uploaded</span><span class="v">' + new Date(r.uploaded_at).toLocaleDateString('en-GB') + '</span></div>' +
+          '</div></div>';
+      }).join('');
+      grid.querySelectorAll('.report-card[data-source="contract"]').forEach(function(card){
+        card.addEventListener('click', function(){
+          const r = dashContracts.find(function(x){ return x.id === card.dataset.reportId; });
+          if (r) openViewer(r);
+        });
+      });
+    }
+
+    // ───── CHANGE PASSWORD ─────
+    async function doChangePassword() {
+      const newPw = document.getElementById('newPassword').value;
+      const confirmPw = document.getElementById('confirmPassword').value;
+      if (!newPw || newPw.length < 8) {
+        safeAlert('Your new password must be at least 8 characters.');
+        return;
+      }
+      if (newPw !== confirmPw) {
+        safeAlert('The two password entries do not match. Please try again.');
+        return;
+      }
+      const btn = document.getElementById('changePwBtn');
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        const { error } = await sb.auth.updateUser({ password: newPw });
+        if (error) { safeAlert('Could not change password. Please contact info@cesgb.com.', error); return; }
+        document.getElementById('newPassword').value = '';
+        document.getElementById('confirmPassword').value = '';
+        logAction('password_change', null, {});
+        alert('Password changed successfully. You will use this new password the next time you sign in.');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Change password';
+      }
+    }
+
+    // ───── CUSTOMER LOGO — admin upload/remove with client-side transparency ─────
+    async function processLogoToTransparentPng(file) {
+      const img = await createImageBitmap(file);
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      // Detect corner colour and key it out as transparent (handles white OR coloured backgrounds)
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const d = imgData.data;
+      const corner = [d[0], d[1], d[2]];
+      const isBg = function(r, g, b) {
+        return Math.abs(r - corner[0]) < 20 && Math.abs(g - corner[1]) < 20 && Math.abs(b - corner[2]) < 20;
+      };
+      const looksWhite = corner[0] > 240 && corner[1] > 240 && corner[2] > 240;
+      for (let i = 0; i < d.length; i += 4) {
+        const ax = d[i+3];
+        if (ax === 0) continue;
+        if (looksWhite) {
+          if (d[i] > 240 && d[i+1] > 240 && d[i+2] > 240) d[i+3] = 0;
+        } else {
+          if (isBg(d[i], d[i+1], d[i+2])) d[i+3] = 0;
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+      // Bounding box of non-transparent pixels
+      let minX = canvas.width, minY = canvas.height, maxX = 0, maxY = 0, anyVisible = false;
+      for (let y = 0; y < canvas.height; y++) {
+        for (let x = 0; x < canvas.width; x++) {
+          if (d[(y * canvas.width + x) * 4 + 3] > 0) {
+            anyVisible = true;
+            if (x < minX) minX = x; if (x > maxX) maxX = x;
+            if (y < minY) minY = y; if (y > maxY) maxY = y;
+          }
+        }
+      }
+      if (!anyVisible) {
+        return new Promise(function(r){ canvas.toBlob(r, 'image/png'); });
+      }
+      const cropW = maxX - minX + 1;
+      const cropH = maxY - minY + 1;
+      const cropCanvas = document.createElement('canvas');
+      cropCanvas.width = cropW; cropCanvas.height = cropH;
+      cropCanvas.getContext('2d').drawImage(canvas, -minX, -minY);
+      // Resize to max 400px long edge
+      const maxSide = 400;
+      const ratio = Math.min(1, maxSide / Math.max(cropW, cropH));
+      const finalCanvas = document.createElement('canvas');
+      finalCanvas.width = Math.round(cropW * ratio);
+      finalCanvas.height = Math.round(cropH * ratio);
+      const fctx = finalCanvas.getContext('2d');
+      fctx.imageSmoothingEnabled = true;
+      fctx.imageSmoothingQuality = 'high';
+      fctx.drawImage(cropCanvas, 0, 0, finalCanvas.width, finalCanvas.height);
+      return new Promise(function(r){ finalCanvas.toBlob(r, 'image/png'); });
+    }
+
+    async function addCustomerLogo(customerId) {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = async function() {
+        const file = input.files[0];
+        if (!file) return;
+        try {
+          const blob = await processLogoToTransparentPng(file);
+          const { error: upErr } = await sb.storage.from('customer-logos').upload(
+            customerId + '.png', blob, { upsert: true, contentType: 'image/png' }
+          );
+          if (upErr) { safeAlert('Logo upload failed. Please contact support.', upErr); return; }
+          const { error: dbErr } = await sb.from('customers').update({ has_logo: true }).eq('customer_id', customerId);
+          if (dbErr) { safeAlert('Logo saved but database flag failed.', dbErr); return; }
+          logAction('upload_logo', customerId, {});
+          await refreshCustTable();
+          alert('Logo uploaded successfully.');
+        } catch (err) {
+          safeAlert('Could not process the image. Try a different file (PNG or JPG).', err);
+        }
+      };
+      input.click();
+    }
+
+    async function removeCustomerLogo(customerId) {
+      if (!confirm('Remove the logo for this customer? The customer will no longer see their logo on their dashboard.')) return;
+      const { error: rmErr } = await sb.storage.from('customer-logos').remove([customerId + '.png']);
+      if (rmErr) console.warn('Storage delete:', rmErr);
+      const { error: dbErr } = await sb.from('customers').update({ has_logo: false }).eq('customer_id', customerId);
+      if (dbErr) { safeAlert('Could not update customer record. Please contact support.', dbErr); return; }
+      logAction('remove_logo', customerId, {});
+      await refreshCustTable();
+    }
+
+    // ───── UPLOAD CONTRACT ─────
+    async function doUploadContract() {
+      const customerId = document.getElementById('upContractCustomer').value;
+      const utility    = document.getElementById('upContractUtility').value;
+      const htmlFile   = document.getElementById('upContractFile').files[0];
+      const ok         = document.getElementById('uploadContractOk');
+      ok.classList.remove('show');
+      if (!customerId) { alert('Pick a customer.'); return; }
+      if (!htmlFile)   { alert('Upload the contract HTML file.'); return; }
+      const v = await validateFileMagicBytes(htmlFile, 'html');
+      if (!v.ok) { safeAlert(v.reason); return; }
+      const reportId = customerId + '-contract-' + utility;
+      const htmlPath = customerId + '/contracts/' + utility + '.html';
+      const btn = document.getElementById('uploadContractBtn');
+      btn.disabled = true; btn.textContent = 'Uploading…';
+      try {
+        const { error: upErr } = await sb.storage.from('report-html').upload(htmlPath, htmlFile, {
+          upsert: true, contentType: 'text/html; charset=utf-8'
+        });
+        if (upErr) throw new Error('HTML upload: ' + upErr.message);
+        const upsertPayload = {
+          id: reportId, customer_id: customerId,
+          month: 'Contract', month_num: 0, year: new Date().getFullYear(),
+          period: utility.charAt(0).toUpperCase() + utility.slice(1) + ' contract',
+          report_type: 'contract',
+          utility: utility,
+          sites: 0, fail_count: 0, warn_count: 0, total_net: '—',
+          html_path: htmlPath,
+          uploaded_by: currentUser.userId,
+          uploaded_at: new Date().toISOString()
+        };
+        const { error: dbErr } = await sb.from('reports').upsert(upsertPayload);
+        if (dbErr) throw new Error('DB write: ' + dbErr.message);
+        ok.classList.add('show');
+        logAction('upload_contract', reportId, { utility: utility });
+        document.getElementById('upContractFile').value = '';
+        await refreshAdminStats();
+        await refreshAdminReportTable();
+      } catch (err) {
+        safeAlert('Upload failed. Please retry, then contact CES support if it continues.', err);
+      } finally {
+        btn.disabled = false; btn.textContent = 'Add contract to portal';
+      }
+    }
+
+        // ───── DELEGATED CLICK HANDLER for admin delete buttons ─────
     // Uses data attributes instead of inline onclick — keeps user-controlled
     // values out of HTML markup, eliminates XSS via the row data.
     document.addEventListener('click', e => {
@@ -1263,6 +1566,10 @@
         if (r) deleteReport(r.id, r.html_path || '', r.xlsx_path || '', r.invoices_path || '', r.report_type || 'bill_validation');
       } else if (btn.dataset.action === 'delete-customer') {
         deleteCustomer(id);
+      } else if (btn.dataset.action === 'add-logo') {
+        addCustomerLogo(id);
+      } else if (btn.dataset.action === 'remove-logo') {
+        removeCustomerLogo(id);
       }
     });
 
