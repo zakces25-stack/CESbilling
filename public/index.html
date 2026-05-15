@@ -766,7 +766,6 @@
         <div class="admin-tabs">
           <button class="admin-tab active" onclick="adminTab('upload')">Upload Validation</button>
           <button class="admin-tab" onclick="adminTab('upload-occ')">Upload Occupancy</button>
-          <button class="admin-tab" onclick="adminTab('upload-contract')">Upload Contract</button>
           <button class="admin-tab" onclick="adminTab('reports')">All Reports</button>
           <button class="admin-tab" onclick="adminTab('customers')">Customers</button>
           <button class="admin-tab" onclick="adminTab('carbon')">Carbon Config</button>
@@ -872,33 +871,6 @@
           </div>
         </div>
         <!-- UPLOAD CONTRACT TAB -->
-        <div class="tab-pane" id="tab-upload-contract">
-          <div class="form-card">
-            <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Upload a contract</h2>
-            <p style="font-size:13px;color:var(--muted);margin-bottom:22px;">
-              Each customer can have up to three contracts visible on their dashboard — one each for electricity, gas and water. Uploading a new contract for the same utility replaces the previous one.
-            </p>
-            <div class="success-box" id="uploadContractOk">Contract uploaded successfully.</div>
-            <div class="form-group">
-              <label>Customer</label>
-              <select id="upContractCustomer"></select>
-            </div>
-            <div class="form-group">
-              <label>Utility</label>
-              <select id="upContractUtility">
-                <option value="electricity">Electricity</option>
-                <option value="gas">Gas</option>
-                <option value="water">Water</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Contract HTML report (required)</label>
-              <input type="file" id="upContractFile" accept=".html,.htm" />
-              <div class="form-help">A single self-contained <code>.html</code> file with projected spend and contract details.</div>
-            </div>
-            <button class="btn-primary" onclick="doUploadContract()" id="uploadContractBtn">Add contract to portal</button>
-          </div>
-        </div>
         <!-- REPORTS TAB -->
         <div class="tab-pane" id="tab-reports">
           <div class="form-card" style="margin-bottom:24px;background:var(--surface-2);">
@@ -1451,7 +1423,6 @@
         (data || []).map(c => `<option value="${c.customer_id}">${c.company_name}</option>`).join('');
       document.getElementById('upCustomer').innerHTML = opts;
       document.getElementById('upOccCustomer').innerHTML = opts;
-      document.getElementById('upContractCustomer').innerHTML = opts;
     }
     async function refreshReportFilter() {
       const { data } = await sb.from('customers').select('*').order('company_name');
@@ -1874,50 +1845,6 @@
       await refreshCustTable();
     }
 
-    // ───── UPLOAD CONTRACT ─────
-    async function doUploadContract() {
-      const customerId = document.getElementById('upContractCustomer').value;
-      const utility    = document.getElementById('upContractUtility').value;
-      const htmlFile   = document.getElementById('upContractFile').files[0];
-      const ok         = document.getElementById('uploadContractOk');
-      ok.classList.remove('show');
-      if (!customerId) { alert('Pick a customer.'); return; }
-      if (!htmlFile)   { alert('Upload the contract HTML file.'); return; }
-      const v = await validateFileMagicBytes(htmlFile, 'html');
-      if (!v.ok) { safeAlert(v.reason); return; }
-      const reportId = customerId + '-contract-' + utility;
-      const htmlPath = customerId + '/contracts/' + utility + '.html';
-      const btn = document.getElementById('uploadContractBtn');
-      btn.disabled = true; btn.textContent = 'Uploading…';
-      try {
-        const { error: upErr } = await sb.storage.from('report-html').upload(htmlPath, htmlFile, {
-          upsert: true, contentType: 'text/html; charset=utf-8'
-        });
-        if (upErr) throw new Error('HTML upload: ' + upErr.message);
-        const upsertPayload = {
-          id: reportId, customer_id: customerId,
-          month: 'Contract', month_num: 0, year: new Date().getFullYear(),
-          period: utility.charAt(0).toUpperCase() + utility.slice(1) + ' contract',
-          report_type: 'contract',
-          utility: utility,
-          sites: 0, fail_count: 0, warn_count: 0, total_net: '—',
-          html_path: htmlPath,
-          uploaded_by: currentUser.userId,
-          uploaded_at: new Date().toISOString()
-        };
-        const { error: dbErr } = await sb.from('reports').upsert(upsertPayload);
-        if (dbErr) throw new Error('DB write: ' + dbErr.message);
-        ok.classList.add('show');
-        logAction('upload_contract', reportId, { utility: utility });
-        document.getElementById('upContractFile').value = '';
-        await refreshAdminStats();
-        await refreshAdminReportTable();
-      } catch (err) {
-        safeAlert('Upload failed. Please retry, then contact CES support if it continues.', err);
-      } finally {
-        btn.disabled = false; btn.textContent = 'Add contract to portal';
-      }
-    }
 
         // ───── DELEGATED CLICK HANDLER for admin delete buttons ─────
     // Uses data attributes instead of inline onclick — keeps user-controlled
