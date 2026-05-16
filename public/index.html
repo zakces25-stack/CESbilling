@@ -628,6 +628,32 @@
       .sidebar, .topbar-right .avatar, .topbar-ces-logo { display: none !important; }
     }
 
+
+    /* ───── EDIT REPORT MODAL ───── */
+    .edit-report-modal {
+      position: fixed; inset: 0; z-index: 1000;
+      display: flex !important; align-items: center; justify-content: center;
+    }
+    .edit-report-modal[style*="none"] { display: none !important; }
+    .edit-report-modal__overlay {
+      position: absolute; inset: 0; background: rgba(0,0,0,0.55); backdrop-filter: blur(2px);
+    }
+    .edit-report-modal__card {
+      position: relative; background: var(--surface); border-radius: 12px;
+      padding: 0; max-width: 520px; width: 90%; max-height: 90vh; overflow-y: auto;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+    }
+    .edit-report-modal__head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 22px 14px; border-bottom: 1px solid var(--line);
+    }
+    .edit-report-modal__head h3 { font-size: 16px; font-weight: 700; }
+    .edit-report-modal__body { padding: 18px 22px 22px; }
+    .edit-report-modal .form-help { color: var(--muted); }
+    @media (max-width: 600px) {
+      .edit-report-modal__card { width: 95%; max-height: 92vh; }
+      .edit-report-modal__body { padding: 14px 16px; }
+    }
     .cust-table-logo {
       height: 28px; max-width: 50px; object-fit: contain;
       vertical-align: middle; margin-right: 8px;
@@ -1536,8 +1562,9 @@
       }
       // Use prefetched HTML if we eagerly downloaded it on dashboard load.
       let html, dlError = null;
-      if (window._reportCache && window._reportCache[r.html_path]) {
-        html = window._reportCache[r.html_path];
+      const cacheKey = r.html_path + '|' + (r.uploaded_at || '');
+      if (window._reportCache && window._reportCache[cacheKey]) {
+        html = window._reportCache[cacheKey];
       } else {
         const dl = await sb.storage.from('report-html').download(r.html_path);
         dlError = dl.error;
@@ -1684,7 +1711,7 @@
             <td class="mono">${totalLabel}</td>
             <td class="mono">${files}</td>
             <td class="mono">${new Date(r.uploaded_at).toLocaleDateString('en-GB')}</td>
-            <td><button class="btn-danger" data-action="delete-report" data-id="${escapeHtml(r.id)}">Delete</button></td>
+            <td style="white-space:nowrap;"><button class="btn-secondary" data-action="edit-report" data-id="${escapeHtml(r.id)}" style="margin-right:6px;padding:6px 10px;font-size:12px;">Edit</button><button class="btn-danger" data-action="delete-report" data-id="${escapeHtml(r.id)}" style="padding:6px 10px;font-size:12px;">Delete</button></td>
           </tr>
         `;
       }).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:32px;">No reports uploaded yet.</td></tr>';
@@ -2077,6 +2104,11 @@
       const btn = e.target.closest('button[data-action]');
       if (!btn) return;
       const id = btn.dataset.id;
+      if (btn.dataset.action === 'edit-report') {
+        const r = (window._adminReports || []).find(x => x.id === id);
+        if (r) openEditReport(r);
+        return;
+      }
       if (btn.dataset.action === 'delete-report') {
         const r = (window._adminReports || []).find(x => x.id === id);
         if (r) deleteReport(r.id, r.html_path || '', r.xlsx_path || '', r.invoices_path || '', r.report_type || 'bill_validation');
@@ -3042,6 +3074,115 @@
       }
     }
 
+
+    // ───── EDIT REPORT MODAL ─────
+    let _editingReport = null;
+    function openEditReport(r) {
+      _editingReport = r;
+      document.getElementById('editReportTitle').textContent = 'Edit report — ' + (r.customers?.company_name || r.customer_id) + ' · ' + (r.period || '');
+      document.getElementById('editHtmlCurrent').textContent = r.html_path ? ('Current: ' + r.html_path) : 'No file uploaded';
+      document.getElementById('editXlsxCurrent').textContent = r.xlsx_path ? ('Current: ' + r.xlsx_path) : 'No file uploaded';
+      document.getElementById('editInvCurrent').textContent  = r.invoices_path ? ('Current: ' + r.invoices_path) : 'No file uploaded';
+      ['editHtmlFile','editXlsxFile','editInvFile'].forEach(id => document.getElementById(id).value = '');
+      document.getElementById('editReportOk').classList.remove('show');
+      document.getElementById('editReportModal').style.display = 'flex';
+    }
+    function closeEditReport() {
+      document.getElementById('editReportModal').style.display = 'none';
+      _editingReport = null;
+    }
+    async function doEditReport() {
+      const r = _editingReport;
+      if (!r) return;
+      const htmlFile = document.getElementById('editHtmlFile').files[0];
+      const xlsxFile = document.getElementById('editXlsxFile').files[0];
+      const invFile  = document.getElementById('editInvFile').files[0];
+      if (!htmlFile && !xlsxFile && !invFile) { safeAlert('Pick at least one file to replace.'); return; }
+      const btn = document.getElementById('editSubmitBtn');
+      btn.disabled = true; btn.textContent = 'Uploading…';
+      try {
+        // Validate magic bytes
+        if (htmlFile) { const v = await validateFileMagicBytes(htmlFile, 'html'); if (!v.ok) throw new Error(v.reason); }
+        if (xlsxFile) { const v = await validateFileMagicBytes(xlsxFile, 'xlsx'); if (!v.ok) throw new Error(v.reason); }
+        if (invFile)  { const v = await validateFileMagicBytes(invFile,  'zip');  if (!v.ok) throw new Error(v.reason); }
+
+        // Compute storage paths (use existing if present, else derive from customer/year/month-yy)
+        const shortMon = (r.month || '').slice(0,3).toLowerCase();
+        const yy = String(r.year || '').slice(2);
+        const htmlPath = r.html_path     || `${r.customer_id}/${r.year}/${shortMon}-${yy}.html`;
+        const xlsxPath = r.xlsx_path     || `${r.customer_id}/${r.year}/${shortMon}-${yy}.xlsx`;
+        const invPath  = r.invoices_path || `${r.customer_id}/${r.year}/${shortMon}-${yy}-invoices.zip`;
+
+        if (htmlFile) {
+          const { error } = await sb.storage.from('report-html').upload(htmlPath, htmlFile, {
+            upsert: true, contentType: 'text/html; charset=utf-8', cacheControl: '0'
+          });
+          if (error) throw new Error('HTML: ' + error.message);
+        }
+        if (xlsxFile) {
+          const { error } = await sb.storage.from('report-xlsx').upload(xlsxPath, xlsxFile, {
+            upsert: true, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', cacheControl: '0'
+          });
+          if (error) throw new Error('Excel: ' + error.message);
+        }
+        if (invFile) {
+          const { error } = await sb.storage.from('report-invoices').upload(invPath, invFile, {
+            upsert: true, contentType: 'application/zip', cacheControl: '0'
+          });
+          if (error) throw new Error('Invoices: ' + error.message);
+        }
+
+        // Update reports row — paths + bump uploaded_at so caches bust
+        const patch = { uploaded_at: new Date().toISOString() };
+        if (htmlFile) patch.html_path = htmlPath;
+        if (xlsxFile) patch.xlsx_path = xlsxPath;
+        if (invFile)  patch.invoices_path = invPath;
+
+        // If HTML was re-uploaded, re-parse metadata + usage_data
+        if (htmlFile) {
+          try {
+            const txt = await htmlFile.text();
+            const bvStr = _extractJsObject(txt, 'BV');
+            if (bvStr) {
+              const bv = JSON.parse(bvStr);
+              const fmtGBP = (n) => '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+              patch.sites = (bv.summary.electricity?.length || 0) + (bv.summary.water?.length || 0) + (bv.summary.gas?.length || 0);
+              patch.total_net = fmtGBP(bv.summary.totals?.grand_total || 0);
+              patch.prev_total_net = bv.summary.totals?.prev_grand != null ? fmtGBP(bv.summary.totals.prev_grand) : null;
+              patch.fail_count = (bv.issues || []).filter(i => i.sev === 'FAIL').length;
+              patch.warn_count = (bv.issues || []).filter(i => i.sev !== 'FAIL').length;
+            }
+            // Refresh usage_data using the new HTML
+            const reportRow = { id: r.id, customer_id: r.customer_id };
+            const { rows } = parseValidationHTML(txt, reportRow);
+            if (rows.length > 0) {
+              await sb.from('usage_data').upsert(rows, { onConflict: 'customer_id,meter_id,period_start,utility' });
+            }
+          } catch (e) { console.warn('Metadata re-parse failed:', e); }
+        }
+
+        const { error: dbErr } = await sb.from('reports').update(patch).eq('id', r.id);
+        if (dbErr) throw new Error('DB write: ' + dbErr.message);
+
+        // Bust in-memory cache for this report
+        if (window._reportCache) {
+          Object.keys(window._reportCache).forEach(k => {
+            if (k.startsWith(r.html_path)) delete window._reportCache[k];
+          });
+        }
+
+        document.getElementById('editReportOk').classList.add('show');
+        logAction('edit_report', r.id, { files: [htmlFile && 'html', xlsxFile && 'xlsx', invFile && 'invoices'].filter(Boolean) });
+        await refreshAdminReportTable();
+        setTimeout(closeEditReport, 1200);
+      } catch (err) {
+        console.error(err);
+        safeAlert(err.message || 'Edit failed');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Save changes';
+      }
+    }
+
     // ───── BOOT ─────
     async function init() {
       const { data: { session } } = await sb.auth.getSession();
@@ -3057,6 +3198,42 @@
     });
   </script>
   <!-- Privacy policy footer — visible on every page, link opens PDF in new tab -->
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       EDIT REPORT MODAL — replace HTML / Excel / Invoices for an existing row
+  ════════════════════════════════════════════════════════════════════════ -->
+  <div class="edit-report-modal" id="editReportModal" style="display:none;">
+    <div class="edit-report-modal__overlay" onclick="closeEditReport()"></div>
+    <div class="edit-report-modal__card">
+      <div class="edit-report-modal__head">
+        <h3 id="editReportTitle">Edit report</h3>
+        <button class="btn-close" onclick="closeEditReport()" aria-label="Close">×</button>
+      </div>
+      <div class="edit-report-modal__body">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:18px;">Upload a new file to replace the existing one. Leave a field empty to keep the current version.</p>
+        <div class="success-box" id="editReportOk">Files updated successfully.</div>
+        <div class="form-group">
+          <label>HTML report</label>
+          <input type="file" id="editHtmlFile" accept=".html,.htm" />
+          <div class="form-help" id="editHtmlCurrent">—</div>
+        </div>
+        <div class="form-group">
+          <label>Excel workbook</label>
+          <input type="file" id="editXlsxFile" accept=".xlsx" />
+          <div class="form-help" id="editXlsxCurrent">—</div>
+        </div>
+        <div class="form-group">
+          <label>Invoice ZIP</label>
+          <input type="file" id="editInvFile" accept=".zip" />
+          <div class="form-help" id="editInvCurrent">—</div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:18px;">
+          <button class="btn-primary" id="editSubmitBtn" onclick="doEditReport()" style="flex:1;">Save changes</button>
+          <button class="btn-secondary" onclick="closeEditReport()" style="flex:1;">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
   <footer class="portal-footer">
     <span>© Commercial Energy Solutions Ltd · Company no. 06257655 · ICO ZB326783</span>
     <span>
