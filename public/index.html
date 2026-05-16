@@ -970,7 +970,7 @@
             <button class="btn-primary" onclick="addCustomer()">Add customer</button>
           </div>
           <table class="list">
-            <thead><tr><th>Company</th><th>Customer ID</th><th>Created</th><th></th></tr></thead>
+            <thead><tr><th>Company</th><th>Customer ID</th><th>Notification email</th><th>Created</th><th></th></tr></thead>
             <tbody id="custTable"></tbody>
           </table>
         </div>
@@ -1468,6 +1468,10 @@
         <tr>
           <td>${c.has_logo ? `<img class="cust-table-logo" src="${CUST_LOGOS_BASE}/${encodeURIComponent(c.customer_id)}.png?t=${c._t || ''}" onerror="this.style.display='none'" alt="" />` : ''}<strong>${escapeHtml(c.company_name)}</strong></td>
           <td class="mono">${escapeHtml(c.customer_id)}</td>
+          <td>
+            <input type="email" data-email-id="${escapeHtml(c.customer_id)}" value="${escapeHtml(c.notification_email || '')}" placeholder="notify@example.com" style="width:200px;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:12.5px;font-family:'JetBrains Mono', monospace;" />
+            <button class="btn-secondary" data-action="save-email" data-id="${escapeHtml(c.customer_id)}" style="margin-left:6px;padding:6px 10px;font-size:12px;">Save</button>
+          </td>
           <td class="mono">${new Date(c.created_at).toLocaleDateString('en-GB')}</td>
           <td>
             ${c.has_logo
@@ -1477,7 +1481,7 @@
             <button class="btn-danger" data-action="delete-customer" data-id="${escapeHtml(c.customer_id)}">Delete</button>
           </td>
         </tr>
-      `).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:32px;">No customers yet.</td></tr>';
+      `).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:32px;">No customers yet.</td></tr>';
     }
     async function refreshAdminReportTable() {
       const custFilter = document.getElementById('reportFilter').value;
@@ -1639,6 +1643,23 @@
 
         ok.classList.add('show');
         logAction('upload_validation', reportId, { sites: sites, fails: fails, warns: warns });
+
+        // ── Trigger email notification (best-effort, never blocks the upload) ──
+        try {
+          const { data: notifResp, error: notifErr } = await sb.functions.invoke('send-report-notification', {
+            body: { customer_id: customerId, month: month, year: parseInt(year) }
+          });
+          if (notifErr) {
+            console.warn('[Email] Notification function failed:', notifErr.message || notifErr);
+          } else if (notifResp?.skipped) {
+            console.log('[Email] Skipped — no notification email set for this customer.');
+          } else if (notifResp?.success) {
+            console.log('[Email] Notification sent to customer (Resend id: ' + (notifResp.resend_id || '?') + ')');
+          }
+        } catch (e) {
+          console.warn('[Email] Could not invoke function:', e);
+        }
+
         document.getElementById('upHtmlFile').value     = '';
         document.getElementById('upXlsxFile').value     = '';
         document.getElementById('upInvoicesFile').value = '';
@@ -1923,8 +1944,35 @@
         addCustomerLogo(id);
       } else if (btn.dataset.action === 'remove-logo') {
         removeCustomerLogo(id);
+      } else if (btn.dataset.action === 'save-email') {
+        const input = document.querySelector(`input[data-email-id="${CSS.escape(id)}"]`);
+        const email = input ? input.value.trim() : '';
+        saveCustomerEmail(id, email, btn);
       }
     });
+
+    async function saveCustomerEmail(customerId, email, btn) {
+      const oldLabel = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      try {
+        // Empty string → store as null (no notification email set)
+        const value = email && email.includes('@') ? email : (email === '' ? null : email);
+        if (email && !email.includes('@')) {
+          safeAlert('Enter a valid email address (must contain @).');
+          return;
+        }
+        const { error } = await sb.from('customers').update({ notification_email: value }).eq('customer_id', customerId);
+        if (error) throw error;
+        btn.textContent = '✓ Saved';
+        setTimeout(() => { btn.textContent = oldLabel; btn.disabled = false; }, 1500);
+      } catch (e) {
+        console.error('saveCustomerEmail:', e);
+        safeAlert('Could not save email. Try again.');
+        btn.textContent = oldLabel;
+        btn.disabled = false;
+      }
+    }
 
     // ───── CUSTOMER DASHBOARD PAGE SWITCHING ─────
     function showCustomerPage(page) {
