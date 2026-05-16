@@ -1576,16 +1576,18 @@
         let total = document.getElementById('upTotal').value.trim();
         let fails = parseInt(document.getElementById('upFails').value) || 0;
         let warns = parseInt(document.getElementById('upWarns').value) || 0;
-        if (htmlFile && (!sites || !total)) {
+        // Read the HTML text once (used both for metadata extraction AND
+        // usage_data auto-parse after the report row is saved).
+        let htmlText = null;
+        if (htmlFile) {
           try {
-            const txt = await htmlFile.text();
-            const m   = txt.match(/window\.BV\s*=\s*({[\s\S]+?});\s*<\/script>/);
+            htmlText = await htmlFile.text();
+            const m = htmlText.match(/window\.BV\s*=\s*({[\s\S]+?});\s*<\/script>/);
             if (m) {
               const bv = JSON.parse(m[1]);
               if (!sites) sites = (bv.summary.electricity?.length || 0) + (bv.summary.water?.length || 0) + (bv.summary.gas?.length || 0);
               const fmtGBP = (n) => '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
               if (!total) total = fmtGBP(bv.summary.totals?.grand_total || 0);
-              // Previous month's grand total — embedded in the validation HTML by ces-html-report
               if (bv.summary.totals?.prev_grand != null) {
                 window._extractedPrevTotal = fmtGBP(bv.summary.totals.prev_grand);
               } else {
@@ -1612,6 +1614,29 @@
         if (invoicesPath) upsertPayload.invoices_path = invoicesPath;
         const { error: dbErr } = await sb.from('reports').upsert(upsertPayload);
         if (dbErr) throw new Error('DB write: ' + dbErr.message);
+
+        // ── Auto-populate usage_data so the customer's Usage Report works
+        //    instantly. Uses the same parser as the Backfill Usage Data button.
+        if (htmlText) {
+          try {
+            const reportRow = { id: reportId, customer_id: customerId };
+            const { rows, warnings } = parseValidationHTML(htmlText, reportRow);
+            for (const w of warnings) console.warn('[Usage auto-parse]', w);
+            if (rows.length > 0) {
+              const { error: upErr } = await sb
+                .from('usage_data')
+                .upsert(rows, { onConflict: 'customer_id,meter_id,period_start,utility' });
+              if (upErr) {
+                console.warn('[Usage auto-parse] upsert failed:', upErr.message);
+              } else {
+                console.log('[Usage auto-parse] ' + rows.length + ' usage row(s) upserted for ' + reportId);
+              }
+            }
+          } catch (e) {
+            console.warn('[Usage auto-parse] failed:', e);
+          }
+        }
+
         ok.classList.add('show');
         logAction('upload_validation', reportId, { sites: sites, fails: fails, warns: warns });
         document.getElementById('upHtmlFile').value     = '';
