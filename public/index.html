@@ -1182,16 +1182,28 @@
         const n = parseFloat(String(s).replace(/[^0-9.\-]/g, ''));
         return isNaN(n) ? null : n;
       };
+      // Reformat any number/string total into "£75,606.51" with thousands separator
+      const fmtGBP = (n) => {
+        if (n == null || n === '—') return '—';
+        const num = (typeof n === 'number') ? n : parseTotal(n);
+        if (num == null) return '—';
+        return '£' + num.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      };
+
       grid.innerHTML = reports.map((r, i) => {
         const badges = [];
         if ((r.fail_count || 0) > 0) badges.push(`<span class="badge badge-fail"><span class="bdot"></span>${escapeHtml(r.fail_count)} fail</span>`);
         if ((r.warn_count || 0) > 0) badges.push(`<span class="badge badge-warn"><span class="bdot"></span>${escapeHtml(r.warn_count)} info</span>`);
         if (!badges.length) badges.push(`<span class="badge badge-ok"><span class="bdot"></span>All clean</span>`);
 
-        // Compute "vs last month" — reports array is sorted newest-first,
-        // so the previous month is reports[i+1].
-        const cur  = parseTotal(r.total_net);
-        const prev = (i + 1 < reports.length) ? parseTotal(reports[i + 1].total_net) : null;
+        // Compute "vs last month". Preferred source: r.prev_total_net (embedded
+        // in the validation HTML at upload time — works even when only one
+        // report is in the DB). Fallback: the next-older report's total_net.
+        const cur = parseTotal(r.total_net);
+        let prev = parseTotal(r.prev_total_net);
+        if (prev == null && i + 1 < reports.length) {
+          prev = parseTotal(reports[i + 1].total_net);
+        }
         let vsHtml;
         if (cur != null && prev != null && prev !== 0) {
           const pct = ((cur - prev) / prev) * 100;
@@ -1210,7 +1222,7 @@
             <div class="badge-row">${badges.join('')}</div>
             <div class="report-meta">
               <div class="row"><span>Sites</span><span class="v">${escapeHtml(r.sites || 0)}</span></div>
-              <div class="row"><span>Total</span><span class="v">${escapeHtml(r.total_net || '—')}</span></div>
+              <div class="row"><span>Total</span><span class="v">${escapeHtml(fmtGBP(r.total_net))}</span></div>
               <div class="row"><span>vs last month</span>${vsHtml}</div>
             </div>
           </div>
@@ -1571,7 +1583,14 @@
             if (m) {
               const bv = JSON.parse(m[1]);
               if (!sites) sites = (bv.summary.electricity?.length || 0) + (bv.summary.water?.length || 0) + (bv.summary.gas?.length || 0);
-              if (!total) total = '£' + (bv.summary.totals?.grand_total || 0).toFixed(2);
+              const fmtGBP = (n) => '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+              if (!total) total = fmtGBP(bv.summary.totals?.grand_total || 0);
+              // Previous month's grand total — embedded in the validation HTML by ces-html-report
+              if (bv.summary.totals?.prev_grand != null) {
+                window._extractedPrevTotal = fmtGBP(bv.summary.totals.prev_grand);
+              } else {
+                window._extractedPrevTotal = null;
+              }
               if (!fails) fails = (bv.issues || []).filter(i => i.sev === 'FAIL').length;
               if (!warns) warns = (bv.issues || []).filter(i => i.sev !== 'FAIL').length;
             }
@@ -1583,6 +1602,7 @@
           period: `${month.slice(0,3)}-${yy}`,
           sites, fail_count: fails, warn_count: warns,
           total_net: total || '—',
+          prev_total_net: window._extractedPrevTotal || null,
           report_type: 'bill_validation',
           uploaded_by: currentUser.userId,
           uploaded_at: new Date().toISOString()
