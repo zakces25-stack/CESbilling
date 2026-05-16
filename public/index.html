@@ -1322,7 +1322,6 @@
       const contracts = cData || [];
       renderReportGrid(validations);
       renderOccupancyGrid(occupancies);
-      renderContractsGrid(contracts);
       // Background-prefetch the most-recent report so the FIRST click is fast.
       if (validations[0] && validations[0].html_path) {
         sb.storage.from('report-html').download(validations[0].html_path)
@@ -1774,32 +1773,6 @@
     }
     // ───── CONTRACTS GRID ─────
     let dashContracts = [];
-    function renderContractsGrid(contracts) {
-      dashContracts = contracts;
-      const grid = document.getElementById('contractsGrid');
-      if (!contracts.length) {
-        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><h3>No contracts uploaded yet</h3><p>Your contract details will appear here once CES uploads them.</p></div>';
-        return;
-      }
-      grid.innerHTML = contracts.map(function(r){
-        const utility = (r.utility || 'electricity').toLowerCase();
-        const label = utility.charAt(0).toUpperCase() + utility.slice(1);
-        return '<div class="report-card" data-source="contract" data-report-id="' + escapeHtml(r.id) + '">' +
-          '<div class="report-month">' + escapeHtml(label) + '</div>' +
-          '<div class="report-year">Contract details</div>' +
-          '<div class="badge-row"><span class="util-chip util-' + utility + '"><span class="bdot"></span>' + escapeHtml(label) + '</span></div>' +
-          '<div class="report-meta">' +
-            '<div class="row"><span>Type</span><span class="v">' + escapeHtml(utility) + '</span></div>' +
-            '<div class="row"><span>Uploaded</span><span class="v">' + new Date(r.uploaded_at).toLocaleDateString('en-GB') + '</span></div>' +
-          '</div></div>';
-      }).join('');
-      grid.querySelectorAll('.report-card[data-source="contract"]').forEach(function(card){
-        card.addEventListener('click', function(){
-          const r = dashContracts.find(function(x){ return x.id === card.dataset.reportId; });
-          if (r) openViewer(r);
-        });
-      });
-    }
 
     // ───── CHANGE PASSWORD ─────
     async function doChangePassword() {
@@ -2177,21 +2150,57 @@
       };
     }
 
+    // Robust JS-object extractor — walks the source string counting braces
+    // (respecting string literals + escapes) so it works regardless of line
+    // endings or whitespace after the closing brace.
+    function _extractJsObject(text, varName) {
+      const marker = 'window.' + varName;
+      let i = text.indexOf(marker);
+      if (i === -1) return null;
+      i += marker.length;
+      // skip whitespace + '='
+      while (i < text.length && /\s/.test(text[i])) i++;
+      if (text[i] !== '=') return null;
+      i++;
+      while (i < text.length && /\s/.test(text[i])) i++;
+      if (text[i] !== '{') return null;
+      // walk forward, depth-counting, respecting strings
+      let depth = 0, inStr = null, escape = false;
+      const start = i;
+      while (i < text.length) {
+        const c = text[i];
+        if (escape) { escape = false; i++; continue; }
+        if (inStr) {
+          if (c === '\\') escape = true;
+          else if (c === inStr) inStr = null;
+        } else {
+          if (c === '"' || c === '\'' || c === '`') inStr = c;
+          else if (c === '{') depth++;
+          else if (c === '}') {
+            depth--;
+            if (depth === 0) return text.substring(start, i + 1);
+          }
+        }
+        i++;
+      }
+      return null;
+    }
+
     function parseValidationHTML(htmlText, reportRow) {
       const out = { rows: [], warnings: [] };
       // BV block — billed totals + invoice meta
-      const mBV = htmlText.match(/window\.BV\s*=\s*(\{[\s\S]*?\});\s*\n/);
-      if (!mBV) { out.warnings.push('window.BV block not found'); return out; }
+      const bvStr = _extractJsObject(htmlText, 'BV');
+      if (!bvStr) { out.warnings.push('window.BV block not found'); return out; }
       let bv;
-      try { bv = JSON.parse(mBV[1]); }
+      try { bv = JSON.parse(bvStr); }
       catch (e) { out.warnings.push('BV JSON parse failed: ' + e.message); return out; }
 
       // BV_HH block — half-hourly totals already split by supplier-specific
       // Day/Night boundary (Marble = HH1-14 night, nPower = HH1-12 + HH47-48 night)
       let bvHH = {};
-      const mHH = htmlText.match(/window\.BV_HH\s*=\s*(\{[\s\S]*?\});\s*\n/);
-      if (mHH) {
-        try { bvHH = JSON.parse(mHH[1]); }
+      const bvhhStr = _extractJsObject(htmlText, 'BV_HH');
+      if (bvhhStr) {
+        try { bvHH = JSON.parse(bvhhStr); }
         catch (e) { out.warnings.push('BV_HH JSON parse failed: ' + e.message); }
       }
 
