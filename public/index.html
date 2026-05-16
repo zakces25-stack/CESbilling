@@ -31,7 +31,7 @@
     :root {
       --navy: #2f3d7e; --navy-dark: #1e2a5e; --navy-xdark: #141d45;
       --lime: #93c43a; --lime-dark: #78a82e;
-      --bg: #f4f5f7; --bg-2: #eaecef;
+      --bg: #f5f2ec; --bg-2: #efece4;
       --surface: #ffffff; --surface-2: #faf8f4;
       --border: #e6e1d6; --line: #ede9df;
       --text: #1c1f2a; --text-2: #4a4e5c; --muted: #7a7e8c;
@@ -2286,27 +2286,23 @@
     // (respecting string literals + escapes) so it works regardless of line
     // endings or whitespace after the closing brace.
     function _extractJsObject(text, varName) {
-      const marker = 'window.' + varName;
-      let i = text.indexOf(marker);
-      if (i === -1) return null;
-      i += marker.length;
-      // skip whitespace + '='
-      while (i < text.length && /\s/.test(text[i])) i++;
-      if (text[i] !== '=') return null;
-      i++;
-      while (i < text.length && /\s/.test(text[i])) i++;
-      if (text[i] !== '{') return null;
-      // walk forward, depth-counting, respecting strings
-      let depth = 0, inStr = null, escape = false;
+      // Find the assignment "window.<varName> = {" using a regex so we don't
+      // accidentally match "window.BV" inside "window.BV_HH" or inside JSX code.
+      const re = new RegExp('window\\.' + varName + '\\s*=\\s*\\{', 'g');
+      const m = re.exec(text);
+      if (!m) return null;
+      // m.index + m[0].length points just AFTER the '{'. Step back one to start AT the '{'.
+      let i = m.index + m[0].length - 1;
       const start = i;
+      let depth = 0, inStr = null, escape = false;
       while (i < text.length) {
         const c = text[i];
         if (escape) { escape = false; i++; continue; }
         if (inStr) {
-          if (c === '\\') escape = true;
+          if (c === '\\') { escape = true; }
           else if (c === inStr) inStr = null;
         } else {
-          if (c === '"' || c === '\'' || c === '`') inStr = c;
+          if (c === '"' || c === "'" || c === '`') inStr = c;
           else if (c === '{') depth++;
           else if (c === '}') {
             depth--;
