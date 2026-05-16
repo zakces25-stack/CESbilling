@@ -545,11 +545,44 @@
       /* ── BACKFILL STATUS ── */
       #backfillStatus { font-size: 11px; max-height: 180px; }
 
-      /* ── REPORT VIEWER IFRAME on mobile — allow horizontal scroll within iframe ── */
-      #viewerFrame, .report-viewer iframe { width: 100% !important; min-height: 70vh; border: 0; }
-      .report-viewer { padding: 0 !important; }
-      /* Keep validation report HTML at its intended desktop layout but let user pinch-zoom freely */
-      #viewerFrame { -webkit-overflow-scrolling: touch; }
+      /* ── REPORT VIEWER on mobile ── */
+      .viewer-overlay { z-index: 200; }
+      .viewer-header {
+        padding: 10px 14px !important;
+        gap: 8px;
+        flex-wrap: nowrap;
+      }
+      .viewer-title-group { gap: 8px; flex: 1 1 auto; min-width: 0; }
+      .viewer-title-group h2 {
+        font-size: 14px !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 60vw;
+      }
+      .period-chip { display: none; }
+      .viewer-actions { gap: 6px; flex-shrink: 0; }
+      .btn-download {
+        padding: 8px 10px; font-size: 11.5px; gap: 4px;
+      }
+      .btn-close {
+        font-size: 30px !important;
+        line-height: 1;
+        min-width: 44px; min-height: 44px;  /* iOS recommended tap target */
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(0,0,0,0.04); border-radius: 8px;
+        padding: 4px 10px !important;
+      }
+      .btn-close:active { background: rgba(0,0,0,0.10); }
+      /* Viewer body — allow the iframe to render at its natural 1400px width
+         and let the user swipe horizontally inside the body to see the rest.
+         This keeps text legible without forcing pinch-zoom. */
+      .viewer-body { overflow: auto !important; -webkit-overflow-scrolling: touch; }
+      #viewerFrame {
+        width: 1400px !important;       /* match the validation HTML's viewport */
+        min-width: 1400px;
+        height: 100%; min-height: calc(100vh - 56px); border: 0;
+      }
 
       /* ── REPORT MODAL / FOOTER ── */
       .portal-footer { padding: 10px 14px; font-size: 10.5px; flex-direction: column; gap: 4px; text-align: center; }
@@ -776,7 +809,7 @@
               <div class="stat-value" id="ds2">—</div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">Annual Carbon Footprint</div>
+              <div class="stat-label">Total Annual Spend</div>
               <div class="stat-value" id="ds3">—</div>
               <div class="stat-foot" id="ds3sub" style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'Manrope',sans-serif;">Last 12 months</div>
             </div>
@@ -1393,13 +1426,14 @@
       const subEl  = document.getElementById('avatarMenuSub');
       if (nameEl) nameEl.textContent = currentUser.name;
       if (subEl)  subEl.textContent = currentUser.email || 'Signed in';
-      // Annual carbon footprint (last 12 months)
-      loadAnnualCarbonFootprint(currentUser.customerId).then(res => {
+      // Total annual spend (rolling 12 months from latest report)
+      loadAnnualSpend(currentUser.customerId).then(res => {
         const el = document.getElementById('ds3');
         const sub = document.getElementById('ds3sub');
         if (!el) return;
         if (res.hasData) {
-          el.textContent = res.tonnes.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' tCO₂e';
+          el.textContent = '£' + res.spend.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          if (sub) sub.textContent = res.monthCount >= 12 ? 'Last 12 months' : 'Last ' + res.monthCount + ' month' + (res.monthCount === 1 ? '' : 's');
         } else {
           el.textContent = '—';
         }
@@ -2969,46 +3003,39 @@
       }
     });
 
-    // ───── ANNUAL CARBON FOOTPRINT (last 12 months from latest period) ─────
-    async function loadAnnualCarbonFootprint(customerId) {
+    // ───── TOTAL ANNUAL SPEND (sum of total_net over rolling 12 months) ─────
+    async function loadAnnualSpend(customerId) {
       try {
-        const { data: latest } = await sb.from('usage_data')
-          .select('period_start')
+        const { data: reports } = await sb.from('reports')
+          .select('total_net, year, month_num, uploaded_at')
           .eq('customer_id', customerId)
-          .order('period_start', { ascending: false })
-          .limit(1);
-        if (!latest || latest.length === 0) return { tonnes: 0, hasData: false };
-        const latestDate = new Date(latest[0].period_start);
-        const cutoff = new Date(latestDate); cutoff.setFullYear(cutoff.getFullYear() - 1);
-        const cutoffStr = cutoff.toISOString().slice(0, 10);
-
-        // Factors
-        const { data: factors } = await sb.from('carbon_factors').select('utility, factor_kgco2e_per_kwh');
-        const fmap = { electricity: 0.17700, gas: 0.18296 };
-        (factors || []).forEach(f => { fmap[f.utility] = Number(f.factor_kgco2e_per_kwh); });
-
-        // Green % per meter
-        const { data: cfg } = await sb.from('customer_meter_config')
-          .select('meter_id, green_pct')
-          .eq('customer_id', customerId);
-        const gmap = {};
-        (cfg || []).forEach(r => { gmap[r.meter_id] = Number(r.green_pct || 0); });
-
-        // Usage rows in window
-        const { data: rows } = await sb.from('usage_data')
-          .select('utility, meter_id, total_kwh')
-          .eq('customer_id', customerId)
-          .gte('period_start', cutoffStr);
-        let kg = 0;
-        (rows || []).forEach(r => {
-          const f = fmap[r.utility] || 0;
-          const g = gmap[r.meter_id] || 0;
-          kg += Number(r.total_kwh || 0) * (1 - g/100) * f;
-        });
-        return { tonnes: kg / 1000, hasData: true };
+          .eq('report_type', 'bill_validation')
+          .order('uploaded_at', { ascending: false });
+        if (!reports || reports.length === 0) return { spend: 0, hasData: false };
+        // Use the most recent report's (year, month_num) as the anchor.
+        const top = reports[0];
+        // Build a "month anchor" YYYY-MM for filtering
+        function anchorOf(r) { return r.year * 12 + r.month_num; }
+        const anchor = anchorOf(top);
+        const cutoff = anchor - 12;  // rolling 12 months back
+        const parseTotal = (s) => {
+          if (s == null) return 0;
+          const n = parseFloat(String(s).replace(/[^0-9.\-]/g, ''));
+          return isNaN(n) ? 0 : n;
+        };
+        let total = 0;
+        let count = 0;
+        for (const r of reports) {
+          const a = anchorOf(r);
+          if (a > cutoff && a <= anchor) {
+            total += parseTotal(r.total_net);
+            count++;
+          }
+        }
+        return { spend: total, hasData: count > 0, monthCount: count };
       } catch (e) {
-        console.warn('Annual carbon load failed:', e);
-        return { tonnes: 0, hasData: false };
+        console.warn('Annual spend load failed:', e);
+        return { spend: 0, hasData: false };
       }
     }
 
