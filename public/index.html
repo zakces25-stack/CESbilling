@@ -545,7 +545,7 @@
       /* ── BACKFILL STATUS ── */
       #backfillStatus { font-size: 11px; max-height: 180px; }
 
-      /* ── REPORT VIEWER on mobile ── */
+      /* ── REPORT VIEWER on mobile — vertical-fit via CSS scale ── */
       .viewer-overlay { z-index: 200; }
       .viewer-header {
         padding: 10px 14px !important;
@@ -568,20 +568,39 @@
       .btn-close {
         font-size: 30px !important;
         line-height: 1;
-        min-width: 44px; min-height: 44px;  /* iOS recommended tap target */
+        min-width: 44px; min-height: 44px;
         display: flex; align-items: center; justify-content: center;
         background: rgba(0,0,0,0.04); border-radius: 8px;
         padding: 4px 10px !important;
       }
       .btn-close:active { background: rgba(0,0,0,0.10); }
-      /* Viewer body — allow the iframe to render at its natural 1400px width
-         and let the user swipe horizontally inside the body to see the rest.
-         This keeps text legible without forcing pinch-zoom. */
-      .viewer-body { overflow: auto !important; -webkit-overflow-scrolling: touch; }
+      /* Vertical-fit: the validation HTML is hard-coded to 1400px wide.
+         We scale the iframe down so the whole report width fits in the phone's
+         viewport, and the content flows vertically only. The user scrolls
+         the viewer-body up/down — no horizontal scrolling, no pinch-zoom needed
+         to see the layout. */
+      .viewer-body {
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+        position: relative;
+      }
       #viewerFrame {
-        width: 1400px !important;       /* match the validation HTML's viewport */
-        min-width: 1400px;
-        height: 100%; min-height: calc(100vh - 56px); border: 0;
+        width: 1400px !important;
+        height: 4000px;
+        border: 0;
+        transform: scale(calc(100vw / 1400));
+        transform-origin: top left;
+        /* When scaled to ~27% of width, the iframe occupies ~27% of its 4000px
+           height. We compensate by reducing the wrapper height. */
+      }
+      /* Compensate for the scale-down so the viewer-body doesn't reserve
+         the un-scaled 4000px height. */
+      .viewer-body::after {
+        content: '';
+        display: block;
+        height: calc((4000px * (100vw / 1400)) - 4000px);  /* negative offset */
+        margin-top: calc(0px - (4000px - (4000px * (100vw / 1400))));
       }
 
       /* ── REPORT MODAL / FOOTER ── */
@@ -1473,7 +1492,6 @@
       const totalFails = validations.reduce((s, r) => s + (r.fail_count || 0), 0);
       document.getElementById('ds1').textContent = validations.length;
       document.getElementById('ds2').textContent = totalFails;
-      document.getElementById('ds3').textContent = occupancies.length;
       document.getElementById('rptCount').textContent =
         validations.length + ' validation' + (validations.length !== 1 ? 's' : '') +
         ' · ' + occupancies.length + ' occupancy report' + (occupancies.length !== 1 ? 's' : '');
