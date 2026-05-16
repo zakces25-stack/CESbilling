@@ -31,7 +31,7 @@
     :root {
       --navy: #2f3d7e; --navy-dark: #1e2a5e; --navy-xdark: #141d45;
       --lime: #93c43a; --lime-dark: #78a82e;
-      --bg: #fafafa; --bg-2: #f4f4f5;
+      --bg: #f4f5f7; --bg-2: #eaecef;
       --surface: #ffffff; --surface-2: #faf8f4;
       --border: #e6e1d6; --line: #ede9df;
       --text: #1c1f2a; --text-2: #4a4e5c; --muted: #7a7e8c;
@@ -221,6 +221,9 @@
       font-weight: 700; font-size: 14px;
     }
     .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 28px; }
+    .stat-card, .kpi, .usage-kpi, .form-card, .report-card, .card, .inv-card {
+      box-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 0 0 1px rgba(15,23,42,0.04);
+    }
     .stat-card {
       background: var(--surface); border: 1.5px solid var(--border); border-radius: 10px;
       padding: 18px 22px;
@@ -463,8 +466,9 @@
       }
       .sidebar.open { transform: translateX(0); }
 
-      /* ── MAIN AREA ── */
-      .main-area { padding: 16px 18px !important; max-width: 100% !important; }
+      /* ── MAIN AREA — extra bottom padding so floating footer doesn't cover buttons ── */
+      .main-area { padding: 16px 18px 80px !important; max-width: 100% !important; }
+      .portal-footer { position: static !important; padding-bottom: 18px; }
 
       /* ── TOPBAR ── */
       .topbar { padding-bottom: 12px; margin-bottom: 18px; gap: 8px; }
@@ -504,8 +508,19 @@
       .form-card { padding: 18px 20px; max-width: 100% !important; }
       .form-row-2 { grid-template-columns: 1fr; }
 
+      /* ── SECTION HEADS — stack title above sub-meta on mobile ── */
+      .section-head {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        gap: 4px;
+        margin-bottom: 14px;
+      }
+      .section-head h2 { font-size: 20px; line-height: 1.2; }
+      .section-meta { font-size: 12.5px; }
+
       /* ── USAGE FILTERS ── */
-      .usage-filters { grid-template-columns: 1fr !important; gap: 14px; padding: 16px 18px; }
+      .usage-filters { grid-template-columns: 1fr !important; gap: 14px; padding: 16px 18px; margin-bottom: 16px; }
+      #usageRunBtn { margin-bottom: 12px; }
       .usage-filters .filter-side { width: 100%; }
 
       /* ── USAGE CHART ── */
@@ -529,6 +544,12 @@
 
       /* ── BACKFILL STATUS ── */
       #backfillStatus { font-size: 11px; max-height: 180px; }
+
+      /* ── REPORT VIEWER IFRAME on mobile — allow horizontal scroll within iframe ── */
+      #viewerFrame, .report-viewer iframe { width: 100% !important; min-height: 70vh; border: 0; }
+      .report-viewer { padding: 0 !important; }
+      /* Keep validation report HTML at its intended desktop layout but let user pinch-zoom freely */
+      #viewerFrame { -webkit-overflow-scrolling: touch; }
 
       /* ── REPORT MODAL / FOOTER ── */
       .portal-footer { padding: 10px 14px; font-size: 10.5px; flex-direction: column; gap: 4px; text-align: center; }
