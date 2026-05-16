@@ -574,33 +574,18 @@
         padding: 4px 10px !important;
       }
       .btn-close:active { background: rgba(0,0,0,0.10); }
-      /* Vertical-fit: the validation HTML is hard-coded to 1400px wide.
-         We scale the iframe down so the whole report width fits in the phone's
-         viewport, and the content flows vertically only. The user scrolls
-         the viewer-body up/down — no horizontal scrolling, no pinch-zoom needed
-         to see the layout. */
+      /* The validation report HTML is now mobile-responsive itself — let it
+         render at its natural width and handle its own layout. */
       .viewer-body {
         overflow-x: hidden !important;
         overflow-y: auto !important;
         -webkit-overflow-scrolling: touch;
-        position: relative;
       }
       #viewerFrame {
-        width: 1400px !important;
-        height: 4000px;
+        width: 100% !important;
+        height: calc(100vh - 56px);
+        min-height: calc(100vh - 56px);
         border: 0;
-        transform: scale(calc(100vw / 1400));
-        transform-origin: top left;
-        /* When scaled to ~27% of width, the iframe occupies ~27% of its 4000px
-           height. We compensate by reducing the wrapper height. */
-      }
-      /* Compensate for the scale-down so the viewer-body doesn't reserve
-         the un-scaled 4000px height. */
-      .viewer-body::after {
-        content: '';
-        display: block;
-        height: calc((4000px * (100vw / 1400)) - 4000px);  /* negative offset */
-        margin-top: calc(0px - (4000px - (4000px * (100vw / 1400))));
       }
 
       /* ── REPORT MODAL / FOOTER ── */
