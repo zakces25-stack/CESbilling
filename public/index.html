@@ -654,6 +654,110 @@
       .edit-report-modal__card { width: 95%; max-height: 92vh; }
       .edit-report-modal__body { padding: 14px 16px; }
     }
+
+    /* ───── SESSION INACTIVITY MODAL ───── */
+    .session-modal {
+      position: fixed; inset: 0; z-index: 2000;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .session-modal[hidden] { display: none; }
+    .session-modal__overlay {
+      position: absolute; inset: 0;
+      background: rgba(20, 29, 69, 0.55);
+      backdrop-filter: blur(3px);
+    }
+    .session-modal__card {
+      position: relative; background: var(--surface);
+      border-radius: 14px; width: 92%; max-width: 440px;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.28);
+      overflow: hidden;
+      animation: sessionFadeIn 200ms ease both;
+    }
+    @keyframes sessionFadeIn {
+      from { opacity: 0; transform: translateY(8px) scale(0.98); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .session-modal__accent {
+      height: 4px;
+      background: linear-gradient(90deg, var(--navy) 0%, var(--lime) 100%);
+    }
+    .session-modal__body { padding: 28px 28px 24px; text-align: center; }
+    .session-modal__icon {
+      width: 56px; height: 56px; margin: 0 auto 16px;
+      border-radius: 50%;
+      background: rgba(47, 61, 126, 0.08); color: var(--navy);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .session-modal__icon--warn {
+      background: rgba(200, 140, 30, 0.12); color: var(--warn);
+    }
+    .session-modal__icon svg { width: 28px; height: 28px; }
+    .session-modal__title {
+      font-size: 20px; font-weight: 700; color: var(--text);
+      letter-spacing: -0.2px; margin-bottom: 8px;
+    }
+    .session-modal__sub {
+      font-size: 14px; color: var(--text-2); line-height: 1.55;
+    }
+    .session-modal__countdown {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 30px; font-weight: 600; color: var(--navy);
+      letter-spacing: -0.5px; margin: 20px 0 22px;
+      font-variant-numeric: tabular-nums;
+    }
+    .session-modal__actions {
+      display: flex; gap: 10px; margin-top: 4px;
+    }
+    .session-modal__actions > button { flex: 1; }
+    .session-modal__actions--single { justify-content: center; }
+    .session-modal__actions--single > button { flex: 0 1 100%; }
+    .session-modal__btn-ghost {
+      padding: 12px 16px; background: transparent; color: var(--text-2);
+      border: 1px solid var(--border); border-radius: 8px;
+      font-family: inherit; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+    .session-modal__btn-ghost:hover {
+      background: var(--bg-2); color: var(--text); border-color: var(--muted);
+    }
+    .session-modal__btn-primary {
+      padding: 12px 16px; background: var(--navy); color: #fff;
+      border: none; border-radius: 8px;
+      font-family: inherit; font-size: 14px; font-weight: 700;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .session-modal__btn-primary:hover { background: var(--navy-dark); }
+    @media (max-width: 480px) {
+      .session-modal__card { width: 94%; }
+      .session-modal__body { padding: 24px 20px 20px; }
+      .session-modal__countdown { font-size: 26px; }
+      .session-modal__actions { flex-direction: column; }
+    }
+    /* Inactivity banner on the login page */
+    .session-banner {
+      display: none;
+      align-items: flex-start; gap: 10px;
+      background: rgba(200, 140, 30, 0.10);
+      border: 1px solid rgba(200, 140, 30, 0.40);
+      border-radius: 8px; padding: 12px 14px;
+      margin-bottom: 18px; font-size: 13.5px;
+      color: #5a3a08; line-height: 1.5;
+    }
+    .session-banner.show { display: flex; }
+    .session-banner__dot {
+      flex-shrink: 0; width: 8px; height: 8px;
+      background: var(--warn); border-radius: 50%; margin-top: 6px;
+    }
+    .session-banner__text { flex: 1; }
+    .session-banner__text strong {
+      display: block; font-weight: 700; margin-bottom: 2px; color: #4a2f08;
+    }
+    .session-banner__close {
+      background: none; border: none; color: var(--warn);
+      cursor: pointer; font-size: 20px; line-height: 1;
+      padding: 0 4px; margin-left: 4px;
+    }
+    .session-banner__close:hover { color: #5a3a08; }
     .cust-table-logo {
       height: 28px; max-width: 50px; object-fit: contain;
       vertical-align: middle; margin-right: 8px;
@@ -755,6 +859,14 @@
         <div class="login-box">
           <h2>Welcome back</h2>
           <p class="sub">Sign in to view your validation reports.</p>
+          <div class="session-banner" id="sessionBanner" role="status" aria-live="polite">
+            <span class="session-banner__dot"></span>
+            <div class="session-banner__text">
+              <strong>You were signed out due to inactivity</strong>
+              Please sign in again to continue.
+            </div>
+            <button type="button" class="session-banner__close" aria-label="Dismiss" onclick="dismissSessionBanner()">&times;</button>
+          </div>
           <div class="error-box" id="loginErr"></div>
           <div class="form-group">
             <label>Email address</label>
@@ -1215,28 +1327,126 @@
         console.warn('Audit log write failed for', action, e);
       }
     }
-    // Auto-logout after 30 minutes of no mouse/keyboard/scroll/touch.
-    const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
-    let _idleTimer = null;
+    // Auto-logout after 30 minutes of no mouse/keyboard/scroll/touch, with a
+    // 1-minute branded warning at 29 minutes so the user can extend the session.
+    const IDLE_TIMEOUT_MS = 30 * 60 * 1000;  // hard sign-out
+    const IDLE_WARN_MS    = 29 * 60 * 1000;  // warning modal appears
+    let _idleCheckTimer = null;
+    let _idleCountdownTimer = null;
     let _lastActivity = Date.now();
-    function _resetIdleActivity() { _lastActivity = Date.now(); }
+    let _warningShown = false;
+    function _resetIdleActivity() {
+      // Freeze tracking while the warning modal is up — once shown, only an
+      // explicit "Stay signed in" click should reset the clock.
+      if (_warningShown) return;
+      _lastActivity = Date.now();
+    }
     function setupIdleTimeout() {
       _lastActivity = Date.now();
+      _warningShown = false;
       ['mousedown','keydown','scroll','touchstart'].forEach(ev =>
         document.addEventListener(ev, _resetIdleActivity, { passive: true }));
-      if (_idleTimer) clearInterval(_idleTimer);
-      _idleTimer = setInterval(() => {
-        if (!currentUser) return;
-        if (Date.now() - _lastActivity > IDLE_TIMEOUT_MS) {
-          clearInterval(_idleTimer);
-          _idleTimer = null;
-          alert('Your session has expired due to inactivity. Please sign in again.');
-          doSignOut();
-        }
-      }, 60 * 1000);
+      if (_idleCheckTimer) clearInterval(_idleCheckTimer);
+      _idleCheckTimer = setInterval(_idleTick, 5 * 1000);  // poll every 5s
     }
     function teardownIdleTimeout() {
-      if (_idleTimer) { clearInterval(_idleTimer); _idleTimer = null; }
+      if (_idleCheckTimer)     { clearInterval(_idleCheckTimer);     _idleCheckTimer = null; }
+      if (_idleCountdownTimer) { clearInterval(_idleCountdownTimer); _idleCountdownTimer = null; }
+      hideSessionModal();
+      _warningShown = false;
+    }
+    function _idleTick() {
+      if (!currentUser) return;
+      const idleFor = Date.now() - _lastActivity;
+      if (!_warningShown && idleFor >= IDLE_WARN_MS) {
+        showSessionWarning();
+      }
+    }
+    function showSessionWarning() {
+      _warningShown = true;
+      const modal       = document.getElementById('sessionModal');
+      const icon        = document.getElementById('sessionModalIcon');
+      const titleEl     = document.getElementById('sessionModalTitle');
+      const subEl       = document.getElementById('sessionModalSub');
+      const countdownEl = document.getElementById('sessionModalCountdown');
+      const actionsEl   = document.getElementById('sessionModalActions');
+      icon.classList.add('session-modal__icon--warn');
+      titleEl.textContent = 'Still there?';
+      subEl.textContent   = "For your security, you'll be signed out due to inactivity.";
+      countdownEl.style.display = '';
+      actionsEl.classList.remove('session-modal__actions--single');
+      actionsEl.innerHTML =
+        '<button type="button" class="session-modal__btn-ghost" onclick="sessionUserSignOut()">Sign out</button>' +
+        '<button type="button" class="session-modal__btn-primary" onclick="sessionStayActive()">Stay signed in</button>';
+      modal.hidden = false;
+      // Live countdown until the hard sign-out timestamp.
+      const deadline = _lastActivity + IDLE_TIMEOUT_MS;
+      function tickCountdown() {
+        const ms = Math.max(0, deadline - Date.now());
+        const totalSec = Math.ceil(ms / 1000);
+        const m = Math.floor(totalSec / 60);
+        const s = totalSec % 60;
+        countdownEl.textContent = m + ':' + (s < 10 ? '0' + s : s);
+        if (ms <= 0) sessionExpireNow();
+      }
+      tickCountdown();
+      if (_idleCountdownTimer) clearInterval(_idleCountdownTimer);
+      _idleCountdownTimer = setInterval(tickCountdown, 1000);
+    }
+    function hideSessionModal() {
+      const m = document.getElementById('sessionModal');
+      if (m) m.hidden = true;
+    }
+    function sessionStayActive() {
+      // User confirmed they're here — reset the idle clock, drop the modal.
+      _warningShown = false;
+      _lastActivity = Date.now();
+      if (_idleCountdownTimer) { clearInterval(_idleCountdownTimer); _idleCountdownTimer = null; }
+      hideSessionModal();
+    }
+    function sessionUserSignOut() {
+      // User chose to sign out from the warning modal — treat as a normal sign-out
+      // (no "inactivity" banner on the login page since this was deliberate).
+      _warningShown = false;
+      if (_idleCountdownTimer) { clearInterval(_idleCountdownTimer); _idleCountdownTimer = null; }
+      hideSessionModal();
+      doSignOut();
+    }
+    function sessionExpireNow() {
+      // Hard timeout reached. Swap the modal to "Signed out" state and flag the
+      // login page to show the inactivity banner once the user returns to it.
+      if (_idleCountdownTimer) { clearInterval(_idleCountdownTimer); _idleCountdownTimer = null; }
+      try { sessionStorage.setItem('cesPortalIdleSignout', '1'); } catch(e) {}
+      const icon       = document.getElementById('sessionModalIcon');
+      const titleEl    = document.getElementById('sessionModalTitle');
+      const subEl      = document.getElementById('sessionModalSub');
+      const countdown  = document.getElementById('sessionModalCountdown');
+      const actionsEl  = document.getElementById('sessionModalActions');
+      icon.classList.remove('session-modal__icon--warn');
+      titleEl.textContent = 'Signed out due to inactivity';
+      subEl.textContent   = 'Your session has ended for your security. Please sign in again to continue.';
+      countdown.style.display = 'none';
+      actionsEl.classList.add('session-modal__actions--single');
+      actionsEl.innerHTML =
+        '<button type="button" class="session-modal__btn-primary" onclick="sessionReturnToLogin()">Sign in again</button>';
+      document.getElementById('sessionModal').hidden = false;
+    }
+    function sessionReturnToLogin() {
+      hideSessionModal();
+      doSignOut();
+    }
+    function dismissSessionBanner() {
+      const b = document.getElementById('sessionBanner');
+      if (b) b.classList.remove('show');
+      try { sessionStorage.removeItem('cesPortalIdleSignout'); } catch(e) {}
+    }
+    function maybeShowSessionBanner() {
+      try {
+        if (sessionStorage.getItem('cesPortalIdleSignout') === '1') {
+          const b = document.getElementById('sessionBanner');
+          if (b) b.classList.add('show');
+        }
+      } catch(e) {}
     }
 
     // ───── ERROR HANDLING + FILE TYPE VALIDATION ─────
@@ -1331,6 +1541,7 @@
       document.getElementById('loginEmail').value = '';
       document.getElementById('loginPass').value = '';
       showPage('loginPage');
+      maybeShowSessionBanner();
     }
     async function doReset(e) {
       e.preventDefault();
@@ -3190,6 +3401,7 @@
         await loadProfileAndRoute(session.user);
       } else {
         showPage('loginPage');
+        maybeShowSessionBanner();
       }
     }
     init();
@@ -3202,6 +3414,29 @@
   <!-- ═══════════════════════════════════════════════════════════════════════
        EDIT REPORT MODAL — replace HTML / Excel / Invoices for an existing row
   ════════════════════════════════════════════════════════════════════════ -->
+  <!-- Session inactivity modal — warning + expired states share the same shell -->
+  <div class="session-modal" id="sessionModal" hidden>
+    <div class="session-modal__overlay"></div>
+    <div class="session-modal__card" role="dialog" aria-modal="true" aria-labelledby="sessionModalTitle">
+      <div class="session-modal__accent"></div>
+      <div class="session-modal__body">
+        <div class="session-modal__icon session-modal__icon--warn" id="sessionModalIcon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"></circle>
+            <polyline points="12 7 12 12 15 14"></polyline>
+          </svg>
+        </div>
+        <h3 class="session-modal__title" id="sessionModalTitle">Still there?</h3>
+        <p class="session-modal__sub" id="sessionModalSub">For your security, you'll be signed out due to inactivity.</p>
+        <div class="session-modal__countdown" id="sessionModalCountdown" aria-live="polite">1:00</div>
+        <div class="session-modal__actions" id="sessionModalActions">
+          <button type="button" class="session-modal__btn-ghost" onclick="sessionUserSignOut()">Sign out</button>
+          <button type="button" class="session-modal__btn-primary" onclick="sessionStayActive()">Stay signed in</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="edit-report-modal" id="editReportModal" style="display:none;">
     <div class="edit-report-modal__overlay" onclick="closeEditReport()"></div>
     <div class="edit-report-modal__card">
