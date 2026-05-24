@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' blob: https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' data: blob: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co; frame-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' blob: https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' data: blob: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com; frame-src 'self' blob: data: https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';" />
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <title>CES Billing Portal</title>
@@ -25,6 +25,8 @@
   <link rel="preload" as="script" crossorigin href="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <!-- Cloudflare Turnstile — human verification on the login form -->
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -880,6 +882,14 @@
             <input type="checkbox" id="loginRemember" />
             <label for="loginRemember">Remember me on this device</label>
           </div>
+          <!-- Cloudflare Turnstile widget — verifies human before the Supabase auth call -->
+          <div class="cf-turnstile"
+               data-sitekey="0x4AAAAAADVk1PbXl4rZN4aL"
+               data-theme="light"
+               data-callback="onTurnstileSuccess"
+               data-error-callback="onTurnstileError"
+               data-expired-callback="onTurnstileExpired"
+               style="margin: 6px 0 16px; display: flex; justify-content: center;"></div>
           <button class="btn-primary" id="loginBtn" onclick="doLogin()">Sign in</button>
           <p class="form-help" style="margin-top:16px;text-align:center;">
             Forgot your password?
@@ -1449,6 +1459,19 @@
       } catch(e) {}
     }
 
+    // ───── CLOUDFLARE TURNSTILE CALLBACKS ─────
+    // The widget calls these via the data-callback / data-error-callback /
+    // data-expired-callback attributes. The token lives on window so doLogin()
+    // can pick it up. It's single-use — Supabase invalidates it the moment it
+    // verifies, so we wipe it after sign-in and reset the widget on failure.
+    window._turnstileToken = null;
+    window.onTurnstileSuccess = function(token) { window._turnstileToken = token; };
+    window.onTurnstileError   = function()      { window._turnstileToken = null; };
+    window.onTurnstileExpired = function() {
+      window._turnstileToken = null;
+      if (window.turnstile && typeof turnstile.reset === 'function') turnstile.reset();
+    };
+
     // ───── ERROR HANDLING + FILE TYPE VALIDATION ─────
     // safeAlert() shows a generic message to the user and logs the real error
     // to the browser console (visible to admin in DevTools, hidden from users).
@@ -1501,11 +1524,31 @@
       const pass  = document.getElementById('loginPass').value;
       const err   = document.getElementById('loginErr');
       err.style.display = 'none';
+      // Require a valid Turnstile token. The widget callbacks set window._turnstileToken
+      // when the user passes the human check; we fall back to turnstile.getResponse()
+      // in case the callback fired before this listener attached.
+      const captchaToken = window._turnstileToken ||
+        (window.turnstile && typeof turnstile.getResponse === 'function' ? turnstile.getResponse() : '');
+      if (!captchaToken) {
+        err.textContent = 'Please complete the human verification check above.';
+        err.style.display = 'block';
+        return;
+      }
       const btn = document.getElementById('loginBtn');
       btn.disabled = true; btn.textContent = 'Signing in…';
-      const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+      const { data, error } = await sb.auth.signInWithPassword({
+        email, password: pass,
+        options: { captchaToken }
+      });
       btn.disabled = false; btn.textContent = 'Sign in';
-      if (error) { err.textContent = 'Invalid email or password.'; err.style.display = 'block'; return; }
+      if (error) {
+        err.textContent = 'Invalid email or password.';
+        err.style.display = 'block';
+        // Turnstile tokens are single-use — reset the widget so the user gets a fresh one.
+        if (window.turnstile && typeof turnstile.reset === 'function') turnstile.reset();
+        window._turnstileToken = null;
+        return;
+      }
       await loadProfileAndRoute(data.user);
     }
     async function loadProfileAndRoute(user) {
