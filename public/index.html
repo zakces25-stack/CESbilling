@@ -1856,7 +1856,14 @@
     }
     function openNecForMeter(meterIdEnc) {
       var id = decodeURIComponent(meterIdEnc);
-      alert('NEC calculator pre-fill is the next build step. This button will open the NEC calculator with this MPAN area code, LLFC and contracted kVA already filled in.');
+      var m = (window._bkMeters||[]).find(function(x){ return x.id===id; });
+      if (!m) { alert('Meter not found — please refresh and try again.'); return; }
+      var q = [];
+      if (m.area_code != null && m.area_code !== '') q.push('area=' + encodeURIComponent(m.area_code));
+      if (m.llfc != null && m.llfc !== '')           q.push('llfc=' + encodeURIComponent(m.llfc));
+      if (m.agreed_kva != null && m.agreed_kva !== '') q.push('kva=' + encodeURIComponent(m.agreed_kva));
+      if (m.mpan) q.push('mpan=' + encodeURIComponent(m.mpan));
+      window.open('nec.html?' + q.join('&'), '_blank');
     }
     // ───── BROKER: MANAGE METERS (manual CRUD + Excel import, per customer) ─────
     function bkToggleMeterForm() {
