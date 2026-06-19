@@ -1130,8 +1130,16 @@
                 <div class="form-group"><label>EAC (kWh/yr)</label><input type="number" id="bkEac" step="1" placeholder="420000" /></div>
               </div>
               <div class="form-row-2">
-                <div class="form-group"><label>Unit rate (p/kWh)</label><input type="number" id="bkUnit" step="0.001" placeholder="24.50" /></div>
-                <div class="form-group"><label>Standing charge (p/day)</label><input type="number" id="bkSc" step="0.001" placeholder="1512.0" /></div>
+                <div class="form-group"><label>Unit rate — single (p/kWh)</label><input type="number" id="bkUnit" step="0.001" placeholder="blank if day/night" /></div>
+                <div class="form-group"><label>Standing charge (p/day)</label><input type="number" id="bkSc" step="0.001" placeholder="802.0" /></div>
+              </div>
+              <div class="form-row-2">
+                <div class="form-group"><label>Day rate (p/kWh)</label><input type="number" id="bkDay" step="0.001" placeholder="21.48" /></div>
+                <div class="form-group"><label>Night rate (p/kWh)</label><input type="number" id="bkNight" step="0.001" placeholder="17.95" /></div>
+              </div>
+              <div class="form-row-2">
+                <div class="form-group"><label>Evening/Weekend rate (p/kWh)</label><input type="number" id="bkEve" step="0.001" placeholder="3-rate only" /></div>
+                <div class="form-group"><label style="visibility:hidden;">.</label><div style="font-size:11.5px;color:var(--muted);">Single → Unit · 2-rate → Day+Night · 3-rate → +Evening/Weekend</div></div>
               </div>
               <div class="form-row-2">
                 <div class="form-group"><label>Capacity rate (p/kVA/day)</label><input type="number" id="bkCap" step="0.001" placeholder="2.10" /></div>
@@ -1826,16 +1834,17 @@
       }
       var head = '<thead><tr>' +
         '<th>MPAN</th><th>Supplier</th><th class="num">Agreed kVA</th>' +
-        '<th class="num">EAC (kWh)</th><th class="num">Unit p/kWh</th>' +
+        '<th class="num">EAC (kWh)</th><th>Rates (p/kWh)</th>' +
         '<th class="num">Standing p/day</th><th class="num">Capacity p/kVA/day</th>' +
         '<th>Area</th><th>LLFC</th><th></th></tr></thead>';
       var rows = meters.map(function(m) {
+        var rt = (m.current_day_rate!=null||m.current_night_rate!=null) ? ('D '+_bkNum(m.current_day_rate,2)+' / N '+_bkNum(m.current_night_rate,2)+(m.current_eveweekend_rate!=null?(' / E '+_bkNum(m.current_eveweekend_rate,2)):'')) : (m.current_unit_rate!=null?('Single '+_bkNum(m.current_unit_rate,2)):'—');
         return '<tr>' +
           '<td class="mono">' + escapeHtml(m.mpan) + (m.notes ? '<div style="font-size:11px;color:var(--muted);font-weight:400;">' + escapeHtml(m.notes) + '</div>' : '') + '</td>' +
           '<td>' + escapeHtml(m.supplier || '—') + '</td>' +
           '<td class="num">' + _bkNum(m.agreed_kva, 0) + '</td>' +
           '<td class="num">' + _bkNum(m.est_annual_consumption, 0) + '</td>' +
-          '<td class="num">' + _bkNum(m.current_unit_rate, 2) + '</td>' +
+          '<td style="white-space:nowrap;">' + rt + '</td>' +
           '<td class="num">' + _bkNum(m.current_standing_charge, 2) + '</td>' +
           '<td class="num">' + _bkNum(m.current_capacity_rate, 2) + '</td>' +
           '<td>' + escapeHtml(m.area_code || '—') + '</td>' +
@@ -1856,7 +1865,7 @@
       else { f.style.display = 'none'; }
     }
     function bkResetMeterForm(hide) {
-      ['bkEditId','bkMpan','bkSupplier','bkArea','bkLlfc','bkKva','bkEac','bkUnit','bkSc','bkCap','bkEnd'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
+      ['bkEditId','bkMpan','bkSupplier','bkArea','bkLlfc','bkKva','bkEac','bkUnit','bkDay','bkNight','bkEve','bkSc','bkCap','bkEnd'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
       var u=document.getElementById('bkUtility'); if(u) u.value='electricity';
       var s=document.getElementById('bkSupplyType'); if(s) s.value='';
       var t=document.getElementById('bkMeterFormTitle'); if(t) t.textContent='Add a meter';
@@ -1875,6 +1884,9 @@
       document.getElementById('bkKva').value=(m.agreed_kva==null?'':m.agreed_kva);
       document.getElementById('bkEac').value=(m.est_annual_consumption==null?'':m.est_annual_consumption);
       document.getElementById('bkUnit').value=(m.current_unit_rate==null?'':m.current_unit_rate);
+      document.getElementById('bkDay').value=(m.current_day_rate==null?'':m.current_day_rate);
+      document.getElementById('bkNight').value=(m.current_night_rate==null?'':m.current_night_rate);
+      document.getElementById('bkEve').value=(m.current_eveweekend_rate==null?'':m.current_eveweekend_rate);
       document.getElementById('bkSc').value=(m.current_standing_charge==null?'':m.current_standing_charge);
       document.getElementById('bkCap').value=(m.current_capacity_rate==null?'':m.current_capacity_rate);
       document.getElementById('bkEnd').value=m.contract_end_date||'';
@@ -1895,8 +1907,9 @@
         area_code:document.getElementById('bkArea').value.trim()||null,
         llfc:document.getElementById('bkLlfc').value.trim()||null,
         agreed_kva:nn('bkKva'), est_annual_consumption:nn('bkEac'),
-        current_unit_rate:nn('bkUnit'), current_standing_charge:nn('bkSc'),
-        current_capacity_rate:nn('bkCap'),
+        current_unit_rate:nn('bkUnit'),
+        current_day_rate:nn('bkDay'), current_night_rate:nn('bkNight'), current_eveweekend_rate:nn('bkEve'),
+        current_standing_charge:nn('bkSc'), current_capacity_rate:nn('bkCap'),
         contract_end_date:document.getElementById('bkEnd').value||null };
       var editId=document.getElementById('bkEditId').value;
       var resp = editId ? await sb.from('meters').update(row).eq('id',editId)
@@ -1914,11 +1927,15 @@
       logAction('delete_meter', null, { id:id });
       if(window._bkCid) openBrokerCustomer(encodeURIComponent(window._bkCid));
     }
-    var BK_TEMPLATE_COLS = ['MPAN','Supplier','Utility','Supply Type','Area/DNO Code','LLFC','Agreed kVA','EAC (kWh/yr)','Unit Rate (p/kWh)','Standing Charge (p/day)','Capacity Rate (p/kVA/day)','Contract End (YYYY-MM-DD)'];
+    var BK_TEMPLATE_COLS = ['MPAN','Supplier','Utility','Supply Type','Area/DNO Code','LLFC','Agreed kVA','EAC (kWh/yr)','Unit Rate (p/kWh)','Day Rate (p/kWh)','Night Rate (p/kWh)','Evening/Weekend Rate (p/kWh)','Standing Charge (p/day)','Capacity Rate (p/kVA/day)','Contract End (YYYY-MM-DD)','Notes'];
     function bkDownloadTemplate() {
       if (typeof XLSX === 'undefined') { alert('Spreadsheet library still loading — try again in a second.'); return; }
-      var example = ['2700003386823','Marble Power','electricity','HH','27','523',250,420000,24.50,1512.0,2.10,'2027-03-31'];
-      var ws = XLSX.utils.aoa_to_sheet([BK_TEMPLATE_COLS, example]);
+      var examples = [
+        ['1050002996278','Marble Power','electricity','HH','10','072',120,380280,'',21.48,18.20,'',794.0,6.25,'2026-09-30','Day/Night (2-rate): fill Day + Night, leave Unit blank.'],
+        ['1234567890123','Example Supplier','electricity','NHH','11','123','',25000,12.50,'','','',45.0,'','2027-03-31','Single rate: fill Unit only.'],
+        ['9876543210987','Example Supplier','electricity','HH','12','456',200,500000,'',24.10,15.80,9.90,610.0,7.00,'2028-01-31','3-rate: Day + Night + Evening/Weekend.']
+      ];
+      var ws = XLSX.utils.aoa_to_sheet([BK_TEMPLATE_COLS].concat(examples));
       ws['!cols'] = BK_TEMPLATE_COLS.map(function(){ return { wch:18 }; });
       var wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Meters');
@@ -1953,9 +1970,13 @@
             agreed_kva:num(pick(r,['agreedkva','kva'])),
             est_annual_consumption:num(pick(r,['eackwhyr','eac','eackwh'])),
             current_unit_rate:num(pick(r,['unitratepkwh','unitrate'])),
+            current_day_rate:num(pick(r,['dayratepkwh','dayrate','day'])),
+            current_night_rate:num(pick(r,['nightratepkwh','nightrate','night'])),
+            current_eveweekend_rate:num(pick(r,['eveningweekendratepkwh','eveweekendratepkwh','eveweekendrate','eveningweekend','eveweekend','weekend'])),
             current_standing_charge:num(pick(r,['standingchargepday','standingcharge','sc'])),
             current_capacity_rate:num(pick(r,['capacityratepkvaday','capacityrate','capacity'])),
-            contract_end_date:(function(v){ v=(''+v).trim(); return /^\d{4}-\d{2}-\d{2}/.test(v)?v.slice(0,10):null; })(pick(r,['contractendyyyymmdd','contractend','contractenddate']))
+            contract_end_date:(function(v){ v=(''+v).trim(); return /^\d{4}-\d{2}-\d{2}/.test(v)?v.slice(0,10):null; })(pick(r,['contractendyyyymmdd','contractend','contractenddate'])),
+            notes:(''+pick(r,['notes'])).trim()||null
           });
         });
         if(!out.length){ status.textContent='No valid rows — every row needs an MPAN.'; return; }
