@@ -54,7 +54,7 @@
 # attacks and force HTTPS.
 <IfModule mod_headers.c>
   # Block the page being framed inside a malicious site (clickjacking)
-  Header set X-Frame-Options "DENY"
+  Header set X-Frame-Options "SAMEORIGIN"
 
   # Forbid browsers from MIME-sniffing
   Header set X-Content-Type-Options "nosniff"
