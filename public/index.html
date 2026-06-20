@@ -1072,7 +1072,23 @@
 
         <!-- View: the broker's customers -->
         <div id="brokerCustomersView">
-          <div class="section-head"><h2>Your customers</h2></div>
+          <div class="section-head" style="align-items:center;justify-content:space-between;gap:14px;">
+            <h2>Your customers</h2>
+            <button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="bkToggleCustomerForm()">+ Add customer</button>
+          </div>
+          <!-- Add-customer form (hidden until the button is clicked) -->
+          <div class="card" id="bkCustomerForm" style="display:none;margin-bottom:16px;">
+            <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Add a new customer</h3>
+            <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Creates the customer record. Once saved it appears below — open it to add meters.</p>
+            <div class="success-box" id="bkCustOk">Customer added.</div>
+            <div class="error-box" id="bkCustErr"></div>
+            <div class="form-row-2">
+              <div class="form-group"><label>Company name</label><input type="text" id="bkNcName" placeholder="Acme Ltd" /></div>
+              <div class="form-group"><label>Customer ID (slug)</label><input type="text" id="bkNcId" placeholder="acme" /></div>
+            </div>
+            <button class="btn-primary" style="width:auto;padding:10px 18px;" onclick="bkAddCustomer()">Save customer</button>
+            <button class="btn-secondary" style="width:auto;padding:10px 18px;margin-left:8px;" onclick="bkToggleCustomerForm()">Cancel</button>
+          </div>
           <div class="report-grid" id="brokerCustomerGrid">
             <div class="empty-state" style="grid-column:1/-1"><p>Loading…</p></div>
           </div>
@@ -1813,6 +1829,48 @@
       var mv = document.getElementById('brokerMetersView');
       if (lv) lv.style.display = '';
       if (mv) mv.style.display = 'none';
+    }
+    // Show / hide the broker's "Add a new customer" form.
+    function bkToggleCustomerForm() {
+      var f = document.getElementById('bkCustomerForm');
+      if (!f) return;
+      var showing = f.style.display !== 'none';
+      f.style.display = showing ? 'none' : '';
+      if (!showing) {
+        document.getElementById('bkNcName').value = '';
+        document.getElementById('bkNcId').value = '';
+        document.getElementById('bkCustErr').style.display = 'none';
+        document.getElementById('bkCustOk').classList.remove('show');
+        document.getElementById('bkNcName').focus();
+      }
+    }
+    // Create a customer from the broker portal. Mirrors the admin addCustomer()
+    // flow (customer_id slug + company_name). IMPORTANT: this only succeeds if
+    // Supabase RLS lets the `broker` role INSERT into `customers`, and the new
+    // row is linked to this broker so it passes the brokers' SELECT policy.
+    // If your schema links brokers via an owner column or a junction table, add
+    // that here too (see the deployment notes) — otherwise the customer is
+    // created but won't appear in the broker's list.
+    async function bkAddCustomer() {
+      var name = document.getElementById('bkNcName').value.trim();
+      var id   = document.getElementById('bkNcId').value.trim().toLowerCase().replace(/\s+/g, '-');
+      var err  = document.getElementById('bkCustErr');
+      var ok   = document.getElementById('bkCustOk');
+      err.style.display = 'none'; ok.classList.remove('show');
+      if (!name || !id) { err.textContent = 'Both fields required.'; err.style.display = 'block'; return; }
+      var resp = await sb.from('customers').insert({ customer_id: id, company_name: name });
+      if (resp.error) {
+        console.error('bkAddCustomer:', resp.error);
+        err.textContent = 'Could not add customer (' + (resp.error.message || 'permission denied') +
+          '). The customer ID may already exist, or your account may not have permission to add customers.';
+        err.style.display = 'block';
+        return;
+      }
+      logAction('add_customer', id, { name: name, via: 'broker' });
+      ok.classList.add('show');
+      document.getElementById('bkNcName').value = '';
+      document.getElementById('bkNcId').value = '';
+      await loadBroker(); // refresh the grid so the new customer shows (subject to RLS)
     }
     async function openBrokerCustomer(cidEnc) {
       var cid = decodeURIComponent(cidEnc);
@@ -4033,68 +4091,4 @@
   <!-- Privacy policy footer — visible on every page, link opens PDF in new tab -->
 
   <!-- ═══════════════════════════════════════════════════════════════════════
-       EDIT REPORT MODAL — replace HTML / Excel / Invoices for an existing row
-  ════════════════════════════════════════════════════════════════════════ -->
-  <!-- Session inactivity modal — warning + expired states share the same shell -->
-  <div class="session-modal" id="sessionModal" hidden>
-    <div class="session-modal__overlay"></div>
-    <div class="session-modal__card" role="dialog" aria-modal="true" aria-labelledby="sessionModalTitle">
-      <div class="session-modal__accent"></div>
-      <div class="session-modal__body">
-        <div class="session-modal__icon session-modal__icon--warn" id="sessionModalIcon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="9"></circle>
-            <polyline points="12 7 12 12 15 14"></polyline>
-          </svg>
-        </div>
-        <h3 class="session-modal__title" id="sessionModalTitle">Still there?</h3>
-        <p class="session-modal__sub" id="sessionModalSub">For your security, you'll be signed out due to inactivity.</p>
-        <div class="session-modal__countdown" id="sessionModalCountdown" aria-live="polite">1:00</div>
-        <div class="session-modal__actions" id="sessionModalActions">
-          <button type="button" class="session-modal__btn-ghost" onclick="sessionUserSignOut()">Sign out</button>
-          <button type="button" class="session-modal__btn-primary" onclick="sessionStayActive()">Stay signed in</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="edit-report-modal" id="editReportModal" style="display:none;">
-    <div class="edit-report-modal__overlay" onclick="closeEditReport()"></div>
-    <div class="edit-report-modal__card">
-      <div class="edit-report-modal__head">
-        <h3 id="editReportTitle">Edit report</h3>
-        <button class="btn-close" onclick="closeEditReport()" aria-label="Close">×</button>
-      </div>
-      <div class="edit-report-modal__body">
-        <p style="font-size:13px;color:var(--muted);margin-bottom:18px;">Upload a new file to replace the existing one. Leave a field empty to keep the current version.</p>
-        <div class="success-box" id="editReportOk">Files updated successfully.</div>
-        <div class="form-group">
-          <label>HTML report</label>
-          <input type="file" id="editHtmlFile" accept=".html,.htm" />
-          <div class="form-help" id="editHtmlCurrent">—</div>
-        </div>
-        <div class="form-group">
-          <label>Excel workbook</label>
-          <input type="file" id="editXlsxFile" accept=".xlsx" />
-          <div class="form-help" id="editXlsxCurrent">—</div>
-        </div>
-        <div class="form-group">
-          <label>Invoice ZIP</label>
-          <input type="file" id="editInvFile" accept=".zip" />
-          <div class="form-help" id="editInvCurrent">—</div>
-        </div>
-        <div style="display:flex;gap:10px;margin-top:18px;">
-          <button class="btn-primary" id="editSubmitBtn" onclick="doEditReport()" style="flex:1;">Save changes</button>
-          <button class="btn-secondary" onclick="closeEditReport()" style="flex:1;">Cancel</button>
-        </div>
-      </div>
-    </div>
-  </div>
-  <footer class="portal-footer">
-    <span>© Commercial Energy Solutions Ltd · Company no. 06257655 · ICO ZB326783</span>
-    <span>
-      <a href="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/CES_Privacy_Policy_with_ICO_Certificate.pdf" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
-    </span>
-  </footer>
-</body>
-</html>
+       EDIT REPORT MODAL — r
