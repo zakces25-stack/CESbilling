@@ -1082,10 +1082,7 @@
             <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Creates the customer record. Once saved it appears below — open it to add meters.</p>
             <div class="success-box" id="bkCustOk">Customer added.</div>
             <div class="error-box" id="bkCustErr"></div>
-            <div class="form-row-2">
-              <div class="form-group"><label>Company name</label><input type="text" id="bkNcName" placeholder="Acme Ltd" /></div>
-              <div class="form-group"><label>Customer ID (slug)</label><input type="text" id="bkNcId" placeholder="acme" /></div>
-            </div>
+            <div class="form-group" style="max-width:420px;"><label>Company name</label><input type="text" id="bkNcName" placeholder="Acme Ltd" onkeydown="if(event.key==='Enter')bkAddCustomer()" /></div>
             <button class="btn-primary" style="width:auto;padding:10px 18px;" onclick="bkAddCustomer()">Save customer</button>
             <button class="btn-secondary" style="width:auto;padding:10px 18px;margin-left:8px;" onclick="bkToggleCustomerForm()">Cancel</button>
           </div>
@@ -1807,6 +1804,7 @@
         return;
       }
       var customers = data || [];
+      window._bkCustomers = customers;
       var metaEl = document.getElementById('brokerMeta');
       if (metaEl) metaEl.textContent = customers.length + ' customer' + (customers.length !== 1 ? 's' : '');
       if (!customers.length) {
@@ -1817,10 +1815,12 @@
         var enc = encodeURIComponent(c.customer_id);
         return '<div class="report-card" role="button" tabindex="0"' +
           ' onclick="openBrokerCustomer(\'' + enc + '\')"' +
-          ' onkeydown="if(event.key===\'Enter\')openBrokerCustomer(\'' + enc + '\')">' +
+          ' onkeydown="if(event.key===\'Enter\'&&event.target===this)openBrokerCustomer(\'' + enc + '\')">' +
             '<div class="report-month">' + escapeHtml(c.company_name || c.customer_id) + '</div>' +
-            '<div class="meta" style="margin-top:6px;color:var(--muted);font-size:12.5px;">' + escapeHtml(c.customer_id) + '</div>' +
-            '<div class="meta" style="margin-top:10px;color:var(--navy);font-weight:600;font-size:12.5px;">View meters →</div>' +
+            '<div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;">' +
+              '<span class="meta" style="color:var(--navy);font-weight:600;font-size:12.5px;">View meters →</span>' +
+              '<button class="btn-secondary" style="padding:5px 12px;font-size:12px;color:var(--fail,#8b2015);border-color:var(--fail,#8b2015);" title="Delete this customer" onclick="event.stopPropagation();bkDeleteCustomer(\'' + enc + '\')">Delete</button>' +
+            '</div>' +
           '</div>';
       }).join('');
     }
@@ -1838,7 +1838,6 @@
       f.style.display = showing ? 'none' : '';
       if (!showing) {
         document.getElementById('bkNcName').value = '';
-        document.getElementById('bkNcId').value = '';
         document.getElementById('bkCustErr').style.display = 'none';
         document.getElementById('bkCustOk').classList.remove('show');
         document.getElementById('bkNcName').focus();
@@ -1851,26 +1850,57 @@
     // If your schema links brokers via an owner column or a junction table, add
     // that here too (see the deployment notes) — otherwise the customer is
     // created but won't appear in the broker's list.
+    // Turn a company name into a URL-safe customer_id slug.
+    function bkSlug(s) {
+      return String(s || '').toLowerCase().trim()
+        .replace(/&/g, ' and ')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 40) || 'customer';
+    }
     async function bkAddCustomer() {
       var name = document.getElementById('bkNcName').value.trim();
-      var id   = document.getElementById('bkNcId').value.trim().toLowerCase().replace(/\s+/g, '-');
       var err  = document.getElementById('bkCustErr');
       var ok   = document.getElementById('bkCustOk');
       err.style.display = 'none'; ok.classList.remove('show');
-      if (!name || !id) { err.textContent = 'Both fields required.'; err.style.display = 'block'; return; }
-      var resp = await sb.from('customers').insert({ customer_id: id, company_name: name });
-      if (resp.error) {
-        console.error('bkAddCustomer:', resp.error);
-        err.textContent = 'Could not add customer (' + (resp.error.message || 'permission denied') +
-          '). The customer ID may already exist, or your account may not have permission to add customers.';
+      if (!name) { err.textContent = 'Company name is required.'; err.style.display = 'block'; return; }
+      // Customer ID is generated automatically from the name; brokers never see it.
+      var base = bkSlug(name), id = base, resp, lastErr = null;
+      for (var attempt = 0; attempt < 6; attempt++) {
+        resp = await sb.from('customers').insert({ customer_id: id, company_name: name });
+        if (!resp.error) { lastErr = null; break; }
+        lastErr = resp.error;
+        var dup = resp.error.code === '23505' || /duplicate|already exists|unique/i.test(resp.error.message || '');
+        if (!dup) break;                                          // real error (e.g. permission) — stop
+        id = base + '-' + Math.random().toString(36).slice(2, 6); // slug taken — try another
+      }
+      if (lastErr) {
+        console.error('bkAddCustomer:', lastErr);
+        err.textContent = 'Could not add customer (' + (lastErr.message || 'permission denied') +
+          '). Your account may not have permission to add customers.';
         err.style.display = 'block';
         return;
       }
       logAction('add_customer', id, { name: name, via: 'broker' });
       ok.classList.add('show');
       document.getElementById('bkNcName').value = '';
-      document.getElementById('bkNcId').value = '';
       await loadBroker(); // refresh the grid so the new customer shows (subject to RLS)
+    }
+    // Delete a customer (and, via DB cascade, their meters + reports).
+    async function bkDeleteCustomer(cidEnc) {
+      var cid = decodeURIComponent(cidEnc);
+      var c = (window._bkCustomers || []).find(function(x){ return x.customer_id === cid; });
+      var label = (c && c.company_name) ? c.company_name : cid;
+      if (!confirm('Delete customer "' + label + '"?\n\nThis also deletes all of their meters and reports, and cannot be undone.')) return;
+      var resp = await sb.from('customers').delete().eq('customer_id', cid);
+      if (resp.error) {
+        console.error('bkDeleteCustomer:', resp.error);
+        alert('Could not delete customer: ' + (resp.error.message || 'permission denied') +
+          '\n\nYour account may not have permission to delete customers.');
+        return;
+      }
+      logAction('delete_customer', cid, { via: 'broker' });
+      await loadBroker();
     }
     async function openBrokerCustomer(cidEnc) {
       var cid = decodeURIComponent(cidEnc);
@@ -4048,47 +4078,4 @@
             if (rows.length > 0) {
               await sb.from('usage_data').upsert(rows, { onConflict: 'customer_id,meter_id,period_start,utility' });
             }
-          } catch (e) { console.warn('Metadata re-parse failed:', e); }
-        }
-
-        const { error: dbErr } = await sb.from('reports').update(patch).eq('id', r.id);
-        if (dbErr) throw new Error('DB write: ' + dbErr.message);
-
-        // Bust in-memory cache for this report
-        if (window._reportCache) {
-          Object.keys(window._reportCache).forEach(k => {
-            if (k.startsWith(r.html_path)) delete window._reportCache[k];
-          });
-        }
-
-        document.getElementById('editReportOk').classList.add('show');
-        logAction('edit_report', r.id, { files: [htmlFile && 'html', xlsxFile && 'xlsx', invFile && 'invoices'].filter(Boolean) });
-        await refreshAdminReportTable();
-        setTimeout(closeEditReport, 1200);
-      } catch (err) {
-        console.error(err);
-        safeAlert(err.message || 'Edit failed');
-      } finally {
-        btn.disabled = false; btn.textContent = 'Save changes';
-      }
-    }
-
-    // ───── BOOT ─────
-    async function init() {
-      const { data: { session } } = await sb.auth.getSession();
-      if (session) {
-        await loadProfileAndRoute(session.user);
-      } else {
-        showPage('loginPage');
-        maybeShowSessionBanner();
-      }
-    }
-    init();
-    document.getElementById('loginPass').addEventListener('keydown', e => {
-      if (e.key === 'Enter') doLogin();
-    });
-  </script>
-  <!-- Privacy policy footer — visible on every page, link opens PDF in new tab -->
-
-  <!-- ═══════════════════════════════════════════════════════════════════════
-       EDIT REPORT MODAL — r
+       
