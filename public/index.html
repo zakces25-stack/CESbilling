@@ -211,6 +211,10 @@
     }
     .nav-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
     .nav-item.active { background: rgba(147,196,58,0.15); color: var(--lime); }
+    .sidebar-nav-label { color: rgba(255,255,255,0.4); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.7px; font-weight: 700; padding: 2px 14px 8px; }
+    #dashPage .sidebar-nav .nav-item { justify-content: space-between; }
+    #dashPage .sidebar-nav .nav-item::after { content: '›'; font-size: 18px; line-height: 1; opacity: 0.3; transition: opacity 0.15s, transform 0.15s; }
+    #dashPage .sidebar-nav .nav-item:hover::after, #dashPage .sidebar-nav .nav-item.active::after { opacity: 0.85; transform: translateX(2px); }
     .sidebar-foot { padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.08); }
     .signout-btn { background: none; border: none; color: rgba(255,255,255,0.5); font-size: 13px; cursor: pointer; padding: 0; }
     .signout-btn:hover { color: var(--lime); }
@@ -1001,10 +1005,11 @@
           <div class="b2" id="dashClientName">—</div>
         </div>
         <div class="sidebar-nav">
+          <div class="sidebar-nav-label">Pages</div>
           <div class="nav-item active" data-page="reports">Reports</div>
           <div class="nav-item" data-page="sites">Site List</div>
-          <div class="nav-item" data-page="compare">Comparison</div>
-          <div class="nav-item" data-page="usage">Usage Report</div>
+          <div class="nav-item" data-page="compare">Consumption comparison</div>
+          <div class="nav-item" data-page="usage">Carbon Report</div>
         </div>
         <div class="sidebar-foot">
           <button class="signout-btn" onclick="doSignOut()">Sign out</button>
@@ -1119,7 +1124,7 @@
 <!-- Page: Usage Report (ESOS / SECR) -->
         <div class="dash-section" data-page="usage" style="display:none;">
           <div class="section-head">
-            <h2>Usage Report</h2>
+            <h2>Carbon Report</h2>
             <div class="section-meta">Aggregate kWh and kgCO<sub>2</sub>e across selected sites and periods · uses Half-Hourly Data where available, falls back to billed where not.</div>
           </div>
           <div class="usage-filters" id="usageFilters">
@@ -3103,13 +3108,6 @@
       var statsRows = '';
       statsRows += '<tr><td class="cmp-statlabel">Total usage' + (unitOk ? ' (' + unitLabel + ')' : '') + '</td><td class="mono">' + (unitOk ? fnum(totA.usage) : '—') + '</td><td class="mono">' + (unitOk ? fnum(totB.usage) : '—') + '</td><td>' + (unitOk ? pctTxt(totB.usage, totA.usage) : '<span class="cmp-flat">—</span>') + '</td></tr>';
       statsRows += '<tr><td class="cmp-statlabel">Total cost</td><td class="mono">' + fgbp(totA.cost) + '</td><td class="mono">' + fgbp(totB.cost) + '</td><td>' + pctTxt(totB.cost, totA.cost) + '</td></tr>';
-      var rateA = (unitOk && totA.usage) ? (totA.cost / totA.usage) : null, rateB = (unitOk && totB.usage) ? (totB.cost / totB.usage) : null;
-      if (unitOk && unit === 'kWh') statsRows += '<tr><td class="cmp-statlabel">Avg unit rate (p/kWh)</td><td class="mono">' + (rateA != null ? fp(rateA * 100, 2) : '—') + '</td><td class="mono">' + (rateB != null ? fp(rateB * 100, 2) : '—') + '</td><td>' + pctTxt(rateB, rateA) + '</td></tr>';
-      else if (unitOk && unit === 'm³') statsRows += '<tr><td class="cmp-statlabel">Avg unit rate (£/m³)</td><td class="mono">' + (rateA != null ? fgbp(rateA) : '—') + '</td><td class="mono">' + (rateB != null ? fgbp(rateB) : '—') + '</td><td>' + pctTxt(rateB, rateA) + '</td></tr>';
-      if (util === 'electricity' && (totA.day || totB.day || totA.night || totB.night)) {
-        statsRows += '<tr><td class="cmp-statlabel">Day usage (kWh)</td><td class="mono">' + fnum(totA.day) + '</td><td class="mono">' + fnum(totB.day) + '</td><td>' + pctTxt(totB.day, totA.day) + '</td></tr>';
-        statsRows += '<tr><td class="cmp-statlabel">Night usage (kWh)</td><td class="mono">' + fnum(totA.night) + '</td><td class="mono">' + fnum(totB.night) + '</td><td>' + pctTxt(totB.night, totA.night) + '</td></tr>';
-      }
       var stats = '<div class="cmp-section-label">Summary</div><table class="cmp-stats"><thead><tr><th>Measure</th><th>Period A<br><small>' + escapeHtml(aLab) + '</small></th><th>Period B<br><small>' + escapeHtml(bLab) + '</small></th><th>% diff</th></tr></thead><tbody>' + statsRows + '</tbody></table>';
       var detail = _cmpDetailTable(ids, A, B, aLab, bLab, unit, unitOk, fnum, fgbp, pctTxt);
       out.innerHTML = caption + boxes + chart + stats + detail;
