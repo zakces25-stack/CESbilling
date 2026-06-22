@@ -287,6 +287,9 @@
     .err-badge:hover { filter: brightness(0.95); }
     .site-group { margin-bottom: 26px; }
     .site-group > h3 { font-size: 15px; font-weight: 800; margin: 0 0 10px; color: var(--navy); }
+    .imp-banner { display:none; align-items:center; justify-content:space-between; gap:14px; background:#7a5010; color:#fff; padding:10px 18px; font-size:13.5px; font-weight:700; }
+    .imp-banner.show { display:flex; }
+    .imp-banner button { background:#fff; color:#7a5010; border:none; border-radius:6px; padding:6px 14px; font-weight:800; cursor:pointer; font-family:inherit; }
     .badge-warn { background: #FFFBEB; color: #B45309; } .badge-warn .bdot { background: #D97706; }
     /* Occupancy-specific level badges — larger, more prominent */
     .occ-level {
@@ -941,6 +944,10 @@
         </div>
       </aside>
       <main class="main-area">
+        <div id="impBanner" class="imp-banner">
+          <span>👁 Viewing <strong id="impName">—</strong>'s portal as admin</span>
+          <button type="button" onclick="exitImpersonation()">Exit to admin</button>
+        </div>
         <div class="topbar">
           <button class="mobile-menu-toggle" onclick="toggleSidebar()" aria-label="Menu" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
           <div class="topbar-left">
@@ -1365,16 +1372,7 @@
         <!-- UPLOAD CONTRACT TAB -->
         <!-- REPORTS TAB -->
         <div class="tab-pane" id="tab-reports">
-          <div class="form-card" style="margin-bottom:24px;background:var(--surface-2);">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;">
-              <div>
-                <h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Usage Data — ESOS / SECR backfill</h3>
-                <p style="font-size:12.5px;color:var(--muted);margin:0;">Parses every bill validation HTML and populates the usage_data table for the Usage Report. Safe to re-run — re-uploads overwrite existing rows.</p>
-              </div>
-              <button class="btn-primary" id="backfillBtn" onclick="backfillUsageData()" style="width:auto;padding:11px 18px;flex-shrink:0;">Backfill Usage Data</button>
-            </div>
-            <div id="backfillStatus" style="display:none;margin-top:14px;font-size:13px;font-family:'JetBrains Mono',monospace;background:#fff;border:1px solid var(--border);border-radius:6px;padding:11px 14px;max-height:240px;overflow-y:auto;white-space:pre-wrap;"></div>
-          </div>
+          <!-- ESOS / SECR backfill removed — usage data is now populated automatically on report upload -->
           <div class="section-head">
             <h2>All reports</h2>
             <div class="section-meta" style="display:flex;gap:8px;align-items:center;">
@@ -2185,6 +2183,7 @@
       }
     }
     async function doSignOut() {
+      if (currentUser && currentUser._impersonating) { exitImpersonation(); return; }
       clearReportCaches();
       try { var _aw = document.getElementById('asstWrap'); if (_aw) _aw.style.display = 'none'; if (typeof _asstReset === 'function') _asstReset(); } catch (e) {}
       await logAction('logout', null, {});
@@ -2397,7 +2396,7 @@
     }
     async function loadDash() {
       const cid = currentUser.customerId;
-      var _aw = document.getElementById('asstWrap'); if (_aw) _aw.style.display = 'block';
+      var _aw = document.getElementById('asstWrap'); if (_aw) _aw.style.display = (currentUser && currentUser._impersonating) ? 'none' : 'block';
       // Utility breakdown shown under the Running Utility Costs KPI (e.g. "Electricity + Water")
       window._dashUtilLabel = '';
       sb.from('meters').select('utility').eq('customer_id', cid).then(function(res){
@@ -2577,42 +2576,54 @@
       var inject = "<scr" + "ipt>(function(){function J(){try{var els=[].slice.call(document.querySelectorAll('button,a,[role=tab],[role=button],li,.tab,.nav-link'));var hit=els.filter(function(e){var t=(e.textContent||'').trim().toLowerCase();return t&&t.length<40&&t.indexOf('issue')>-1&&e.offsetParent!==null;})[0];if(hit){hit.click();}var h=document.querySelector('[id*=issue],[id*=Issue]');if(!h){h=els.filter(function(e){return /issues?\\s*log/i.test(e.textContent||'');})[0];}if(h&&h.scrollIntoView){h.scrollIntoView({behavior:'smooth',block:'start'});return true;}return !!hit;}catch(e){return false;}}var n=0,iv=setInterval(function(){n++;if(J()||n>24){clearInterval(iv);}},250);})();<\/scr" + "ipt>";
       return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, inject + "</body>") : html + inject;
     }
+    // Build site rows (MPAN/SPID/MPRN → address) from a report's window.BV object.
+    function extractSitesFromBV(bv, customerId, reportId) {
+      const out = [];
+      const summ = (bv && bv.summary) || {};
+      ['electricity', 'gas', 'water'].forEach(function(u){
+        (summ[u] || []).forEach(function(s){
+          const ident = s.mpan || s.spid || s.mpr || s.mprn;
+          if (!ident) return;
+          out.push({
+            customer_id: customerId,
+            utility: u,
+            identifier: String(ident),
+            site_address: s.address || s.site || null,
+            supplier: s.supplier || null,
+            source_report_id: reportId
+          });
+        });
+      });
+      return out;
+    }
     // ───── SITE LIST (customer page) ─────
+    // Reads the sites table (populated from uploaded validation reports). Shows the
+    // supply identifier + the registered site address, grouped by utility. No area code.
     async function loadSiteList(cid) {
       const body = document.getElementById('siteListBody');
       if (!body) return;
       body.innerHTML = '<div class="empty-state"><p>Loading…</p></div>';
-      let meters = [], usage = [];
+      let sites = [];
       try {
-        const r1 = await sb.from('meters').select('id, mpan, utility, supply_type, area_code').eq('customer_id', cid).order('utility').order('mpan');
-        meters = r1.data || [];
-        const r2 = await sb.from('usage_data').select('meter_id, site_name, site_address, period_start').eq('customer_id', cid).order('period_start', { ascending: false });
-        usage = r2.data || [];
+        const r = await sb.from('sites').select('utility, identifier, site_address').eq('customer_id', cid).order('utility').order('identifier');
+        sites = r.data || [];
       } catch (e) { console.error('Site list load:', e); body.innerHTML = '<div class="empty-state"><p>Could not load your sites. Please refresh.</p></div>'; return; }
-      const addrByMeter = {};
-      usage.forEach(function(u){ if (u.meter_id && !addrByMeter[u.meter_id]) addrByMeter[u.meter_id] = u.site_address || u.site_name || ''; });
+      if (!sites.length) { body.innerHTML = '<div class="empty-state"><h3>No sites on record yet</h3><p>Your supplies will appear here once CES uploads a validation report.</p></div>'; return; }
       const groups = {};
-      meters.forEach(function(m){ (groups[m.utility] || (groups[m.utility] = [])).push(m); });
+      sites.forEach(function(s){ (groups[s.utility] || (groups[s.utility] = [])).push(s); });
       const idLabel = { electricity: 'MPAN', gas: 'MPRN', water: 'SPID' };
       const order = ['electricity', 'gas', 'water'];
       const allUtils = order.concat(Object.keys(groups).filter(function(k){ return order.indexOf(k) === -1; }));
-      if (!meters.length) { body.innerHTML = '<div class="empty-state"><h3>No sites on record yet</h3><p>Your supplies will appear here once CES adds them.</p></div>'; return; }
       body.innerHTML = allUtils.map(function(util){
         const list = groups[util] || [];
+        if (!list.length) return '';
         const title = util.charAt(0).toUpperCase() + util.slice(1);
         const label = idLabel[util] || 'Identifier';
-        if (!list.length) {
-          return '<div class="site-group"><h3>' + title + '</h3><div class="empty-state" style="padding:16px;"><p>No ' + title.toLowerCase() + ' supplies on record yet.</p></div></div>';
-        }
-        const rows = list.map(function(m){
-          const supply = util === 'electricity'
-            ? '<td class="mono">' + escapeHtml(m.supply_type || '') + (m.area_code ? ' · area ' + escapeHtml(m.area_code) : '') + '</td>'
-            : '';
-          return '<tr><td class="mono">' + escapeHtml(m.mpan || '—') + '</td><td>' + escapeHtml(addrByMeter[m.id] || '—') + '</td>' + supply + '</tr>';
+        const rows = list.map(function(s){
+          return '<tr><td class="mono">' + escapeHtml(s.identifier || '—') + '</td><td>' + escapeHtml(s.site_address || '—') + '</td></tr>';
         }).join('');
-        const supplyHead = util === 'electricity' ? '<th>Supply</th>' : '';
         return '<div class="site-group"><h3>' + title + ' <span style="color:var(--muted);font-weight:600;font-size:13px;">· ' + list.length + ' site' + (list.length === 1 ? '' : 's') + '</span></h3>' +
-          '<table class="list"><thead><tr><th>' + label + '</th><th>Site address</th>' + supplyHead + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+          '<table class="list"><thead><tr><th>' + label + '</th><th>Site address</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
       }).join('');
     }
     // ───── ADMIN ─────
@@ -2668,6 +2679,7 @@
               ? `<button class="btn-secondary" data-action="remove-logo" data-id="${escapeHtml(c.customer_id)}" style="margin-right:6px;">Remove Logo</button>`
               : `<button class="btn-secondary" data-action="add-logo" data-id="${escapeHtml(c.customer_id)}" style="margin-right:6px;">Add Logo</button>`
             }
+            <button class="btn-secondary" data-action="open-portal" data-id="${escapeHtml(c.customer_id)}" style="margin-right:6px;">Open portal</button>
             <button class="btn-danger" data-action="delete-customer" data-id="${escapeHtml(c.customer_id)}">Delete</button>
           </td>
         </tr>
@@ -2778,7 +2790,7 @@
             htmlText = await htmlFile.text();
             const m = htmlText.match(/window\.BV\s*=\s*({[\s\S]+?});\s*<\/script>/);
             if (m) {
-              const bv = JSON.parse(m[1]);
+              const bv = JSON.parse(m[1]); window._upBV = bv;
               if (!sites) sites = (bv.summary.electricity?.length || 0) + (bv.summary.water?.length || 0) + (bv.summary.gas?.length || 0);
               const fmtGBP = (n) => '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
               if (!total) total = fmtGBP(bv.summary.totals?.grand_total || 0);
@@ -2829,6 +2841,18 @@
           } catch (e) {
             console.warn('[Usage auto-parse] failed:', e);
           }
+        }
+
+        // ── Auto-populate the Site List (MPAN/SPID → address) from the report ──
+        if (window._upBV) {
+          try {
+            const siteRows = extractSitesFromBV(window._upBV, customerId, reportId);
+            if (siteRows.length) {
+              const { error: sErr } = await sb.from('sites').upsert(siteRows, { onConflict: 'customer_id,utility,identifier' });
+              if (sErr) console.warn('[Sites] upsert failed:', sErr.message);
+            }
+          } catch (e) { console.warn('[Sites] extract failed:', e); }
+          window._upBV = null;
         }
 
         ok.classList.add('show');
@@ -3117,8 +3141,41 @@
         const input = document.querySelector(`input[data-email-id="${CSS.escape(id)}"]`);
         const email = input ? input.value.trim() : '';
         saveCustomerEmail(id, email, btn);
+      } else if (btn.dataset.action === 'open-portal') {
+        openPortalAsCustomer(id);
       }
     });
+
+    // ───── ADMIN: OPEN A CUSTOMER'S PORTAL (view as customer) ─────
+    // Renders the customer's own portal using the admin's session. Admin RLS can
+    // already read every customer's data, so nothing new is exposed — this just
+    // scopes the dashboard to one customer. No password, no token minting.
+    var _adminCtx = null;
+    async function openPortalAsCustomer(customerId) {
+      let comp = customerId, hasLogo = false;
+      try {
+        const { data } = await sb.from('customers').select('company_name, has_logo').eq('customer_id', customerId).single();
+        if (data) { comp = data.company_name || customerId; hasLogo = !!data.has_logo; }
+      } catch (e) { console.warn('open-portal lookup:', e); }
+      _adminCtx = currentUser;
+      currentUser = { email: _adminCtx.email, userId: _adminCtx.userId, customerId: customerId, name: comp, isAdmin: false, isBroker: false, role: 'customer', hasLogo: hasLogo, _impersonating: true };
+      const b = document.getElementById('impBanner'); const n = document.getElementById('impName');
+      if (n) n.textContent = comp; if (b) b.classList.add('show');
+      const am = document.querySelector('#dashPage .avatar-menu-wrapper'); if (am) am.style.display = 'none';
+      logAction('impersonate_start', null, { customer_id: customerId });
+      showPage('dashPage');
+      await loadDash();
+      showCustomerPage('reports');
+    }
+    function exitImpersonation() {
+      if (!_adminCtx) return;
+      const b = document.getElementById('impBanner'); if (b) b.classList.remove('show');
+      const am = document.querySelector('#dashPage .avatar-menu-wrapper'); if (am) am.style.display = '';
+      currentUser = _adminCtx; _adminCtx = null;
+      logAction('impersonate_end', null, {});
+      showPage('adminPage');
+      loadAdmin();
+    }
 
     async function saveCustomerEmail(customerId, email, btn) {
       const oldLabel = btn.textContent;
@@ -4253,6 +4310,10 @@
               patch.prev_total_net = bv.summary.totals?.prev_grand != null ? fmtGBP(bv.summary.totals.prev_grand) : null;
               patch.fail_count = (bv.issues || []).filter(i => i.sev === 'FAIL').length;
               patch.warn_count = (bv.issues || []).filter(i => i.sev !== 'FAIL').length;
+              try {
+                const siteRows = extractSitesFromBV(bv, r.customer_id, r.id);
+                if (siteRows.length) await sb.from('sites').upsert(siteRows, { onConflict: 'customer_id,utility,identifier' });
+              } catch (se) { console.warn('[Sites] edit upsert failed:', se); }
             }
             // Refresh usage_data using the new HTML
             const reportRow = { id: r.id, customer_id: r.customer_id };
