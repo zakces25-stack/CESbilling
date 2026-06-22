@@ -228,6 +228,10 @@
     .asst-head .asst-sub { font-size: 11.5px; opacity: 0.85; font-weight: 400; }
     .asst-close { background: none; border: none; color: #fff; font-size: 22px; line-height: 1; cursor: pointer; }
     .asst-msgs { flex: 1 1 auto; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: var(--surface-2, #f4f5fa); }
+    .asst-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+    .asst-chip { background: #fff; border: 1.5px solid var(--navy); color: var(--navy); border-radius: 14px; padding: 6px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit; text-align: left; }
+    .asst-chip:hover { background: var(--navy); color: #fff; }
+    .asst-chip--other { border-color: var(--border); color: var(--text-2); }
     .asst-msg { max-width: 86%; padding: 9px 12px; border-radius: 12px; font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
     .asst-user { align-self: flex-end; background: var(--navy); color: #fff; border-bottom-right-radius: 4px; }
     .asst-model { align-self: flex-start; background: #fff; border: 1px solid var(--border); border-bottom-left-radius: 4px; }
@@ -2396,11 +2400,30 @@
       if (box) box.innerHTML = '<div class="asst-msg asst-model">Hi - I can answer questions about your bills, energy use and costs. What would you like to know?</div>';
       var p = document.getElementById('asstPanel'); if (p) p.style.display = 'none';
     }
-    async function sendAssistant() {
+    function _asstRemoveChips() { var c = document.getElementById('asstChips'); if (c) c.remove(); }
+    function _asstClarify(question, options) {
+      _asstAdd('model', question);
+      var box = document.getElementById('asstMsgs'); if (!box) return;
+      _asstRemoveChips();
+      var wrap = document.createElement('div'); wrap.id = 'asstChips'; wrap.className = 'asst-chips';
+      (options || []).slice(0, 8).forEach(function(opt){
+        var b = document.createElement('button'); b.type = 'button'; b.className = 'asst-chip';
+        b.textContent = opt;
+        b.onclick = function(){ sendAssistant(opt); };
+        wrap.appendChild(b);
+      });
+      var se = document.createElement('button'); se.type = 'button'; se.className = 'asst-chip asst-chip--other';
+      se.textContent = 'Something else…';
+      se.onclick = function(){ _asstRemoveChips(); var i = document.getElementById('asstInput'); if (i) i.focus(); };
+      wrap.appendChild(se);
+      box.appendChild(wrap); box.scrollTop = box.scrollHeight;
+    }
+    async function sendAssistant(preset) {
       if (_asstBusy) return;
       var input = document.getElementById('asstInput');
-      var q = (input.value || '').trim(); if (!q) return;
-      input.value = '';
+      var q = (preset != null ? String(preset) : (input.value || '')).trim(); if (!q) return;
+      if (preset == null) input.value = '';
+      _asstRemoveChips();
       _asstAdd('user', q);
       _asstBusy = true;
       var box = document.getElementById('asstMsgs');
@@ -2418,6 +2441,7 @@
         var out = await resp.json().catch(function(){ return {}; });
         typing.remove();
         if (!resp.ok || out.error) { _asstAdd('model', out.error || 'Sorry, something went wrong. Please try again.'); }
+        else if (out.clarify) { _asstClarify(out.clarify, out.options || []); }
         else { _asstAdd('model', out.answer || 'Sorry, I could not answer that.'); }
       } catch (e) {
         console.error('assistant', e); typing.remove();
