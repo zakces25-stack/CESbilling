@@ -2610,6 +2610,7 @@
     function relabelIssues(html) {
       return html
         .replace("{kind: isFail ? 'fail' : 'info'}, iss.sev)", "{kind: isFail ? 'fail' : 'info'}, isFail ? 'Error' : 'Comment')")
+        .replace("count: issues.length, failCount}", "count: failCount, failCount}")
         .replace(/Validation completed [^·]*· /, '');
     }
     // (In-report CES error banner removed — error/resolved status now shows on the report cards.)
@@ -2635,7 +2636,39 @@
     }
     // Trim a report's window.BV.summary to the key per-site billing fields, stored on
     // reports.bv_summary so the chatbot can answer detailed per-site / per-month questions.
-    function trimBvSummary(bv) {
+    function _hhDate(s){
+      s=String(s||'').trim();
+      if(s.indexOf('/')>-1){var a=s.split('/');return new Date(+a[2],+a[1]-1,+a[0]);}
+      if(/^\d{4}-\d{2}-\d{2}/.test(s)){var b=s.split('-');return new Date(+b[0],+b[1]-1,+parseInt(b[2],10));}
+      var M={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+      var p=s.split(/\s+/); var key=(p[1]||'').slice(0,3).toLowerCase();
+      if(p.length>=3 && M[key]!=null) return new Date(+p[2],M[key],+p[0]);
+      return null;
+    }
+    function _hhEntrySummary(e){
+      var days=(e&&e.days)||[]; if(!days.length) return null;
+      var peak=-1,pdate=null,pidx=0,total=0,n=0,mins=[],wd=[],we=[],maxd=null;
+      for(var i=0;i<days.length;i++){
+        var hh=days[i].hh||[]; if(!hh.length) continue;
+        var t=0,mn=Infinity;
+        for(var k=0;k<hh.length;k++){var v=hh[k]; t+=v; if(v<mn)mn=v; if(v>peak){peak=v;pdate=days[i].date;pidx=k;}}
+        mins.push(mn); total+=t; n++;
+        if(!maxd||t>maxd.t) maxd={d:days[i].date,t:t};
+        var dt=_hhDate(days[i].date); if(dt){var dow=dt.getDay(); (dow===0||dow===6?we:wd).push(t);}
+      }
+      if(!n) return null;
+      var pk=Math.round(peak*2*10)/10, mm=pidx*30, avgKw=total/(n*24);
+      function mean(a){return a.length?Math.round(a.reduce(function(x,y){return x+y;},0)/a.length*10)/10:null;}
+      return {
+        peak_kw:pk, peak_time:('0'+Math.floor(mm/60)).slice(-2)+':'+('0'+(mm%60)).slice(-2), peak_date:pdate,
+        base_kw:Math.round(mins.reduce(function(x,y){return x+y;},0)/mins.length*2*100)/100,
+        avg_kwh_day:Math.round(total/n*10)/10,
+        max_day_kwh:maxd?Math.round(maxd.t*10)/10:null, max_day:maxd?maxd.d:null,
+        weekday_avg_kwh:mean(wd), weekend_avg_kwh:mean(we),
+        load_factor_pct:pk?Math.round(avgKw/pk*100):0
+      };
+    }
+    function trimBvSummary(bv, bvhh) {
       const WL = ['mpan','spid','mpr','site','address','supplier','cur_kwh','cur_cost','day_kwh','night_kwh','day_rate','night_rate','unit_rate','standing_charge','kva','total','period_start','period_end'];
       const summ = (bv && bv.summary) || {};
       const out = {};
@@ -2648,6 +2681,11 @@
         const tk = ['elec_kwh','elec_cost','gas_kwh','gas_cost','water_m3','water_cost','grand_total','prev_grand'];
         const t = {}; tk.forEach(function(k){ if (summ.totals[k] !== undefined && summ.totals[k] !== null) t[k] = summ.totals[k]; });
         out.totals = t;
+      }
+      if (bvhh && typeof bvhh === 'object') {
+        const hh = {};
+        Object.keys(bvhh).forEach(function(mp){ const s = _hhEntrySummary(bvhh[mp]); if (s) hh[mp] = s; });
+        if (Object.keys(hh).length) out.hh = hh;
       }
       return out;
     }
@@ -2881,6 +2919,7 @@
             const bvStr = _extractJsObject(htmlText, 'BV');
             if (bvStr) {
               const bv = JSON.parse(bvStr); window._upBV = bv;
+              try { var _hhStr = _extractJsObject(htmlText, 'BV_HH'); window._upBVHH = _hhStr ? JSON.parse(_hhStr) : null; } catch (e) { window._upBVHH = null; }
               if (!sites) sites = (bv.summary.electricity?.length || 0) + (bv.summary.water?.length || 0) + (bv.summary.gas?.length || 0);
               const fmtGBP = (n) => '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
               if (!total) total = fmtGBP(bv.summary.totals?.grand_total || 0);
@@ -2901,7 +2940,7 @@
           sites, fail_count: fails, warn_count: warns,
           total_net: total || '—',
           prev_total_net: window._extractedPrevTotal || null,
-          bv_summary: window._upBV ? trimBvSummary(window._upBV) : null,
+          bv_summary: window._upBV ? trimBvSummary(window._upBV, window._upBVHH) : null,
           report_type: 'bill_validation',
           uploaded_by: currentUser.userId,
           uploaded_at: new Date().toISOString()
@@ -4503,13 +4542,14 @@
             const bvStr = _extractJsObject(txt, 'BV');
             if (bvStr) {
               const bv = JSON.parse(bvStr);
+              var _ebvhh = null; try { var _ehhStr = _extractJsObject(txt, 'BV_HH'); _ebvhh = _ehhStr ? JSON.parse(_ehhStr) : null; } catch (e) {}
               const fmtGBP = (n) => '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
               patch.sites = (bv.summary.electricity?.length || 0) + (bv.summary.water?.length || 0) + (bv.summary.gas?.length || 0);
               patch.total_net = fmtGBP(bv.summary.totals?.grand_total || 0);
               patch.prev_total_net = bv.summary.totals?.prev_grand != null ? fmtGBP(bv.summary.totals.prev_grand) : null;
               patch.fail_count = (bv.issues || []).filter(i => i.sev === 'FAIL').length;
               patch.warn_count = (bv.issues || []).filter(i => i.sev !== 'FAIL').length;
-              patch.bv_summary = trimBvSummary(bv);
+              patch.bv_summary = trimBvSummary(bv, _ebvhh);
               try {
                 const siteRows = extractSitesFromBV(bv, r.customer_id, r.id);
                 if (siteRows.length) await sb.from('sites').upsert(siteRows, { onConflict: 'customer_id,utility,identifier' });
