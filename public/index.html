@@ -244,7 +244,7 @@
       color: #fff; display: flex; align-items: center; justify-content: center;
       font-weight: 700; font-size: 14px;
     }
-    .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 28px; }
+    .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 28px; }
     .stat-card, .kpi, .usage-kpi, .form-card, .report-card, .card, .inv-card {
       box-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 0 0 1px rgba(15,23,42,0.04);
     }
@@ -987,8 +987,12 @@
               <div class="stat-value" id="ds1">—</div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">Failures Flagged</div>
+              <div class="stat-label">Ongoing Errors</div>
               <div class="stat-value" id="ds2">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Resolved Errors</div>
+              <div class="stat-value" id="ds2b">—</div>
             </div>
             <div class="stat-card">
               <div class="stat-label">Running Utility Costs</div>
@@ -2487,9 +2491,8 @@
       if (oErr) { console.error('Dashboard load (occupancy):', oErr); occGrid.innerHTML = '<div class="empty-state">Could not load reports. Please try refreshing the page.</div>'; }
       const occupancies = oData || [];
       // Stats
-      const totalFails = validations.reduce((s, r) => s + (r.fail_count || 0), 0);
       document.getElementById('ds1').textContent = validations.length;
-      document.getElementById('ds2').textContent = totalFails;
+      loadErrorCounts(cid);
       document.getElementById('rptCount').textContent =
         validations.length + ' validation' + (validations.length !== 1 ? 's' : '') +
         ' · ' + occupancies.length + ' occupancy report' + (occupancies.length !== 1 ? 's' : '');
@@ -2567,7 +2570,15 @@
       };
       frame.addEventListener('load', () => setTimeout(reveal, 300), { once: true });
       setTimeout(reveal, 4000);
-      frame.srcdoc = opts.jumpToIssues ? injectIssuesJump(html) : html;
+      let finalHtml = html;
+      if (!isOccupancy && !isContract) {
+        try {
+          const { data: iss } = await sb.from('issues').select('status, type, resolved_note').eq('report_id', r.id);
+          finalHtml = injectErrorBanner(finalHtml, iss || []);
+        } catch (e) { /* banner is best-effort */ }
+      }
+      if (opts.jumpToIssues) finalHtml = injectIssuesJump(finalHtml);
+      frame.srcdoc = finalHtml;
       logAction('view_report', r.id, { type: r.report_type || 'bill_validation', period: r.period, jump: opts.jumpToIssues ? 'issues' : 'summary' });
       // Excel + Invoices only show for bill validation reports
       if (!isOccupancy && !isContract && r.xlsx_path) {
@@ -2604,6 +2615,24 @@
       var inject = "<scr" + "ipt>(function(){function J(){try{var els=[].slice.call(document.querySelectorAll('button,a,[role=tab],[role=button],li,.tab,.nav-link'));var hit=els.filter(function(e){var t=(e.textContent||'').trim().toLowerCase();return t&&t.length<40&&t.indexOf('issue')>-1&&e.offsetParent!==null;})[0];if(hit){hit.click();}var h=document.querySelector('[id*=issue],[id*=Issue]');if(!h){h=els.filter(function(e){return /issues?\\s*log/i.test(e.textContent||'');})[0];}if(h&&h.scrollIntoView){h.scrollIntoView({behavior:'smooth',block:'start'});return true;}return !!hit;}catch(e){return false;}}var n=0,iv=setInterval(function(){n++;if(J()||n>24){clearInterval(iv);}},250);})();<\/scr" + "ipt>";
       return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, inject + "</body>") : html + inject;
     }
+    // Injects a fixed CES banner at the top of a validation report summarising its
+    // errors and which CES has marked resolved. No banner when there are no errors.
+    function injectErrorBanner(html, issues) {
+      const total = (issues || []).length;
+      if (!total) return html;
+      const resolved = issues.filter(function(i){ return i.status === 'resolved'; }).length;
+      const ongoing = total - resolved;
+      const items = issues.map(function(i){
+        const r = i.status === 'resolved';
+        return '<li style="margin:2px 0;list-style:none;">' + (r ? '✓ ' : '• ') + escapeHtml(i.type || 'Error') +
+          (r ? ' <strong>(resolved by CES' + (i.resolved_note ? (' — ' + escapeHtml(i.resolved_note)) : '') + ')</strong>' : '') + '</li>';
+      }).join('');
+      const bg = ongoing === 0 ? '#157347' : '#7a5010';
+      const banner = '<div style="position:fixed;top:0;left:0;right:0;z-index:99999;font-family:Manrope,Arial,sans-serif;background:' + bg + ';color:#fff;padding:10px 18px;font-size:13px;line-height:1.45;box-shadow:0 2px 8px rgba(0,0,0,0.2);">' +
+        '<strong>CES validation:</strong> ' + total + ' error' + (total === 1 ? '' : 's') + ' flagged — ' + resolved + ' resolved, ' + ongoing + ' ongoing.' +
+        '<ul style="margin:5px 0 0;padding:0;">' + items + '</ul></div>';
+      return /<body[^>]*>/i.test(html) ? html.replace(/(<body[^>]*>)/i, '$1' + banner) : banner + html;
+    }
     // Build site rows (MPAN/SPID/MPRN → address) from a report's window.BV object.
     function extractSitesFromBV(bv, customerId, reportId) {
       const out = [];
@@ -2623,6 +2652,37 @@
         });
       });
       return out;
+    }
+    // Build FAIL-severity issue rows (the "errors") from a report's window.BV object.
+    // Omits status/resolved fields so upserts NEVER reset an admin's resolution.
+    function extractIssuesFromBV(bv, customerId, reportId, month, year, period) {
+      const out = [];
+      const issues = (bv && bv.issues) || [];
+      let seq = 0;
+      issues.forEach(function(x){
+        const sev = x.sev || x.severity;
+        if (sev !== 'FAIL') return;
+        out.push({
+          customer_id: customerId, report_id: reportId,
+          month: month || null, year: year || null, period: period || null,
+          seq: seq++, severity: 'FAIL',
+          type: x.type || null, detail: x.detail || null, recommendation: x.rec || null,
+          supplier: x.sup || null, account: x.acc || null, invoice: x.inv || null,
+          mpan_spid: x.mpan_spid || null
+        });
+      });
+      return out;
+    }
+    // Ongoing vs resolved error counts for the dashboard KPIs.
+    async function loadErrorCounts(cid) {
+      try {
+        const { data } = await sb.from('issues').select('status').eq('customer_id', cid);
+        const rows = data || [];
+        const ongoing = rows.filter(function(r){ return r.status !== 'resolved'; }).length;
+        const resolved = rows.filter(function(r){ return r.status === 'resolved'; }).length;
+        const e2 = document.getElementById('ds2'); if (e2) e2.textContent = ongoing;
+        const e2b = document.getElementById('ds2b'); if (e2b) e2b.textContent = resolved;
+      } catch (e) { console.error('loadErrorCounts:', e); }
     }
     // ───── SITE LIST (customer page) ─────
     // Reads the sites table (populated from uploaded validation reports). Shows the
@@ -2747,7 +2807,7 @@
             <td class="mono">${totalLabel}</td>
             <td class="mono">${files}</td>
             <td class="mono">${new Date(r.uploaded_at).toLocaleDateString('en-GB')}</td>
-            <td style="white-space:nowrap;"><button class="btn-secondary" data-action="edit-report" data-id="${escapeHtml(r.id)}" style="margin-right:6px;padding:6px 10px;font-size:12px;">Edit</button><button class="btn-danger" data-action="delete-report" data-id="${escapeHtml(r.id)}" style="padding:6px 10px;font-size:12px;">Delete</button></td>
+            <td style="white-space:nowrap;">${isOcc ? '' : `<button class="btn-secondary" data-action="errors" data-id="${escapeHtml(r.id)}" style="margin-right:6px;padding:6px 10px;font-size:12px;">Errors (${r.fail_count || 0})</button>`}<button class="btn-secondary" data-action="edit-report" data-id="${escapeHtml(r.id)}" style="margin-right:6px;padding:6px 10px;font-size:12px;">Edit</button><button class="btn-danger" data-action="delete-report" data-id="${escapeHtml(r.id)}" style="padding:6px 10px;font-size:12px;">Delete</button></td>
           </tr>
         `;
       }).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:32px;">No reports uploaded yet.</td></tr>';
@@ -2881,6 +2941,13 @@
               if (sErr) console.warn('[Sites] upsert failed:', sErr.message);
             }
           } catch (e) { console.warn('[Sites] extract failed:', e); }
+          try {
+            const issueRows = extractIssuesFromBV(window._upBV, customerId, reportId, month, parseInt(year), month.slice(0,3) + '-' + yy);
+            if (issueRows.length) {
+              const { error: iErr } = await sb.from('issues').upsert(issueRows, { onConflict: 'report_id,seq' });
+              if (iErr) console.warn('[Issues] upsert failed:', iErr.message);
+            }
+          } catch (e) { console.warn('[Issues] extract failed:', e); }
           window._upBV = null;
         }
 
@@ -3056,6 +3123,50 @@
       check();
     }
     window.addEventListener('hashchange', refreshDangerZone);
+    // ───── ADMIN: RESOLVE ERRORS (per report, per issue) ─────
+    async function openErrorsModal(report) {
+      const modal = document.getElementById('errorsModal');
+      modal.dataset.reportId = report.id;
+      const co = (report.customers && report.customers.company_name) ? report.customers.company_name : report.customer_id;
+      document.getElementById('emTitle').textContent = co + ' · ' + (report.period || ((report.month || '') + ' ' + (report.year || '')));
+      document.getElementById('emBody').innerHTML = '<p style="color:var(--muted);">Loading…</p>';
+      modal.style.display = 'flex';
+      await renderErrorsModal(report.id);
+    }
+    function closeErrorsModal(){ const m = document.getElementById('errorsModal'); if (m) m.style.display = 'none'; }
+    async function renderErrorsModal(reportId) {
+      const body = document.getElementById('emBody');
+      const { data, error } = await sb.from('issues').select('*').eq('report_id', reportId).order('seq');
+      if (error) { body.innerHTML = '<p style="color:var(--fail);">Could not load errors.</p>'; return; }
+      const issues = data || [];
+      if (!issues.length) { body.innerHTML = '<p style="color:var(--muted);">No errors were flagged for this report.</p>'; return; }
+      body.innerHTML = issues.map(function(it){
+        const resolved = it.status === 'resolved';
+        return '<div style="border:1px solid var(--border);border-radius:9px;padding:13px 15px;margin-bottom:12px;">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
+            '<strong style="font-size:13.5px;">' + escapeHtml(it.type || 'Error') + '</strong>' +
+            '<span class="badge ' + (resolved ? 'badge-ok' : 'badge-fail') + '"><span class="bdot"></span>' + (resolved ? 'Resolved' : 'Ongoing') + '</span>' +
+          '</div>' +
+          '<div style="font-size:12px;color:var(--muted);margin:5px 0;">' + escapeHtml((it.mpan_spid ? (it.mpan_spid + ' · ') : '') + (it.supplier || '')) + '</div>' +
+          '<div style="font-size:12.5px;color:var(--text-2);margin-bottom:10px;">' + escapeHtml(it.detail || '') + '</div>' +
+          (resolved
+            ? '<div style="font-size:12px;color:#157347;margin-bottom:8px;">✓ Resolved' + (it.resolved_note ? (' — ' + escapeHtml(it.resolved_note)) : '') + (it.resolved_at ? (' (' + new Date(it.resolved_at).toLocaleDateString('en-GB') + ')') : '') + '</div><button class="btn-secondary" data-issue-reopen="' + it.id + '" style="padding:6px 12px;font-size:12px;">Reopen</button>'
+            : '<input type="text" data-issue-note="' + it.id + '" placeholder="Resolution note (optional)" style="width:100%;margin-bottom:8px;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:12.5px;font-family:inherit;" /><button class="btn-primary" data-issue-resolve="' + it.id + '" style="padding:7px 14px;font-size:12px;width:auto;">Mark resolved</button>') +
+        '</div>';
+      }).join('');
+      body.querySelectorAll('[data-issue-resolve]').forEach(function(b){ b.onclick = function(){ const id = b.getAttribute('data-issue-resolve'); const n = body.querySelector('[data-issue-note="' + id + '"]'); resolveIssue(id, true, n ? n.value.trim() : ''); }; });
+      body.querySelectorAll('[data-issue-reopen]').forEach(function(b){ b.onclick = function(){ resolveIssue(b.getAttribute('data-issue-reopen'), false, ''); }; });
+    }
+    async function resolveIssue(id, resolve, note) {
+      const patch = resolve
+        ? { status:'resolved', resolved_at:new Date().toISOString(), resolved_by: currentUser.userId, resolved_note: note || null, updated_at:new Date().toISOString() }
+        : { status:'ongoing', resolved_at:null, resolved_by:null, resolved_note:null, updated_at:new Date().toISOString() };
+      const { error } = await sb.from('issues').update(patch).eq('id', id);
+      if (error) { safeAlert('Could not update the error. Please try again.', error); return; }
+      logAction(resolve ? 'resolve_issue' : 'reopen_issue', id, {});
+      const modal = document.getElementById('errorsModal');
+      if (modal && modal.dataset.reportId) await renderErrorsModal(modal.dataset.reportId);
+    }
     async function deleteReport(id, htmlPath, xlsxPath, invoicesPath, reportType) {
       if (!confirm('Delete this report and its files?')) return;
       if (htmlPath)     await sb.storage.from('report-html').remove([htmlPath]);
@@ -3207,6 +3318,11 @@
       if (btn.dataset.action === 'edit-report') {
         const r = (window._adminReports || []).find(x => x.id === id);
         if (r) openEditReport(r);
+        return;
+      }
+      if (btn.dataset.action === 'errors') {
+        const r = (window._adminReports || []).find(x => x.id === id);
+        if (r) openErrorsModal(r);
         return;
       }
       if (btn.dataset.action === 'delete-report') {
@@ -4395,6 +4511,10 @@
                 const siteRows = extractSitesFromBV(bv, r.customer_id, r.id);
                 if (siteRows.length) await sb.from('sites').upsert(siteRows, { onConflict: 'customer_id,utility,identifier' });
               } catch (se) { console.warn('[Sites] edit upsert failed:', se); }
+              try {
+                const issueRows = extractIssuesFromBV(bv, r.customer_id, r.id, r.month, r.year, r.period);
+                if (issueRows.length) await sb.from('issues').upsert(issueRows, { onConflict: 'report_id,seq' });
+              } catch (ie) { console.warn('[Issues] edit upsert failed:', ie); }
             }
             // Refresh usage_data using the new HTML
             const reportRow = { id: r.id, customer_id: r.customer_id };
@@ -4507,6 +4627,16 @@
           <button class="btn-secondary" onclick="closeEditReport()" style="flex:1;">Cancel</button>
         </div>
       </div>
+    </div>
+  </div>
+  <!-- ERRORS MODAL — admin marks individual errors resolved per report -->
+  <div id="errorsModal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(20,29,69,0.45);align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;">
+    <div style="background:#fff;border-radius:12px;max-width:720px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border);">
+        <h2 style="font-size:16px;font-weight:800;margin:0;">Errors — <span id="emTitle"></span></h2>
+        <button onclick="closeErrorsModal()" style="background:none;border:none;font-size:24px;cursor:pointer;line-height:1;color:var(--muted);">×</button>
+      </div>
+      <div id="emBody" style="padding:18px 20px;"></div>
     </div>
   </div>
   <footer class="portal-footer">
