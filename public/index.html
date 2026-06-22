@@ -2568,7 +2568,8 @@
       };
       frame.addEventListener('load', () => setTimeout(reveal, 300), { once: true });
       setTimeout(reveal, 4000);
-      frame.srcdoc = opts.jumpToIssues ? injectIssuesJump(html) : html;
+      var rendered = relabelIssues(html);
+      frame.srcdoc = opts.jumpToIssues ? injectIssuesJump(rendered) : rendered;
       logAction('view_report', r.id, { type: r.report_type || 'bill_validation', period: r.period, jump: opts.jumpToIssues ? 'issues' : 'summary' });
       // Excel + Invoices only show for bill validation reports
       if (!isOccupancy && !isContract && r.xlsx_path) {
@@ -2604,6 +2605,10 @@
     function injectIssuesJump(html) {
       var inject = "<scr" + "ipt>(function(){function J(){try{var els=[].slice.call(document.querySelectorAll('button,a,[role=tab],[role=button],li,.tab,.nav-link'));var hit=els.filter(function(e){var t=(e.textContent||'').trim().toLowerCase();return t&&t.length<40&&t.indexOf('issue')>-1&&e.offsetParent!==null;})[0];if(hit){hit.click();}var h=document.querySelector('[id*=issue],[id*=Issue]');if(!h){h=els.filter(function(e){return /issues?\\s*log/i.test(e.textContent||'');})[0];}if(h&&h.scrollIntoView){h.scrollIntoView({behavior:'smooth',block:'start'});return true;}return !!hit;}catch(e){return false;}}var n=0,iv=setInterval(function(){n++;if(J()||n>24){clearInterval(iv);}},250);})();<\/scr" + "ipt>";
       return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, inject + "</body>") : html + inject;
+    }
+    // Relabel the report's issues-log badges: FAIL -> Error, INFO -> Comment (text only; colour unchanged).
+    function relabelIssues(html) {
+      return html.replace("{kind: isFail ? 'fail' : 'info'}, iss.sev)", "{kind: isFail ? 'fail' : 'info'}, isFail ? 'Error' : 'Comment')");
     }
     // (In-report CES error banner removed — error/resolved status now shows on the report cards.)
     // Build site rows (MPAN/SPID/MPRN → address) from a report's window.BV object.
