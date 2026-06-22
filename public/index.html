@@ -214,7 +214,11 @@
     .sidebar-foot { padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.08); }
     .signout-btn { background: none; border: none; color: rgba(255,255,255,0.5); font-size: 13px; cursor: pointer; padding: 0; }
     .signout-btn:hover { color: var(--lime); }
-    .main-area { padding: 36px 48px; width: 100%; }
+    .main-area { padding: 36px 48px; width: 100%; min-width: 0; }
+    #brokerMetersTable { font-size: 12px; }
+    #brokerMetersTable th, #brokerMetersTable td { padding: 7px 9px; }
+    #brokerPage .topbar-left h1 { font-size: 28px; letter-spacing: -0.4px; }
+    #brokerPage .main-area { max-width: 1600px; }
     .topbar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 36px; padding-bottom: 22px; border-bottom: 1px solid var(--border); gap: 18px; }
     .topbar-left h1 { font-size: 40px; font-weight: 800; color: var(--text); letter-spacing: -1px; line-height: 1.1; }
     .topbar-left .meta { font-size: 14px; color: var(--muted); margin-top: 8px; font-weight: 500; }
@@ -879,10 +883,6 @@
             <label>Password</label>
             <input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password" />
           </div>
-          <div class="check-row">
-            <input type="checkbox" id="loginRemember" />
-            <label for="loginRemember">Remember me on this device</label>
-          </div>
           <!-- Cloudflare Turnstile widget — verifies human before the Supabase auth call -->
           <div class="cf-turnstile"
                data-sitekey="0x4AAAAAADVk1PbXl4rZN4aL"
@@ -891,7 +891,7 @@
                data-error-callback="onTurnstileError"
                data-expired-callback="onTurnstileExpired"
                style="margin: 6px 0 16px; display: flex; justify-content: center;"></div>
-          <button class="btn-primary" id="loginBtn" onclick="doLogin()">Sign in</button>
+          <button class="btn-primary" id="loginBtn" onclick="doLogin()" disabled>Sign in</button>
           <p class="form-help" style="margin-top:16px;text-align:center;">
             Forgot your password?
             <a href="#" onclick="doReset(event)" style="color:var(--navy);text-decoration:underline;font-weight:600;">Reset it.</a>
@@ -1659,12 +1659,16 @@
     // can pick it up. It's single-use — Supabase invalidates it the moment it
     // verifies, so we wipe it after sign-in and reset the widget on failure.
     window._turnstileToken = null;
-    window.onTurnstileSuccess = function(token) { window._turnstileToken = token; };
-    window.onTurnstileError   = function()      { window._turnstileToken = null; };
+    function _setLoginEnabled(on){ var b=document.getElementById('loginBtn'); if(b) b.disabled = !on; }
+    window.onTurnstileSuccess = function(token) { window._turnstileToken = token; _setLoginEnabled(true); };
+    window.onTurnstileError   = function()      { window._turnstileToken = null; _setLoginEnabled(false); };
     window.onTurnstileExpired = function() {
       window._turnstileToken = null;
+      _setLoginEnabled(false);
       if (window.turnstile && typeof turnstile.reset === 'function') turnstile.reset();
     };
+    // Safety net: if the captcha is blocked or slow to load, do not lock the user out forever.
+    setTimeout(function(){ if (!window._turnstileToken) _setLoginEnabled(true); }, 6000);
 
     // ───── ERROR HANDLING + FILE TYPE VALIDATION ─────
     // safeAlert() shows a generic message to the user and logs the real error
@@ -1724,23 +1728,34 @@
       const captchaToken = window._turnstileToken ||
         (window.turnstile && typeof turnstile.getResponse === 'function' ? turnstile.getResponse() : '');
       if (!captchaToken) {
-        err.textContent = 'Please complete the human verification check above.';
+        err.textContent = 'Please complete the human-verification check above. If it did not appear, turn off any ad or privacy blocker for this site and reload.';
         err.style.display = 'block';
         return;
       }
       const btn = document.getElementById('loginBtn');
       btn.disabled = true; btn.textContent = 'Signing in…';
-      const { data, error } = await sb.auth.signInWithPassword({
-        email, password: pass,
-        options: { captchaToken }
-      });
-      btn.disabled = false; btn.textContent = 'Sign in';
-      if (error) {
-        err.textContent = 'Invalid email or password.';
+      let resp;
+      try {
+        resp = await sb.auth.signInWithPassword({ email, password: pass, options: { captchaToken } });
+      } catch (e) {
+        btn.textContent = 'Sign in';
+        err.textContent = 'Connection problem - check your internet and try again.';
         err.style.display = 'block';
-        // Turnstile tokens are single-use — reset the widget so the user gets a fresh one.
         if (window.turnstile && typeof turnstile.reset === 'function') turnstile.reset();
-        window._turnstileToken = null;
+        window._turnstileToken = null; _setLoginEnabled(false);
+        return;
+      }
+      btn.textContent = 'Sign in';
+      const { data, error } = resp;
+      if (error) {
+        const m = (error.message || '').toLowerCase();
+        if (m.includes('captcha'))                   err.textContent = 'Human-verification expired - complete the check above and try again.';
+        else if (m.includes('email not confirmed'))  err.textContent = 'This account is not confirmed yet. Please contact CES.';
+        else if (m.includes('too many') || m.includes('rate limit')) err.textContent = 'Too many attempts - please wait a minute and try again.';
+        else                                          err.textContent = 'Invalid email or password.';
+        err.style.display = 'block';
+        if (window.turnstile && typeof turnstile.reset === 'function') turnstile.reset();
+        window._turnstileToken = null; _setLoginEnabled(false);
         return;
       }
       await loadProfileAndRoute(data.user);
@@ -1748,7 +1763,7 @@
     async function loadProfileAndRoute(user) {
       const { data: profile, error } = await sb
         .from('profiles')
-        .select('*, customers(company_name, has_logo)')
+        .select('*, customers!profiles_customer_id_fkey(company_name, has_logo)')
         .eq('id', user.id)
         .single();
       if (error || !profile) {
@@ -2324,7 +2339,7 @@
       if (validations[0] && validations[0].html_path) {
         sb.storage.from('report-html').download(validations[0].html_path)
           .then(({ data }) => data ? data.text() : null)
-          .then(h => { if (h) { window._reportCache = window._reportCache || {}; window._reportCache[validations[0].html_path] = h; } })
+          .then(h => { if (h) { window._reportCache = window._reportCache || {}; window._reportCache[validations[0].html_path + '|' + (validations[0].uploaded_at || '')] = h; } })
           .catch(e => console.warn('Prefetch skipped:', e));
       }
     }
@@ -4104,6 +4119,12 @@
       }
     }
     init();
+    sb.auth.onAuthStateChange(function(event, session){
+      if (event === 'SIGNED_OUT' || (event === 'TOKEN_REFRESHED' && !session)) {
+        currentUser = null;
+        showPage('loginPage');
+      }
+    });
     document.getElementById('loginPass').addEventListener('keydown', e => {
       if (e.key === 'Enter') doLogin();
     });
