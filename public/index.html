@@ -2368,7 +2368,7 @@
         if (!session) { typing.remove(); _asstAdd('model', 'Please sign in again.'); _asstBusy = false; return; }
         var resp = await fetch(SUPABASE_URL + '/functions/v1/ask-assistant', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+          headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + session.access_token },
           body: JSON.stringify({ question: q, history: _asstMsgs.slice(-7, -1) })
         });
         var out = await resp.json().catch(function(){ return {}; });
