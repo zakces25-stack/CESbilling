@@ -2137,6 +2137,7 @@
       }
     }
     async function doSignOut() {
+      clearReportCaches();
       await logAction('logout', null, {});
       teardownIdleTimeout();
       await sb.auth.signOut();
@@ -2167,6 +2168,36 @@
     // without having to re-stringify it into HTML attributes.
     let dashReports = [];
     let dashOccupancy = [];
+    // -- Report loading: in-memory + Cache Storage (cross-session, version-keyed) + prefetch --
+    async function getReportHtml(r) {
+      if (!r || !r.html_path) return null;
+      const key = r.html_path + '|' + (r.uploaded_at || '');
+      window._reportCache = window._reportCache || {};
+      if (window._reportCache[key]) return window._reportCache[key];
+      window._reportInflight = window._reportInflight || {};
+      if (window._reportInflight[key]) return window._reportInflight[key];
+      const job = (async function(){
+        let html = null;
+        const ck = '/ces-report/' + encodeURIComponent(key);
+        try { if (window.caches) { const c = await caches.open('ces-reports'); const hit = await c.match(ck); if (hit) html = await hit.text(); } } catch(e){}
+        if (html == null) {
+          const dl = await sb.storage.from('report-html').download(r.html_path);
+          if (dl.error) { delete window._reportInflight[key]; throw dl.error; }
+          if (dl.data) html = await dl.data.text();
+          if (html != null) { try { if (window.caches) { const c = await caches.open('ces-reports'); await c.put(ck, new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })); } } catch(e){} }
+        }
+        if (html != null) window._reportCache[key] = html;
+        delete window._reportInflight[key];
+        return html;
+      })();
+      window._reportInflight[key] = job;
+      return job;
+    }
+    function prefetchReport(r) { try { getReportHtml(r).catch(function(){}); } catch(e){} }
+    async function clearReportCaches() {
+      window._reportCache = {}; window._reportInflight = {};
+      try { if (window.caches) await caches.delete('ces-reports'); } catch(e){}
+    }
     function renderReportGrid(reports) {
       dashReports = reports;
       const grid = document.getElementById('reportGrid');
@@ -2227,10 +2258,9 @@
         `;
       }).join('');
       grid.querySelectorAll('.report-card[data-source="dash"]').forEach(card => {
-        card.addEventListener('click', () => {
-          const r = dashReports.find(x => x.id === card.dataset.reportId);
-          if (r) openViewer(r);
-        });
+        const _find = () => dashReports.find(x => x.id === card.dataset.reportId);
+        card.addEventListener('click', () => { const r = _find(); if (r) openViewer(r); });
+        card.addEventListener('mouseenter', () => { const r = _find(); if (r) prefetchReport(r); }, { once: true });
       });
     }
     function renderOccupancyGrid(reports) {
@@ -2258,10 +2288,9 @@
         `;
       }).join('');
       grid.querySelectorAll('.report-card[data-source="occ"]').forEach(card => {
-        card.addEventListener('click', () => {
-          const r = dashOccupancy.find(x => x.id === card.dataset.reportId);
-          if (r) openViewer(r);
-        });
+        const _find = () => dashOccupancy.find(x => x.id === card.dataset.reportId);
+        card.addEventListener('click', () => { const r = _find(); if (r) openViewer(r); });
+        card.addEventListener('mouseenter', () => { const r = _find(); if (r) prefetchReport(r); }, { once: true });
       });
     }
     async function loadDash() {
@@ -2336,12 +2365,7 @@
       renderReportGrid(validations);
       renderOccupancyGrid(occupancies);
       // Background-prefetch the most-recent report so the FIRST click is fast.
-      if (validations[0] && validations[0].html_path) {
-        sb.storage.from('report-html').download(validations[0].html_path)
-          .then(({ data }) => data ? data.text() : null)
-          .then(h => { if (h) { window._reportCache = window._reportCache || {}; window._reportCache[validations[0].html_path + '|' + (validations[0].uploaded_at || '')] = h; } })
-          .catch(e => console.warn('Prefetch skipped:', e));
-      }
+      (validations || []).slice(0, 3).forEach(function(rep){ prefetchReport(rep); });
     }
     // ───── REPORT VIEWER ─────
     async function openViewer(r) {
@@ -2378,16 +2402,9 @@
         noReport.style.display = 'flex';
         return;
       }
-      // Use prefetched HTML if we eagerly downloaded it on dashboard load.
-      let html, dlError = null;
-      const cacheKey = r.html_path + '|' + (r.uploaded_at || '');
-      if (window._reportCache && window._reportCache[cacheKey]) {
-        html = window._reportCache[cacheKey];
-      } else {
-        const dl = await sb.storage.from('report-html').download(r.html_path);
-        dlError = dl.error;
-        if (dl.data) html = await dl.data.text();
-      }
+      // Cache-first load: in-memory -> Cache Storage (cross-session, version-keyed) -> download.
+      let html = null, dlError = null;
+      try { html = await getReportHtml(r); } catch (e) { dlError = e; }
       if (dlError || !html) {
         console.error('Download error:', dlError);
         loading.classList.remove('show');
@@ -4122,6 +4139,7 @@
     sb.auth.onAuthStateChange(function(event, session){
       if (event === 'SIGNED_OUT' || (event === 'TOKEN_REFRESHED' && !session)) {
         currentUser = null;
+        clearReportCaches();
         showPage('loginPage');
       }
     });
