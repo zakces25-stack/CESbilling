@@ -2391,7 +2391,7 @@
       var box = document.getElementById('asstMsgs'); if (!box) return;
       var d = document.createElement('div');
       d.className = 'asst-msg asst-' + role;
-      d.textContent = text;
+      d.textContent = String(text).replace(/\*\*(.+?)\*\*/g, '$1').replace(/^\s*[\*\-]\s+/gm, '• ');
       box.appendChild(d); box.scrollTop = box.scrollHeight;
     }
     function _asstReset() {
@@ -2409,7 +2409,11 @@
       (options || []).slice(0, 8).forEach(function(opt){
         var b = document.createElement('button'); b.type = 'button'; b.className = 'asst-chip';
         b.textContent = opt;
-        b.onclick = function(){ sendAssistant(opt); };
+        if (/\btype\b/i.test(opt)) {
+          b.onclick = function(){ _asstRemoveChips(); var i = document.getElementById('asstInput'); if (i) { i.placeholder = 'Type the site name…'; i.focus(); } };
+        } else {
+          b.onclick = function(){ sendAssistant(opt); };
+        }
         wrap.appendChild(b);
       });
       var se = document.createElement('button'); se.type = 'button'; se.className = 'asst-chip asst-chip--other';
