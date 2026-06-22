@@ -900,8 +900,8 @@
           </div>
           <div class="error-box" id="loginErr"></div>
           <div class="form-group">
-            <label>Email address</label>
-            <input type="email" id="loginEmail" placeholder="you@company.com" autocomplete="email" />
+            <label>Username</label>
+            <input type="text" id="loginEmail" placeholder="e.g. blanktable" autocomplete="username" />
           </div>
           <div class="form-group">
             <label>Password</label>
@@ -1493,9 +1493,8 @@
           <div class="form-card" style="margin-bottom:24px;">
             <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Add a customer</h2>
             <p style="font-size:13px;color:var(--muted);margin-bottom:20px;">
-              Creates the customer record. To give them login access, also add a user in
-              <strong>Supabase → Authentication → Users</strong>, then set their <code>customer_id</code>
-              in the <code>profiles</code> table.
+              Creates the customer record, their login and the profile link in one step. Share the
+              username + temporary password with the customer — they can change the password in their portal.
             </p>
             <div class="success-box" id="custOk">Customer added.</div>
             <div class="error-box" id="custErr"></div>
@@ -1506,15 +1505,42 @@
               </div>
               <div class="form-group">
                 <label>Customer ID (slug)</label>
-                <input type="text" id="ncId" placeholder="acme" />
+                <input type="text" id="ncId" placeholder="acme (auto if blank)" />
               </div>
             </div>
-            <button class="btn-primary" onclick="addCustomer()">Add customer</button>
+            <div class="form-row-2">
+              <div class="form-group">
+                <label>Username (login)</label>
+                <input type="text" id="ncUser" placeholder="acme" autocomplete="off" />
+                <div class="form-help">They sign in with just this — no email needed.</div>
+              </div>
+              <div class="form-group">
+                <label>Temporary password</label>
+                <input type="text" id="ncPass" placeholder="at least 8 characters" autocomplete="off" />
+              </div>
+            </div>
+            <button class="btn-primary" id="ncAddBtn" onclick="addCustomer()">Add customer</button>
           </div>
           <table class="list">
             <thead><tr><th>Company</th><th>Customer ID</th><th>Notification email</th><th>Created</th><th></th></tr></thead>
             <tbody id="custTable"></tbody>
           </table>
+          <!-- Hidden danger zone — only revealed via the #danger URL hash -->
+          <div id="dangerZone" style="display:none;margin-top:28px;border:1.5px solid var(--fail);border-radius:10px;padding:18px 20px;background:#fff5f4;">
+            <h3 style="font-size:15px;font-weight:800;color:var(--fail);margin:0 0 6px;">⚠ Danger zone — permanently delete a customer</h3>
+            <p style="font-size:12.5px;color:var(--text-2);margin:0 0 14px;">This permanently deletes the customer and all their reports, meters and sites. It cannot be undone.</p>
+            <div class="form-row-2">
+              <div class="form-group">
+                <label>Customer</label>
+                <select id="dzCustomer"></select>
+              </div>
+              <div class="form-group">
+                <label>Type the Customer ID to confirm</label>
+                <input type="text" id="dzConfirm" placeholder="exact customer id" autocomplete="off" />
+              </div>
+            </div>
+            <button class="btn-danger" id="dzDeleteBtn" disabled>Permanently delete customer</button>
+          </div>
         </div>
       </main>
     </div>
@@ -1559,6 +1585,7 @@
       auth: { persistSession: true, autoRefreshToken: true }
     });
     const CUST_LOGOS_BASE = 'https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/customer-logos';
+    const LOGIN_DOMAIN = 'portal.cesgb.com';  // usernames map to <username>@portal.cesgb.com (internal, no real mailbox)
     let currentUser = null;
     // ───── AUDIT LOG + IDLE TIMEOUT ─────
     // logAction() records an event to the audit_log table for accountability.
@@ -1764,7 +1791,8 @@
     }
     // ───── AUTH ─────
     async function doLogin() {
-      const email = document.getElementById('loginEmail').value.trim();
+      let email = document.getElementById('loginEmail').value.trim();
+      if (email && email.indexOf('@') === -1) email = email + '@' + LOGIN_DOMAIN;
       const pass  = document.getElementById('loginPass').value;
       const err   = document.getElementById('loginErr');
       err.style.display = 'none';
@@ -1798,7 +1826,7 @@
         if (m.includes('captcha'))                   err.textContent = 'Human-verification expired - complete the check above and try again.';
         else if (m.includes('email not confirmed'))  err.textContent = 'This account is not confirmed yet. Please contact CES.';
         else if (m.includes('too many') || m.includes('rate limit')) err.textContent = 'Too many attempts - please wait a minute and try again.';
-        else                                          err.textContent = 'Invalid email or password.';
+        else                                          err.textContent = 'Invalid username or password.';
         err.style.display = 'block';
         if (window.turnstile && typeof turnstile.reset === 'function') turnstile.reset();
         window._turnstileToken = null; _setLoginEnabled(false);
@@ -2633,6 +2661,7 @@
       await refreshCustTable();
       await refreshReportFilter();
       await refreshAdminReportTable();
+      refreshDangerZone();
     }
     function adminTab(name) {
       document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
@@ -2640,6 +2669,7 @@
       document.querySelector(`.admin-tab[onclick*="'${name}'"]`).classList.add('active');
       document.getElementById('tab-' + name).classList.add('active');
       if (name === 'carbon') loadCarbonConfig();
+      if (name === 'customers') refreshDangerZone();
     }
     async function refreshAdminStats() {
       const { count: cust } = await sb.from('customers').select('*', { count: 'exact', head: true });
@@ -2680,7 +2710,6 @@
               : `<button class="btn-secondary" data-action="add-logo" data-id="${escapeHtml(c.customer_id)}" style="margin-right:6px;">Add Logo</button>`
             }
             <button class="btn-secondary" data-action="open-portal" data-id="${escapeHtml(c.customer_id)}" style="margin-right:6px;">Open portal</button>
-            <button class="btn-danger" data-action="delete-customer" data-id="${escapeHtml(c.customer_id)}">Delete</button>
           </td>
         </tr>
       `).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:32px;">No customers yet.</td></tr>';
@@ -2949,20 +2978,44 @@
     async function addCustomer() {
       const name = document.getElementById('ncName').value.trim();
       const id   = document.getElementById('ncId').value.trim().toLowerCase().replace(/\s+/g, '-');
+      const username = document.getElementById('ncUser').value.trim().toLowerCase();
+      const password = document.getElementById('ncPass').value;
       const err  = document.getElementById('custErr');
       const ok   = document.getElementById('custOk');
+      const btn  = document.getElementById('ncAddBtn');
       err.style.display = 'none'; ok.classList.remove('show');
-      if (!name || !id) { err.textContent = 'Both fields required.'; err.style.display = 'block'; return; }
-      const { error } = await sb.from('customers').insert({ customer_id: id, company_name: name });
-      if (error) { console.error('Add customer:', error); err.textContent = 'Could not add customer. The customer ID may already exist.'; err.style.display = 'block'; return; }
-      logAction('add_customer', id, { name: name });
-      ok.classList.add('show');
-      document.getElementById('ncName').value = '';
-      document.getElementById('ncId').value = '';
-      await refreshCustomerDropdown();
-      await refreshCustTable();
-      await refreshReportFilter();
-      await refreshAdminStats();
+      if (!name) { err.textContent = 'Company name is required.'; err.style.display = 'block'; return; }
+      if (!username) { err.textContent = 'Username is required.'; err.style.display = 'block'; return; }
+      if (!password || password.length < 8) { err.textContent = 'Temporary password must be at least 8 characters.'; err.style.display = 'block'; return; }
+      btn.disabled = true; btn.textContent = 'Creating…';
+      try {
+        const { data, error } = await sb.functions.invoke('admin-create-customer', {
+          body: { company_name: name, customer_id: id, username: username, password: password }
+        });
+        if (error || (data && data.error)) {
+          err.textContent = (data && data.error) || 'Could not create customer. Please try again.';
+          err.style.display = 'block';
+          return;
+        }
+        const uname = (data && data.username) || username;
+        ok.textContent = 'Customer created — they sign in with username "' + uname + '".';
+        ok.classList.add('show');
+        logAction('add_customer', (data && data.customer_id) || id, { name: name, username: uname });
+        document.getElementById('ncName').value = '';
+        document.getElementById('ncId').value = '';
+        document.getElementById('ncUser').value = '';
+        document.getElementById('ncPass').value = '';
+        await refreshCustomerDropdown();
+        await refreshCustTable();
+        await refreshReportFilter();
+        await refreshAdminStats();
+      } catch (e) {
+        console.error('addCustomer:', e);
+        err.textContent = 'Could not create customer. Please try again.';
+        err.style.display = 'block';
+      } finally {
+        btn.disabled = false; btn.textContent = 'Add customer';
+      }
     }
     async function deleteCustomer(id) {
       if (!confirm('Delete customer "' + id + '"? This also deletes all their reports.')) return;
@@ -2975,6 +3028,34 @@
       await refreshAdminReportTable();
       await refreshAdminStats();
     }
+    // Hidden danger zone for customer deletion — revealed only by the #danger URL hash,
+    // and the delete button stays disabled until you type the exact customer ID.
+    function refreshDangerZone() {
+      const dz = document.getElementById('dangerZone');
+      if (!dz) return;
+      const reveal = (location.hash || '').toLowerCase() === '#danger';
+      dz.style.display = reveal ? 'block' : 'none';
+      if (!reveal) return;
+      const sel = document.getElementById('dzCustomer');
+      const confirmInput = document.getElementById('dzConfirm');
+      const delBtn = document.getElementById('dzDeleteBtn');
+      const list = window._adminCustomers || [];
+      sel.innerHTML = '<option value="">— select customer —</option>' +
+        list.map(function(c){ return '<option value="' + escapeHtml(c.customer_id) + '">' + escapeHtml(c.company_name) + ' (' + escapeHtml(c.customer_id) + ')</option>'; }).join('');
+      const check = function(){ delBtn.disabled = !(sel.value && confirmInput.value.trim() === sel.value); };
+      sel.onchange = function(){ confirmInput.value = ''; check(); };
+      confirmInput.oninput = check;
+      delBtn.onclick = async function(){
+        const id = sel.value;
+        if (!id || confirmInput.value.trim() !== id) return;
+        delBtn.disabled = true; delBtn.textContent = 'Deleting…';
+        await deleteCustomer(id);
+        delBtn.textContent = 'Permanently delete customer';
+        refreshDangerZone();
+      };
+      check();
+    }
+    window.addEventListener('hashchange', refreshDangerZone);
     async function deleteReport(id, htmlPath, xlsxPath, invoicesPath, reportType) {
       if (!confirm('Delete this report and its files?')) return;
       if (htmlPath)     await sb.storage.from('report-html').remove([htmlPath]);
