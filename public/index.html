@@ -1009,7 +1009,7 @@
           <div class="nav-item active" data-page="reports">Reports</div>
           <div class="nav-item" data-page="sites">Site List</div>
           <div class="nav-item" data-page="compare">Consumption comparison</div>
-          <div class="nav-item" data-page="usage">Carbon Report</div>
+          <div class="nav-item" data-page="usage">Carbon Reporting</div>
         </div>
         <div class="sidebar-foot">
           <button class="signout-btn" onclick="doSignOut()">Sign out</button>
@@ -1093,7 +1093,6 @@
                 <label>Utility</label>
                 <select id="cmpUtil" onchange="cmpUtilChanged()">
                   <option value="">Select a utility…</option>
-                  <option value="all">All utilities</option>
                   <option value="electricity">Electricity</option>
                   <option value="gas">Gas</option>
                   <option value="water">Water</option>
@@ -1124,7 +1123,7 @@
 <!-- Page: Usage Report (ESOS / SECR) -->
         <div class="dash-section" data-page="usage" style="display:none;">
           <div class="section-head">
-            <h2>Carbon Report</h2>
+            <h2>Carbon Reporting</h2>
             <div class="section-meta">Aggregate kWh and kgCO<sub>2</sub>e across selected sites and periods · uses Half-Hourly Data where available, falls back to billed where not.</div>
           </div>
           <div class="usage-filters" id="usageFilters">
