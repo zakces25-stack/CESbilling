@@ -244,7 +244,7 @@
       color: #fff; display: flex; align-items: center; justify-content: center;
       font-weight: 700; font-size: 14px;
     }
-    .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 28px; }
+    .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 28px; }
     .stat-card, .kpi, .usage-kpi, .form-card, .report-card, .card, .inv-card {
       box-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 0 0 1px rgba(15,23,42,0.04);
     }
@@ -901,7 +901,7 @@
           <div class="error-box" id="loginErr"></div>
           <div class="form-group">
             <label>Username</label>
-            <input type="text" id="loginEmail" placeholder="e.g. blanktable" autocomplete="username" />
+            <input type="text" id="loginEmail" placeholder="Username" autocomplete="username" />
           </div>
           <div class="form-group">
             <label>Password</label>
@@ -989,10 +989,6 @@
             <div class="stat-card">
               <div class="stat-label">Ongoing Errors</div>
               <div class="stat-value" id="ds2">—</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Resolved Errors</div>
-              <div class="stat-value" id="ds2b">—</div>
             </div>
             <div class="stat-card">
               <div class="stat-label">Running Utility Costs</div>
@@ -2301,9 +2297,11 @@
 
       grid.innerHTML = reports.map((r, i) => {
         const badges = [];
-        const _ec = r.fail_count || 0;
-        if (_ec > 0) badges.push(`<span class="badge badge-fail err-badge" data-error-badge title="View the issues log"><span class="bdot"></span>${escapeHtml(_ec)} error${_ec === 1 ? '' : 's'}</span>`);
-        else badges.push(`<span class="badge badge-ok"><span class="bdot"></span>All clean</span>`);
+        const _ic = (window._issueCountsByReport || {})[r.id] || { ongoing: (r.fail_count || 0), resolved: 0 };
+        const _ong = _ic.ongoing, _res = _ic.resolved;
+        if (_ong > 0) badges.push(`<span class="badge badge-fail err-badge" data-error-badge title="View the issues log"><span class="bdot"></span>${escapeHtml(_ong)} error${_ong === 1 ? '' : 's'}</span>`);
+        if (_res > 0) badges.push(`<span class="badge badge-ok"><span class="bdot"></span>${escapeHtml(_res)} resolved</span>`);
+        if (_ong === 0 && _res === 0) badges.push(`<span class="badge badge-ok"><span class="bdot"></span>All clean</span>`);
 
         // Compute "vs last month". Preferred source: r.prev_total_net (embedded
         // in the validation HTML at upload time — works even when only one
@@ -2492,7 +2490,7 @@
       const occupancies = oData || [];
       // Stats
       document.getElementById('ds1').textContent = validations.length;
-      loadErrorCounts(cid);
+      await loadErrorData(cid);
       document.getElementById('rptCount').textContent =
         validations.length + ' validation' + (validations.length !== 1 ? 's' : '') +
         ' · ' + occupancies.length + ' occupancy report' + (occupancies.length !== 1 ? 's' : '');
@@ -2570,15 +2568,7 @@
       };
       frame.addEventListener('load', () => setTimeout(reveal, 300), { once: true });
       setTimeout(reveal, 4000);
-      let finalHtml = html;
-      if (!isOccupancy && !isContract) {
-        try {
-          const { data: iss } = await sb.from('issues').select('status, type, resolved_note').eq('report_id', r.id);
-          finalHtml = injectErrorBanner(finalHtml, iss || []);
-        } catch (e) { /* banner is best-effort */ }
-      }
-      if (opts.jumpToIssues) finalHtml = injectIssuesJump(finalHtml);
-      frame.srcdoc = finalHtml;
+      frame.srcdoc = opts.jumpToIssues ? injectIssuesJump(html) : html;
       logAction('view_report', r.id, { type: r.report_type || 'bill_validation', period: r.period, jump: opts.jumpToIssues ? 'issues' : 'summary' });
       // Excel + Invoices only show for bill validation reports
       if (!isOccupancy && !isContract && r.xlsx_path) {
@@ -2615,24 +2605,7 @@
       var inject = "<scr" + "ipt>(function(){function J(){try{var els=[].slice.call(document.querySelectorAll('button,a,[role=tab],[role=button],li,.tab,.nav-link'));var hit=els.filter(function(e){var t=(e.textContent||'').trim().toLowerCase();return t&&t.length<40&&t.indexOf('issue')>-1&&e.offsetParent!==null;})[0];if(hit){hit.click();}var h=document.querySelector('[id*=issue],[id*=Issue]');if(!h){h=els.filter(function(e){return /issues?\\s*log/i.test(e.textContent||'');})[0];}if(h&&h.scrollIntoView){h.scrollIntoView({behavior:'smooth',block:'start'});return true;}return !!hit;}catch(e){return false;}}var n=0,iv=setInterval(function(){n++;if(J()||n>24){clearInterval(iv);}},250);})();<\/scr" + "ipt>";
       return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, inject + "</body>") : html + inject;
     }
-    // Injects a fixed CES banner at the top of a validation report summarising its
-    // errors and which CES has marked resolved. No banner when there are no errors.
-    function injectErrorBanner(html, issues) {
-      const total = (issues || []).length;
-      if (!total) return html;
-      const resolved = issues.filter(function(i){ return i.status === 'resolved'; }).length;
-      const ongoing = total - resolved;
-      const items = issues.map(function(i){
-        const r = i.status === 'resolved';
-        return '<li style="margin:2px 0;list-style:none;">' + (r ? '✓ ' : '• ') + escapeHtml(i.type || 'Error') +
-          (r ? ' <strong>(resolved by CES' + (i.resolved_note ? (' — ' + escapeHtml(i.resolved_note)) : '') + ')</strong>' : '') + '</li>';
-      }).join('');
-      const bg = ongoing === 0 ? '#157347' : '#7a5010';
-      const banner = '<div style="position:fixed;top:0;left:0;right:0;z-index:99999;font-family:Manrope,Arial,sans-serif;background:' + bg + ';color:#fff;padding:10px 18px;font-size:13px;line-height:1.45;box-shadow:0 2px 8px rgba(0,0,0,0.2);">' +
-        '<strong>CES validation:</strong> ' + total + ' error' + (total === 1 ? '' : 's') + ' flagged — ' + resolved + ' resolved, ' + ongoing + ' ongoing.' +
-        '<ul style="margin:5px 0 0;padding:0;">' + items + '</ul></div>';
-      return /<body[^>]*>/i.test(html) ? html.replace(/(<body[^>]*>)/i, '$1' + banner) : banner + html;
-    }
+    // (In-report CES error banner removed — error/resolved status now shows on the report cards.)
     // Build site rows (MPAN/SPID/MPRN → address) from a report's window.BV object.
     function extractSitesFromBV(bv, customerId, reportId) {
       const out = [];
@@ -2673,16 +2646,19 @@
       });
       return out;
     }
-    // Ongoing vs resolved error counts for the dashboard KPIs.
-    async function loadErrorCounts(cid) {
+    // Loads the customer's issues once: sets the Ongoing Errors KPI and builds a
+    // per-report {ongoing,resolved} map the report cards read for their badges.
+    async function loadErrorData(cid) {
+      window._issueCountsByReport = {};
+      let ongoingTotal = 0;
       try {
-        const { data } = await sb.from('issues').select('status').eq('customer_id', cid);
-        const rows = data || [];
-        const ongoing = rows.filter(function(r){ return r.status !== 'resolved'; }).length;
-        const resolved = rows.filter(function(r){ return r.status === 'resolved'; }).length;
-        const e2 = document.getElementById('ds2'); if (e2) e2.textContent = ongoing;
-        const e2b = document.getElementById('ds2b'); if (e2b) e2b.textContent = resolved;
-      } catch (e) { console.error('loadErrorCounts:', e); }
+        const { data } = await sb.from('issues').select('report_id, status').eq('customer_id', cid);
+        (data || []).forEach(function(r){
+          const m = window._issueCountsByReport[r.report_id] || (window._issueCountsByReport[r.report_id] = { ongoing: 0, resolved: 0 });
+          if (r.status === 'resolved') m.resolved++; else { m.ongoing++; ongoingTotal++; }
+        });
+      } catch (e) { console.error('loadErrorData:', e); }
+      const e2 = document.getElementById('ds2'); if (e2) e2.textContent = ongoingTotal;
     }
     // ───── SITE LIST (customer page) ─────
     // Reads the sites table (populated from uploaded validation reports). Shows the
@@ -2877,9 +2853,9 @@
         if (htmlFile) {
           try {
             htmlText = await htmlFile.text();
-            const m = htmlText.match(/window\.BV\s*=\s*({[\s\S]+?});\s*<\/script>/);
-            if (m) {
-              const bv = JSON.parse(m[1]); window._upBV = bv;
+            const bvStr = _extractJsObject(htmlText, 'BV');
+            if (bvStr) {
+              const bv = JSON.parse(bvStr); window._upBV = bv;
               if (!sites) sites = (bv.summary.electricity?.length || 0) + (bv.summary.water?.length || 0) + (bv.summary.gas?.length || 0);
               const fmtGBP = (n) => '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
               if (!total) total = fmtGBP(bv.summary.totals?.grand_total || 0);
