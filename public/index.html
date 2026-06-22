@@ -160,7 +160,7 @@
     }
     .form-group input:focus, .form-group select:focus { border-color: var(--navy); box-shadow: 0 0 0 3px rgba(47,61,126,0.1); }
     .form-group input::placeholder { color: #b0b4be; }
-    .form-help { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .form-help { font-size: 12px; color: var(--text-2); margin-top: 6px; }
     .check-row { display: flex; align-items: center; gap: 8px; margin-bottom: 24px; }
     .check-row label { font-size: 13px; color: var(--text-2); cursor: pointer; display: flex; align-items: center; gap: 8px; }
     .check-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--navy); cursor: pointer; }
@@ -283,6 +283,10 @@
     .bdot { width: 5px; height: 5px; border-radius: 50%; }
     .badge-ok   { background: #ECFDF5; color: #047857; } .badge-ok .bdot   { background: #10B981; }
     .badge-fail { background: #FEF2F2; color: #B91C1C; } .badge-fail .bdot { background: #DC2626; }
+    .err-badge { cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+    .err-badge:hover { filter: brightness(0.95); }
+    .site-group { margin-bottom: 26px; }
+    .site-group > h3 { font-size: 15px; font-weight: 800; margin: 0 0 10px; color: var(--navy); }
     .badge-warn { background: #FFFBEB; color: #B45309; } .badge-warn .bdot { background: #D97706; }
     /* Occupancy-specific level badges — larger, more prominent */
     .occ-level {
@@ -874,7 +878,7 @@
             <li><span class="fdot"></span>Rate, arithmetic, and consumption verification</li>
             <li><span class="fdot"></span>Half-hourly data cross-checking against Stark DC</li>
             <li><span class="fdot"></span>Occupancy and unoccupied consumption analysis</li>
-            <li><span class="fdot"></span>Full Excel workbook + invoice bundle download</li>
+            <li><span class="fdot"></span>Full Excel validation report + invoice bundle download</li>
           </ul>
         </div>
         <div class="login-footer">© Commercial Energy Solutions — cesgb.com</div>
@@ -929,6 +933,7 @@
         </div>
         <div class="sidebar-nav">
           <div class="nav-item active" data-page="reports">Reports</div>
+          <div class="nav-item" data-page="sites">Site List</div>
           <div class="nav-item" data-page="usage">Usage Report</div>
         </div>
         <div class="sidebar-foot">
@@ -979,15 +984,23 @@
               <div class="stat-value" id="ds2">—</div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">Total Annual Spend</div>
+              <div class="stat-label">Running Utility Costs</div>
               <div class="stat-value" id="ds3">—</div>
-              <div class="stat-foot" id="ds3sub" style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'Manrope',sans-serif;">Last 12 months</div>
+              <div class="stat-foot" id="ds3sub" style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'Manrope',sans-serif;">Including VAT + CCL</div>
             </div>
           </div>
           <div class="section-head"><h2>Your validation reports</h2></div>
           <div class="report-grid" id="reportGrid"></div>
           <div class="section-head"><h2>Your occupancy reports</h2></div>
           <div class="report-grid" id="occupancyGrid"></div>
+        </div>
+        <!-- Page: Site List -->
+        <div class="dash-section" data-page="sites" style="display:none;">
+          <div class="section-head">
+            <h2>Site list</h2>
+            <div class="section-meta">All your supplies by utility — electricity (MPAN), gas (MPRN) and water (SPID) — with the registered site address.</div>
+          </div>
+          <div id="siteListBody"><div class="empty-state"><p>Loading…</p></div></div>
         </div>
 <!-- Page: Usage Report (ESOS / SECR) -->
         <div class="dash-section" data-page="usage" style="display:none;">
@@ -1245,7 +1258,7 @@
         <div class="admin-tabs">
           <button class="admin-tab active" onclick="adminTab('upload')">Upload Validation</button>
           <button class="admin-tab" onclick="adminTab('upload-occ')">Upload Occupancy</button>
-          <button class="admin-tab" onclick="adminTab('reports')">All Reports</button>
+          <button class="admin-tab" onclick="adminTab('reports')">Reports Admin</button>
           <button class="admin-tab" onclick="adminTab('customers')">Customers</button>
           <button class="admin-tab" onclick="adminTab('carbon')">Carbon Config</button>
         </div>
@@ -1254,8 +1267,8 @@
           <div class="form-card">
             <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Upload a new bill validation report</h2>
             <p style="font-size:13px;color:var(--muted);margin-bottom:22px;">
-              Upload the HTML report, Excel workbook, and optionally the invoice ZIP for a customer.
-              Metadata is auto-extracted from the HTML — leave the fields blank to use that.
+              Upload the HTML validation report and the Excel validation report for a customer.
+              Metadata is auto-extracted from the HTML — leave the override fields blank to use that.
             </p>
             <div class="success-box" id="uploadOk">Report uploaded successfully.</div>
             <div class="form-group">
@@ -1269,15 +1282,15 @@
             <div class="form-group">
               <label>HTML report (required)</label>
               <input type="file" id="upHtmlFile" accept=".html,.htm" />
-              <div class="form-help">The bundled <code>.html</code> from the bill validation skill.</div>
+              <div class="form-help">The <code>.html</code> validation report produced by Claude.</div>
             </div>
             <div class="form-group">
-              <label>Excel workbook (optional, recommended)</label>
+              <label>Excel validation report</label>
               <input type="file" id="upXlsxFile" accept=".xlsx" />
-              <div class="form-help">The Excel audit workbook customers can download.</div>
+              <div class="form-help">The Excel validation report customers can download.</div>
             </div>
             <div class="form-group">
-              <label>Invoice bundle (optional, ZIP file)</label>
+              <label>Invoice bundle</label>
               <input type="file" id="upInvoicesFile" accept=".zip,application/zip,application/x-zip-compressed" />
               <div class="form-help">A single <code>.zip</code> containing all invoices for this period. Customers can download it from the report viewer.</div>
             </div>
@@ -1519,7 +1532,7 @@
       </div>
       <div class="viewer-actions">
         <button class="btn-download lime" id="viewerInvoicesBtn" style="display:none">⬇ Download Invoices</button>
-        <button class="btn-download" id="viewerXlsxBtn" style="display:none">⬇ Download Excel</button>
+        <button class="btn-download" id="viewerXlsxBtn" style="display:none">⬇ Download Report</button>
         <button class="btn-close" onclick="closeViewer()">×</button>
       </div>
     </div>
@@ -2257,9 +2270,9 @@
 
       grid.innerHTML = reports.map((r, i) => {
         const badges = [];
-        if ((r.fail_count || 0) > 0) badges.push(`<span class="badge badge-fail"><span class="bdot"></span>${escapeHtml(r.fail_count)} fail</span>`);
-        if ((r.warn_count || 0) > 0) badges.push(`<span class="badge badge-warn"><span class="bdot"></span>${escapeHtml(r.warn_count)} info</span>`);
-        if (!badges.length) badges.push(`<span class="badge badge-ok"><span class="bdot"></span>All clean</span>`);
+        const _ec = r.fail_count || 0;
+        if (_ec > 0) badges.push(`<span class="badge badge-fail err-badge" data-error-badge title="View the issues log"><span class="bdot"></span>${escapeHtml(_ec)} error${_ec === 1 ? '' : 's'}</span>`);
+        else badges.push(`<span class="badge badge-ok"><span class="bdot"></span>All clean</span>`);
 
         // Compute "vs last month". Preferred source: r.prev_total_net (embedded
         // in the validation HTML at upload time — works even when only one
@@ -2296,6 +2309,8 @@
       grid.querySelectorAll('.report-card[data-source="dash"]').forEach(card => {
         const _find = () => dashReports.find(x => x.id === card.dataset.reportId);
         card.addEventListener('click', () => { const r = _find(); if (r) openViewer(r); });
+        const _eb = card.querySelector('[data-error-badge]');
+        if (_eb) _eb.addEventListener('click', (ev) => { ev.stopPropagation(); const r = _find(); if (r) openViewer(r, { jumpToIssues: true }); });
         card.addEventListener('mouseenter', () => { const r = _find(); if (r) prefetchReport(r); }, { once: true });
       });
     }
@@ -2383,6 +2398,16 @@
     async function loadDash() {
       const cid = currentUser.customerId;
       var _aw = document.getElementById('asstWrap'); if (_aw) _aw.style.display = 'block';
+      // Utility breakdown shown under the Running Utility Costs KPI (e.g. "Electricity + Water")
+      window._dashUtilLabel = '';
+      sb.from('meters').select('utility').eq('customer_id', cid).then(function(res){
+        var orderU = ['electricity','gas','water'];
+        var us = Array.from(new Set((res.data||[]).map(function(m){return m.utility;}).filter(Boolean)));
+        us.sort(function(a,b){ return (orderU.indexOf(a)===-1?99:orderU.indexOf(a)) - (orderU.indexOf(b)===-1?99:orderU.indexOf(b)); });
+        window._dashUtilLabel = us.map(function(s){return s.charAt(0).toUpperCase()+s.slice(1);}).join(' + ');
+        var sub = document.getElementById('ds3sub');
+        if (sub && /Including VAT/.test(sub.textContent)) sub.textContent = 'Including VAT + CCL' + (window._dashUtilLabel ? ' · ' + window._dashUtilLabel : '');
+      });
       document.getElementById('dashClientName').textContent = currentUser.name;
       document.getElementById('welcomeH').textContent = 'Welcome back, ' + currentUser.name + '.';
       const initials = currentUser.name.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
@@ -2398,7 +2423,7 @@
         if (!el) return;
         if (res.hasData) {
           el.textContent = '£' + res.spend.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-          if (sub) sub.textContent = res.monthCount >= 12 ? 'Last 12 months' : 'Last ' + res.monthCount + ' month' + (res.monthCount === 1 ? '' : 's');
+          if (sub) sub.textContent = 'Including VAT + CCL' + (window._dashUtilLabel ? ' · ' + window._dashUtilLabel : '');
         } else {
           el.textContent = '—';
         }
@@ -2452,11 +2477,13 @@
       const contracts = cData || [];
       renderReportGrid(validations);
       renderOccupancyGrid(occupancies);
+      loadSiteList(cid);
       // Background-prefetch the most-recent report so the FIRST click is fast.
       (validations || []).slice(0, 3).forEach(function(rep){ prefetchReport(rep); });
     }
     // ───── REPORT VIEWER ─────
-    async function openViewer(r) {
+    async function openViewer(r, opts) {
+      opts = opts || {};
       const isOccupancy = r.report_type === 'occupancy';
       const isContract = r.report_type === 'contract';
       if (isOccupancy) {
@@ -2513,8 +2540,8 @@
       };
       frame.addEventListener('load', () => setTimeout(reveal, 300), { once: true });
       setTimeout(reveal, 4000);
-      frame.srcdoc = html;
-      logAction('view_report', r.id, { type: r.report_type || 'bill_validation', period: r.period });
+      frame.srcdoc = opts.jumpToIssues ? injectIssuesJump(html) : html;
+      logAction('view_report', r.id, { type: r.report_type || 'bill_validation', period: r.period, jump: opts.jumpToIssues ? 'issues' : 'summary' });
       // Excel + Invoices only show for bill validation reports
       if (!isOccupancy && !isContract && r.xlsx_path) {
         xlBtn.style.display = 'inline-flex';
@@ -2542,6 +2569,51 @@
       const frame = document.getElementById('viewerFrame');
       frame.srcdoc = '';
       frame.src = 'about:blank';
+    }
+    // Injected into the report iframe when a customer clicks the "error" badge:
+    // best-effort jump straight to the Issues Log (clicks an "Issues" tab if the
+    // report has one, otherwise scrolls the Issues Log heading into view).
+    function injectIssuesJump(html) {
+      var inject = "<scr" + "ipt>(function(){function J(){try{var els=[].slice.call(document.querySelectorAll('button,a,[role=tab],[role=button],li,.tab,.nav-link'));var hit=els.filter(function(e){var t=(e.textContent||'').trim().toLowerCase();return t&&t.length<40&&t.indexOf('issue')>-1&&e.offsetParent!==null;})[0];if(hit){hit.click();}var h=document.querySelector('[id*=issue],[id*=Issue]');if(!h){h=els.filter(function(e){return /issues?\\s*log/i.test(e.textContent||'');})[0];}if(h&&h.scrollIntoView){h.scrollIntoView({behavior:'smooth',block:'start'});return true;}return !!hit;}catch(e){return false;}}var n=0,iv=setInterval(function(){n++;if(J()||n>24){clearInterval(iv);}},250);})();<\/scr" + "ipt>";
+      return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, inject + "</body>") : html + inject;
+    }
+    // ───── SITE LIST (customer page) ─────
+    async function loadSiteList(cid) {
+      const body = document.getElementById('siteListBody');
+      if (!body) return;
+      body.innerHTML = '<div class="empty-state"><p>Loading…</p></div>';
+      let meters = [], usage = [];
+      try {
+        const r1 = await sb.from('meters').select('id, mpan, utility, supply_type, area_code').eq('customer_id', cid).order('utility').order('mpan');
+        meters = r1.data || [];
+        const r2 = await sb.from('usage_data').select('meter_id, site_name, site_address, period_start').eq('customer_id', cid).order('period_start', { ascending: false });
+        usage = r2.data || [];
+      } catch (e) { console.error('Site list load:', e); body.innerHTML = '<div class="empty-state"><p>Could not load your sites. Please refresh.</p></div>'; return; }
+      const addrByMeter = {};
+      usage.forEach(function(u){ if (u.meter_id && !addrByMeter[u.meter_id]) addrByMeter[u.meter_id] = u.site_address || u.site_name || ''; });
+      const groups = {};
+      meters.forEach(function(m){ (groups[m.utility] || (groups[m.utility] = [])).push(m); });
+      const idLabel = { electricity: 'MPAN', gas: 'MPRN', water: 'SPID' };
+      const order = ['electricity', 'gas', 'water'];
+      const allUtils = order.concat(Object.keys(groups).filter(function(k){ return order.indexOf(k) === -1; }));
+      if (!meters.length) { body.innerHTML = '<div class="empty-state"><h3>No sites on record yet</h3><p>Your supplies will appear here once CES adds them.</p></div>'; return; }
+      body.innerHTML = allUtils.map(function(util){
+        const list = groups[util] || [];
+        const title = util.charAt(0).toUpperCase() + util.slice(1);
+        const label = idLabel[util] || 'Identifier';
+        if (!list.length) {
+          return '<div class="site-group"><h3>' + title + '</h3><div class="empty-state" style="padding:16px;"><p>No ' + title.toLowerCase() + ' supplies on record yet.</p></div></div>';
+        }
+        const rows = list.map(function(m){
+          const supply = util === 'electricity'
+            ? '<td class="mono">' + escapeHtml(m.supply_type || '') + (m.area_code ? ' · area ' + escapeHtml(m.area_code) : '') + '</td>'
+            : '';
+          return '<tr><td class="mono">' + escapeHtml(m.mpan || '—') + '</td><td>' + escapeHtml(addrByMeter[m.id] || '—') + '</td>' + supply + '</tr>';
+        }).join('');
+        const supplyHead = util === 'electricity' ? '<th>Supply</th>' : '';
+        return '<div class="site-group"><h3>' + title + ' <span style="color:var(--muted);font-weight:600;font-size:13px;">· ' + list.length + ' site' + (list.length === 1 ? '' : 's') + '</span></h3>' +
+          '<table class="list"><thead><tr><th>' + label + '</th><th>Site address</th>' + supplyHead + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+      }).join('');
     }
     // ───── ADMIN ─────
     async function loadAdmin() {
