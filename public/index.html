@@ -2608,7 +2608,9 @@
     }
     // Relabel the report's issues-log badges: FAIL -> Error, INFO -> Comment (text only; colour unchanged).
     function relabelIssues(html) {
-      return html.replace("{kind: isFail ? 'fail' : 'info'}, iss.sev)", "{kind: isFail ? 'fail' : 'info'}, isFail ? 'Error' : 'Comment')");
+      return html
+        .replace("{kind: isFail ? 'fail' : 'info'}, iss.sev)", "{kind: isFail ? 'fail' : 'info'}, isFail ? 'Error' : 'Comment')")
+        .replace(/Validation completed [^·]*· /, '');
     }
     // (In-report CES error banner removed — error/resolved status now shows on the report cards.)
     // Build site rows (MPAN/SPID/MPRN → address) from a report's window.BV object.
