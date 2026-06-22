@@ -219,6 +219,23 @@
     #brokerMetersTable th, #brokerMetersTable td { padding: 7px 9px; }
     #brokerPage .topbar-left h1 { font-size: 28px; letter-spacing: -0.4px; }
     #brokerPage .main-area { max-width: 1600px; }
+    /* In-portal AI assistant */
+    #asstWrap { position: fixed; right: 22px; bottom: 22px; z-index: 1100; }
+    #asstFab { width: 56px; height: 56px; border-radius: 50%; border: none; background: var(--navy); color: #fff; box-shadow: 0 6px 20px rgba(20,29,69,0.35); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    #asstFab:hover { filter: brightness(1.1); }
+    #asstPanel { position: fixed; right: 22px; bottom: 88px; width: 380px; max-width: calc(100vw - 32px); height: 540px; max-height: calc(100vh - 130px); background: #fff; border: 1.5px solid var(--border); border-radius: 14px; box-shadow: 0 16px 50px rgba(0,0,0,0.25); display: none; flex-direction: column; overflow: hidden; }
+    .asst-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--navy); color: #fff; flex: 0 0 auto; }
+    .asst-head .asst-sub { font-size: 11.5px; opacity: 0.85; font-weight: 400; }
+    .asst-close { background: none; border: none; color: #fff; font-size: 22px; line-height: 1; cursor: pointer; }
+    .asst-msgs { flex: 1 1 auto; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: var(--surface-2, #f4f5fa); }
+    .asst-msg { max-width: 86%; padding: 9px 12px; border-radius: 12px; font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
+    .asst-user { align-self: flex-end; background: var(--navy); color: #fff; border-bottom-right-radius: 4px; }
+    .asst-model { align-self: flex-start; background: #fff; border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+    .asst-typing { color: var(--muted); font-style: italic; }
+    .asst-input-row { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--border); flex: 0 0 auto; }
+    .asst-input-row input { flex: 1; padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 13.5px; font-family: inherit; }
+    .asst-send { padding: 9px 16px; background: var(--navy); color: #fff; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; }
+    .asst-foot { padding: 7px 12px; font-size: 10.5px; color: var(--muted); text-align: center; border-top: 1px solid var(--border); flex: 0 0 auto; }
     .topbar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 36px; padding-bottom: 22px; border-bottom: 1px solid var(--border); gap: 18px; }
     .topbar-left h1 { font-size: 40px; font-weight: 800; color: var(--text); letter-spacing: -1px; line-height: 1.1; }
     .topbar-left .meta { font-size: 14px; color: var(--muted); margin-top: 8px; font-weight: 500; }
@@ -1181,6 +1198,24 @@
       <iframe id="necFrame" title="NEC Calculator" style="border:0;flex:1 1 auto;width:100%;min-height:0;"></iframe>
     </div>
   </div>
+  <!-- In-portal AI billing assistant (shown on the customer dashboard only) -->
+  <div id="asstWrap" style="display:none;">
+    <button id="asstFab" onclick="toggleAssistant()" aria-label="Ask the CES assistant" title="Ask about your bills">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    </button>
+    <div id="asstPanel">
+      <div class="asst-head">
+        <div><strong>CES Assistant</strong><div class="asst-sub">Answers about your bills, usage &amp; costs</div></div>
+        <button class="asst-close" onclick="toggleAssistant(false)" aria-label="Close">&times;</button>
+      </div>
+      <div id="asstMsgs" class="asst-msgs"><div class="asst-msg asst-model">Hi - I can answer questions about your bills, energy use and costs. What would you like to know?</div></div>
+      <div class="asst-input-row">
+        <input id="asstInput" type="text" placeholder="e.g. What was my total last month?" maxlength="1000" onkeydown="if(event.key==='Enter')sendAssistant()" />
+        <button class="asst-send" onclick="sendAssistant()">Send</button>
+      </div>
+      <div class="asst-foot">AI assistant - answers from your account data - please verify important figures with CES</div>
+    </div>
+  </div>
   <div id="adminPage" class="page">
     <div class="dash-wrap">
       <aside class="sidebar">
@@ -2138,6 +2173,7 @@
     }
     async function doSignOut() {
       clearReportCaches();
+      try { var _aw = document.getElementById('asstWrap'); if (_aw) _aw.style.display = 'none'; if (typeof _asstReset === 'function') _asstReset(); } catch (e) {}
       await logAction('logout', null, {});
       teardownIdleTimeout();
       await sb.auth.signOut();
@@ -2293,8 +2329,60 @@
         card.addEventListener('mouseenter', () => { const r = _find(); if (r) prefetchReport(r); }, { once: true });
       });
     }
+    // ---- In-portal AI billing assistant (customer dashboard only) ----
+    var _asstMsgs = [];
+    var _asstBusy = false;
+    function toggleAssistant(open) {
+      var p = document.getElementById('asstPanel'); if (!p) return;
+      var show = (open === undefined) ? (p.style.display === 'none' || !p.style.display) : open;
+      p.style.display = show ? 'flex' : 'none';
+      if (show) { var i = document.getElementById('asstInput'); if (i) i.focus(); }
+    }
+    function _asstAdd(role, text) {
+      _asstMsgs.push({ role: role, text: text });
+      var box = document.getElementById('asstMsgs'); if (!box) return;
+      var d = document.createElement('div');
+      d.className = 'asst-msg asst-' + role;
+      d.textContent = text;
+      box.appendChild(d); box.scrollTop = box.scrollHeight;
+    }
+    function _asstReset() {
+      _asstMsgs = [];
+      var box = document.getElementById('asstMsgs');
+      if (box) box.innerHTML = '<div class="asst-msg asst-model">Hi - I can answer questions about your bills, energy use and costs. What would you like to know?</div>';
+      var p = document.getElementById('asstPanel'); if (p) p.style.display = 'none';
+    }
+    async function sendAssistant() {
+      if (_asstBusy) return;
+      var input = document.getElementById('asstInput');
+      var q = (input.value || '').trim(); if (!q) return;
+      input.value = '';
+      _asstAdd('user', q);
+      _asstBusy = true;
+      var box = document.getElementById('asstMsgs');
+      var typing = document.createElement('div');
+      typing.className = 'asst-msg asst-model asst-typing'; typing.textContent = 'thinking...';
+      box.appendChild(typing); box.scrollTop = box.scrollHeight;
+      try {
+        var s = await sb.auth.getSession(); var session = s.data.session;
+        if (!session) { typing.remove(); _asstAdd('model', 'Please sign in again.'); _asstBusy = false; return; }
+        var resp = await fetch(SUPABASE_URL + '/functions/v1/ask-assistant', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+          body: JSON.stringify({ question: q, history: _asstMsgs.slice(-7, -1) })
+        });
+        var out = await resp.json().catch(function(){ return {}; });
+        typing.remove();
+        if (!resp.ok || out.error) { _asstAdd('model', out.error || 'Sorry, something went wrong. Please try again.'); }
+        else { _asstAdd('model', out.answer || 'Sorry, I could not answer that.'); }
+      } catch (e) {
+        console.error('assistant', e); typing.remove();
+        _asstAdd('model', 'Connection problem - please try again.');
+      } finally { _asstBusy = false; }
+    }
     async function loadDash() {
       const cid = currentUser.customerId;
+      var _aw = document.getElementById('asstWrap'); if (_aw) _aw.style.display = 'block';
       document.getElementById('dashClientName').textContent = currentUser.name;
       document.getElementById('welcomeH').textContent = 'Welcome back, ' + currentUser.name + '.';
       const initials = currentUser.name.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
