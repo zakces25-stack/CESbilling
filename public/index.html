@@ -2429,7 +2429,7 @@
       var _aw = document.getElementById('asstWrap'); if (_aw) _aw.style.display = (currentUser && currentUser._impersonating) ? 'none' : 'block';
       // Utility breakdown shown under the Running Utility Costs KPI (e.g. "Electricity + Water")
       window._dashUtilLabel = '';
-      sb.from('meters').select('utility').eq('customer_id', cid).then(function(res){
+      sb.from('sites').select('utility').eq('customer_id', cid).then(function(res){
         var orderU = ['electricity','gas','water'];
         var us = Array.from(new Set((res.data||[]).map(function(m){return m.utility;}).filter(Boolean)));
         us.sort(function(a,b){ return (orderU.indexOf(a)===-1?99:orderU.indexOf(a)) - (orderU.indexOf(b)===-1?99:orderU.indexOf(b)); });
