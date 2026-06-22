@@ -320,6 +320,15 @@
     .cmp-table .cmp-total td { font-weight: 800; background: var(--surface-2); }
     .cmp-up { color: var(--fail); font-weight: 700; } .cmp-down { color: #157347; font-weight: 700; } .cmp-flat { color: var(--muted); }
     .cmp-empty { text-align: center; color: var(--muted); padding: 44px 20px; border: 1px dashed var(--border); border-radius: 14px; font-size: 14px; }
+    .cmp-caption { font-size: 14px; color: var(--text-2); margin-bottom: 12px; }
+    .cmp-caption .cmp-base { color: var(--muted); }
+    .cmp-summary { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; }
+    .cmp-box { flex: 1; min-width: 240px; border-radius: 16px; padding: 20px 22px; color: #fff; box-shadow: 0 6px 18px rgba(20,29,69,0.12); }
+    .cmp-box--usage { background: linear-gradient(135deg, #2f3d7e, #4458b8); }
+    .cmp-box--cost { background: linear-gradient(135deg, #157347, #1faa5f); }
+    .cmp-box-label { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.7px; font-weight: 700; opacity: 0.85; }
+    .cmp-box-value { font-size: 30px; font-weight: 800; margin: 8px 0 5px; line-height: 1.1; }
+    .cmp-box-sub { font-size: 13px; opacity: 0.92; }
     .badge-warn { background: #FFFBEB; color: #B45309; } .badge-warn .bdot { background: #D97706; }
     /* Occupancy-specific level badges — larger, more prominent */
     .occ-level {
@@ -2933,34 +2942,39 @@
       if (!checked.length) { out.innerHTML = '<div class="cmp-empty">Select one or more sites to compare.</div>'; return; }
       if (months.length < 2) { out.innerHTML = '<div class="cmp-empty">Select at least two months to compare.</div>'; return; }
       var fnum = function(n){ return n == null ? '—' : Number(n).toLocaleString('en-GB', { maximumFractionDigits: 0 }); };
+      var fsign = function(n){ if (n == null) return '—'; return (n > 0 ? '+' : (n < 0 ? '−' : '')) + Number(Math.abs(n)).toLocaleString('en-GB', { maximumFractionDigits: 0 }); };
       var fgbp = function(n){ return n == null ? '—' : '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
-      var delta = function(a,b){ if (a == null || b == null || b === 0) return '<span class="cmp-flat">—</span>'; var p = (a - b) / Math.abs(b) * 100; var cls = p > 0.5 ? 'cmp-up' : (p < -0.5 ? 'cmp-down' : 'cmp-flat'); var ar = p > 0.5 ? '▲' : (p < -0.5 ? '▼' : '◆'); return '<span class="' + cls + '">' + ar + ' ' + (p > 0 ? '+' : '') + p.toFixed(1) + '%</span>'; };
-      var head = '<th>Site</th>';
-      months.forEach(function(m){ head += '<th>' + escapeHtml(m.label) + ' usage</th><th>' + escapeHtml(m.label) + ' cost</th>'; });
-      head += '<th>Usage Δ</th><th>Cost Δ</th>';
+      var fgbpSign = function(n){ if (n == null) return '—'; return (n > 0 ? '+£' : (n < 0 ? '−£' : '£')) + Number(Math.abs(n)).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+      var pct = function(a,b){ if (a == null || b == null || b === 0) return ''; var p = (a - b) / Math.abs(b) * 100; var ar = p > 0.5 ? '▲' : (p < -0.5 ? '▼' : '◆'); return ar + ' ' + (p > 0 ? '+' : '') + p.toFixed(1) + '%'; };
+      var unit = null, unitOk = true;
+      checked.forEach(function(id){ var u = _cmpUnit(C.meters[id].utility); if (unit === null) unit = u; else if (unit !== u) unitOk = false; });
+      var base = months[0], latest = months[months.length - 1];
       var totals = {}; months.forEach(function(m){ totals[m.id] = { u: 0, c: 0 }; });
-      var unit = null, unitOk = true, rows = '';
       checked.forEach(function(id){
-        var meter = C.meters[id]; var u = _cmpUnit(meter.utility);
-        if (unit === null) unit = u; else if (unit !== u) unitOk = false;
-        var cells = '<td>' + escapeHtml(meter.site) + '</td>'; var fU = null, fC = null, lU = null, lC = null;
-        months.forEach(function(m){
-          var d = (C.data[m.id] || {})[id] || {};
-          cells += '<td class="mono">' + fnum(d.usage) + ' ' + u + '</td><td class="mono">' + fgbp(d.cost) + '</td>';
-          if (d.usage != null) { if (fU === null) fU = d.usage; lU = d.usage; totals[m.id].u += d.usage; }
-          if (d.cost != null) { if (fC === null) fC = d.cost; lC = d.cost; totals[m.id].c += d.cost; }
-        });
-        cells += '<td>' + delta(lU, fU) + '</td><td>' + delta(lC, fC) + '</td>';
+        months.forEach(function(m){ var d = (C.data[m.id] || {})[id] || {}; if (d.usage != null) totals[m.id].u += d.usage; if (d.cost != null) totals[m.id].c += d.cost; });
+      });
+      var netU = totals[latest.id].u - totals[base.id].u, netC = totals[latest.id].c - totals[base.id].c;
+      var vs = escapeHtml(latest.label) + ' vs ' + escapeHtml(base.label);
+      var usageVal = unitOk ? (fsign(netU) + ' ' + (unit || '')) : 'Mixed units';
+      var usageSub = unitOk ? (vs + (pct(totals[latest.id].u, totals[base.id].u) ? '  ·  ' + pct(totals[latest.id].u, totals[base.id].u) : '')) : 'Pick a single utility to total usage';
+      var costSub = vs + (pct(totals[latest.id].c, totals[base.id].c) ? '  ·  ' + pct(totals[latest.id].c, totals[base.id].c) : '');
+      var boxes = '<div class="cmp-caption">Comparing <strong>' + escapeHtml(latest.label) + '</strong> with <strong>' + escapeHtml(base.label) + '</strong> <span class="cmp-base">(baseline)</span></div>' +
+        '<div class="cmp-summary">' +
+          '<div class="cmp-box cmp-box--usage"><div class="cmp-box-label">Usage difference</div><div class="cmp-box-value">' + usageVal + '</div><div class="cmp-box-sub">' + usageSub + '</div></div>' +
+          '<div class="cmp-box cmp-box--cost"><div class="cmp-box-label">Cost difference</div><div class="cmp-box-value">' + fgbpSign(netC) + '</div><div class="cmp-box-sub">' + costSub + '</div></div>' +
+        '</div>';
+      var uHdr = (unitOk && unit) ? (' (' + unit + ')') : '';
+      var head = '<th>Site</th>';
+      months.forEach(function(m){ head += '<th>' + escapeHtml(m.label) + ' usage' + uHdr + '</th><th>' + escapeHtml(m.label) + ' cost</th>'; });
+      var rows = '';
+      checked.forEach(function(id){
+        var meter = C.meters[id]; var cells = '<td>' + escapeHtml(meter.site) + '</td>';
+        months.forEach(function(m){ var d = (C.data[m.id] || {})[id] || {}; var uc = (!unitOk && d.usage != null) ? (' ' + _cmpUnit(meter.utility)) : ''; cells += '<td class="mono">' + fnum(d.usage) + uc + '</td><td class="mono">' + fgbp(d.cost) + '</td>'; });
         rows += '<tr>' + cells + '</tr>';
       });
-      var tcells = '<td>Total</td>'; var tfU = null, tfC = null, tlU = null, tlC = null;
-      months.forEach(function(m){
-        var tu = totals[m.id].u, tc = totals[m.id].c;
-        tcells += '<td class="mono">' + (unitOk ? (fnum(tu) + ' ' + (unit || '')) : '—') + '</td><td class="mono">' + fgbp(tc) + '</td>';
-        if (tfU === null) tfU = tu; tlU = tu; if (tfC === null) tfC = tc; tlC = tc;
-      });
-      tcells += '<td>' + (unitOk ? delta(tlU, tfU) : '<span class="cmp-flat">—</span>') + '</td><td>' + delta(tlC, tfC) + '</td>';
-      out.innerHTML = '<div class="cmp-result-wrap"><table class="cmp-table"><thead><tr>' + head + '</tr></thead><tbody>' + rows + '<tr class="cmp-total">' + tcells + '</tr></tbody></table></div>';
+      var tcells = '<td>Total</td>';
+      months.forEach(function(m){ tcells += '<td class="mono">' + (unitOk ? fnum(totals[m.id].u) : '—') + '</td><td class="mono">' + fgbp(totals[m.id].c) + '</td>'; });
+      out.innerHTML = boxes + '<div class="cmp-result-wrap"><table class="cmp-table"><thead><tr>' + head + '</tr></thead><tbody>' + rows + '<tr class="cmp-total">' + tcells + '</tr></tbody></table></div>';
     }
     // ───── ADMIN ─────
     async function loadAdmin() {
