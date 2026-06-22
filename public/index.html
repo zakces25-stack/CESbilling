@@ -294,15 +294,32 @@
     .imp-banner { display:none; align-items:center; justify-content:space-between; gap:14px; background:#7a5010; color:#fff; padding:10px 18px; font-size:13.5px; font-weight:700; }
     .imp-banner.show { display:flex; }
     .imp-banner button { background:#fff; color:#7a5010; border:none; border-radius:6px; padding:6px 14px; font-weight:800; cursor:pointer; font-family:inherit; }
-    .cmp-controls { display:flex; flex-wrap:wrap; gap:14px; align-items:flex-end; margin-bottom:16px; }
-    .cmp-controls .form-group { margin:0; min-width:170px; }
-    .cmp-controls select { padding:9px 12px; border:1.5px solid var(--border); border-radius:8px; font-family:inherit; font-size:13.5px; background:var(--surface); }
-    .cmp-meters-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:13px; }
-    .cmp-meters { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
-    .cmp-meter { display:flex; align-items:center; gap:6px; border:1.5px solid var(--border); border-radius:8px; padding:6px 10px; font-size:12.5px; cursor:pointer; background:#fff; }
-    .cmp-meter input { margin:0; }
-    .cmp-table th, .cmp-table td { white-space:nowrap; }
-    .cmp-up { color: var(--fail); font-weight:700; } .cmp-down { color:#157347; font-weight:700; } .cmp-flat { color: var(--muted); }
+    .cmp-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(20,29,69,0.05); }
+    .cmp-row { display: flex; flex-wrap: wrap; gap: 16px; }
+    .cmp-field { display: flex; flex-direction: column; gap: 6px; min-width: 210px; flex: 1; }
+    .cmp-field > label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+    .cmp-field select, .cmp-dd-btn { padding: 10px 13px; border: 1.5px solid var(--border); border-radius: 10px; font-family: inherit; font-size: 14px; background: var(--surface); color: var(--text); cursor: pointer; width: 100%; }
+    .cmp-field select:focus, .cmp-dd-btn:focus { outline: none; border-color: var(--navy); }
+    .cmp-dd { position: relative; }
+    .cmp-dd-btn { display: flex; justify-content: space-between; align-items: center; text-align: left; }
+    .cmp-dd-panel { position: absolute; z-index: 60; top: calc(100% + 5px); left: 0; right: 0; background: #fff; border: 1.5px solid var(--border); border-radius: 10px; box-shadow: 0 10px 28px rgba(20,29,69,0.16); max-height: 250px; overflow-y: auto; padding: 6px; display: none; }
+    .cmp-dd-panel.open { display: block; }
+    .cmp-dd-opt { display: flex; align-items: center; gap: 9px; padding: 8px 9px; border-radius: 7px; font-size: 13.5px; cursor: pointer; }
+    .cmp-dd-opt:hover { background: var(--surface-2); }
+    .cmp-sites { margin-top: 16px; }
+    .cmp-sites > label { display:block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin-bottom: 8px; }
+    .cmp-meters { display: flex; flex-wrap: wrap; gap: 8px; }
+    .cmp-meter { display: flex; align-items: center; gap: 8px; border: 1.5px solid var(--border); border-radius: 10px; padding: 8px 12px; font-size: 13px; cursor: pointer; background: #fff; transition: border-color .12s, background .12s; }
+    .cmp-meter:has(input:checked) { border-color: var(--navy); background: rgba(47,61,126,0.06); }
+    .cmp-meter input { margin: 0; }
+    .cmp-result-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 14px; }
+    .cmp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .cmp-table th, .cmp-table td { padding: 11px 15px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
+    .cmp-table thead th { background: var(--surface-2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
+    .cmp-table tbody tr:last-child td { border-bottom: none; }
+    .cmp-table .cmp-total td { font-weight: 800; background: var(--surface-2); }
+    .cmp-up { color: var(--fail); font-weight: 700; } .cmp-down { color: #157347; font-weight: 700; } .cmp-flat { color: var(--muted); }
+    .cmp-empty { text-align: center; color: var(--muted); padding: 44px 20px; border: 1px dashed var(--border); border-radius: 14px; font-size: 14px; }
     .badge-warn { background: #FFFBEB; color: #B45309; } .badge-warn .bdot { background: #D97706; }
     /* Occupancy-specific level badges — larger, more prominent */
     .occ-level {
@@ -950,7 +967,7 @@
         <div class="sidebar-nav">
           <div class="nav-item active" data-page="reports">Reports</div>
           <div class="nav-item" data-page="sites">Site List</div>
-          <div class="nav-item" data-page="compare">Compare</div>
+          <div class="nav-item" data-page="compare">Comparison</div>
           <div class="nav-item" data-page="usage">Usage Report</div>
         </div>
         <div class="sidebar-foot">
@@ -1023,32 +1040,37 @@
           </div>
           <div id="siteListBody"><div class="empty-state"><p>Loading…</p></div></div>
         </div>
-        <!-- Page: Compare months -->
+        <!-- Page: Consumption comparison -->
         <div class="dash-section" data-page="compare" style="display:none;">
           <div class="section-head">
-            <h2>Compare months</h2>
-            <div class="section-meta">Compare consumption and cost between any two months, for the meters you choose.</div>
+            <h2>Consumption comparison</h2>
+            <div class="section-meta">Compare usage and cost across the months and sites you choose.</div>
           </div>
-          <div class="cmp-controls">
-            <div class="form-group">
-              <label>Utility</label>
-              <select id="cmpUtil" onchange="cmpUtilChanged()">
-                <option value="all">All utilities</option>
-                <option value="electricity">Electricity</option>
-                <option value="gas">Gas</option>
-                <option value="water">Water</option>
-              </select>
+          <div class="cmp-card">
+            <div class="cmp-row">
+              <div class="cmp-field">
+                <label>Utility</label>
+                <select id="cmpUtil" onchange="cmpUtilChanged()">
+                  <option value="">Select a utility…</option>
+                  <option value="all">All utilities</option>
+                  <option value="electricity">Electricity</option>
+                  <option value="gas">Gas</option>
+                  <option value="water">Water</option>
+                </select>
+              </div>
+              <div class="cmp-field">
+                <label>Months to compare</label>
+                <div class="cmp-dd">
+                  <button type="button" class="cmp-dd-btn" onclick="cmpToggleMonths(event)"><span id="cmpMonthsLbl">Select months</span><span aria-hidden="true">▾</span></button>
+                  <div id="cmpMonthsPanel" class="cmp-dd-panel"></div>
+                </div>
+              </div>
             </div>
-            <div class="form-group"><label>Month</label><select id="cmpA" onchange="renderComparison()"></select></div>
-            <div class="form-group"><label>Compare with</label><select id="cmpB" onchange="renderComparison()"></select></div>
+            <div id="cmpSitesWrap" class="cmp-sites" style="display:none;">
+              <label>Sites</label>
+              <div id="cmpMeters" class="cmp-meters"></div>
+            </div>
           </div>
-          <div class="cmp-meters-head">
-            <strong>Meters</strong>
-            <button type="button" class="link-btn" onclick="cmpToggleAll(true)">Select all</button>
-            <span class="dot-sep">·</span>
-            <button type="button" class="link-btn" onclick="cmpToggleAll(false)">Clear</button>
-          </div>
-          <div id="cmpMeters" class="cmp-meters"></div>
           <div id="cmpResult"></div>
         </div>
 <!-- Page: Usage Report (ESOS / SECR) -->
@@ -2823,7 +2845,8 @@
           '<table class="list"><thead><tr><th>' + label + '</th><th>Site address</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
       }).join('');
     }
-    // ───── COMPARE MONTHS (customer page) ─────
+    // ───── CONSUMPTION COMPARISON (customer page) ─────
+    function _cmpUnit(u){ return u === 'water' ? 'm³' : 'kWh'; }
     async function loadComparison(cid) {
       try {
         const { data } = await sb.from('reports').select('id, month, year, month_num, period, bv_summary')
@@ -2845,61 +2868,99 @@
           });
         });
         window._cmp = C;
-        const aSel = document.getElementById('cmpA'), bSel = document.getElementById('cmpB');
-        if (!aSel || !bSel) return;
-        const opts = C.months.map(function(m){ return '<option value="' + escapeHtml(m.id) + '">' + escapeHtml(m.label) + '</option>'; }).join('');
-        aSel.innerHTML = opts; bSel.innerHTML = opts;
-        if (C.months.length > 1) { aSel.value = C.months[0].id; bSel.value = C.months[1].id; }
-        renderCmpMeters();
+        window._cmpMonths = {};
+        C.months.slice(0, 2).forEach(function(m){ window._cmpMonths[m.id] = true; });
+        renderCmpMonths();
+        var us = document.getElementById('cmpUtil'); if (us) us.value = '';
+        var sw = document.getElementById('cmpSitesWrap'); if (sw) sw.style.display = 'none';
         renderComparison();
       } catch (e) {
         console.error('comparison load:', e);
-        const out = document.getElementById('cmpResult'); if (out) out.innerHTML = '<div class="empty-state"><p>Could not load comparison data.</p></div>';
+        var out = document.getElementById('cmpResult'); if (out) out.innerHTML = '<div class="cmp-empty">Could not load comparison data.</div>';
       }
     }
-    function _cmpUnit(u){ return u === 'water' ? 'm³' : 'kWh'; }
+    function renderCmpMonths() {
+      var C = window._cmp; var panel = document.getElementById('cmpMonthsPanel'); if (!C || !panel) return;
+      panel.innerHTML = C.months.map(function(m){
+        return '<label class="cmp-dd-opt"><input type="checkbox" data-cmp-month="' + escapeHtml(m.id) + '"' + (window._cmpMonths[m.id] ? ' checked' : '') + ' onchange="cmpMonthToggle(this)" /> ' + escapeHtml(m.label) + '</label>';
+      }).join('') || '<div style="padding:8px;color:var(--muted);font-size:13px;">No months available yet.</div>';
+      cmpUpdateMonthsLabel();
+    }
+    function cmpUpdateMonthsLabel() {
+      var sel = window._cmpMonths || {};
+      var n = Object.keys(sel).filter(function(k){ return sel[k]; }).length;
+      var lbl = document.getElementById('cmpMonthsLbl'); if (lbl) lbl.textContent = n ? (n + ' month' + (n === 1 ? '' : 's') + ' selected') : 'Select months';
+    }
+    function cmpMonthToggle(cb) { window._cmpMonths[cb.getAttribute('data-cmp-month')] = cb.checked; cmpUpdateMonthsLabel(); renderComparison(); }
+    function cmpToggleMonths(e) { e.stopPropagation(); var p = document.getElementById('cmpMonthsPanel'); if (p) p.classList.toggle('open'); }
+    document.addEventListener('click', function(e){ var p = document.getElementById('cmpMonthsPanel'); if (p && p.classList.contains('open') && e.target.closest && !e.target.closest('.cmp-dd')) p.classList.remove('open'); });
+    function cmpUtilChanged() {
+      var util = document.getElementById('cmpUtil').value;
+      var wrap = document.getElementById('cmpSitesWrap');
+      if (!util) { if (wrap) wrap.style.display = 'none'; renderComparison(); return; }
+      if (wrap) wrap.style.display = 'block';
+      renderCmpMeters();
+      renderComparison();
+    }
     function renderCmpMeters() {
-      const C = window._cmp; if (!C) return;
-      const util = document.getElementById('cmpUtil').value;
-      const box = document.getElementById('cmpMeters'); if (!box) return;
-      let ids = Object.keys(C.meters).filter(function(id){ return util === 'all' || C.meters[id].utility === util; });
+      var C = window._cmp; if (!C) return;
+      var util = document.getElementById('cmpUtil').value;
+      var box = document.getElementById('cmpMeters'); if (!box) return;
+      var ids = Object.keys(C.meters).filter(function(id){ return util === 'all' || C.meters[id].utility === util; });
       ids.sort(function(a,b){ return C.meters[a].site.localeCompare(C.meters[b].site); });
-      if (!ids.length) { box.innerHTML = '<span style="color:var(--muted);font-size:12.5px;">No meters for this utility yet.</span>'; return; }
-      box.innerHTML = ids.map(function(id){
-        return '<label class="cmp-meter"><input type="checkbox" data-cmp-id="' + escapeHtml(id) + '" checked onchange="renderComparison()" /> ' + escapeHtml(C.meters[id].site) + '</label>';
+      if (!ids.length) { box.innerHTML = '<span style="color:var(--muted);font-size:13px;">No meters for this utility yet.</span>'; return; }
+      var all = '<label class="cmp-meter"><input type="checkbox" id="cmpAllSites" onchange="cmpToggleAll(this.checked)" /> <strong>All sites</strong></label>';
+      box.innerHTML = all + ids.map(function(id){
+        return '<label class="cmp-meter"><input type="checkbox" data-cmp-id="' + escapeHtml(id) + '" onchange="cmpSiteToggle()" /> ' + escapeHtml(C.meters[id].site) + '</label>';
       }).join('');
     }
-    function cmpUtilChanged() { renderCmpMeters(); renderComparison(); }
     function cmpToggleAll(on) {
       document.querySelectorAll('#cmpMeters input[data-cmp-id]').forEach(function(c){ c.checked = !!on; });
       renderComparison();
     }
+    function cmpSiteToggle() {
+      var boxes = document.querySelectorAll('#cmpMeters input[data-cmp-id]');
+      var all = document.getElementById('cmpAllSites');
+      if (all) all.checked = boxes.length > 0 && Array.prototype.every.call(boxes, function(c){ return c.checked; });
+      renderComparison();
+    }
     function renderComparison() {
-      const C = window._cmp; const out = document.getElementById('cmpResult'); if (!C || !out) return;
-      const aId = document.getElementById('cmpA').value, bId = document.getElementById('cmpB').value;
-      const find = function(id){ for (var i = 0; i < C.months.length; i++){ if (C.months[i].id === id) return C.months[i]; } return null; };
-      const aLab = (find(aId) || {}).label || 'Month', bLab = (find(bId) || {}).label || 'Month';
-      const checked = Array.prototype.map.call(document.querySelectorAll('#cmpMeters input[data-cmp-id]:checked'), function(c){ return c.getAttribute('data-cmp-id'); });
-      if (!checked.length) { out.innerHTML = '<div class="empty-state"><p>Select at least one meter to compare.</p></div>'; return; }
-      if (aId === bId) { out.innerHTML = '<div class="empty-state"><p>Pick two different months to compare.</p></div>'; return; }
-      const fnum = function(n){ return n == null ? '—' : Number(n).toLocaleString('en-GB', { maximumFractionDigits: 0 }); };
-      const fgbp = function(n){ return n == null ? '—' : '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
-      const delta = function(a,b){ if (a == null || b == null || b === 0) return '<span class="cmp-flat">—</span>'; const p = (a - b) / Math.abs(b) * 100; const cls = p > 0.5 ? 'cmp-up' : (p < -0.5 ? 'cmp-down' : 'cmp-flat'); const ar = p > 0.5 ? '▲' : (p < -0.5 ? '▼' : '◆'); return '<span class="' + cls + '">' + ar + ' ' + (p > 0 ? '+' : '') + p.toFixed(1) + '%</span>'; };
-      const aData = C.data[aId] || {}, bData = C.data[bId] || {};
-      let rows = '', tac = 0, tbc = 0, tau = 0, tbu = 0, unit = null, unitOk = true;
+      var C = window._cmp; var out = document.getElementById('cmpResult'); if (!C || !out) return;
+      var utEl = document.getElementById('cmpUtil'); var util = utEl ? utEl.value : '';
+      if (!util) { out.innerHTML = '<div class="cmp-empty">Choose a utility, the months, and the sites you want to compare.</div>'; return; }
+      var months = C.months.filter(function(m){ return window._cmpMonths && window._cmpMonths[m.id]; }).slice().reverse();
+      var checked = Array.prototype.map.call(document.querySelectorAll('#cmpMeters input[data-cmp-id]:checked'), function(c){ return c.getAttribute('data-cmp-id'); });
+      if (!checked.length) { out.innerHTML = '<div class="cmp-empty">Select one or more sites to compare.</div>'; return; }
+      if (months.length < 2) { out.innerHTML = '<div class="cmp-empty">Select at least two months to compare.</div>'; return; }
+      var fnum = function(n){ return n == null ? '—' : Number(n).toLocaleString('en-GB', { maximumFractionDigits: 0 }); };
+      var fgbp = function(n){ return n == null ? '—' : '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+      var delta = function(a,b){ if (a == null || b == null || b === 0) return '<span class="cmp-flat">—</span>'; var p = (a - b) / Math.abs(b) * 100; var cls = p > 0.5 ? 'cmp-up' : (p < -0.5 ? 'cmp-down' : 'cmp-flat'); var ar = p > 0.5 ? '▲' : (p < -0.5 ? '▼' : '◆'); return '<span class="' + cls + '">' + ar + ' ' + (p > 0 ? '+' : '') + p.toFixed(1) + '%</span>'; };
+      var head = '<th>Site</th>';
+      months.forEach(function(m){ head += '<th>' + escapeHtml(m.label) + ' usage</th><th>' + escapeHtml(m.label) + ' cost</th>'; });
+      head += '<th>Usage Δ</th><th>Cost Δ</th>';
+      var totals = {}; months.forEach(function(m){ totals[m.id] = { u: 0, c: 0 }; });
+      var unit = null, unitOk = true, rows = '';
       checked.forEach(function(id){
-        const m = C.meters[id]; const a = aData[id] || {}, b = bData[id] || {};
-        const u = _cmpUnit(m.utility);
+        var meter = C.meters[id]; var u = _cmpUnit(meter.utility);
         if (unit === null) unit = u; else if (unit !== u) unitOk = false;
-        if (a.cost != null) tac += a.cost; if (b.cost != null) tbc += b.cost;
-        if (a.usage != null) tau += a.usage; if (b.usage != null) tbu += b.usage;
-        rows += '<tr><td>' + escapeHtml(m.site) + '</td><td style="text-transform:capitalize;">' + escapeHtml(m.utility) + '</td>' +
-          '<td class="mono">' + fnum(a.usage) + ' ' + u + '</td><td class="mono">' + fnum(b.usage) + ' ' + u + '</td><td>' + delta(a.usage, b.usage) + '</td>' +
-          '<td class="mono">' + fgbp(a.cost) + '</td><td class="mono">' + fgbp(b.cost) + '</td><td>' + delta(a.cost, b.cost) + '</td></tr>';
+        var cells = '<td>' + escapeHtml(meter.site) + '</td>'; var fU = null, fC = null, lU = null, lC = null;
+        months.forEach(function(m){
+          var d = (C.data[m.id] || {})[id] || {};
+          cells += '<td class="mono">' + fnum(d.usage) + ' ' + u + '</td><td class="mono">' + fgbp(d.cost) + '</td>';
+          if (d.usage != null) { if (fU === null) fU = d.usage; lU = d.usage; totals[m.id].u += d.usage; }
+          if (d.cost != null) { if (fC === null) fC = d.cost; lC = d.cost; totals[m.id].c += d.cost; }
+        });
+        cells += '<td>' + delta(lU, fU) + '</td><td>' + delta(lC, fC) + '</td>';
+        rows += '<tr>' + cells + '</tr>';
       });
-      const uA = unitOk ? (fnum(tau) + ' ' + (unit || '')) : '—', uB = unitOk ? (fnum(tbu) + ' ' + (unit || '')) : '—';
-      const foot = '<tr style="font-weight:800;border-top:2px solid var(--border);"><td>Total</td><td></td><td class="mono">' + uA + '</td><td class="mono">' + uB + '</td><td>' + delta(unitOk ? tau : null, unitOk ? tbu : null) + '</td><td class="mono">' + fgbp(tac) + '</td><td class="mono">' + fgbp(tbc) + '</td><td>' + delta(tac, tbc) + '</td></tr>';
-      out.innerHTML = '<table class="list cmp-table"><thead><tr><th>Site</th><th>Utility</th><th>' + escapeHtml(aLab) + ' usage</th><th>' + escapeHtml(bLab) + ' usage</th><th>Δ</th><th>' + escapeHtml(aLab) + ' cost</th><th>' + escapeHtml(bLab) + ' cost</th><th>Δ</th></tr></thead><tbody>' + rows + foot + '</tbody></table>';
+      var tcells = '<td>Total</td>'; var tfU = null, tfC = null, tlU = null, tlC = null;
+      months.forEach(function(m){
+        var tu = totals[m.id].u, tc = totals[m.id].c;
+        tcells += '<td class="mono">' + (unitOk ? (fnum(tu) + ' ' + (unit || '')) : '—') + '</td><td class="mono">' + fgbp(tc) + '</td>';
+        if (tfU === null) tfU = tu; tlU = tu; if (tfC === null) tfC = tc; tlC = tc;
+      });
+      tcells += '<td>' + (unitOk ? delta(tlU, tfU) : '<span class="cmp-flat">—</span>') + '</td><td>' + delta(tlC, tfC) + '</td>';
+      out.innerHTML = '<div class="cmp-result-wrap"><table class="cmp-table"><thead><tr>' + head + '</tr></thead><tbody>' + rows + '<tr class="cmp-total">' + tcells + '</tr></tbody></table></div>';
     }
     // ───── ADMIN ─────
     async function loadAdmin() {
