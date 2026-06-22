@@ -2626,6 +2626,24 @@
       });
       return out;
     }
+    // Trim a report's window.BV.summary to the key per-site billing fields, stored on
+    // reports.bv_summary so the chatbot can answer detailed per-site / per-month questions.
+    function trimBvSummary(bv) {
+      const WL = ['mpan','spid','mpr','site','address','supplier','cur_kwh','cur_cost','day_kwh','night_kwh','day_rate','night_rate','unit_rate','standing_charge','kva','total','period_start','period_end'];
+      const summ = (bv && bv.summary) || {};
+      const out = {};
+      ['electricity','gas','water'].forEach(function(u){
+        if (Array.isArray(summ[u]) && summ[u].length) {
+          out[u] = summ[u].map(function(s){ const o = {}; WL.forEach(function(k){ if (s[k] !== undefined && s[k] !== null) o[k] = s[k]; }); return o; });
+        }
+      });
+      if (summ.totals) {
+        const tk = ['elec_kwh','elec_cost','gas_kwh','gas_cost','water_m3','water_cost','grand_total','prev_grand'];
+        const t = {}; tk.forEach(function(k){ if (summ.totals[k] !== undefined && summ.totals[k] !== null) t[k] = summ.totals[k]; });
+        out.totals = t;
+      }
+      return out;
+    }
     // Build FAIL-severity issue rows (the "errors") from a report's window.BV object.
     // Omits status/resolved fields so upserts NEVER reset an admin's resolution.
     function extractIssuesFromBV(bv, customerId, reportId, month, year, period) {
@@ -2876,6 +2894,7 @@
           sites, fail_count: fails, warn_count: warns,
           total_net: total || '—',
           prev_total_net: window._extractedPrevTotal || null,
+          bv_summary: window._upBV ? trimBvSummary(window._upBV) : null,
           report_type: 'bill_validation',
           uploaded_by: currentUser.userId,
           uploaded_at: new Date().toISOString()
@@ -4483,6 +4502,7 @@
               patch.prev_total_net = bv.summary.totals?.prev_grand != null ? fmtGBP(bv.summary.totals.prev_grand) : null;
               patch.fail_count = (bv.issues || []).filter(i => i.sev === 'FAIL').length;
               patch.warn_count = (bv.issues || []).filter(i => i.sev !== 'FAIL').length;
+              patch.bv_summary = trimBvSummary(bv);
               try {
                 const siteRows = extractSitesFromBV(bv, r.customer_id, r.id);
                 if (siteRows.length) await sb.from('sites').upsert(siteRows, { onConflict: 'customer_id,utility,identifier' });
