@@ -2576,9 +2576,9 @@
         var orderU = ['electricity','gas','water'];
         var us = Array.from(new Set((res.data||[]).map(function(m){return m.utility;}).filter(Boolean)));
         us.sort(function(a,b){ return (orderU.indexOf(a)===-1?99:orderU.indexOf(a)) - (orderU.indexOf(b)===-1?99:orderU.indexOf(b)); });
-        window._dashUtilLabel = us.map(function(s){return s.charAt(0).toUpperCase()+s.slice(1);}).join(' + ');
+        var _ul = us.map(function(s){return s.charAt(0).toUpperCase()+s.slice(1);}); window._dashUtilLabel = _ul.length<=1 ? (_ul[0]||'') : (_ul.slice(0,-1).join(', ') + ' & ' + _ul[_ul.length-1]);
         var sub = document.getElementById('ds3sub');
-        if (sub && /Including VAT/.test(sub.textContent)) sub.textContent = 'Including VAT + CCL' + (window._dashUtilLabel ? ' · ' + window._dashUtilLabel : '');
+        if (sub && /Including VAT/.test(sub.textContent)) sub.textContent = (window._dashUtilLabel ? '(' + window._dashUtilLabel + ') \u2014 ' : '') + 'Including VAT + CCL';
       });
       document.getElementById('dashClientName').textContent = currentUser.name;
       document.getElementById('welcomeH').textContent = 'Welcome back, ' + currentUser.name + '.';
@@ -2595,7 +2595,7 @@
         if (!el) return;
         if (res.hasData) {
           el.textContent = '£' + res.spend.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-          if (sub) sub.textContent = 'Including VAT + CCL' + (window._dashUtilLabel ? ' · ' + window._dashUtilLabel : '');
+          if (sub) sub.textContent = (window._dashUtilLabel ? '(' + window._dashUtilLabel + ') \u2014 ' : '') + 'Including VAT + CCL';
         } else {
           el.textContent = '—';
         }
