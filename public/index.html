@@ -1331,12 +1331,12 @@
   </div>
   <!-- In-portal AI billing assistant (shown on the customer dashboard only) -->
   <div id="asstWrap" style="display:none;">
-    <button id="asstFab" onclick="toggleAssistant()" aria-label="Ask the CES assistant" title="Ask about your bills">
+    <button id="asstFab" onclick="toggleAssistant()" aria-label="Ask BillWise by CES" title="Ask BillWise about your bills">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
     </button>
     <div id="asstPanel">
       <div class="asst-head">
-        <div><strong>CES Assistant</strong><div class="asst-sub">Answers about your bills, usage &amp; costs</div></div>
+        <div><strong>BillWise by CES</strong><div class="asst-sub">Answers about your bills, usage &amp; costs</div></div>
         <button class="asst-close" onclick="toggleAssistant(false)" aria-label="Close">&times;</button>
       </div>
       <div id="asstMsgs" class="asst-msgs"><div class="asst-msg asst-model">Hi - I can answer questions about your bills, energy use and costs. What would you like to know?</div></div>
@@ -1344,7 +1344,7 @@
         <input id="asstInput" type="text" placeholder="e.g. What was my total last month?" maxlength="1000" onkeydown="if(event.key==='Enter')sendAssistant()" />
         <button class="asst-send" onclick="sendAssistant()">Send</button>
       </div>
-      <div class="asst-foot">AI assistant - answers from your account data - please verify important figures with CES</div>
+      <div class="asst-foot">BillWise by CES - answers from your account data; please verify important figures with CES</div>
     </div>
   </div>
   <div id="adminPage" class="page">
@@ -2498,13 +2498,14 @@
       var box = document.getElementById('asstMsgs'); if (!box) return;
       var d = document.createElement('div');
       d.className = 'asst-msg asst-' + role;
-      d.textContent = String(text).replace(/\*\*(.+?)\*\*/g, '$1').replace(/^\s*[\*\-]\s+/gm, '• ');
+      var _t = String(text).replace(/\*\*(.+?)\*\*/g, '$1').replace(/^\s*[\*\-]\s+/gm, '• ');
+      d.innerHTML = _t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
       box.appendChild(d); box.scrollTop = box.scrollHeight;
     }
     function _asstReset() {
       _asstMsgs = [];
       var box = document.getElementById('asstMsgs');
-      if (box) box.innerHTML = '<div class="asst-msg asst-model">Hi - I can answer questions about your bills, energy use and costs. What would you like to know?</div>';
+      if (box) box.innerHTML = '<div class="asst-msg asst-model">Hi, I am BillWise by CES. I can answer questions about your bills, energy use and costs - what would you like to know?</div>';
       var p = document.getElementById('asstPanel'); if (p) p.style.display = 'none';
     }
     function _asstRemoveChips() { var c = document.getElementById('asstChips'); if (c) c.remove(); }
