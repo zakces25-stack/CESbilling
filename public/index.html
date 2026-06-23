@@ -2541,22 +2541,29 @@
       var typing = document.createElement('div');
       typing.className = 'asst-msg asst-model asst-typing'; typing.textContent = 'thinking...';
       box.appendChild(typing); box.scrollTop = box.scrollHeight;
+      var slowT = setTimeout(function(){ if (typing) typing.textContent = 'Still working through your figures…'; }, 4500);
+      var ctrl = new AbortController();
+      var toT = setTimeout(function(){ ctrl.abort(); }, 32000);
       try {
         var s = await sb.auth.getSession(); var session = s.data.session;
-        if (!session) { typing.remove(); _asstAdd('model', 'Please sign in again.'); _asstBusy = false; return; }
+        if (!session) { clearTimeout(slowT); clearTimeout(toT); typing.remove(); _asstAdd('model', 'Please sign in again.'); _asstBusy = false; return; }
         var resp = await fetch(SUPABASE_URL + '/functions/v1/ask-assistant', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + session.access_token },
-          body: JSON.stringify({ question: q, history: _asstMsgs.slice(-7, -1) })
+          body: JSON.stringify({ question: q, history: _asstMsgs.slice(-7, -1) }),
+          signal: ctrl.signal
         });
         var out = await resp.json().catch(function(){ return {}; });
+        clearTimeout(slowT); clearTimeout(toT);
         typing.remove();
         if (!resp.ok || out.error) { _asstAdd('model', out.error || 'Sorry, something went wrong. Please try again.'); }
         else if (out.clarify) { _asstClarify(out.clarify, out.options || []); }
         else { _asstAdd('model', out.answer || 'Sorry, I could not answer that.'); }
       } catch (e) {
+        clearTimeout(slowT); clearTimeout(toT);
         console.error('assistant', e); typing.remove();
-        _asstAdd('model', 'Connection problem - please try again.');
+        if (e && e.name === 'AbortError') { _asstAdd('model', 'That took longer than usual — the assistant may have been waking up. Please ask again and it should be quicker.'); }
+        else { _asstAdd('model', 'Connection problem - please try again.'); }
       } finally { _asstBusy = false; }
     }
     async function loadDash() {
