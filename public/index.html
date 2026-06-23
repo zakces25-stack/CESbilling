@@ -4802,34 +4802,26 @@
       }
     });
 
-    // ───── TOTAL ANNUAL SPEND (sum of total_net over rolling 12 months) ─────
+    // ───── RUNNING UTILITY COSTS (sum of total_net over ALL reports) ─────
     async function loadAnnualSpend(customerId) {
       try {
         const { data: reports } = await sb.from('reports')
-          .select('total_net, year, month_num, uploaded_at')
+          .select('total_net')
           .eq('customer_id', customerId)
-          .eq('report_type', 'bill_validation')
-          .order('uploaded_at', { ascending: false });
+          .eq('report_type', 'bill_validation');
         if (!reports || reports.length === 0) return { spend: 0, hasData: false };
-        // Use the most recent report's (year, month_num) as the anchor.
-        const top = reports[0];
-        // Build a "month anchor" YYYY-MM for filtering
-        function anchorOf(r) { return r.year * 12 + r.month_num; }
-        const anchor = anchorOf(top);
-        const cutoff = anchor - 12;  // rolling 12 months back
         const parseTotal = (s) => {
           if (s == null) return 0;
           const n = parseFloat(String(s).replace(/[^0-9.\-]/g, ''));
           return isNaN(n) ? 0 : n;
         };
+        // Sum total_net across EVERY validation report for this customer (running total — no date window).
         let total = 0;
         let count = 0;
         for (const r of reports) {
-          const a = anchorOf(r);
-          if (a > cutoff && a <= anchor) {
-            total += parseTotal(r.total_net);
-            count++;
-          }
+          const v = parseTotal(r.total_net);
+          total += v;
+          if (v > 0) count++;
         }
         return { spend: total, hasData: count > 0, monthCount: count };
       } catch (e) {
