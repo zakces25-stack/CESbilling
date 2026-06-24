@@ -4334,6 +4334,7 @@
 
     let _usageSites = [];   // [{site_name, site_postcode, key}]
     let _usageRows  = [];   // last fetched dataset
+    let _usageAll   = [];   // full per-meter, per-month rows built from reports.bv_summary
 
     async function loadCarbonForUsage() {
       // Load global carbon factors (admin-editable). Graceful fallback to defaults.
@@ -4363,7 +4364,7 @@
     }
 
     async function loadUsageReport() {
-      // Populate the site multi-select with the distinct sites for this customer
+      // Populate the site multi-select with the distinct sites for this customer.
       const list = document.getElementById('usageSitesList');
       if (!list) return;
       list.innerHTML = '<em style="color:var(--muted);">Loading sites…</em>';
@@ -4372,42 +4373,61 @@
 
       await loadCarbonForUsage();
 
-      const { data, error } = await sb
-        .from('usage_data')
-        .select('site_name, site_postcode, period_start')
+      // Source of truth = reports.bv_summary (the same clean data the rest of the portal uses),
+      // keyed by METER (MPAN/MPRN) so tiny differences in a site's name across months can never
+      // split one site into several. Water is excluded — the carbon report covers energy only.
+      const { data: reps, error } = await sb.from('reports')
+        .select('month, year, month_num, period_start, bv_summary')
         .eq('customer_id', currentUser.customerId)
-        .order('site_name', { ascending: true });
+        .eq('report_type', 'bill_validation')
+        .order('year', { ascending: false }).order('month_num', { ascending: false });
       if (error) {
         list.innerHTML = '<em style="color:var(--fail);">Could not load sites.</em>';
         console.error('Usage sites:', error);
         return;
       }
-      // Distinct sites
-      const seen = new Set();
-      const sites = [];
-      let minDate = null, maxDate = null;
-      for (const r of data || []) {
-        const key = r.site_name + '|' + r.site_postcode;
-        if (!seen.has(key)) {
-          seen.add(key);
-          sites.push({ site_name: r.site_name, site_postcode: r.site_postcode, key });
-        }
-        if (r.period_start) {
-          if (!minDate || r.period_start < minDate) minDate = r.period_start;
-          if (!maxDate || r.period_start > maxDate) maxDate = r.period_start;
-        }
-      }
+      const canon = {};   // meter_id -> {site_name, site_postcode} taken from the most recent report
+      const rows = [];
+      const pcOf = function(name){ var p = String(name||'').split(','); var last = (p[p.length-1]||'').trim(); return /^[A-Za-z]{1,2}\d[A-Za-z\d]?\s*\d[A-Za-z]{2}$/.test(last) ? last : ''; };
+      (reps || []).forEach(function(r){
+        const bv = r.bv_summary; if (!bv) return;
+        const mnum = r.month_num || 0;
+        const pstart = (r.year && mnum) ? (r.year + '-' + String(mnum).padStart(2,'0') + '-01') : (r.period_start || null);
+        const plabel = (r.month || '') + ' ' + (r.year || '');
+        const hh = bv.hh || {};
+        ['electricity','gas'].forEach(function(u){
+          (Array.isArray(bv[u]) ? bv[u] : []).forEach(function(s){
+            const mid = s.mpan || s.mpr || s.spid; if (!mid || s.cur_kwh == null) return;
+            if (!canon[mid]) { const nm = s.site || s.address || String(mid); canon[mid] = { site_name: nm, site_postcode: pcOf(nm) }; }
+            rows.push({
+              meter_id: String(mid), utility: u,
+              site_name: canon[mid].site_name, site_postcode: canon[mid].site_postcode,
+              total_kwh: Number(s.cur_kwh) || 0,
+              day_kwh: (s.day_kwh != null ? Number(s.day_kwh) : null),
+              night_kwh: (s.night_kwh != null ? Number(s.night_kwh) : null),
+              source: (hh && hh[mid]) ? 'HHD' : 'BILLED',
+              period_start: pstart, period_label: plabel
+            });
+          });
+        });
+      });
+      _usageAll = rows;
+
+      const seen = {}; const sites = []; let minDate = null, maxDate = null;
+      rows.forEach(function(r){
+        if (!seen[r.meter_id]) { seen[r.meter_id] = 1; sites.push({ meter_id: r.meter_id, site_name: r.site_name, site_postcode: r.site_postcode, key: r.meter_id }); }
+        if (r.period_start) { if (!minDate || r.period_start < minDate) minDate = r.period_start; if (!maxDate || r.period_start > maxDate) maxDate = r.period_start; }
+      });
+      sites.sort(function(a,b){ return a.site_name.localeCompare(b.site_name); });
       _usageSites = sites;
       if (sites.length === 0) {
         list.innerHTML = '<em style="color:var(--muted);">No usage data yet — once your validation reports have been processed, sites will appear here.</em>';
         return;
       }
-      list.innerHTML = sites.map(function(s, i) {
+      list.innerHTML = sites.map(function(s) {
         return '<label><input type="checkbox" class="site-cb" value="' + escapeHtml(s.key) + '" checked /> ' +
-               escapeHtml(s.site_name) + ' <small>· ' + escapeHtml(s.site_postcode) + '</small></label>';
+               escapeHtml(s.site_name) + (s.site_postcode ? ' <small>· ' + escapeHtml(s.site_postcode) + '</small>' : '') + '</label>';
       }).join('');
-
-      // Default date range = the full span we have
       if (minDate) document.getElementById('usageFrom').value = minDate.slice(0, 7);
       if (maxDate) document.getElementById('usageTo').value   = maxDate.slice(0, 7);
     }
@@ -4449,14 +4469,10 @@
           return;
         }
 
-        let q = sb.from('usage_data').select('*').eq('customer_id', currentUser.customerId)
-          .in('utility', utils)
-          .gte('period_start', from.start).lte('period_start', to.end)
-          .order('period_start', { ascending: true });
-        const { data, error } = await q;
-        if (error) { console.error('Usage query:', error); showUsageEmpty(); return; }
-        const filtered = (data || []).filter(function(r){
-          return selectedSiteKeys.indexOf(r.site_name + '|' + r.site_postcode) !== -1;
+        const keyset = {}; selectedSiteKeys.forEach(function(k){ keyset[k] = 1; });
+        const filtered = (_usageAll || []).filter(function(r){
+          return keyset[r.meter_id] && utils.indexOf(r.utility) !== -1 &&
+                 r.period_start && r.period_start >= from.start && r.period_start <= to.end;
         });
         _usageRows = filtered;
         if (filtered.length === 0) { showUsageEmpty(); return; }
@@ -4507,7 +4523,7 @@
         //   - Only ESTIMATED rows are unverified — those are made-up reads
         const isVerified = r.source !== 'ESTIMATED';
         if (isVerified) verifiedKwh += k;
-        sites.add(r.site_name + '|' + r.site_postcode);
+        sites.add(r.meter_id);
       }
       const totalCO2t = totalCO2kg / 1000;
       const verifiedPct = totalKwh > 0 ? Math.round((verifiedKwh / totalKwh) * 1000) / 10 : 0;
