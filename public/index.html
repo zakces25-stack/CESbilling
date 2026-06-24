@@ -1166,7 +1166,7 @@
             </div>
             <div class="card" id="usageTableCard">
               <h3 style="margin-bottom:14px;font-size:14px;font-weight:800;">Breakdown</h3>
-              <div style="overflow-x:auto;">
+              <div id="usageTableWrap" style="overflow-x:auto;">
                 <table class="usage-table" id="usageTable"></table>
               </div>
               <p class="usage-source-legend">
@@ -4674,7 +4674,25 @@
       html += '<td class="num">' + _fmtNum(grandCO2t, 2) + ' tCO&#8322;e</td></tr>';
       html += '</tbody>';
       document.getElementById('usageTable').innerHTML = html;
+      _fitUsageTable();
     }
+    function _fitUsageTable() {
+      // Auto-zoom the breakdown table to fit its card width so the customer never scrolls sideways.
+      var wrap = document.getElementById('usageTableWrap');
+      var tbl = document.getElementById('usageTable');
+      if (!wrap || !tbl) return;
+      tbl.style.transform = ''; tbl.style.transformOrigin = 'top left'; wrap.style.height = '';
+      var avail = wrap.clientWidth, need = tbl.scrollWidth;
+      if (need > avail + 1 && avail > 0) {
+        var scale = avail / need;
+        tbl.style.transform = 'scale(' + scale + ')';
+        wrap.style.overflowX = 'hidden';
+        wrap.style.height = Math.ceil(tbl.getBoundingClientRect().height) + 'px';
+      } else {
+        wrap.style.overflowX = 'auto';
+      }
+    }
+    if (!window._usageFitBound) { window._usageFitBound = 1; window.addEventListener('resize', function(){ try { _fitUsageTable(); } catch (e) {} }); }
 
     async function exportUsagePDF() {
       // Direct PDF download via jsPDF + html2canvas. Page 1 = KPIs + chart,
@@ -4753,6 +4771,9 @@
           '<div style="height:2px;background:#93c43a;width:36px;margin-top:6px;"></div>' +
           '</div>';
         page2.appendChild(tableCard.cloneNode(true));
+        // Reset the on-screen auto-fit scale on the clone so the PDF captures the full-size table.
+        var _ct = page2.querySelector('#usageTable'); if (_ct) { _ct.style.transform = ''; }
+        var _cw = page2.querySelector('#usageTableWrap'); if (_cw) { _cw.style.height = ''; _cw.style.overflowX = 'visible'; }
         document.body.appendChild(page2);
         page2.style.position = 'fixed';
         page2.style.left = '-9999px';
