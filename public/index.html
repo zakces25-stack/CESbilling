@@ -194,7 +194,7 @@
     .success-box.show { display: block; }
     /* ───── DASHBOARDS ───── */
     .dash-wrap { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
-    .sidebar { background: var(--navy); padding: 0 0 24px 0; display: flex; flex-direction: column; }
+    .sidebar { background: var(--navy); padding: 0 0 24px 0; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; align-self: start; overflow-y: auto; }
     /* Navy brand section at the top of the sidebar — holds "CES Billing" + client name */
     .sidebar-brand {
       background: transparent;
@@ -216,8 +216,8 @@
     #dashPage .sidebar-nav .nav-item::after { content: '›'; font-size: 18px; line-height: 1; opacity: 0.3; transition: opacity 0.15s, transform 0.15s; }
     #dashPage .sidebar-nav .nav-item:hover::after, #dashPage .sidebar-nav .nav-item.active::after { opacity: 0.85; transform: translateX(2px); }
     .sidebar-foot { padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.08); }
-    .signout-btn { display: block; width: 100%; background: rgba(239,68,68,0.12); border: 1.5px solid rgba(239,68,68,0.55); color: #ff6b6b; font-weight: 800; font-size: 13px; letter-spacing: 0.3px; cursor: pointer; padding: 10px 12px; border-radius: 8px; text-align: center; transition: background 0.15s, border-color 0.15s, color 0.15s; }
-    .signout-btn:hover { background: rgba(239,68,68,0.22); border-color: #ff6b6b; color: #fff; }
+    .signout-btn { display: block; width: 100%; background: transparent; border: 1px solid rgba(255,255,255,0.14); color: #ff6b6b; font-weight: 800; font-size: 13px; letter-spacing: 0.2px; cursor: pointer; padding: 9px 12px; border-radius: 8px; text-align: center; transition: background 0.15s, border-color 0.15s; }
+    .signout-btn:hover { background: rgba(239,68,68,0.10); border-color: rgba(239,68,68,0.45); }
     .main-area { padding: 36px 48px; width: 100%; min-width: 0; }
     #brokerMetersTable { font-size: 12px; }
     #brokerMetersTable th, #brokerMetersTable td { padding: 7px 9px; }
@@ -549,6 +549,13 @@
       z-index: 99; backdrop-filter: blur(2px);
     }
     .sidebar-overlay.show { display: block; }
+
+    /* Desktop: scale the whole app to ~85% so all content fits at 100% browser zoom
+       (matches the 80–90% zoom the layout was designed to look best at). Mobile is left
+       at full scale — it has its own responsive layout below. */
+    @media (min-width: 769px) {
+      body { zoom: 0.85; }
+    }
 
     @media (max-width: 768px) {
       body { -webkit-text-size-adjust: 100%; }
@@ -2971,33 +2978,46 @@
           '<table class="list"><thead><tr><th>' + label + '</th><th>Site address</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
       }).join('');
     }
-    // Download the Site List as an Excel workbook (site ↔ MPAN/MPRN/SPID + address + supplier).
+    // Download the Site List as an Excel workbook — built from the LATEST validation report,
+    // so it always shows the current supplier per supply and ONLY the supplies billed in the
+    // latest month. Auto-updates whenever a newer report (with new/changed supplies) is uploaded.
+    // Water has no supplier in the report data, so water defaults to Water2Business.
     async function downloadSiteListExcel() {
       const btn = document.getElementById('siteListXlsxBtn');
       if (btn) { btn.disabled = true; btn.textContent = 'Preparing…'; }
       try {
         const cid = currentUser && currentUser.customerId;
-        const { data, error } = await sb.from('sites').select('utility, identifier, site_address, supplier')
-          .eq('customer_id', cid).order('utility').order('identifier');
-        if (error || !data || !data.length) { safeAlert('No site data to download yet.', error); return; }
+        const { data, error } = await sb.from('reports').select('bv_summary, month, year')
+          .eq('customer_id', cid).eq('report_type', 'bill_validation')
+          .order('year', { ascending: false }).order('month_num', { ascending: false }).limit(1);
+        const bv = (data && data[0] && data[0].bv_summary) ? data[0].bv_summary : null;
+        if (error || !bv) { safeAlert('No site data to download yet.', error); return; }
         const idLabel = { electricity: 'MPAN', gas: 'MPRN', water: 'SPID' };
-        const rows = data.map(function(s){
-          const u = (s.utility || '');
-          return {
-            'Utility': u ? u.charAt(0).toUpperCase() + u.slice(1) : '',
-            'Identifier type': idLabel[u] || 'Identifier',
-            'MPAN / MPRN / SPID': s.identifier || '',
-            'Site address': s.site_address || '',
-            'Supplier': s.supplier || ''
-          };
-        });
-        const ws = XLSX.utils.json_to_sheet(rows);
-        ws['!cols'] = [{ wch: 12 }, { wch: 15 }, { wch: 20 }, { wch: 50 }, { wch: 18 }];
+        const out = [], seen = {};
+        function add(util, id, supplier, address) {
+          if (!id) return;
+          const k = util + '|' + id; if (seen[k]) return; seen[k] = 1;
+          out.push({
+            'Utility': util.charAt(0).toUpperCase() + util.slice(1),
+            'Identifier type': idLabel[util] || 'Identifier',
+            'MPAN / MPRN / SPID': id,
+            'Site': address || '',
+            'Supplier': supplier || ''
+          });
+        }
+        (bv.electricity || []).forEach(function(s){ add('electricity', s.mpan || s.mpr, s.supplier, s.site || s.address); });
+        (bv.gas || []).forEach(function(s){ add('gas', s.mpr || s.mprn || s.mpan, s.supplier, s.site || s.address); });
+        (bv.water || []).forEach(function(s){ add('water', s.spid, s.supplier || 'Water2Business', s.address || s.site); });
+        if (!out.length) { safeAlert('No site data to download yet.', null); return; }
+        const ord = { electricity: 0, gas: 1, water: 2 };
+        out.sort(function(a, b){ return (ord[a.Utility.toLowerCase()] || 9) - (ord[b.Utility.toLowerCase()] || 9) || String(a['MPAN / MPRN / SPID']).localeCompare(String(b['MPAN / MPRN / SPID'])); });
+        const ws = XLSX.utils.json_to_sheet(out);
+        ws['!cols'] = [{ wch: 12 }, { wch: 15 }, { wch: 20 }, { wch: 50 }, { wch: 20 }];
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Site List');
         const co = ((currentUser && currentUser.name) ? currentUser.name : 'Customer').replace(/[^a-z0-9]+/gi, '_');
         XLSX.writeFile(wb, co + '_Site_List.xlsx');
-        logAction('download_site_list', cid, { count: data.length });
+        logAction('download_site_list', cid, { count: out.length, period: (data[0].month || '') + ' ' + (data[0].year || '') });
       } catch (e) {
         safeAlert('Could not generate the Excel file. Please try again.', e);
       } finally {
