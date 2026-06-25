@@ -216,8 +216,8 @@
     #dashPage .sidebar-nav .nav-item::after { content: '›'; font-size: 18px; line-height: 1; opacity: 0.3; transition: opacity 0.15s, transform 0.15s; }
     #dashPage .sidebar-nav .nav-item:hover::after, #dashPage .sidebar-nav .nav-item.active::after { opacity: 0.85; transform: translateX(2px); }
     .sidebar-foot { padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.08); }
-    .signout-btn { background: none; border: none; color: rgba(255,255,255,0.5); font-size: 13px; cursor: pointer; padding: 0; }
-    .signout-btn:hover { color: var(--lime); }
+    .signout-btn { display: block; width: 100%; background: rgba(239,68,68,0.12); border: 1.5px solid rgba(239,68,68,0.55); color: #ff6b6b; font-weight: 800; font-size: 13px; letter-spacing: 0.3px; cursor: pointer; padding: 10px 12px; border-radius: 8px; text-align: center; transition: background 0.15s, border-color 0.15s, color 0.15s; }
+    .signout-btn:hover { background: rgba(239,68,68,0.22); border-color: #ff6b6b; color: #fff; }
     .main-area { padding: 36px 48px; width: 100%; min-width: 0; }
     #brokerMetersTable { font-size: 12px; }
     #brokerMetersTable th, #brokerMetersTable td { padding: 7px 9px; }
@@ -960,9 +960,11 @@
           <p>Monthly bill validation reports and occupancy analysis for every site. View, audit, and download — anytime.</p>
           <ul class="feature-list">
             <li><span class="fdot"></span>Rate, arithmetic, and consumption verification</li>
-            <li><span class="fdot"></span>Half-hourly data cross-checking against Stark DC</li>
-            <li><span class="fdot"></span>Occupancy and unoccupied consumption analysis</li>
-            <li><span class="fdot"></span>Full Excel validation report + invoice bundle download</li>
+            <li><span class="fdot"></span>Carbon reporting done for you — ESOS and SECR ready</li>
+            <li><span class="fdot"></span>Rank every site in a live league table</li>
+            <li><span class="fdot"></span>Compare any two periods side by side</li>
+            <li><span class="fdot"></span>Every invoice in one place — download anytime</li>
+            <li><span class="fdot"></span>BillWise AI agent — ready to help with any query, 24/7</li>
           </ul>
         </div>
         <div class="login-footer">© Commercial Energy Solutions — cesgb.com</div>
@@ -1088,8 +1090,11 @@
         <!-- Page: Site List -->
         <div class="dash-section" data-page="sites" style="display:none;">
           <div class="section-head">
-            <h2>Site list</h2>
-            <div class="section-meta">All your supplies by utility — electricity (MPAN), gas (MPRN) and water (SPID) — with the registered site address.</div>
+            <div>
+              <h2>Site list</h2>
+              <div class="section-meta">All your supplies by utility — electricity (MPAN), gas (MPRN) and water (SPID) — with the registered site address.</div>
+            </div>
+            <button class="btn-secondary" id="siteListXlsxBtn" onclick="downloadSiteListExcel()">Download Excel</button>
           </div>
           <div id="siteListBody"><div class="empty-state"><p>Loading…</p></div></div>
         </div>
@@ -1424,7 +1429,17 @@
             <div class="meta" id="adminMeta">— customers · — reports</div>
           </div>
           <div class="topbar-right">
-            <div class="avatar">A</div>
+            <div class="avatar-menu-wrapper">
+              <div class="avatar" id="adminAvatar" onclick="toggleAdminMenu(event)" role="button" aria-haspopup="true" aria-expanded="false">A</div>
+              <div class="avatar-dropdown" id="adminAvatarDropdown">
+                <div class="avatar-dropdown__head">
+                  <div class="avatar-dropdown__name">Administrator</div>
+                  <div class="avatar-dropdown__sub">Signed in as admin</div>
+                </div>
+                <div class="avatar-dropdown__divider"></div>
+                <button class="avatar-dropdown__item avatar-dropdown__item--danger" onclick="doSignOut()">Sign out</button>
+              </div>
+            </div>
             <img class="topbar-ces-logo" src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES" onerror="this.style.display='none'" />
           </div>
         </div>
@@ -2803,7 +2818,7 @@
     // best-effort jump straight to the Issues Log (clicks an "Issues" tab if the
     // report has one, otherwise scrolls the Issues Log heading into view).
     function injectIssuesJump(html) {
-      var inject = "<scr" + "ipt>(function(){function J(){try{var els=[].slice.call(document.querySelectorAll('button,a,[role=tab],[role=button],li,.tab,.nav-link'));var hit=els.filter(function(e){var t=(e.textContent||'').trim().toLowerCase();return t&&t.length<40&&t.indexOf('issue')>-1&&e.offsetParent!==null;})[0];if(hit){hit.click();}var h=document.querySelector('[id*=issue],[id*=Issue]');if(!h){h=els.filter(function(e){return /issues?\\s*log/i.test(e.textContent||'');})[0];}if(h&&h.scrollIntoView){h.scrollIntoView({behavior:'smooth',block:'start'});return true;}return !!hit;}catch(e){return false;}}var n=0,iv=setInterval(function(){n++;if(J()||n>24){clearInterval(iv);}},250);})();<\/scr" + "ipt>";
+      var inject = "<scr" + "ipt>(function(){function J(){try{var els=[].slice.call(document.querySelectorAll('button,a,[role=tab],[role=button],li,.tab,.nav-link'));var hit=els.filter(function(e){var t=(e.textContent||'').trim().toLowerCase();return e.offsetParent!==null&&t.length<40&&(t.indexOf('error log')===0||t.indexOf('issues log')===0);})[0];if(!hit){hit=els.filter(function(e){var t=(e.textContent||'').trim().toLowerCase();return e.offsetParent!==null&&t.length<20&&(t.indexOf('issue')>-1||t.indexOf('error')>-1);})[0];}if(hit){hit.click();if(hit.scrollIntoView){hit.scrollIntoView({behavior:'smooth',block:'start'});}return true;}return false;}catch(e){return false;}}var n=0,iv=setInterval(function(){n++;if(J()||n>24){clearInterval(iv);}},250);})();<\/scr" + "ipt>";
       return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, inject + "</body>") : html + inject;
     }
     // Relabel the report's issues-log badges: FAIL -> Error, INFO -> Comment (text only; colour unchanged).
@@ -2955,6 +2970,39 @@
         return '<div class="site-group"><h3>' + title + ' <span style="color:var(--muted);font-weight:600;font-size:13px;">· ' + list.length + ' site' + (list.length === 1 ? '' : 's') + '</span></h3>' +
           '<table class="list"><thead><tr><th>' + label + '</th><th>Site address</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
       }).join('');
+    }
+    // Download the Site List as an Excel workbook (site ↔ MPAN/MPRN/SPID + address + supplier).
+    async function downloadSiteListExcel() {
+      const btn = document.getElementById('siteListXlsxBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Preparing…'; }
+      try {
+        const cid = currentUser && currentUser.customerId;
+        const { data, error } = await sb.from('sites').select('utility, identifier, site_address, supplier')
+          .eq('customer_id', cid).order('utility').order('identifier');
+        if (error || !data || !data.length) { safeAlert('No site data to download yet.', error); return; }
+        const idLabel = { electricity: 'MPAN', gas: 'MPRN', water: 'SPID' };
+        const rows = data.map(function(s){
+          const u = (s.utility || '');
+          return {
+            'Utility': u ? u.charAt(0).toUpperCase() + u.slice(1) : '',
+            'Identifier type': idLabel[u] || 'Identifier',
+            'MPAN / MPRN / SPID': s.identifier || '',
+            'Site address': s.site_address || '',
+            'Supplier': s.supplier || ''
+          };
+        });
+        const ws = XLSX.utils.json_to_sheet(rows);
+        ws['!cols'] = [{ wch: 12 }, { wch: 15 }, { wch: 20 }, { wch: 50 }, { wch: 18 }];
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Site List');
+        const co = ((currentUser && currentUser.name) ? currentUser.name : 'Customer').replace(/[^a-z0-9]+/gi, '_');
+        XLSX.writeFile(wb, co + '_Site_List.xlsx');
+        logAction('download_site_list', cid, { count: data.length });
+      } catch (e) {
+        safeAlert('Could not generate the Excel file. Please try again.', e);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Download Excel'; }
+      }
     }
     // ───── SITE LEAGUE TABLE (customer page) ─────
     // Maps each meter identifier (MPAN / SPID) to its physical site, so a site's
@@ -5000,18 +5048,23 @@
       if (!f) return;
       f.style.display = (f.style.display === 'none' || !f.style.display) ? 'block' : 'none';
     }
-    // Click outside dropdown closes it
+    function toggleAdminMenu(e) {
+      e.stopPropagation();
+      const d = document.getElementById('adminAvatarDropdown');
+      if (!d) return;
+      const open = d.classList.toggle('open');
+      const av = document.getElementById('adminAvatar');
+      if (av) av.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    // Click outside any avatar dropdown closes it (handles both the customer and admin menus)
     document.addEventListener('click', function(e) {
-      const wrap = document.querySelector('.avatar-menu-wrapper');
-      if (!wrap) return;
-      if (!wrap.contains(e.target)) {
-        const d = document.getElementById('avatarDropdown');
-        if (d) d.classList.remove('open');
-        const av = document.getElementById('dashAvatar');
-        if (av) av.setAttribute('aria-expanded', 'false');
-        const f = document.getElementById('accountSettingsForm');
-        if (f) f.style.display = 'none';
-      }
+      document.querySelectorAll('.avatar-menu-wrapper').forEach(function(wrap) {
+        if (!wrap.contains(e.target)) {
+          const d = wrap.querySelector('.avatar-dropdown'); if (d) d.classList.remove('open');
+          const av = wrap.querySelector('.avatar'); if (av) av.setAttribute('aria-expanded', 'false');
+          const f = wrap.querySelector('.avatar-dropdown__form'); if (f) f.style.display = 'none';
+        }
+      });
     });
 
     // ───── RUNNING UTILITY COSTS (sum of total_net over ALL reports) ─────
