@@ -1105,7 +1105,7 @@
               <h2>Site list</h2>
               <div class="section-meta">All your supplies by utility — electricity (MPAN), gas (MPRN) and water (SPID) — with the registered site address.</div>
             </div>
-            <button class="btn-secondary" id="siteListXlsxBtn" onclick="downloadSiteListExcel()">Download Excel</button>
+            <button class="btn-secondary" id="siteListXlsxBtn" onclick="downloadSiteListExcel()">Download Site List</button>
           </div>
           <div id="siteListBody"><div class="empty-state"><p>Loading…</p></div></div>
         </div>
@@ -1188,7 +1188,7 @@
             <div class="card" id="usageChartCard">
               <div class="usage-chart-head">
                 <h3>Monthly consumption</h3>
-                <button class="btn-secondary" onclick="downloadUsageExcel()">Download Excel</button>
+                <button class="btn-secondary" onclick="downloadUsageExcel()">Download Carbon Report</button>
               </div>
               <div id="usageChart"></div>
             </div>
@@ -3065,7 +3065,7 @@
       } catch (e) {
         safeAlert('Could not generate the Excel file. Please try again.', e);
       } finally {
-        if (btn) { btn.disabled = false; btn.textContent = 'Download Excel'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Download Site List'; }
       }
     }
     // ───── SITE LEAGUE TABLE (customer page) ─────
@@ -4963,21 +4963,14 @@
       setTimeout(_fitUsageTable, 30);
     }
 
-    // Scale the breakdown table down to fit the card width, so many months fit on one page with no horizontal scroll.
+    // Breakdown table scrolls horizontally when wide (no auto-scaling — kept simple per user request).
     function _fitUsageTable() {
       var wrap = document.getElementById('usageTableWrap');
       var tbl = document.getElementById('usageTable');
       if (!wrap || !tbl) return;
-      tbl.style.transformOrigin = 'top left';
       tbl.style.transform = 'none';
       wrap.style.height = '';
-      wrap.style.overflowX = 'hidden';
-      var avail = wrap.clientWidth, natural = tbl.scrollWidth;
-      if (avail > 0 && natural > avail) {
-        var s = avail / natural;
-        tbl.style.transform = 'scale(' + s + ')';
-        wrap.style.height = Math.ceil(tbl.scrollHeight * s) + 'px';
-      }
+      wrap.style.overflowX = 'auto';
     }
     var _usageFitTimer = null;
     window.addEventListener('resize', function(){
@@ -5048,7 +5041,7 @@
       });
       var months = Object.keys(monthSet).sort();
       var all = Object.keys(rowMap).map(function(k){ return rowMap[k]; });
-      var nCols = 3 + months.length + 2;
+      var nCols = 2 + months.length + 2;
 
       // combined tCO2e per month for the chart
       var co2ByMonth = months.map(function(m){
@@ -5068,7 +5061,7 @@
         wb.creator = 'CES Billing Portal';
         var ws = wb.addWorksheet('Carbon Report', { views: [{ state:'frozen', ySplit: 4, xSplit: 1 }] });
 
-        var widths = [34, 12, 16].concat(months.map(function(){ return 13; })).concat([13, 11]);
+        var widths = [34, 18].concat(months.map(function(){ return 13; })).concat([13, 11]);
         widths.forEach(function(w, i){ ws.getColumn(i + 1).width = w; });
 
         // Title
@@ -5085,12 +5078,12 @@
         ws.addRow([]); // blank spacer (row 3)
 
         // Header (row 4)
-        var headerVals = ['Site', 'Postcode', 'Meter'].concat(months.map(function(m){ return _periodLabel(m) + ' (kWh)'; })).concat(['Total kWh', 'tCO₂e']);
+        var headerVals = ['Site', 'Meter'].concat(months.map(function(m){ return _periodLabel(m) + ' (kWh)'; })).concat(['Total kWh', 'tCO₂e']);
         var hr = ws.addRow(headerVals); hr.height = 22;
         hr.eachCell(function(cell, col){
           cell.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:11 };
           cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:navy } };
-          cell.alignment = { horizontal: col <= 3 ? 'left' : 'center', vertical:'middle', wrapText:true };
+          cell.alignment = { horizontal: col <= 2 ? 'left' : 'center', vertical:'middle', wrapText:true };
         });
 
         var sectionsPresent = ['electricity', 'gas'].filter(function(u){ return all.some(function(r){ return r.utility === u; }); });
@@ -5107,7 +5100,7 @@
           sc.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:navyLt } };
           var colTot = months.map(function(){ return 0; }), subKwh = 0, subCo2 = 0, bandToggle = false;
           sec.forEach(function(r){
-            var green = _greenByMeter[r.meter] || 0, rowKwh = 0, vals = [r.site, r.post, r.meter];
+            var green = _greenByMeter[r.meter] || 0, rowKwh = 0, vals = [r.site, r.meter];
             months.forEach(function(m, i){ var v = r.months[m]; if (v == null) { vals.push(null); } else { vals.push(Math.round(v*10)/10); colTot[i] += v; rowKwh += v; } });
             var co2 = rowKwh * (1 - green/100) * factor / 1000;
             vals.push(Math.round(rowKwh*10)/10); vals.push(Math.round(co2*100)/100);
@@ -5115,18 +5108,18 @@
             dr.eachCell({ includeEmpty:true }, function(cell, col){
               if (col > nCols) return;
               cell.border = { top:thin, bottom:thin, left:thin, right:thin };
-              if (col > 3) { cell.alignment = { horizontal:'right' }; cell.numFmt = (col === nCols) ? '#,##0.00' : '#,##0.0'; }
+              if (col > 2) { cell.alignment = { horizontal:'right' }; cell.numFmt = (col === nCols) ? '#,##0.00' : '#,##0.0'; }
               if (bandToggle) cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:band } };
             });
             bandToggle = !bandToggle; subKwh += rowKwh; subCo2 += co2;
           });
-          var totVals = [single ? 'TOTAL' : 'Subtotal — ' + label, '', ''].concat(colTot.map(function(v){ return Math.round(v*10)/10; })).concat([Math.round(subKwh*10)/10, Math.round(subCo2*100)/100]);
+          var totVals = [single ? 'TOTAL' : 'Subtotal — ' + label, ''].concat(colTot.map(function(v){ return Math.round(v*10)/10; })).concat([Math.round(subKwh*10)/10, Math.round(subCo2*100)/100]);
           var trow = ws.addRow(totVals);
           trow.eachCell({ includeEmpty:true }, function(cell, col){
             if (col > nCols) return;
             cell.font = { bold:true };
             cell.border = { top:{ style:'medium', color:{ argb:navy } }, bottom:thin };
-            if (col > 3) { cell.alignment = { horizontal:'right' }; cell.numFmt = (col === nCols) ? '#,##0.00' : '#,##0.0'; }
+            if (col > 2) { cell.alignment = { horizontal:'right' }; cell.numFmt = (col === nCols) ? '#,##0.00' : '#,##0.0'; }
           });
           grand.kwh += subKwh; grand.co2 += subCo2;
         }
@@ -5135,13 +5128,13 @@
 
         // Only show a separate GRAND TOTAL when there are 2+ sections (avoids the duplicate total row).
         if (!single) {
-          var gVals = ['GRAND TOTAL', '', ''].concat(months.map(function(){ return null; })).concat([Math.round(grand.kwh*10)/10, Math.round(grand.co2*100)/100]);
+          var gVals = ['GRAND TOTAL', ''].concat(months.map(function(){ return null; })).concat([Math.round(grand.kwh*10)/10, Math.round(grand.co2*100)/100]);
           var gr = ws.addRow(gVals);
           gr.eachCell({ includeEmpty:true }, function(cell, col){
             if (col > nCols) return;
             cell.font = { bold:true, size:11, color:{ argb:'FFFFFFFF' } };
             cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:navy } };
-            if (col > 3) { cell.alignment = { horizontal:'right' }; cell.numFmt = (col === nCols) ? '#,##0.00' : '#,##0.0'; }
+            if (col > 2) { cell.alignment = { horizontal:'right' }; cell.numFmt = (col === nCols) ? '#,##0.00' : '#,##0.0'; }
           });
         }
 
