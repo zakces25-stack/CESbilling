@@ -3688,9 +3688,26 @@
       }
     }
     async function deleteCustomer(id) {
-      if (!confirm('Delete customer "' + id + '"? This also deletes all their reports.')) return;
-      const { error } = await sb.from('customers').delete().eq('customer_id', id);
-      if (error) { safeAlert('Could not delete customer. Please contact support.', error); return; }
+      if (!confirm('Delete customer "' + id + '"? This permanently deletes all their reports AND their login.')) return;
+      try {
+        const { data, error } = await sb.functions.invoke('admin-delete-customer', { body: { customer_id: id } });
+        if (error || (data && data.error)) {
+          let msg = (data && data.error) || '';
+          if (!msg && error) {
+            try {
+              const ctx = error.context;
+              if (ctx && typeof ctx.json === 'function') { const b = await ctx.json(); if (b && b.error) msg = b.error; }
+              else if (ctx && typeof ctx.text === 'function') { const tx = await ctx.text(); if (tx) { try { msg = JSON.parse(tx).error || tx; } catch (_) { msg = tx; } } }
+            } catch (_) {}
+            if (!msg) msg = error.message || '';
+          }
+          safeAlert(msg || 'Could not delete customer. Please contact support.', error || (data && data.error));
+          return;
+        }
+      } catch (e) {
+        safeAlert('Could not delete customer. Please contact support.', e);
+        return;
+      }
       logAction('delete_customer', id, {});
       await refreshCustomerDropdown();
       await refreshCustTable();
