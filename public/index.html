@@ -3036,32 +3036,75 @@
           .order('year', { ascending: false }).order('month_num', { ascending: false }).limit(1);
         const bv = (data && data[0] && data[0].bv_summary) ? data[0].bv_summary : null;
         if (error || !bv) { safeAlert('No site data to download yet.', error); return; }
+        if (typeof ExcelJS === 'undefined' || !ExcelJS.Workbook) { safeAlert('The Excel engine is still loading — please try again in a moment.', null); return; }
         const idLabel = { electricity: 'MPAN', gas: 'MPRN', water: 'SPID' };
-        const out = [], seen = {};
+        const groups = { electricity: [], gas: [], water: [] };
+        const seen = {};
         function add(util, id, supplier, address) {
           if (!id) return;
           const k = util + '|' + id; if (seen[k]) return; seen[k] = 1;
-          out.push({
-            'Utility': util.charAt(0).toUpperCase() + util.slice(1),
-            'Identifier type': idLabel[util] || 'Identifier',
-            'MPAN / MPRN / SPID': id,
-            'Site': address || '',
-            'Supplier': supplier || ''
-          });
+          groups[util].push({ id: String(id), site: address || '', supplier: supplier || '' });
         }
         (bv.electricity || []).forEach(function(s){ add('electricity', s.mpan || s.mpr, s.supplier, s.site || s.address); });
         (bv.gas || []).forEach(function(s){ add('gas', s.mpr || s.mprn || s.mpan, s.supplier, s.site || s.address); });
         (bv.water || []).forEach(function(s){ add('water', s.spid, s.supplier || 'Water2Business', s.address || s.site); });
-        if (!out.length) { safeAlert('No site data to download yet.', null); return; }
-        const ord = { electricity: 0, gas: 1, water: 2 };
-        out.sort(function(a, b){ return (ord[a.Utility.toLowerCase()] || 9) - (ord[b.Utility.toLowerCase()] || 9) || String(a['MPAN / MPRN / SPID']).localeCompare(String(b['MPAN / MPRN / SPID'])); });
-        const ws = XLSX.utils.json_to_sheet(out);
-        ws['!cols'] = [{ wch: 12 }, { wch: 15 }, { wch: 20 }, { wch: 50 }, { wch: 20 }];
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Site List');
+        const total = groups.electricity.length + groups.gas.length + groups.water.length;
+        if (!total) { safeAlert('No site data to download yet.', null); return; }
+
+        const navy = 'FF2F3D7E', navyLt = 'FFEDEFF6', band = 'FFF7F5F0';
+        const thin = { style:'thin', color:{ argb:'FFE3E0D8' } };
+        const nCols = 3;
+        const wb = new ExcelJS.Workbook(); wb.creator = 'CES Billing Portal';
+        const ws = wb.addWorksheet('Site List', { views: [{ state:'frozen', ySplit: 2 }] });
+        ws.getColumn(1).width = 24; ws.getColumn(2).width = 52; ws.getColumn(3).width = 26;
+
+        const title = ws.addRow(['Site List — ' + ((currentUser && currentUser.name) || 'Customer')]);
+        ws.mergeCells(title.number, 1, title.number, nCols);
+        const tc = ws.getCell(title.number, 1); tc.font = { bold:true, size:15, color:{ argb:'FF1C1F2A' } };
+        title.height = 24;
+        const per = ((data[0].month || '') + ' ' + (data[0].year || '')).trim();
+        const sub = ws.addRow(['Live supplies' + (per ? ' as at ' + per : '') + '     ·     ' + total + ' supply point(s)']);
+        ws.mergeCells(sub.number, 1, sub.number, nCols);
+        ws.getCell(sub.number, 1).font = { size:10, color:{ argb:'FF7A7E8C' } };
+
+        function section(util, label) {
+          const items = groups[util];
+          if (!items.length) return;
+          items.sort(function(a, b){ return String(a.id).localeCompare(String(b.id)); });
+          ws.addRow([]); // spacer
+          const sr = ws.addRow([label.toUpperCase() + '   (' + items.length + ')']);
+          ws.mergeCells(sr.number, 1, sr.number, nCols);
+          const sc = ws.getCell(sr.number, 1);
+          sc.font = { bold:true, size:12, color:{ argb:navy } };
+          sc.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:navyLt } };
+          sr.height = 20;
+          const hr = ws.addRow([idLabel[util] || 'Identifier', 'Site', 'Supplier']);
+          hr.height = 18;
+          hr.eachCell(function(cell){
+            cell.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:11 };
+            cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:navy } };
+            cell.alignment = { horizontal:'left', vertical:'middle' };
+          });
+          let bandToggle = false;
+          items.forEach(function(it){
+            const dr = ws.addRow([it.id, it.site, it.supplier]);
+            dr.eachCell(function(cell, col){
+              cell.border = { top:thin, bottom:thin, left:thin, right:thin };
+              cell.alignment = { vertical:'middle', wrapText: col === 2 };
+              if (col === 1) cell.numFmt = '@'; // keep MPAN/MPRN/SPID as text (no precision loss)
+              if (bandToggle) cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:band } };
+            });
+            bandToggle = !bandToggle;
+          });
+        }
+        section('electricity', 'Electricity');
+        section('gas', 'Gas');
+        section('water', 'Water');
+
+        const buf = await wb.xlsx.writeBuffer();
         const co = ((currentUser && currentUser.name) ? currentUser.name : 'Customer').replace(/[^a-z0-9]+/gi, '_');
-        XLSX.writeFile(wb, co + '_Site_List.xlsx');
-        logAction('download_site_list', cid, { count: out.length, period: (data[0].month || '') + ' ' + (data[0].year || '') });
+        _downloadBlob(buf, co + '_Site_List.xlsx');
+        logAction('download_site_list', cid, { count: total, period: per });
       } catch (e) {
         safeAlert('Could not generate the Excel file. Please try again.', e);
       } finally {
