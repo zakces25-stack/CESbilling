@@ -2801,7 +2801,14 @@
       };
       frame.addEventListener('load', () => setTimeout(reveal, 300), { once: true });
       setTimeout(reveal, 4000);
-      var rendered = relabelIssues(html);
+      var _resolved = [];
+      if (!isOccupancy && !isContract) {
+        try {
+          const _rr = await sb.from('issues').select('type, mpan_spid').eq('report_id', r.id).eq('status', 'resolved');
+          _resolved = (_rr.data || []).map(function(x){ return { type: x.type, mpan: x.mpan_spid }; });
+        } catch (e) { /* resolved overlay is non-fatal */ }
+      }
+      var rendered = injectResolved(relabelIssues(html), _resolved);
       frame.srcdoc = opts.jumpToIssues ? injectIssuesJump(rendered) : rendered;
       logAction('view_report', r.id, { type: r.report_type || 'bill_validation', period: r.period, jump: opts.jumpToIssues ? 'issues' : 'summary' });
       // Excel + Invoices only show for bill validation reports
@@ -2841,10 +2848,35 @@
     }
     // Relabel the report's issues-log badges: FAIL -> Error, INFO -> Comment (text only; colour unchanged).
     function relabelIssues(html) {
-      return html
+      html = html
         .replace("{kind: isFail ? 'fail' : 'info'}, iss.sev)", "{kind: isFail ? 'fail' : 'info'}, isFail ? 'Error' : 'Comment')")
         .replace("count: issues.length, failCount}", "count: failCount, failCount}")
         .replace(/Validation completed [^·]*· /, '');
+      // Widen the issue-card rail (56px → 90px) so the "Comment" badge fits cleanly on one line.
+      var css = "<style>.issue-card{grid-template-columns:90px 1fr!important;}.issue-card__rail .badge{white-space:nowrap;}</style>";
+      return /<\/head>/i.test(html) ? html.replace(/<\/head>/i, css + "</head>") : css + html;
+    }
+    // When the admin has marked an error resolved, reflect it INSIDE the report: the Error Log
+    // tab count drops (to 0 / not-red when all clear), and the resolved error renders green with
+    // a "(resolved)" tag. `list` = [{type, mpan}] of resolved errors for this report. Done as a
+    // string transform so the report renders it natively (survives React re-renders).
+    function injectResolved(html, list) {
+      if (!list || !list.length) return html;
+      // 1) exclude resolved errors from every FAIL count (tab badge + summary banner + error-log header)
+      html = html.split("i.sev === 'FAIL'").join("(i.sev === 'FAIL' && !(window._CES_isRes && window._CES_isRes(i)))");
+      // 2) IssueCard: detect resolved → green rail, green badge, a "(resolved)" tag.
+      // Self-contained checks (window._CES_isRes), so a partial match can never reference an undefined var.
+      html = html.replace("'issue-card__rail' + (isFail ? ' issue-card__rail--fail' : '')",
+        "'issue-card__rail' + ((window._CES_isRes && window._CES_isRes(iss)) ? ' issue-card__rail--res' : (isFail ? ' issue-card__rail--fail' : ''))");
+      html = html.replace("{kind: isFail ? 'fail' : 'info'}, isFail ? 'Error' : 'Comment')",
+        "{kind: (window._CES_isRes && window._CES_isRes(iss)) ? 'ok' : (isFail ? 'fail' : 'info')}, isFail ? 'Error' : 'Comment'), (window._CES_isRes && window._CES_isRes(iss)) ? React.createElement('div', {className:'ces-res-tag'}, '(resolved)') : null");
+      // 3) matcher (a plain script — runs at parse, before the Babel components) + green styling
+      var data = JSON.stringify(list);
+      var matcher = "<scr" + "ipt>window._CES_RES=" + data + ";window._CES_isRes=function(iss){if(!iss||iss.sev!=='FAIL')return false;var t=(iss.type||'').toLowerCase(),m=(iss.mpan_spid||'').toLowerCase();return (window._CES_RES||[]).some(function(r){var rt=(r.type||'').toLowerCase(),rm=(r.mpan||'').toLowerCase();return (!rt||t.indexOf(rt)>-1||rt.indexOf(t)>-1)&&(!rm||m.indexOf(rm)>-1);});};<\/scr" + "ipt>";
+      var css = "<style>.issue-card__rail--res{background:oklch(0.95 0.05 152)!important;}.ces-res-tag{color:var(--pos);font-weight:700;font-size:11px;margin-top:2px;text-align:center;}</style>";
+      html = /<body[^>]*>/i.test(html) ? html.replace(/<body[^>]*>/i, function(m){ return m + matcher; }) : matcher + html;
+      html = /<\/head>/i.test(html) ? html.replace(/<\/head>/i, css + "</head>") : css + html;
+      return html;
     }
     // (In-report CES error banner removed — error/resolved status now shows on the report cards.)
     // Build site rows (MPAN/SPID/MPRN → address) from a report's window.BV object.
