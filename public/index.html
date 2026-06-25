@@ -555,6 +555,9 @@
        at full scale — it has its own responsive layout below. */
     @media (min-width: 769px) {
       body { zoom: 0.85; }
+      /* zoom shrinks vh-based heights, so the full-height navy panels are scaled up by 1/0.85 to still fill the screen */
+      #loginPage.active, .dash-wrap { min-height: calc(100vh / 0.85); }
+      .sidebar { height: calc(100vh / 0.85); }
     }
 
     @media (max-width: 768px) {
@@ -1577,7 +1580,7 @@
           <table class="list">
             <thead><tr>
               <th>Customer</th><th>Type</th><th>Period</th><th>Sites</th><th>Total / Level</th>
-              <th>Files</th><th>Uploaded</th><th></th>
+              <th>Files</th><th>Last updated</th><th></th>
             </tr></thead>
             <tbody id="adminReportTable"></tbody>
           </table>
@@ -1976,6 +1979,14 @@
     }
     function fmtRange(s, e) {
       return fmtDateUK(s) + ' – ' + fmtDateUK(e);
+    }
+    // "24/06/2026 at 13:11" — date + 24-hour time (hour:minute), in local time.
+    function fmtDateTimeUK(s) {
+      if (!s) return '—';
+      const dt = new Date(s);
+      if (isNaN(dt.getTime())) return '—';
+      const p = function(n){ return String(n).padStart(2, '0'); };
+      return p(dt.getDate()) + '/' + p(dt.getMonth() + 1) + '/' + dt.getFullYear() + ' at ' + p(dt.getHours()) + ':' + p(dt.getMinutes());
     }
     // ───── AUTH ─────
     async function doLogin() {
@@ -3437,7 +3448,10 @@
     async function refreshAdminReportTable() {
       const custFilter = document.getElementById('reportFilter').value;
       const typeFilter = document.getElementById('reportTypeFilter').value;
-      let q = sb.from('reports').select('*, customers(company_name)').order('uploaded_at', { ascending: false });
+      let q = sb.from('reports').select('*, customers(company_name)')
+        .order('year', { ascending: false, nullsFirst: false })
+        .order('month_num', { ascending: false, nullsFirst: false })
+        .order('uploaded_at', { ascending: false });
       if (custFilter) q = q.eq('customer_id', custFilter);
       if (typeFilter) q = q.eq('report_type', typeFilter);
       const { data, error } = await q;
@@ -3466,7 +3480,7 @@
             <td>${r.sites || 0}</td>
             <td class="mono">${totalLabel}</td>
             <td class="mono">${files}</td>
-            <td class="mono">${new Date(r.uploaded_at).toLocaleDateString('en-GB')}</td>
+            <td class="mono">${fmtDateTimeUK(r.uploaded_at)}</td>
             <td style="white-space:nowrap;">${isOcc ? '' : `<button class="btn-secondary" data-action="errors" data-id="${escapeHtml(r.id)}" style="margin-right:6px;padding:6px 10px;font-size:12px;">Errors (${r.fail_count || 0})</button>`}<button class="btn-secondary" data-action="edit-report" data-id="${escapeHtml(r.id)}" style="margin-right:6px;padding:6px 10px;font-size:12px;">Edit</button><button class="btn-danger" data-action="delete-report" data-id="${escapeHtml(r.id)}" style="padding:6px 10px;font-size:12px;">Delete</button></td>
           </tr>
         `;
