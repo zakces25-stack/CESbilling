@@ -26,6 +26,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
   <!-- Cloudflare Turnstile — human verification on the login form -->
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -477,7 +478,7 @@
     #leagueTable tbody tr:first-child td:first-child { color: var(--lime); }
     #leagueTable tbody tr:first-child { background: rgba(147,196,58,0.07); }
 
-    .usage-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px; }
+    .usage-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 22px; }
     .usage-kpi {
       background: var(--surface); border: 1.5px solid var(--border); border-radius: 10px;
       padding: 18px 22px; position: relative; overflow: hidden;
@@ -496,8 +497,8 @@
     .usage-chart-head .btn-secondary { width: auto; padding: 8px 14px; font-size: 12.5px; }
     #usageChart { min-height: 280px; }
     #dashPage .dash-section[data-page="usage"] { max-width: 1400px; }
-    #usageChart { max-width: 900px; margin: 0 auto; }
-    #usageChart svg { width: 100%; height: 280px; display: block; }
+    #usageChart { width: 100%; }
+    #usageChart svg { width: 100%; height: auto; display: block; }
 
     .usage-table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .usage-table th, .usage-table td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
@@ -647,7 +648,7 @@
 
       /* ── USAGE CHART ── */
       #usageChart { max-width: 100% !important; }
-      #usageChart svg { height: 220px; }
+      #usageChart svg { height: auto; }
       .usage-chart-head { flex-wrap: wrap; gap: 8px; }
       .usage-chart-head .btn-secondary { width: 100%; }
 
@@ -4833,25 +4834,20 @@
         byMonth[k] = (byMonth[k] || 0) + Number(r.total_kwh || 0);
       }
       const months = Object.keys(byMonth).sort();
-      if (months.length === 0) { document.getElementById('usageChart').innerHTML = ''; return; }
+      const host = document.getElementById('usageChart');
+      if (months.length === 0) { host.innerHTML = ''; return; }
       const max = Math.max.apply(null, months.map(function(m){return byMonth[m];}));
-      const W = 1000, H = 280, padL = 60, padR = 18, padT = 18, padB = 38;
+      // Size the chart to the full width of its card so it reaches the edge of the
+      // page instead of sitting small and centred. viewBox width = measured width,
+      // so bars spread evenly across the whole width regardless of month count.
+      const W = Math.max(680, Math.round((host.clientWidth || 1000)));
+      const H = 300, padL = 64, padR = 24, padT = 26, padB = 40;
       const innerW = W - padL - padR, innerH = H - padT - padB;
-      // Fixed-width bars + fixed gap, cluster centred horizontally.
-      // For small month counts this keeps bars close together (no huge spread).
-      // For larger counts (12+) bars shrink to fill the available width.
-      const gap = 32;
-      const idealBarW = 54;
-      const maxClusterW = innerW;
-      const naturalW = idealBarW * months.length + gap * Math.max(0, months.length - 1);
-      let barW = idealBarW;
-      if (naturalW > maxClusterW) {
-        barW = (maxClusterW - gap * Math.max(0, months.length - 1)) / months.length;
-        barW = Math.max(20, barW);
-      }
-      const startX = padL;  // left-align: first month on the far left
+      // One equal slot per month spanning the full width; bar centred in its slot.
+      const slotW = innerW / months.length;
+      const barW = Math.max(16, Math.min(64, slotW * 0.62));
 
-      let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">';
+      let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">';
       // y-axis gridlines + labels
       for (let g = 0; g <= 4; g++) {
         const y = padT + innerH * (1 - g/4);
@@ -4861,15 +4857,16 @@
       }
       // Bars
       months.forEach(function(m, i) {
-        const x = startX + (i * (barW + gap));
+        const cx = padL + slotW * (i + 0.5);
+        const x = cx - barW/2;
         const h = max > 0 ? (byMonth[m] / max) * innerH : 0;
         const y = padT + (innerH - h);
         svg += '<rect x="' + x + '" y="' + y + '" width="' + barW + '" height="' + h + '" rx="3" fill="#2f3d7e"/>';
-        svg += '<text x="' + (x + barW/2) + '" y="' + (padT + innerH + 18) + '" text-anchor="middle" font-family="Manrope" font-size="11" fill="#4a4e5c">' + _periodLabel(m) + '</text>';
-        svg += '<text x="' + (x + barW/2) + '" y="' + (y - 4) + '" text-anchor="middle" font-family="JetBrains Mono" font-size="10" font-weight="600" fill="#1c1f2a">' + _fmtNum(byMonth[m], 0) + '</text>';
+        svg += '<text x="' + cx + '" y="' + (padT + innerH + 18) + '" text-anchor="middle" font-family="Manrope" font-size="11" fill="#4a4e5c">' + _periodLabel(m) + '</text>';
+        svg += '<text x="' + cx + '" y="' + (y - 5) + '" text-anchor="middle" font-family="JetBrains Mono" font-size="10" font-weight="600" fill="#1c1f2a">' + _fmtNum(byMonth[m], 0) + '</text>';
       });
       svg += '</svg>';
-      document.getElementById('usageChart').innerHTML = svg;
+      host.innerHTML = svg;
     }
 
     function renderUsageTable(rows) {
@@ -4983,12 +4980,65 @@
       }
     }
     var _usageFitTimer = null;
-    window.addEventListener('resize', function(){ clearTimeout(_usageFitTimer); _usageFitTimer = setTimeout(_fitUsageTable, 150); });
+    window.addEventListener('resize', function(){
+      clearTimeout(_usageFitTimer);
+      _usageFitTimer = setTimeout(function(){
+        if (typeof _usageRows !== 'undefined' && _usageRows && _usageRows.length) renderUsageChart(_usageRows);
+        _fitUsageTable();
+      }, 150);
+    });
 
-    // Download the carbon breakdown as an Excel workbook (sites × months, kWh + tCO2e) — mirrors the on-screen table.
-    function downloadUsageExcel() {
+    // Push an ExcelJS buffer to the browser as a download.
+    function _downloadBlob(buf, filename) {
+      var blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+      setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 1500);
+    }
+
+    // Render a clean tCO2e-over-time line chart to a PNG data URL (embedded in the Excel below the table).
+    function _usageCo2Chart(months, vals) {
+      var labels = months.map(_periodLabel);
+      var scale = 2;
+      var w = Math.max(720, months.length * 78 + 150), h = 330;
+      var cv = document.createElement('canvas');
+      cv.width = w * scale; cv.height = h * scale;
+      var cx = cv.getContext('2d'); cx.scale(scale, scale);
+      cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, w, h);
+      cx.fillStyle = '#1c1f2a'; cx.font = '700 15px Arial'; cx.textAlign = 'left';
+      cx.fillText('tCO₂e over time — all sites combined', 20, 26);
+      var padL = 64, padR = 26, padT = 48, padB = 46, iw = w - padL - padR, ih = h - padT - padB;
+      var max = Math.max.apply(null, vals.concat([0])); if (max <= 0) max = 1;
+      cx.strokeStyle = '#e6e1d6'; cx.lineWidth = 1; cx.fillStyle = '#7a7e8c'; cx.font = '11px Arial'; cx.textAlign = 'right';
+      for (var g = 0; g <= 4; g++) {
+        var y = padT + ih * (1 - g / 4);
+        cx.beginPath(); cx.moveTo(padL, y); cx.lineTo(w - padR, y); cx.stroke();
+        cx.fillText((max * g / 4).toFixed(2), padL - 8, y + 4);
+      }
+      var n = months.length;
+      function px(i){ return n === 1 ? padL + iw / 2 : padL + iw * (i / (n - 1)); }
+      function py(v){ return padT + ih * (1 - v / max); }
+      cx.strokeStyle = '#2f3d7e'; cx.lineWidth = 2.5; cx.beginPath();
+      vals.forEach(function(v, i){ var X = px(i), Y = py(v); if (i === 0) cx.moveTo(X, Y); else cx.lineTo(X, Y); });
+      cx.stroke();
+      cx.fillStyle = '#2f3d7e';
+      vals.forEach(function(v, i){ cx.beginPath(); cx.arc(px(i), py(v), 3.5, 0, Math.PI * 2); cx.fill(); });
+      cx.fillStyle = '#1c1f2a'; cx.font = '600 10px Arial'; cx.textAlign = 'center';
+      vals.forEach(function(v, i){ cx.fillText(v.toFixed(2), px(i), py(v) - 9); });
+      cx.fillStyle = '#4a4e5c'; cx.font = '11px Arial';
+      labels.forEach(function(l, i){ cx.fillText(l, px(i), h - padB + 20); });
+      return { dataUrl: cv.toDataURL('image/png'), w: w, h: h };
+    }
+
+    // Download the carbon breakdown as a styled Excel workbook (sites × months, kWh + tCO2e) with an
+    // embedded tCO2e-over-time chart. Mirrors the on-screen breakdown table exactly.
+    async function downloadUsageExcel() {
       var rows = (typeof _usageRows !== 'undefined' && _usageRows) ? _usageRows : [];
       if (!rows.length) { safeAlert('Generate the report first, then download.', null); return; }
+      if (typeof ExcelJS === 'undefined' || !ExcelJS.Workbook) { safeAlert('The Excel engine is still loading — please try again in a moment.', null); return; }
+
+      // ---- pivot (same grouping as the on-screen table) ----
       var monthSet = {}, rowMap = {};
       rows.forEach(function(r){
         var mk = _periodKey(r); monthSet[mk] = 1;
@@ -4998,33 +5048,115 @@
       });
       var months = Object.keys(monthSet).sort();
       var all = Object.keys(rowMap).map(function(k){ return rowMap[k]; });
-      var aoa = [['Site', 'Postcode', 'Meter'].concat(months.map(_periodLabel)).concat(['Total kWh', 'tCO2e'])];
-      function section(label, util, factor) {
-        var sec = all.filter(function(r){ return r.utility === util; }).sort(function(a,b){ return a.site.localeCompare(b.site); });
-        if (!sec.length) return { kwh: 0, co2: 0 };
-        aoa.push([label]);
-        var colTot = months.map(function(){ return 0; }), subKwh = 0, subCo2 = 0;
-        sec.forEach(function(r){
-          var green = _greenByMeter[r.meter] || 0, rowKwh = 0, line = [r.site, r.post, r.meter];
-          months.forEach(function(m, i){ var v = r.months[m]; if (v == null) { line.push(''); } else { line.push(Math.round(v*10)/10); colTot[i] += v; rowKwh += v; } });
-          var co2 = rowKwh * (1 - green/100) * factor / 1000;
-          line.push(Math.round(rowKwh*10)/10); line.push(Math.round(co2*100)/100);
-          aoa.push(line); subKwh += rowKwh; subCo2 += co2;
+      var nCols = 3 + months.length + 2;
+
+      // combined tCO2e per month for the chart
+      var co2ByMonth = months.map(function(m){
+        var t = 0;
+        all.forEach(function(r){
+          var v = r.months[m]; if (v == null) return;
+          var green = _greenByMeter[r.meter] || 0, f = BEIS_FACTORS[r.utility] || 0;
+          t += v * (1 - green/100) * f / 1000;
         });
-        aoa.push(['Subtotal ' + label, '', ''].concat(colTot.map(function(v){ return Math.round(v*10)/10; })).concat([Math.round(subKwh*10)/10, Math.round(subCo2*100)/100]));
-        return { kwh: subKwh, co2: subCo2 };
-      }
-      var e = section('Electricity', 'electricity', BEIS_FACTORS.electricity);
-      var g = section('Gas', 'gas', BEIS_FACTORS.gas);
-      aoa.push(['GRAND TOTAL', '', ''].concat(months.map(function(){ return ''; })).concat([Math.round((e.kwh+g.kwh)*10)/10, Math.round((e.co2+g.co2)*100)/100]));
+        return Math.round(t * 100) / 100;
+      });
+
       try {
-        var ws = XLSX.utils.aoa_to_sheet(aoa);
-        ws['!cols'] = [{ wch: 34 }, { wch: 12 }, { wch: 16 }].concat(months.map(function(){ return { wch: 11 }; })).concat([{ wch: 12 }, { wch: 10 }]);
-        var wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Carbon Report');
+        var navy = 'FF2F3D7E', navyLt = 'FFEDEFF6', band = 'FFF7F5F0';
+        var thin = { style:'thin', color:{ argb:'FFE3E0D8' } };
+        var wb = new ExcelJS.Workbook();
+        wb.creator = 'CES Billing Portal';
+        var ws = wb.addWorksheet('Carbon Report', { views: [{ state:'frozen', ySplit: 4, xSplit: 1 }] });
+
+        var widths = [34, 12, 16].concat(months.map(function(){ return 13; })).concat([13, 11]);
+        widths.forEach(function(w, i){ ws.getColumn(i + 1).width = w; });
+
+        // Title
+        var title = ws.addRow(['Carbon Report — ' + ((currentUser && currentUser.name) || 'Customer')]);
+        ws.mergeCells(title.number, 1, title.number, nCols);
+        var tc = ws.getCell(title.number, 1);
+        tc.font = { bold:true, size:15, color:{ argb:'FF1C1F2A' } }; tc.alignment = { vertical:'middle' };
+        title.height = 24;
+        // Subtitle
+        var spanLbl = months.length ? (_periodLabel(months[0]) + ' – ' + _periodLabel(months[months.length - 1])) : '';
+        var sub = ws.addRow(['Period: ' + spanLbl + '     ·     Factors: Electricity ' + (BEIS_FACTORS.electricity || 0) + ' / Gas ' + (BEIS_FACTORS.gas || 0) + ' kgCO₂e per kWh']);
+        ws.mergeCells(sub.number, 1, sub.number, nCols);
+        ws.getCell(sub.number, 1).font = { size:10, color:{ argb:'FF7A7E8C' } };
+        ws.addRow([]); // blank spacer (row 3)
+
+        // Header (row 4)
+        var headerVals = ['Site', 'Postcode', 'Meter'].concat(months.map(function(m){ return _periodLabel(m) + ' (kWh)'; })).concat(['Total kWh', 'tCO₂e']);
+        var hr = ws.addRow(headerVals); hr.height = 22;
+        hr.eachCell(function(cell, col){
+          cell.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:11 };
+          cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:navy } };
+          cell.alignment = { horizontal: col <= 3 ? 'left' : 'center', vertical:'middle', wrapText:true };
+        });
+
+        var sectionsPresent = ['electricity', 'gas'].filter(function(u){ return all.some(function(r){ return r.utility === u; }); });
+        var single = sectionsPresent.length <= 1;
+        var grand = { kwh:0, co2:0 };
+
+        function addSection(label, util, factor) {
+          var sec = all.filter(function(r){ return r.utility === util; }).sort(function(a, b){ return a.site.localeCompare(b.site); });
+          if (!sec.length) return;
+          var sr = ws.addRow([label.toUpperCase()]);
+          ws.mergeCells(sr.number, 1, sr.number, nCols);
+          var sc = ws.getCell(sr.number, 1);
+          sc.font = { bold:true, size:11, color:{ argb:navy } };
+          sc.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:navyLt } };
+          var colTot = months.map(function(){ return 0; }), subKwh = 0, subCo2 = 0, bandToggle = false;
+          sec.forEach(function(r){
+            var green = _greenByMeter[r.meter] || 0, rowKwh = 0, vals = [r.site, r.post, r.meter];
+            months.forEach(function(m, i){ var v = r.months[m]; if (v == null) { vals.push(null); } else { vals.push(Math.round(v*10)/10); colTot[i] += v; rowKwh += v; } });
+            var co2 = rowKwh * (1 - green/100) * factor / 1000;
+            vals.push(Math.round(rowKwh*10)/10); vals.push(Math.round(co2*100)/100);
+            var dr = ws.addRow(vals);
+            dr.eachCell({ includeEmpty:true }, function(cell, col){
+              if (col > nCols) return;
+              cell.border = { top:thin, bottom:thin, left:thin, right:thin };
+              if (col > 3) { cell.alignment = { horizontal:'right' }; cell.numFmt = (col === nCols) ? '#,##0.00' : '#,##0.0'; }
+              if (bandToggle) cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:band } };
+            });
+            bandToggle = !bandToggle; subKwh += rowKwh; subCo2 += co2;
+          });
+          var totVals = [single ? 'TOTAL' : 'Subtotal — ' + label, '', ''].concat(colTot.map(function(v){ return Math.round(v*10)/10; })).concat([Math.round(subKwh*10)/10, Math.round(subCo2*100)/100]);
+          var trow = ws.addRow(totVals);
+          trow.eachCell({ includeEmpty:true }, function(cell, col){
+            if (col > nCols) return;
+            cell.font = { bold:true };
+            cell.border = { top:{ style:'medium', color:{ argb:navy } }, bottom:thin };
+            if (col > 3) { cell.alignment = { horizontal:'right' }; cell.numFmt = (col === nCols) ? '#,##0.00' : '#,##0.0'; }
+          });
+          grand.kwh += subKwh; grand.co2 += subCo2;
+        }
+        addSection('Electricity', 'electricity', BEIS_FACTORS.electricity);
+        addSection('Gas', 'gas', BEIS_FACTORS.gas);
+
+        // Only show a separate GRAND TOTAL when there are 2+ sections (avoids the duplicate total row).
+        if (!single) {
+          var gVals = ['GRAND TOTAL', '', ''].concat(months.map(function(){ return null; })).concat([Math.round(grand.kwh*10)/10, Math.round(grand.co2*100)/100]);
+          var gr = ws.addRow(gVals);
+          gr.eachCell({ includeEmpty:true }, function(cell, col){
+            if (col > nCols) return;
+            cell.font = { bold:true, size:11, color:{ argb:'FFFFFFFF' } };
+            cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:navy } };
+            if (col > 3) { cell.alignment = { horizontal:'right' }; cell.numFmt = (col === nCols) ? '#,##0.00' : '#,##0.0'; }
+          });
+        }
+
+        // Chart below the table
+        var lastRow = ws.lastRow.number;
+        var chartTop = lastRow + 2; // 1-based caption row
+        var cap = ws.getCell(chartTop, 1); cap.value = 'tCO₂e over time — all sites combined'; cap.font = { bold:true, size:12 };
+        var chart = _usageCo2Chart(months, co2ByMonth);
+        var imgId = wb.addImage({ base64: chart.dataUrl, extension:'png' });
+        ws.addImage(imgId, { tl:{ col:0, row:chartTop }, ext:{ width:chart.w, height:chart.h } });
+
+        var buf = await wb.xlsx.writeBuffer();
         var co = ((currentUser && currentUser.name) ? currentUser.name : 'Customer').replace(/[^a-z0-9]+/gi, '_');
-        var span = months.length ? (_periodLabel(months[0]) + '_to_' + _periodLabel(months[months.length-1])).replace(/[^a-z0-9]+/gi, '_') : '';
-        XLSX.writeFile(wb, co + '_Carbon_Report_' + span + '.xlsx');
+        var spanF = months.length ? (_periodLabel(months[0]) + '_to_' + _periodLabel(months[months.length - 1])).replace(/[^a-z0-9]+/gi, '_') : '';
+        _downloadBlob(buf, co + '_Carbon_Report_' + spanF + '.xlsx');
         logAction('download_carbon_excel', currentUser && currentUser.customerId, { months: months.length, sites: all.length });
       } catch (e2) { safeAlert('Could not generate the Excel file. Please try again.', e2); }
     }
