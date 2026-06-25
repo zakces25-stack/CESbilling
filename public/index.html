@@ -3654,7 +3654,16 @@
           body: { company_name: name, customer_id: id, username: username, password: password }
         });
         if (error || (data && data.error)) {
-          err.textContent = (data && data.error) || 'Could not create customer. Please try again.';
+          let msg = (data && data.error) || '';
+          if (!msg && error) {
+            try {
+              const ctx = error.context;
+              if (ctx && typeof ctx.json === 'function') { const b = await ctx.json(); if (b && b.error) msg = b.error; }
+              else if (ctx && typeof ctx.text === 'function') { const tx = await ctx.text(); if (tx) { try { msg = JSON.parse(tx).error || tx; } catch (_) { msg = tx; } } }
+            } catch (_) {}
+            if (!msg) msg = error.message || '';
+          }
+          err.textContent = msg || 'Could not create customer. Please try again.';
           err.style.display = 'block';
           return;
         }
