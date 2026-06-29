@@ -518,6 +518,26 @@
     .sk-sc-row label { font-size: 12.5px; color: var(--muted); min-width: 180px; }
     .sk-sc-row input { max-width: 160px; padding: 6px 8px; border: 1px solid #d8d2c6; border-radius: 6px; }
     .sk-sc-out { font-size: 14px; margin-top: 8px; color: #1c1f2a; }
+    /* What-if (redesigned) */
+    .sk-whatif { border-top: 1px dashed #e6e1d6; padding-top: 16px; margin-top: 4px; }
+    .sk-whatif h4 { font-size: 13px; font-weight: 800; margin-bottom: 2px; }
+    .sk-wi-row { display: grid; grid-template-columns: 170px 1fr 80px; gap: 12px; align-items: center; margin-bottom: 10px; }
+    .sk-wi-row > span { font-size: 12.5px; color: var(--muted); }
+    .sk-wi-row input[type=range] { width: 100%; accent-color: var(--navy); }
+    .sk-wi-row > b { font-family: 'JetBrains Mono', monospace; font-size: 13px; text-align: right; }
+    .sk-wi-result { margin-top: 14px; }
+    .sk-ba { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+    .sk-ba-cell { display: flex; flex-direction: column; }
+    .sk-ba-cell span { font-size: 11.5px; color: var(--muted); }
+    .sk-ba-cell b { font-size: 20px; }
+    .sk-ba-arrow { font-size: 20px; color: var(--muted); }
+    .sk-ba-delta { background: #e8f0e6; color: #2f6b2f; font-weight: 800; padding: 6px 12px; border-radius: 999px; font-size: 14px; }
+    @media (max-width: 560px){ .sk-wi-row { grid-template-columns: 1fr 64px; } .sk-wi-row > span { grid-column: 1/-1; } }
+    /* Drill-in overlay */
+    .sk-overlay { position: fixed; inset: 0; background: rgba(20,22,34,0.55); z-index: 4000; display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; }
+    .sk-overlay__box { background: #fff; border-radius: 14px; max-width: 920px; width: 100%; padding: 26px 26px 30px; position: relative; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+    .sk-overlay__close { position: absolute; top: 12px; right: 14px; border: none; background: transparent; font-size: 28px; line-height: 1; color: #7a7e8c; cursor: pointer; }
+    .sk-overlay__close:hover { color: #1c1f2a; }
 
     .usage-table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .usage-table th, .usage-table td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
@@ -1311,31 +1331,48 @@
 
         <!-- View: Sales Performance (KPIs, dashboard, private salary calculator, leaderboard) -->
         <div id="brokerSalesView">
-          <div class="section-head" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-            <h2>Sales performance</h2>
-            <input type="month" id="bxMonth" onchange="brokerRenderMine()" style="width:auto;" />
-          </div>
+          <div class="section-head"><h2>Sales performance</h2></div>
           <div id="bxLinkWarn"></div>
-          <div class="stats-row" id="bxCards"></div>
+
+          <!-- TOP: team billing chart — the first thing everyone sees -->
           <div class="card" style="margin-bottom:16px;">
-            <h3 style="font-size:14px;font-weight:800;margin-bottom:12px;">My billing trend</h3>
-            <div id="bxTrend"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+              <h3 style="font-size:14px;font-weight:800;">Team billing — who's on top</h3>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <select id="bxTeamPeriod" style="width:auto;" onchange="brokerRenderTeam()"></select>
+                <button class="btn-secondary" style="padding:7px 12px;" onclick="skExpandLeaderboard()">⤢ Full leaderboard</button>
+              </div>
+            </div>
+            <div id="bxTeamChart"></div>
           </div>
+
+          <!-- Personal dashboard -->
+          <div class="card" style="margin-bottom:16px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+              <h3 style="font-size:14px;font-weight:800;">My month</h3>
+              <input type="month" id="bxMonth" onchange="brokerRenderMine()" style="width:auto;" />
+            </div>
+            <div class="stats-row" id="bxCards"></div>
+            <div style="margin-top:16px;"><div id="bxTrend"></div></div>
+          </div>
+
           <div class="card" id="bxCalcCard" style="margin-bottom:16px;">
             <h3 style="font-size:14px;font-weight:800;margin-bottom:12px;">My salary calculator <span style="font-weight:600;color:var(--muted);font-size:12px;">· private to you</span></h3>
             <div id="bxCalc"></div>
           </div>
+
           <div class="card" id="bxEntryCard" style="margin-bottom:16px;">
             <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Update my figures</h3>
-            <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Enter this month's numbers and save. Re-saving a month updates it.</p>
+            <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Enter this month's numbers and save. Saved figures update the team leaderboard for everyone, and your notes appear in your rep detail.</p>
             <div class="success-box" id="bxMsg" style="display:none;">Saved.</div>
             <div class="sk-entry-grid" id="bxEntryFields"></div>
             <button class="btn-primary" style="width:auto;padding:10px 18px;margin-top:12px;" onclick="bxSaveMine()">Save my figures</button>
           </div>
+
           <div class="card">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
-              <h3 style="font-size:14px;font-weight:800;">Team leaderboard</h3>
-              <select id="bxBoardPeriod" style="width:auto;"></select>
+              <h3 style="font-size:14px;font-weight:800;">Team leaderboard <span style="font-weight:600;color:var(--muted);font-size:12px;">· tap a rep for detail</span></h3>
+              <button class="btn-secondary" style="padding:7px 12px;" onclick="skExpandLeaderboard()">⤢ Expand</button>
             </div>
             <div id="bxBoard" style="overflow-x:auto;"></div>
           </div>
@@ -1660,9 +1697,13 @@
           </div>
           <div class="form-card">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
-              <h3 style="font-size:14px;font-weight:800;">Team leaderboard</h3>
-              <select id="skAdminPeriod" style="width:auto;"></select>
+              <h3 style="font-size:14px;font-weight:800;">Team leaderboard <span style="font-weight:600;color:var(--muted);font-size:12px;">· click a rep for detail</span></h3>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <select id="skAdminPeriod" style="width:auto;"></select>
+                <button class="btn-secondary" style="padding:7px 12px;" onclick="skExpandLeaderboard()">⤢ Expand</button>
+              </div>
             </div>
+            <div id="skAdminChart" style="margin-bottom:16px;"></div>
             <div id="skAdminBoard" style="overflow-x:auto;"></div>
           </div>
         </div>
@@ -1842,6 +1883,13 @@
         <h3>No file attached</h3>
         <p>The admin hasn't uploaded the report file for this period yet.</p>
       </div>
+    </div>
+  </div>
+  <!-- Sales KPI drill-in overlay (expanded leaderboard / rep detail) -->
+  <div id="skOverlay" class="sk-overlay" style="display:none;" onclick="if(event.target===this)skCloseOverlay()">
+    <div class="sk-overlay__box">
+      <button class="sk-overlay__close" onclick="skCloseOverlay()" aria-label="Close">&times;</button>
+      <div id="skOverlayBody"></div>
     </div>
   </div>
   <!-- ═══════════════════════════════════
@@ -3655,8 +3703,8 @@
         var a = x.a, r = x.rep;
         var tgt = (Number(r.monthly_target)||0) * (cumulative ? 12 : 1);
         var pct = tgt > 0 ? Math.round(a.billing_total / tgt * 100) + '%' : '—';
-        var hl = (r.id === _SK.myRepId) ? ' style="background:rgba(47,61,126,0.08);font-weight:700;"' : '';
-        return '<tr' + hl + '><td>' + (i+1) + '</td><td>' + escapeHtml(r.name) + '</td>' +
+        var st = (r.id === _SK.myRepId) ? 'background:rgba(47,61,126,0.08);font-weight:700;' : '';
+        return '<tr style="cursor:pointer;' + st + '" onclick="skOpenRep(\'' + r.id + '\')"><td>' + (i+1) + '</td><td>' + escapeHtml(r.name) + '</td>' +
           '<td class="num">' + _skMoney(a.billing_total) + '</td>' +
           '<td class="num">' + _skMoney(a.new_business_gbp) + '</td>' +
           '<td class="num">' + _skNum(a.total_kwh, 0) + '</td>' +
@@ -3674,10 +3722,15 @@
       var ef = document.getElementById('skEntryFields'); if(ef) ef.innerHTML = _skEntryFieldsHtml('sk_');
       _skFillRepSelect('skKpiRep');
       var kp = document.getElementById('skKpiPeriod'); if(kp) kp.value = _skDefaultMonth();
-      _skFillPeriodSelect('skAdminPeriod', true, function(){ renderSalesLeaderboard('skAdminBoard', document.getElementById('skAdminPeriod').value); });
+      _skFillPeriodSelect('skAdminPeriod', true, adminRenderBoard);
       renderCommissionEditor();
-      renderSalesLeaderboard('skAdminBoard', (document.getElementById('skAdminPeriod')||{}).value || '__all__');
+      adminRenderBoard();
       skKpiLoadForm();
+    }
+    function adminRenderBoard(){
+      var pk = (document.getElementById('skAdminPeriod')||{}).value || '__all__';
+      renderTeamChart('skAdminChart', pk);
+      renderSalesLeaderboard('skAdminBoard', pk);
     }
     function renderCommissionEditor(){
       var host = document.getElementById('skCompEditor'); if(!host) return;
@@ -3703,7 +3756,7 @@
       _SK.compByRep[repId] = { rep_id:repId, retained_rate:rr, new_business_rate:nr, base_salary:bs };
       var rep = _SK.reps.filter(function(r){ return r.id === repId; })[0]; if(rep) rep.monthly_target = tg;
       logAction('save_broker_comp', null, { rep_id:repId });
-      renderSalesLeaderboard('skAdminBoard', (document.getElementById('skAdminPeriod')||{}).value || '__all__');
+      adminRenderBoard();
       _skFlash('skCompMsg', 'Saved.');
     }
     function skKpiLoadForm(){
@@ -3721,7 +3774,7 @@
       if(resp.error){ safeAlert('Could not save these figures.', resp.error); return; }
       logAction('save_broker_kpi', null, { rep_id:repId, period:key });
       await salesFetchAll();
-      renderSalesLeaderboard('skAdminBoard', (document.getElementById('skAdminPeriod')||{}).value || '__all__');
+      adminRenderBoard();
       _skFlash('skKpiMsg', 'Saved.');
     }
 
@@ -3730,12 +3783,17 @@
       await salesFetchAll();
       var ef = document.getElementById('bxEntryFields'); if(ef) ef.innerHTML = _skEntryFieldsHtml('bx_');
       var mIn = document.getElementById('bxMonth'); if(mIn && !mIn.value) mIn.value = _skDefaultMonth();
-      _skFillPeriodSelect('bxBoardPeriod', true, function(){ renderSalesLeaderboard('bxBoard', document.getElementById('bxBoardPeriod').value); });
+      _skFillPeriodSelect('bxTeamPeriod', true, brokerRenderTeam);
       var warn = document.getElementById('bxLinkWarn');
       if(warn) warn.innerHTML = _SK.myRepId ? '' : '<div class="card" style="border-left:3px solid #b5840a;margin-bottom:14px;">Your sales profile isn’t linked to this login yet, so your personal figures and calculator are hidden. Contact CES to link it.</div>';
       var entryCard = document.getElementById('bxEntryCard'); if(entryCard) entryCard.style.display = _SK.myRepId ? '' : 'none';
-      renderSalesLeaderboard('bxBoard', (document.getElementById('bxBoardPeriod')||{}).value || '__all__');
+      brokerRenderTeam();
       brokerRenderMine();
+    }
+    function brokerRenderTeam(){
+      var pk = (document.getElementById('bxTeamPeriod')||{}).value || '__all__';
+      renderTeamChart('bxTeamChart', pk);
+      renderSalesLeaderboard('bxBoard', pk);
     }
     function brokerRenderMine(){
       var key = _skMonthKey('bxMonth');
@@ -3767,44 +3825,126 @@
     function renderMyTrend(){
       var host = document.getElementById('bxTrend'); if(!host) return;
       var mine = _SK.kpis.filter(function(k){ return k.rep_id === _SK.myRepId; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
-      if(!mine.length){ host.innerHTML = '<p class="sk-empty">No history yet.</p>'; return; }
-      var max = Math.max.apply(null, mine.map(function(k){ return Number(k.billing_total)||0; }).concat([1]));
-      var W = Math.max(680, host.clientWidth || 900), H = 220, padL = 60, padR = 18, padT = 16, padB = 34, iw = W-padL-padR, ih = H-padT-padB;
-      var slot = iw / mine.length, bw = Math.max(14, Math.min(54, slot*0.6));
-      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">';
-      for(var g=0; g<=4; g++){ var y = padT + ih*(1-g/4); svg += '<line x1="' + padL + '" y1="' + y + '" x2="' + (W-padR) + '" y2="' + y + '" stroke="#e6e1d6"/>'; svg += '<text x="' + (padL-8) + '" y="' + (y+4) + '" text-anchor="end" font-size="10" fill="#7a7e8c" font-family="JetBrains Mono">£' + _skNum(max*g/4, 0) + '</text>'; }
-      mine.forEach(function(k, i){ var v = Number(k.billing_total)||0; var cx = padL + slot*(i+0.5); var h = v/max*ih; var y = padT + ih - h; svg += '<rect x="' + (cx-bw/2) + '" y="' + y + '" width="' + bw + '" height="' + h + '" rx="3" fill="#2f3d7e"/>'; svg += '<text x="' + cx + '" y="' + (padT+ih+16) + '" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">' + _skPeriodLabel(k.period) + '</text>'; });
-      svg += '</svg>'; host.innerHTML = svg;
+      host.innerHTML = '<div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px;">Monthly billing</div>' +
+        _skTrendSVG(mine.map(function(k){ return { label:_skPeriodLabel(k.period), val:Number(k.billing_total)||0 }; }));
     }
+    // Shared bar-chart SVG (responsive, money y-axis). series = [{label, val}]
+    function _skTrendSVG(series){
+      if(!series.length) return '<p class="sk-empty">No history yet.</p>';
+      var max = Math.max.apply(null, series.map(function(s){ return s.val; }).concat([1]));
+      var W = 900, H = 240, padL = 64, padR = 18, padT = 16, padB = 40, iw = W-padL-padR, ih = H-padT-padB;
+      var slot = iw / series.length, bw = Math.max(14, Math.min(56, slot*0.6));
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;">';
+      for(var g=0; g<=4; g++){ var y = padT + ih*(1-g/4); svg += '<line x1="' + padL + '" y1="' + y + '" x2="' + (W-padR) + '" y2="' + y + '" stroke="#e6e1d6"/>'; svg += '<text x="' + (padL-8) + '" y="' + (y+4) + '" text-anchor="end" font-size="10" fill="#7a7e8c" font-family="JetBrains Mono">£' + _skNum(max*g/4, 0) + '</text>'; }
+      series.forEach(function(s, i){ var cx = padL + slot*(i+0.5); var h = s.val/max*ih; var y = padT + ih - h; svg += '<rect x="' + (cx-bw/2) + '" y="' + y + '" width="' + bw + '" height="' + h + '" rx="3" fill="#2f3d7e"/>'; svg += '<text x="' + cx + '" y="' + (padT+ih+16) + '" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">' + s.label + '</text>'; });
+      svg += '</svg>'; return svg;
+    }
+    function _skShortName(n){ return String(n||'').split(' - ')[0].replace(/ ?'.*'/,'').trim() || n; }
+    // Horizontal "who's on top" bar chart per rep, by billing for the period.
+    function _skBuildTeamChart(periodKey){
+      var agg = _skAggregate(periodKey);
+      var rows = _SK.reps.map(function(r){ return { r:r, b:agg[r.id].billing_total }; })
+        .filter(function(x){ return x.b > 0; })
+        .sort(function(a,b){ return b.b - a.b; });
+      if(!rows.length) return '<p class="sk-empty">No billing for this period yet.</p>';
+      var max = Math.max.apply(null, rows.map(function(x){ return x.b; }).concat([1]));
+      var rowH = 36, padL = 150, padR = 96, padT = 6, W = 900, H = padT*2 + rows.length*rowH, iw = W-padL-padR;
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;">';
+      rows.forEach(function(x, i){
+        var y = padT + i*rowH, bw = Math.max(2, x.b/max*iw), mine = (x.r.id === _SK.myRepId), fill = mine ? '#16224f' : '#2f3d7e';
+        svg += '<text x="' + (padL-10) + '" y="' + (y+rowH/2+4) + '" text-anchor="end" font-family="Manrope" font-size="12.5" font-weight="' + (mine?'800':'600') + '" fill="#1c1f2a">' + (i+1) + '. ' + escapeHtml(_skShortName(x.r.name)) + '</text>';
+        svg += '<rect x="' + padL + '" y="' + (y+6) + '" width="' + bw + '" height="' + (rowH-14) + '" rx="4" fill="' + fill + '"/>';
+        svg += '<text x="' + (padL+bw+8) + '" y="' + (y+rowH/2+4) + '" font-family="JetBrains Mono" font-size="12" fill="#4a4e5c">' + _skMoney(x.b) + '</text>';
+      });
+      svg += '</svg>'; return svg;
+    }
+    function renderTeamChart(hostId, periodKey){ var h = document.getElementById(hostId); if(h) h.innerHTML = _skBuildTeamChart(periodKey || '__all__'); }
+    // Overlay (drill-in pages)
+    function skOpenOverlay(html){ var o = document.getElementById('skOverlay'); if(!o) return; document.getElementById('skOverlayBody').innerHTML = html; o.style.display = 'flex'; }
+    function skCloseOverlay(){ var o = document.getElementById('skOverlay'); if(o) o.style.display = 'none'; }
+    function skCurrentPeriod(){
+      var b = document.getElementById('bxTeamPeriod');
+      if(b && b.offsetParent !== null && b.value) return b.value;
+      var a = document.getElementById('skAdminPeriod');
+      return (a && a.value) || (b && b.value) || '__all__';
+    }
+    function skExpandLeaderboard(){
+      var pk = skCurrentPeriod();
+      var title = '<h2 style="font-size:18px;font-weight:800;margin-bottom:4px;">Team leaderboard</h2>' +
+        '<p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">' + (pk === '__all__' ? 'Full year (cumulative)' : _skPeriodLabel(pk)) + ' · tap a rep for their detail</p>';
+      skOpenOverlay(title + '<div style="margin-bottom:18px;">' + _skBuildTeamChart(pk) + '</div><div id="skBigBoard" style="overflow-x:auto;"></div>');
+      renderSalesLeaderboard('skBigBoard', pk);
+    }
+    function skOpenRep(repId){
+      var rep = _SK.reps.filter(function(r){ return r.id === repId; })[0]; if(!rep) return;
+      var hist = _SK.kpis.filter(function(k){ return k.rep_id === repId; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
+      var isMe = (repId === _SK.myRepId);
+      var trend = _skTrendSVG(hist.map(function(k){ return { label:_skPeriodLabel(k.period), val:Number(k.billing_total)||0 }; }));
+      var body = hist.slice().reverse().map(function(k){
+        return '<tr><td>' + _skPeriodLabel(k.period) + '</td>' +
+          '<td class="num">' + _skMoney(k.billing_total) + '</td>' +
+          '<td class="num">' + _skMoney(k.new_business_gbp) + '</td>' +
+          '<td class="num">' + _skNum(k.total_kwh, 0) + '</td>' +
+          '<td class="num">' + _skUplift(k.billing_total, k.total_kwh) + '</td>' +
+          '<td class="num">' + (k.lost_customers || 0) + '</td>' +
+          '<td>' + (k.notes ? escapeHtml(k.notes) : '—') + '</td></tr>';
+      }).join('');
+      skOpenOverlay(
+        '<h2 style="font-size:18px;font-weight:800;margin-bottom:4px;">' + escapeHtml(rep.name) + (isMe ? ' <span style="font-size:12px;color:var(--muted);font-weight:600;">· you</span>' : '') + '</h2>' +
+        '<p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Monthly billing and figures' + (isMe ? '' : ' (commission is private to each rep)') + '</p>' +
+        '<div style="margin-bottom:18px;">' + trend + '</div>' +
+        '<div style="overflow-x:auto;"><table class="sk-table"><tr><th>Month</th><th class="num">Billing</th><th class="num">New biz</th><th class="num">kWh</th><th class="num">Uplift</th><th class="num">Lost</th><th>Notes</th></tr>' + body + '</table></div>'
+      );
+    }
+    function _skCalcCell(l, v, s){ return '<div><div class="sk-calc-l">' + l + '</div><div class="sk-calc-v">' + v + '</div><div class="sk-calc-s">' + s + '</div></div>'; }
     function renderSalaryCalc(key, k){
       var host = document.getElementById('bxCalc'); if(!host) return;
       var comp = _SK.myRepId ? _SK.compByRep[_SK.myRepId] : null;
       if(!comp){ host.innerHTML = '<p class="sk-empty">Your commission settings haven’t been published yet.</p>'; return; }
       k = k || { billing_total:0, new_business_gbp:0 };
       var c = _skCommission(k, comp);
+      window._skCalcCtx = { comp:comp, base:c.base, retained:c.retained, newbiz:c.newbiz, baseComm:c.commission };
       host.innerHTML =
+        '<p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Based on <b>' + _skPeriodLabel(key) + '</b>. You earn <b>' + _skNum(comp.retained_rate,1) + '%</b> on retained billing and <b>' + _skNum(comp.new_business_rate,1) + '%</b> on new business.</p>' +
         '<div class="sk-calc-grid">' +
-          '<div><div class="sk-calc-l">Retained billing</div><div class="sk-calc-v">' + _skMoney(c.retained) + '</div><div class="sk-calc-s">@ ' + _skNum(comp.retained_rate,1) + '% = <b>' + _skMoney(c.retainedComm) + '</b></div></div>' +
-          '<div><div class="sk-calc-l">New business</div><div class="sk-calc-v">' + _skMoney(c.newbiz) + '</div><div class="sk-calc-s">@ ' + _skNum(comp.new_business_rate,1) + '% = <b>' + _skMoney(c.newbizComm) + '</b></div></div>' +
-          '<div><div class="sk-calc-l">Base salary</div><div class="sk-calc-v">' + _skMoney(c.base) + '</div><div class="sk-calc-s">per month</div></div>' +
-          '<div class="sk-calc-total"><div class="sk-calc-l">Total this month</div><div class="sk-calc-v" style="color:var(--navy)">' + _skMoney(c.total) + '</div><div class="sk-calc-s">commission ' + _skMoney(c.commission) + '</div></div>' +
+          _skCalcCell('Retained billing', _skMoney(c.retained), _skNum(comp.retained_rate,1) + '% → ' + _skMoney(c.retainedComm)) +
+          _skCalcCell('New business', _skMoney(c.newbiz), _skNum(comp.new_business_rate,1) + '% → ' + _skMoney(c.newbizComm)) +
+          _skCalcCell('Base salary', _skMoney(c.base), 'fixed each month') +
+          '<div class="sk-calc-total"><div class="sk-calc-l">Total earnings</div><div class="sk-calc-v" style="color:var(--navy)">' + _skMoney(c.total) + '</div><div class="sk-calc-s">' + _skMoney(c.commission) + ' commission + base</div></div>' +
         '</div>' +
-        '<div class="sk-scenario"><h4>What if…</h4>' +
-          '<div class="sk-sc-row"><label>Extra retained billing (£)</label><input type="number" id="scRet" value="0" oninput="skScenario()"></div>' +
-          '<div class="sk-sc-row"><label>Extra new business (£)</label><input type="number" id="scNew" value="0" oninput="skScenario()"></div>' +
-          '<div class="sk-sc-out" id="scOut"></div>' +
+        '<div class="sk-whatif">' +
+          '<h4>Try a bigger month</h4>' +
+          '<p style="font-size:12px;color:var(--muted);margin:0 0 12px;">Drag the sliders to see what extra business would add to your commission.</p>' +
+          '<div class="sk-wi-row"><span>Extra new business</span><input type="range" id="scNew" min="0" max="100000" step="1000" value="0" oninput="skScenario()"><b id="scNewLbl">£0</b></div>' +
+          '<div class="sk-wi-row"><span>Extra retained billing</span><input type="range" id="scRet" min="0" max="100000" step="1000" value="0" oninput="skScenario()"><b id="scRetLbl">£0</b></div>' +
+          '<div class="sk-wi-result" id="scOut"></div>' +
         '</div>';
-      window._skCalcCtx = { comp:comp, base:c.base, retained:c.retained, newbiz:c.newbiz };
       skScenario();
     }
     function skScenario(){
       var ctx = window._skCalcCtx; if(!ctx) return;
       var er = parseFloat((document.getElementById('scRet')||{}).value) || 0;
       var en = parseFloat((document.getElementById('scNew')||{}).value) || 0;
-      var rC = (ctx.retained + er) * (Number(ctx.comp.retained_rate)||0) / 100;
-      var nC = (ctx.newbiz + en) * (Number(ctx.comp.new_business_rate)||0) / 100;
-      var out = document.getElementById('scOut');
-      if(out) out.innerHTML = 'Projected commission <b>' + _skMoney(rC+nC) + '</b> · total incl. base <b>' + _skMoney(rC+nC+ctx.base) + '</b>';
+      var rl = document.getElementById('scRetLbl'); if(rl) rl.textContent = _skMoney(er);
+      var nl = document.getElementById('scNewLbl'); if(nl) nl.textContent = _skMoney(en);
+      var proj = (ctx.retained + er) * (Number(ctx.comp.retained_rate)||0) / 100 + (ctx.newbiz + en) * (Number(ctx.comp.new_business_rate)||0) / 100;
+      var delta = proj - ctx.baseComm;
+      var out = document.getElementById('scOut'); if(!out) return;
+      out.innerHTML =
+        '<div class="sk-ba">' +
+          '<div class="sk-ba-cell"><span>Commission now</span><b>' + _skMoney(ctx.baseComm) + '</b></div>' +
+          '<div class="sk-ba-arrow">→</div>' +
+          '<div class="sk-ba-cell"><span>Projected</span><b style="color:var(--navy)">' + _skMoney(proj) + '</b></div>' +
+          '<div class="sk-ba-delta">+' + _skMoney(delta) + '</div>' +
+        '</div>' +
+        '<div style="margin-top:10px;">' + _skTwoBar(ctx.baseComm, proj) + '</div>';
+    }
+    function _skTwoBar(now, proj){
+      var max = Math.max(now, proj, 1), W = 600, H = 72, bn = now/max*(W-130), bp = proj/max*(W-130);
+      return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;max-width:520px;">' +
+        '<text x="0" y="23" font-size="12" fill="#4a4e5c" font-family="Manrope">Now</text><rect x="80" y="11" width="' + bn + '" height="18" rx="4" fill="#9aa3c7"/>' +
+        '<text x="0" y="57" font-size="12" fill="#4a4e5c" font-family="Manrope">Projected</text><rect x="80" y="45" width="' + bp + '" height="18" rx="4" fill="#2f3d7e"/>' +
+        '</svg>';
     }
     async function bxSaveMine(){
       if(!_SK.myRepId){ safeAlert('Your sales profile isn’t linked yet.', null); return; }
@@ -3816,7 +3956,7 @@
       logAction('save_my_kpi', null, { period:key });
       await salesFetchAll();
       brokerRenderMine();
-      renderSalesLeaderboard('bxBoard', (document.getElementById('bxBoardPeriod')||{}).value || '__all__');
+      brokerRenderTeam();
       _skFlash('bxMsg', 'Saved.');
     }
     function brokerNav(view){
