@@ -499,6 +499,25 @@
     #dashPage .dash-section[data-page="usage"] { max-width: 1400px; }
     #usageChart { width: 100%; }
     #usageChart svg { width: 100%; height: auto; display: block; }
+    /* Sales / Broker KPI module */
+    .sk-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .sk-table th, .sk-table td { padding: 8px 10px; border-bottom: 1px solid #e6e1d6; text-align: left; white-space: nowrap; }
+    .sk-table th { font-weight: 800; color: var(--navy); background: #f7f5f0; }
+    .sk-table td.num, .sk-table th.num { text-align: right; font-family: 'JetBrains Mono', monospace; }
+    .sk-table input { padding: 5px 7px; border: 1px solid #d8d2c6; border-radius: 6px; font-family: inherit; font-size: 12.5px; }
+    .sk-entry-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 14px; }
+    .sk-empty { color: var(--muted); font-size: 13px; padding: 10px 0; }
+    .sk-calc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; margin-bottom: 16px; }
+    .sk-calc-l { font-size: 12px; color: var(--muted); font-weight: 600; }
+    .sk-calc-v { font-size: 22px; font-weight: 800; color: #1c1f2a; margin-top: 2px; }
+    .sk-calc-s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .sk-calc-total { border-left: 3px solid var(--navy); padding-left: 12px; }
+    .sk-scenario { border-top: 1px dashed #e6e1d6; padding-top: 14px; }
+    .sk-scenario h4 { font-size: 13px; font-weight: 800; margin-bottom: 10px; }
+    .sk-sc-row { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+    .sk-sc-row label { font-size: 12.5px; color: var(--muted); min-width: 180px; }
+    .sk-sc-row input { max-width: 160px; padding: 6px 8px; border: 1px solid #d8d2c6; border-radius: 6px; }
+    .sk-sc-out { font-size: 14px; margin-top: 8px; color: #1c1f2a; }
 
     .usage-table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .usage-table th, .usage-table td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
@@ -1270,7 +1289,8 @@
           <div class="b2">Broker Portal</div>
         </div>
         <div class="sidebar-nav">
-          <div class="nav-item active" onclick="backToBrokerCustomers()">My Customers</div>
+          <div class="nav-item active" id="bkNavSales" onclick="brokerNav('sales')">Sales Performance</div>
+          <div class="nav-item" id="bkNavCust" onclick="brokerNav('customers')">My Customers</div>
         </div>
         <div class="sidebar-foot">
           <button class="signout-btn" onclick="doSignOut()">Sign out</button>
@@ -1289,8 +1309,40 @@
           </div>
         </div>
 
+        <!-- View: Sales Performance (KPIs, dashboard, private salary calculator, leaderboard) -->
+        <div id="brokerSalesView">
+          <div class="section-head" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+            <h2>Sales performance</h2>
+            <input type="month" id="bxMonth" onchange="brokerRenderMine()" style="width:auto;" />
+          </div>
+          <div id="bxLinkWarn"></div>
+          <div class="stats-row" id="bxCards"></div>
+          <div class="card" style="margin-bottom:16px;">
+            <h3 style="font-size:14px;font-weight:800;margin-bottom:12px;">My billing trend</h3>
+            <div id="bxTrend"></div>
+          </div>
+          <div class="card" id="bxCalcCard" style="margin-bottom:16px;">
+            <h3 style="font-size:14px;font-weight:800;margin-bottom:12px;">My salary calculator <span style="font-weight:600;color:var(--muted);font-size:12px;">· private to you</span></h3>
+            <div id="bxCalc"></div>
+          </div>
+          <div class="card" id="bxEntryCard" style="margin-bottom:16px;">
+            <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Update my figures</h3>
+            <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Enter this month's numbers and save. Re-saving a month updates it.</p>
+            <div class="success-box" id="bxMsg" style="display:none;">Saved.</div>
+            <div class="sk-entry-grid" id="bxEntryFields"></div>
+            <button class="btn-primary" style="width:auto;padding:10px 18px;margin-top:12px;" onclick="bxSaveMine()">Save my figures</button>
+          </div>
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+              <h3 style="font-size:14px;font-weight:800;">Team leaderboard</h3>
+              <select id="bxBoardPeriod" style="width:auto;"></select>
+            </div>
+            <div id="bxBoard" style="overflow-x:auto;"></div>
+          </div>
+        </div>
+
         <!-- View: the broker's customers -->
-        <div id="brokerCustomersView">
+        <div id="brokerCustomersView" style="display:none;">
           <div class="section-head" style="align-items:center;justify-content:space-between;gap:14px;">
             <h2>Your customers</h2>
             <button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="bkToggleCustomerForm()">+ Add customer</button>
@@ -1459,6 +1511,7 @@
           <button class="admin-tab" onclick="adminTab('upload-occ')">Upload Occupancy</button>
           <button class="admin-tab" onclick="adminTab('reports')">Reports Admin</button>
           <button class="admin-tab" onclick="adminTab('customers')">Customers</button>
+          <button class="admin-tab" onclick="adminTab('sales')">Sales KPIs</button>
           <button class="admin-tab" onclick="adminTab('carbon')">Carbon Config</button>
         </div>
         <!-- UPLOAD VALIDATION TAB -->
@@ -1585,6 +1638,33 @@
             </tr></thead>
             <tbody id="adminReportTable"></tbody>
           </table>
+        </div>
+        <!-- SALES KPIs TAB -->
+        <div class="tab-pane" id="tab-sales">
+          <div class="form-card" style="margin-bottom:16px;">
+            <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Sales team KPIs</h2>
+            <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Set each rep's commission rates and monthly target, enter their figures, and view the team leaderboard. Commission rates feed each rep's private salary calculator — only they can see their own.</p>
+            <h3 style="font-size:14px;font-weight:800;margin-bottom:8px;">Commission &amp; targets</h3>
+            <div class="success-box" id="skCompMsg" style="display:none;">Saved.</div>
+            <div id="skCompEditor" style="overflow-x:auto;"></div>
+          </div>
+          <div class="form-card" style="margin-bottom:16px;">
+            <h3 style="font-size:14px;font-weight:800;margin-bottom:8px;">Enter / edit monthly figures</h3>
+            <div class="success-box" id="skKpiMsg" style="display:none;">Saved.</div>
+            <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:end;margin-bottom:14px;">
+              <div class="form-group" style="margin:0;"><label>Rep</label><select id="skKpiRep" onchange="skKpiLoadForm()"></select></div>
+              <div class="form-group" style="margin:0;"><label>Month</label><input type="month" id="skKpiPeriod" onchange="skKpiLoadForm()"></div>
+            </div>
+            <div class="sk-entry-grid" id="skEntryFields"></div>
+            <button class="btn-primary" style="width:auto;padding:10px 18px;margin-top:12px;" onclick="skSaveKpi()">Save figures</button>
+          </div>
+          <div class="form-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+              <h3 style="font-size:14px;font-weight:800;">Team leaderboard</h3>
+              <select id="skAdminPeriod" style="width:auto;"></select>
+            </div>
+            <div id="skAdminBoard" style="overflow-x:auto;"></div>
+          </div>
         </div>
         <!-- METERS TAB -->
         <div class="tab-pane" id="tab-meters">
@@ -2079,7 +2159,8 @@
     async function loadBroker() {
       var nameEl = document.getElementById('brokerName');
       if (nameEl) nameEl.textContent = currentUser.email || '';
-      backToBrokerCustomers();
+      brokerSalesInit();      // load Sales Performance (leaderboard + my dashboard/calculator)
+      brokerNav('sales');     // default broker landing = Sales Performance
       var grid = document.getElementById('brokerCustomerGrid');
       grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><p>Loading…</p></div>';
       const { data, error } = await sb
@@ -3477,7 +3558,284 @@
       document.getElementById('tab-' + name).classList.add('active');
       if (name === 'carbon') loadCarbonConfig();
       if (name === 'customers') refreshDangerZone();
+      if (name === 'sales') loadSalesAdmin();
     }
+
+    // ═══════════════════ SALES / BROKER KPI MODULE ═══════════════════
+    // Team leaderboard (visible to all reps) + each rep's own entry, dashboard
+    // and PRIVATE salary calculator. Data: sales_reps / broker_kpis (team-read)
+    // / broker_comp (private: own + admin only, enforced by RLS).
+    var _SK = { reps: [], kpis: [], compByRep: {}, myRepId: null };
+    var _SK_FIELDS = [
+      ['billing_total', 'Billing total (£)'], ['new_business_gbp', 'New business (£)'],
+      ['ces_direct_total', 'CES direct (£)'], ['long_term_total', 'Long term (£)'],
+      ['total_kwh', 'Total kWh'], ['new_business_kwh', 'New business kWh'],
+      ['lost_customers', 'Lost customers'], ['lost_meters', 'Lost meters'],
+      ['lost_kwh', 'Lost kWh'], ['deals_won', 'Deals won'], ['quotes_sent', 'Quotes sent']
+    ];
+    function _skMoney(n){ return '£' + (Number(n)||0).toLocaleString('en-GB', { maximumFractionDigits:0 }); }
+    function _skNum(n, dp){ return (Number(n)||0).toLocaleString('en-GB', { minimumFractionDigits:dp||0, maximumFractionDigits:dp||0 }); }
+    function _skUplift(bill, kwh){ kwh = Number(kwh)||0; if(!kwh) return '—'; return ((Number(bill)||0)/kwh*100).toFixed(2); }
+    function _skPeriodLabel(p){ if(!p) return ''; var d = new Date(p + 'T00:00:00'); return d.toLocaleDateString('en-GB', { month:'short', year:'numeric' }); }
+    function _skMonthKey(id){ var v = (document.getElementById(id)||{}).value; return v ? v + '-01' : null; }
+    function _skFlash(id, msg){ var e = document.getElementById(id); if(!e) return; e.textContent = msg; e.style.display = 'block'; setTimeout(function(){ e.style.display = 'none'; }, 2500); }
+    function _skCommission(k, comp){
+      if(!comp) return null;
+      var nb = Number(k.new_business_gbp)||0;
+      var ret = Math.max(0, (Number(k.billing_total)||0) - nb);
+      var rC = ret * (Number(comp.retained_rate)||0) / 100;
+      var nC = nb * (Number(comp.new_business_rate)||0) / 100;
+      var base = Number(comp.base_salary)||0;
+      return { retained:ret, newbiz:nb, retainedComm:rC, newbizComm:nC, commission:rC+nC, base:base, total:rC+nC+base };
+    }
+    async function salesFetchAll(){
+      var reps = await sb.from('sales_reps').select('*').order('sort_order');
+      _SK.reps = reps.data || [];
+      var kp = await sb.from('broker_kpis').select('*');
+      _SK.kpis = kp.data || [];
+      var cp = await sb.from('broker_comp').select('*'); // RLS: admin=all, rep=own only
+      _SK.compByRep = {};
+      (cp.data || []).forEach(function(c){ _SK.compByRep[c.rep_id] = c; });
+      _SK.myRepId = null;
+      if(currentUser && !currentUser.isAdmin){
+        var mine = _SK.reps.filter(function(r){ return r.profile_id === currentUser.userId; })[0];
+        _SK.myRepId = mine ? mine.id : null;
+      }
+    }
+    function _skPeriods(){ var s = {}; _SK.kpis.forEach(function(k){ s[k.period] = 1; }); return Object.keys(s).sort().reverse(); }
+    function _skDefaultMonth(){ var p = _skPeriods(); return p.length ? p[0].slice(0,7) : new Date().toISOString().slice(0,7); }
+    function _skFillPeriodSelect(selId, includeAll, onchange){
+      var sel = document.getElementById(selId); if(!sel) return;
+      var opts = _skPeriods().map(function(p){ return '<option value="' + p + '">' + _skPeriodLabel(p) + '</option>'; });
+      if(includeAll) opts.unshift('<option value="__all__">Full year (cumulative)</option>');
+      sel.innerHTML = opts.join('');
+      sel.onchange = onchange;
+    }
+    function _skFillRepSelect(selId){
+      var sel = document.getElementById(selId); if(!sel) return;
+      sel.innerHTML = _SK.reps.map(function(r){ return '<option value="' + r.id + '">' + escapeHtml(r.name) + '</option>'; }).join('');
+    }
+    function _skEntryFieldsHtml(prefix){
+      return _SK_FIELDS.map(function(f){
+        return '<div class="form-group"><label>' + f[1] + '</label><input type="number" step="any" id="' + prefix + f[0] + '"></div>';
+      }).join('') + '<div class="form-group" style="grid-column:1/-1"><label>Notes</label><input type="text" id="' + prefix + 'notes"></div>';
+    }
+    function _skFillEntry(prefix, k){
+      k = k || {};
+      _SK_FIELDS.forEach(function(f){ var el = document.getElementById(prefix + f[0]); if(el) el.value = (k[f[0]] != null ? k[f[0]] : ''); });
+      var n = document.getElementById(prefix + 'notes'); if(n) n.value = k.notes || '';
+    }
+    function _skReadEntry(prefix, repId, key){
+      var rec = { rep_id:repId, period:key, updated_at:new Date().toISOString() };
+      _SK_FIELDS.forEach(function(f){ rec[f[0]] = parseFloat(document.getElementById(prefix + f[0]).value) || 0; });
+      rec.notes = document.getElementById(prefix + 'notes').value || null;
+      return rec;
+    }
+    function _skAggregate(periodKey){
+      var out = {};
+      _SK.reps.forEach(function(r){ out[r.id] = { rep_id:r.id, _n:0 }; _SK_FIELDS.forEach(function(f){ out[r.id][f[0]] = 0; }); });
+      _SK.kpis.forEach(function(k){
+        if(periodKey !== '__all__' && k.period !== periodKey) return;
+        var o = out[k.rep_id]; if(!o) return;
+        _SK_FIELDS.forEach(function(f){ o[f[0]] += Number(k[f[0]]) || 0; });
+        o._n++;
+      });
+      return out;
+    }
+    function renderSalesLeaderboard(hostId, periodKey){
+      var host = document.getElementById(hostId); if(!host) return;
+      periodKey = periodKey || '__all__';
+      var cumulative = periodKey === '__all__';
+      var agg = _skAggregate(periodKey);
+      var rows = _SK.reps.map(function(r){ return { rep:r, a:agg[r.id] }; })
+        .filter(function(x){ return x.a._n > 0 || x.a.billing_total > 0; })
+        .sort(function(a,b){ return b.a.billing_total - a.a.billing_total; });
+      var th = '<tr><th>#</th><th>Rep</th><th class="num">Billing</th><th class="num">New biz</th><th class="num">Total kWh</th><th class="num">Uplift p/kWh</th><th class="num">% target</th><th class="num">Won</th><th class="num">Lost custs</th></tr>';
+      var body = rows.map(function(x, i){
+        var a = x.a, r = x.rep;
+        var tgt = (Number(r.monthly_target)||0) * (cumulative ? 12 : 1);
+        var pct = tgt > 0 ? Math.round(a.billing_total / tgt * 100) + '%' : '—';
+        var hl = (r.id === _SK.myRepId) ? ' style="background:rgba(47,61,126,0.08);font-weight:700;"' : '';
+        return '<tr' + hl + '><td>' + (i+1) + '</td><td>' + escapeHtml(r.name) + '</td>' +
+          '<td class="num">' + _skMoney(a.billing_total) + '</td>' +
+          '<td class="num">' + _skMoney(a.new_business_gbp) + '</td>' +
+          '<td class="num">' + _skNum(a.total_kwh, 0) + '</td>' +
+          '<td class="num">' + _skUplift(a.billing_total, a.total_kwh) + '</td>' +
+          '<td class="num">' + pct + '</td>' +
+          '<td class="num">' + (a.deals_won || '—') + '</td>' +
+          '<td class="num">' + (a.lost_customers || 0) + '</td></tr>';
+      }).join('');
+      host.innerHTML = rows.length ? ('<table class="sk-table">' + th + body + '</table>') : '<p class="sk-empty">No figures for this period yet.</p>';
+    }
+
+    // ── Admin: commission editor + KPI entry + leaderboard ──
+    async function loadSalesAdmin(){
+      await salesFetchAll();
+      var ef = document.getElementById('skEntryFields'); if(ef) ef.innerHTML = _skEntryFieldsHtml('sk_');
+      _skFillRepSelect('skKpiRep');
+      var kp = document.getElementById('skKpiPeriod'); if(kp) kp.value = _skDefaultMonth();
+      _skFillPeriodSelect('skAdminPeriod', true, function(){ renderSalesLeaderboard('skAdminBoard', document.getElementById('skAdminPeriod').value); });
+      renderCommissionEditor();
+      renderSalesLeaderboard('skAdminBoard', (document.getElementById('skAdminPeriod')||{}).value || '__all__');
+      skKpiLoadForm();
+    }
+    function renderCommissionEditor(){
+      var host = document.getElementById('skCompEditor'); if(!host) return;
+      var rows = _SK.reps.map(function(r){
+        var c = _SK.compByRep[r.id] || { retained_rate:5, new_business_rate:13, base_salary:0 };
+        return '<tr><td>' + escapeHtml(r.name) + '</td>' +
+          '<td><input type="number" step="0.1" id="cr_' + r.id + '" value="' + c.retained_rate + '" style="width:78px"></td>' +
+          '<td><input type="number" step="0.1" id="cn_' + r.id + '" value="' + c.new_business_rate + '" style="width:78px"></td>' +
+          '<td><input type="number" step="1" id="cb_' + r.id + '" value="' + c.base_salary + '" style="width:108px"></td>' +
+          '<td><input type="number" step="1" id="ct_' + r.id + '" value="' + (Number(r.monthly_target)||0) + '" style="width:118px"></td>' +
+          '<td><button class="btn-primary" style="padding:6px 12px;width:auto" onclick="skSaveComp(\'' + r.id + '\')">Save</button></td></tr>';
+      }).join('');
+      host.innerHTML = '<table class="sk-table"><tr><th>Rep</th><th>Retained %</th><th>New business %</th><th>Base £/mo</th><th>Monthly target £</th><th></th></tr>' + rows + '</table>';
+    }
+    async function skSaveComp(repId){
+      var rr = parseFloat(document.getElementById('cr_' + repId).value) || 0;
+      var nr = parseFloat(document.getElementById('cn_' + repId).value) || 0;
+      var bs = parseFloat(document.getElementById('cb_' + repId).value) || 0;
+      var tg = parseFloat(document.getElementById('ct_' + repId).value) || 0;
+      var e1 = await sb.from('broker_comp').upsert({ rep_id:repId, retained_rate:rr, new_business_rate:nr, base_salary:bs, updated_at:new Date().toISOString() }, { onConflict:'rep_id' });
+      var e2 = await sb.from('sales_reps').update({ monthly_target:tg }).eq('id', repId);
+      if(e1.error || e2.error){ safeAlert('Could not save commission settings.', e1.error || e2.error); return; }
+      _SK.compByRep[repId] = { rep_id:repId, retained_rate:rr, new_business_rate:nr, base_salary:bs };
+      var rep = _SK.reps.filter(function(r){ return r.id === repId; })[0]; if(rep) rep.monthly_target = tg;
+      logAction('save_broker_comp', null, { rep_id:repId });
+      renderSalesLeaderboard('skAdminBoard', (document.getElementById('skAdminPeriod')||{}).value || '__all__');
+      _skFlash('skCompMsg', 'Saved.');
+    }
+    function skKpiLoadForm(){
+      var repId = document.getElementById('skKpiRep').value;
+      var key = _skMonthKey('skKpiPeriod');
+      var k = _SK.kpis.filter(function(x){ return x.rep_id === repId && x.period === key; })[0];
+      _skFillEntry('sk_', k);
+    }
+    async function skSaveKpi(){
+      var repId = document.getElementById('skKpiRep').value;
+      var key = _skMonthKey('skKpiPeriod');
+      if(!repId || !key){ safeAlert('Pick a rep and a month.', null); return; }
+      var rec = _skReadEntry('sk_', repId, key);
+      var resp = await sb.from('broker_kpis').upsert(rec, { onConflict:'rep_id,period' });
+      if(resp.error){ safeAlert('Could not save these figures.', resp.error); return; }
+      logAction('save_broker_kpi', null, { rep_id:repId, period:key });
+      await salesFetchAll();
+      renderSalesLeaderboard('skAdminBoard', (document.getElementById('skAdminPeriod')||{}).value || '__all__');
+      _skFlash('skKpiMsg', 'Saved.');
+    }
+
+    // ── Broker: my dashboard, entry, private calculator, leaderboard ──
+    async function brokerSalesInit(){
+      await salesFetchAll();
+      var ef = document.getElementById('bxEntryFields'); if(ef) ef.innerHTML = _skEntryFieldsHtml('bx_');
+      var mIn = document.getElementById('bxMonth'); if(mIn && !mIn.value) mIn.value = _skDefaultMonth();
+      _skFillPeriodSelect('bxBoardPeriod', true, function(){ renderSalesLeaderboard('bxBoard', document.getElementById('bxBoardPeriod').value); });
+      var warn = document.getElementById('bxLinkWarn');
+      if(warn) warn.innerHTML = _SK.myRepId ? '' : '<div class="card" style="border-left:3px solid #b5840a;margin-bottom:14px;">Your sales profile isn’t linked to this login yet, so your personal figures and calculator are hidden. Contact CES to link it.</div>';
+      var entryCard = document.getElementById('bxEntryCard'); if(entryCard) entryCard.style.display = _SK.myRepId ? '' : 'none';
+      renderSalesLeaderboard('bxBoard', (document.getElementById('bxBoardPeriod')||{}).value || '__all__');
+      brokerRenderMine();
+    }
+    function brokerRenderMine(){
+      var key = _skMonthKey('bxMonth');
+      var k = _SK.myRepId ? _SK.kpis.filter(function(x){ return x.rep_id === _SK.myRepId && x.period === key; })[0] : null;
+      _skFillEntry('bx_', k);
+      renderMyDashboard(key, k);
+      renderSalaryCalc(key, k);
+    }
+    function _skCard(label, val, sub){
+      return '<div class="stat-card"><div class="stat-label">' + label + '</div><div class="stat-value">' + val + '</div>' +
+        (sub ? '<div class="stat-foot" style="font-size:11px;color:var(--muted);margin-top:4px;">' + sub + '</div>' : '') + '</div>';
+    }
+    function renderMyDashboard(key, k){
+      var host = document.getElementById('bxCards'); if(!host) return;
+      var rep = _SK.reps.filter(function(r){ return r.id === _SK.myRepId; })[0];
+      if(!rep){ host.innerHTML = ''; return; }
+      k = k || { billing_total:0, total_kwh:0, new_business_gbp:0, lost_customers:0 };
+      var tgt = Number(rep.monthly_target) || 0;
+      var pct = tgt > 0 ? Math.round((Number(k.billing_total)||0) / tgt * 100) + '%' : '—';
+      var comm = _skCommission(k, _SK.compByRep[_SK.myRepId]);
+      host.innerHTML =
+        _skCard('Billing this month', _skMoney(k.billing_total)) +
+        _skCard('% to target', pct, tgt > 0 ? ('Target ' + _skMoney(tgt)) : 'No target set') +
+        _skCard('New business', _skMoney(k.new_business_gbp)) +
+        _skCard('Avg uplift', _skUplift(k.billing_total, k.total_kwh) + ' p/kWh') +
+        (comm ? _skCard('Commission (month)', _skMoney(comm.commission), 'Private to you') : '');
+      renderMyTrend();
+    }
+    function renderMyTrend(){
+      var host = document.getElementById('bxTrend'); if(!host) return;
+      var mine = _SK.kpis.filter(function(k){ return k.rep_id === _SK.myRepId; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
+      if(!mine.length){ host.innerHTML = '<p class="sk-empty">No history yet.</p>'; return; }
+      var max = Math.max.apply(null, mine.map(function(k){ return Number(k.billing_total)||0; }).concat([1]));
+      var W = Math.max(680, host.clientWidth || 900), H = 220, padL = 60, padR = 18, padT = 16, padB = 34, iw = W-padL-padR, ih = H-padT-padB;
+      var slot = iw / mine.length, bw = Math.max(14, Math.min(54, slot*0.6));
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">';
+      for(var g=0; g<=4; g++){ var y = padT + ih*(1-g/4); svg += '<line x1="' + padL + '" y1="' + y + '" x2="' + (W-padR) + '" y2="' + y + '" stroke="#e6e1d6"/>'; svg += '<text x="' + (padL-8) + '" y="' + (y+4) + '" text-anchor="end" font-size="10" fill="#7a7e8c" font-family="JetBrains Mono">£' + _skNum(max*g/4, 0) + '</text>'; }
+      mine.forEach(function(k, i){ var v = Number(k.billing_total)||0; var cx = padL + slot*(i+0.5); var h = v/max*ih; var y = padT + ih - h; svg += '<rect x="' + (cx-bw/2) + '" y="' + y + '" width="' + bw + '" height="' + h + '" rx="3" fill="#2f3d7e"/>'; svg += '<text x="' + cx + '" y="' + (padT+ih+16) + '" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">' + _skPeriodLabel(k.period) + '</text>'; });
+      svg += '</svg>'; host.innerHTML = svg;
+    }
+    function renderSalaryCalc(key, k){
+      var host = document.getElementById('bxCalc'); if(!host) return;
+      var comp = _SK.myRepId ? _SK.compByRep[_SK.myRepId] : null;
+      if(!comp){ host.innerHTML = '<p class="sk-empty">Your commission settings haven’t been published yet.</p>'; return; }
+      k = k || { billing_total:0, new_business_gbp:0 };
+      var c = _skCommission(k, comp);
+      host.innerHTML =
+        '<div class="sk-calc-grid">' +
+          '<div><div class="sk-calc-l">Retained billing</div><div class="sk-calc-v">' + _skMoney(c.retained) + '</div><div class="sk-calc-s">@ ' + _skNum(comp.retained_rate,1) + '% = <b>' + _skMoney(c.retainedComm) + '</b></div></div>' +
+          '<div><div class="sk-calc-l">New business</div><div class="sk-calc-v">' + _skMoney(c.newbiz) + '</div><div class="sk-calc-s">@ ' + _skNum(comp.new_business_rate,1) + '% = <b>' + _skMoney(c.newbizComm) + '</b></div></div>' +
+          '<div><div class="sk-calc-l">Base salary</div><div class="sk-calc-v">' + _skMoney(c.base) + '</div><div class="sk-calc-s">per month</div></div>' +
+          '<div class="sk-calc-total"><div class="sk-calc-l">Total this month</div><div class="sk-calc-v" style="color:var(--navy)">' + _skMoney(c.total) + '</div><div class="sk-calc-s">commission ' + _skMoney(c.commission) + '</div></div>' +
+        '</div>' +
+        '<div class="sk-scenario"><h4>What if…</h4>' +
+          '<div class="sk-sc-row"><label>Extra retained billing (£)</label><input type="number" id="scRet" value="0" oninput="skScenario()"></div>' +
+          '<div class="sk-sc-row"><label>Extra new business (£)</label><input type="number" id="scNew" value="0" oninput="skScenario()"></div>' +
+          '<div class="sk-sc-out" id="scOut"></div>' +
+        '</div>';
+      window._skCalcCtx = { comp:comp, base:c.base, retained:c.retained, newbiz:c.newbiz };
+      skScenario();
+    }
+    function skScenario(){
+      var ctx = window._skCalcCtx; if(!ctx) return;
+      var er = parseFloat((document.getElementById('scRet')||{}).value) || 0;
+      var en = parseFloat((document.getElementById('scNew')||{}).value) || 0;
+      var rC = (ctx.retained + er) * (Number(ctx.comp.retained_rate)||0) / 100;
+      var nC = (ctx.newbiz + en) * (Number(ctx.comp.new_business_rate)||0) / 100;
+      var out = document.getElementById('scOut');
+      if(out) out.innerHTML = 'Projected commission <b>' + _skMoney(rC+nC) + '</b> · total incl. base <b>' + _skMoney(rC+nC+ctx.base) + '</b>';
+    }
+    async function bxSaveMine(){
+      if(!_SK.myRepId){ safeAlert('Your sales profile isn’t linked yet.', null); return; }
+      var key = _skMonthKey('bxMonth');
+      if(!key){ safeAlert('Pick a month.', null); return; }
+      var rec = _skReadEntry('bx_', _SK.myRepId, key);
+      var resp = await sb.from('broker_kpis').upsert(rec, { onConflict:'rep_id,period' });
+      if(resp.error){ safeAlert('Could not save your figures.', resp.error); return; }
+      logAction('save_my_kpi', null, { period:key });
+      await salesFetchAll();
+      brokerRenderMine();
+      renderSalesLeaderboard('bxBoard', (document.getElementById('bxBoardPeriod')||{}).value || '__all__');
+      _skFlash('bxMsg', 'Saved.');
+    }
+    function brokerNav(view){
+      var sales = document.getElementById('brokerSalesView');
+      var cust = document.getElementById('brokerCustomersView');
+      var mv = document.getElementById('brokerMetersView');
+      var nS = document.getElementById('bkNavSales'), nC = document.getElementById('bkNavCust');
+      if(view === 'customers'){
+        if(sales) sales.style.display = 'none';
+        backToBrokerCustomers();
+        if(nS) nS.classList.remove('active'); if(nC) nC.classList.add('active');
+      } else {
+        if(sales) sales.style.display = '';
+        if(cust) cust.style.display = 'none';
+        if(mv) mv.style.display = 'none';
+        if(nS) nS.classList.add('active'); if(nC) nC.classList.remove('active');
+      }
+    }
+
     async function refreshAdminStats() {
       const { count: cust } = await sb.from('customers').select('*', { count: 'exact', head: true });
       const { count: rep }  = await sb.from('reports').select('*', { count: 'exact', head: true });
