@@ -547,10 +547,11 @@
     /* What-if (redesigned) */
     .sk-whatif { border-top: 1px dashed #e6e1d6; padding-top: 16px; margin-top: 4px; }
     .sk-whatif h4 { font-size: 13px; font-weight: 800; margin-bottom: 2px; }
-    .sk-wi-row { display: grid; grid-template-columns: 170px 1fr 80px; gap: 12px; align-items: center; margin-bottom: 10px; }
-    .sk-wi-row > span { font-size: 12.5px; color: var(--muted); }
+    .sk-wi-row { display: grid; grid-template-columns: 230px 1fr 130px; gap: 12px; align-items: center; margin-bottom: 12px; }
+    .sk-wi-row > span { font-size: 12.5px; color: var(--muted); font-weight: 600; }
     .sk-wi-row input[type=range] { width: 100%; accent-color: var(--navy); }
-    .sk-wi-row > b { font-family: 'JetBrains Mono', monospace; font-size: 13px; text-align: right; }
+    .sk-wi-num { width: 100%; padding: 7px 9px; border: 1px solid #d8d2c6; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+    @media (max-width: 600px){ .sk-wi-row { grid-template-columns: 1fr 120px; } .sk-wi-row > span { grid-column: 1/-1; } }
     .sk-wi-result { margin-top: 14px; }
     .sk-ba { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
     .sk-ba-cell { display: flex; flex-direction: column; }
@@ -558,7 +559,6 @@
     .sk-ba-cell b { font-size: 20px; }
     .sk-ba-arrow { font-size: 20px; color: var(--muted); }
     .sk-ba-delta { background: #e8f0e6; color: #2f6b2f; font-weight: 800; padding: 6px 12px; border-radius: 999px; font-size: 14px; }
-    @media (max-width: 560px){ .sk-wi-row { grid-template-columns: 1fr 64px; } .sk-wi-row > span { grid-column: 1/-1; } }
     /* Drill-in overlay */
     .sk-overlay { position: fixed; inset: 0; background: rgba(20,22,34,0.55); z-index: 4000; display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; }
     .sk-overlay__box { background: #fff; border-radius: 14px; max-width: 920px; width: 100%; padding: 26px 26px 30px; position: relative; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
@@ -4305,20 +4305,33 @@
           '<div class="sk-calc-total"><div class="sk-calc-l">Total earnings</div><div class="sk-calc-v" style="color:var(--navy)">' + _skMoney(c.total) + '</div><div class="sk-calc-s">' + _skMoney(c.commission) + ' commission + base</div></div>' +
         '</div>' +
         '<div class="sk-whatif">' +
-          '<h4>Try a bigger month</h4>' +
-          '<p style="font-size:12px;color:var(--muted);margin:0 0 12px;">Drag the sliders to see what extra business would add to your commission.</p>' +
-          '<div class="sk-wi-row"><span>Extra new business</span><input type="range" id="scNew" min="0" max="100000" step="1000" value="0" oninput="skScenario()"><b id="scNewLbl">£0</b></div>' +
-          '<div class="sk-wi-row"><span>Extra retained billing</span><input type="range" id="scRet" min="0" max="100000" step="1000" value="0" oninput="skScenario()"><b id="scRetLbl">£0</b></div>' +
+          '<h4>What could you earn?</h4>' +
+          '<p style="font-size:12px;color:var(--muted);margin:0 0 12px;">Type in the additional revenue you could bring in (up to £100,000 each), or drag the slider. Your projected commission updates instantly.</p>' +
+          '<div class="sk-wi-row"><span>Additional New Business Revenue (£)</span><input type="range" id="scNewR" min="0" max="100000" step="500" value="0" oninput="skScenarioSlider(\'New\')"><input type="number" class="sk-wi-num" id="scNew" min="0" max="100000" step="500" value="0" placeholder="0" oninput="skScenario()"></div>' +
+          '<div class="sk-wi-row"><span>Additional Retained Billing (£)</span><input type="range" id="scRetR" min="0" max="100000" step="500" value="0" oninput="skScenarioSlider(\'Ret\')"><input type="number" class="sk-wi-num" id="scRet" min="0" max="100000" step="500" value="0" placeholder="0" oninput="skScenario()"></div>' +
           '<div class="sk-wi-result" id="scOut"></div>' +
         '</div>';
       skScenario();
     }
+    // Keep the slider and the type-in box in step (slider drag -> number box).
+    function skScenarioSlider(which){
+      var slider = document.getElementById('sc' + which + 'R');
+      var num = document.getElementById('sc' + which);
+      if (slider && num) num.value = slider.value;
+      skScenario();
+    }
     function skScenario(){
       var ctx = window._skCalcCtx; if(!ctx) return;
-      var er = parseFloat((document.getElementById('scRet')||{}).value) || 0;
-      var en = parseFloat((document.getElementById('scNew')||{}).value) || 0;
-      var rl = document.getElementById('scRetLbl'); if(rl) rl.textContent = _skMoney(er);
-      var nl = document.getElementById('scNewLbl'); if(nl) nl.textContent = _skMoney(en);
+      function clamp(v){ v = parseFloat(v) || 0; if (v < 0) v = 0; if (v > 100000) v = 100000; return v; }
+      function sync(numId, sliderId){
+        var num = document.getElementById(numId), sl = document.getElementById(sliderId);
+        var v = clamp(num ? num.value : 0);
+        if (num && parseFloat(num.value) > 100000) num.value = 100000; // enforce the £100k cap on type-in
+        if (sl) sl.value = v;
+        return v;
+      }
+      var en = sync('scNew', 'scNewR');
+      var er = sync('scRet', 'scRetR');
       var proj = (ctx.retained + er) * (Number(ctx.comp.retained_rate)||0) / 100 + (ctx.newbiz + en) * (Number(ctx.comp.new_business_rate)||0) / 100;
       var delta = proj - ctx.baseComm;
       var out = document.getElementById('scOut'); if(!out) return;
