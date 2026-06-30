@@ -4306,9 +4306,9 @@
         '</div>' +
         '<div class="sk-whatif">' +
           '<h4>What could you earn?</h4>' +
-          '<p style="font-size:12px;color:var(--muted);margin:0 0 12px;">Type in the additional revenue you could bring in (up to £100,000 each), or drag the slider. Your projected commission updates instantly.</p>' +
-          '<div class="sk-wi-row"><span>Additional New Business Revenue (£)</span><input type="range" id="scNewR" min="0" max="100000" step="500" value="0" oninput="skScenarioSlider(\'New\')"><input type="number" class="sk-wi-num" id="scNew" min="0" max="100000" step="500" value="0" placeholder="0" oninput="skScenario()"></div>' +
-          '<div class="sk-wi-row"><span>Additional Retained Billing (£)</span><input type="range" id="scRetR" min="0" max="100000" step="500" value="0" oninput="skScenarioSlider(\'Ret\')"><input type="number" class="sk-wi-num" id="scRet" min="0" max="100000" step="500" value="0" placeholder="0" oninput="skScenario()"></div>' +
+          '<p style="font-size:12px;color:var(--muted);margin:0 0 12px;">Type in any additional revenue you could bring in, or drag the slider (the slider goes to £100,000 — you can type higher). Your projected commission updates instantly.</p>' +
+          '<div class="sk-wi-row"><span>Additional New Business Revenue (£)</span><input type="range" id="scNewR" min="0" max="100000" step="500" value="0" oninput="skScenarioSlider(\'New\')"><input type="number" class="sk-wi-num" id="scNew" min="0" step="500" value="0" placeholder="0" oninput="skScenario()"></div>' +
+          '<div class="sk-wi-row"><span>Additional Retained Billing (£)</span><input type="range" id="scRetR" min="0" max="100000" step="500" value="0" oninput="skScenarioSlider(\'Ret\')"><input type="number" class="sk-wi-num" id="scRet" min="0" step="500" value="0" placeholder="0" oninput="skScenario()"></div>' +
           '<div class="sk-wi-result" id="scOut"></div>' +
         '</div>';
       skScenario();
@@ -4322,16 +4322,14 @@
     }
     function skScenario(){
       var ctx = window._skCalcCtx; if(!ctx) return;
-      function clamp(v){ v = parseFloat(v) || 0; if (v < 0) v = 0; if (v > 100000) v = 100000; return v; }
-      function sync(numId, sliderId){
+      function val(numId, sliderId){
         var num = document.getElementById(numId), sl = document.getElementById(sliderId);
-        var v = clamp(num ? num.value : 0);
-        if (num && parseFloat(num.value) > 100000) num.value = 100000; // enforce the £100k cap on type-in
-        if (sl) sl.value = v;
+        var v = parseFloat(num ? num.value : 0) || 0; if (v < 0) v = 0;
+        if (sl) sl.value = Math.min(v, 100000); // slider maxes at £100k; the typed figure can go higher
         return v;
       }
-      var en = sync('scNew', 'scNewR');
-      var er = sync('scRet', 'scRetR');
+      var en = val('scNew', 'scNewR');
+      var er = val('scRet', 'scRetR');
       var proj = (ctx.retained + er) * (Number(ctx.comp.retained_rate)||0) / 100 + (ctx.newbiz + en) * (Number(ctx.comp.new_business_rate)||0) / 100;
       var delta = proj - ctx.baseComm;
       var out = document.getElementById('scOut'); if(!out) return;
