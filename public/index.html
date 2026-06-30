@@ -507,6 +507,9 @@
     .sk-table input { padding: 5px 7px; border: 1px solid #d8d2c6; border-radius: 6px; font-family: inherit; font-size: 12.5px; }
     .sk-entry-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 14px; }
     .sk-empty { color: var(--muted); font-size: 13px; padding: 10px 0; }
+    .sk-chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 16px; }
+    .sk-chart { border: 1px solid #ece8df; border-radius: 10px; padding: 12px 14px 14px; background: #fff; }
+    .sk-chart__t { font-size: 12.5px; font-weight: 800; color: #1c1f2a; margin-bottom: 8px; }
     .sk-calc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; margin-bottom: 16px; }
     .sk-calc-l { font-size: 12px; color: var(--muted); font-weight: 600; }
     .sk-calc-v { font-size: 22px; font-weight: 800; color: #1c1f2a; margin-top: 2px; }
@@ -1346,14 +1349,20 @@
             <div id="bxTeamChart"></div>
           </div>
 
-          <!-- Personal dashboard -->
+          <!-- Money hero: how much you're making -->
           <div class="card" style="margin-bottom:16px;">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
-              <h3 style="font-size:14px;font-weight:800;">My month</h3>
+              <h3 style="font-size:14px;font-weight:800;">My earnings</h3>
               <input type="month" id="bxMonth" onchange="brokerRenderMine()" style="width:auto;" />
             </div>
             <div class="stats-row" id="bxCards"></div>
-            <div style="margin-top:16px;"><div id="bxTrend"></div></div>
+          </div>
+
+          <!-- Charts: money & momentum -->
+          <div class="card" style="margin-bottom:16px;">
+            <h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Your money &amp; momentum</h3>
+            <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">The more you bill — especially new business — the more you earn. Here's the picture.</p>
+            <div class="sk-chart-grid" id="bxCharts"></div>
           </div>
 
           <div class="card" id="bxCalcCard" style="margin-bottom:16px;">
@@ -3799,7 +3808,7 @@
       var key = _skMonthKey('bxMonth');
       var k = _SK.myRepId ? _SK.kpis.filter(function(x){ return x.rep_id === _SK.myRepId && x.period === key; })[0] : null;
       _skFillEntry('bx_', k);
-      renderMyDashboard(key, k);
+      renderMoneyDashboard(key, k);
       renderSalaryCalc(key, k);
     }
     function _skCard(label, val, sub){
@@ -3895,6 +3904,157 @@
         '<div style="margin-bottom:18px;">' + trend + '</div>' +
         '<div style="overflow-x:auto;"><table class="sk-table"><tr><th>Month</th><th class="num">Billing</th><th class="num">New biz</th><th class="num">kWh</th><th class="num">Uplift</th><th class="num">Lost</th><th>Notes</th></tr>' + body + '</table></div>'
       );
+    }
+    // ───── Chart builders (responsive SVG strings) ─────
+    function _skColBars(series, opts){
+      opts = opts || {}; var color = opts.color || '#2f3d7e';
+      if(!series.length) return '<p class="sk-empty">No data yet.</p>';
+      var max = Math.max.apply(null, series.map(function(s){ return s.val; }).concat([1]));
+      var W = 900, H = 240, padL = 64, padR = 18, padT = 16, padB = 40, iw = W-padL-padR, ih = H-padT-padB;
+      var slot = iw/series.length, bw = Math.max(12, Math.min(54, slot*0.6));
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;">';
+      for(var g=0; g<=4; g++){ var y = padT+ih*(1-g/4); svg += '<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="#e6e1d6"/>'; svg += '<text x="'+(padL-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="10" fill="#7a7e8c" font-family="JetBrains Mono">'+(opts.money?'£':'')+_skNum(max*g/4,0)+'</text>'; }
+      series.forEach(function(s,i){ var cx = padL+slot*(i+0.5), h = s.val/max*ih, y = padT+ih-h; svg += '<rect x="'+(cx-bw/2)+'" y="'+y+'" width="'+bw+'" height="'+h+'" rx="3" fill="'+color+'"/>'; svg += '<text x="'+cx+'" y="'+(padT+ih+16)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+s.label+'</text>'; });
+      return svg + '</svg>';
+    }
+    function _skArea(series, color){
+      color = color || '#2f7d4f';
+      if(!series.length) return '<p class="sk-empty">No data yet.</p>';
+      var max = Math.max.apply(null, series.map(function(s){ return s.val; }).concat([1]));
+      var W = 900, H = 240, padL = 64, padR = 18, padT = 16, padB = 40, iw = W-padL-padR, ih = H-padT-padB, n = series.length;
+      function px(i){ return n===1 ? padL+iw/2 : padL+iw*(i/(n-1)); }
+      function py(v){ return padT+ih*(1-v/max); }
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;">';
+      for(var g=0; g<=4; g++){ var y = padT+ih*(1-g/4); svg += '<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="#e6e1d6"/>'; svg += '<text x="'+(padL-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="10" fill="#7a7e8c" font-family="JetBrains Mono">£'+_skNum(max*g/4,0)+'</text>'; }
+      var line = '', area = 'M' + px(0) + ',' + py(0);
+      series.forEach(function(s,i){ var X=px(i), Y=py(s.val); line += (i===0?'M':'L')+X+','+Y+' '; area += ' L'+X+','+Y; });
+      area += ' L' + px(n-1) + ',' + py(0) + ' Z';
+      svg += '<path d="'+area+'" fill="'+color+'" opacity="0.13"/>';
+      svg += '<path d="'+line+'" fill="none" stroke="'+color+'" stroke-width="2.5"/>';
+      series.forEach(function(s,i){ svg += '<circle cx="'+px(i)+'" cy="'+py(s.val)+'" r="3" fill="'+color+'"/>'; svg += '<text x="'+px(i)+'" y="'+(padT+ih+16)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+s.label+'</text>'; });
+      return svg + '</svg>';
+    }
+    function _skLineTarget(series){
+      if(!series.length) return '<p class="sk-empty">No data yet.</p>';
+      var max = Math.max.apply(null, series.map(function(s){ return Math.max(s.val, s.target||0); }).concat([1]));
+      var W = 900, H = 240, padL = 64, padR = 18, padT = 22, padB = 40, iw = W-padL-padR, ih = H-padT-padB, n = series.length, hasT = series.some(function(s){ return (s.target||0) > 0; });
+      function px(i){ return n===1 ? padL+iw/2 : padL+iw*(i/(n-1)); }
+      function py(v){ return padT+ih*(1-v/max); }
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;">';
+      if(hasT){ svg += '<rect x="'+padL+'" y="4" width="12" height="3" fill="#c9a23a"/><text x="'+(padL+18)+'" y="10" font-size="11" fill="#4a4e5c" font-family="Manrope">Target</text>'; }
+      for(var g=0; g<=4; g++){ var y = padT+ih*(1-g/4); svg += '<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="#e6e1d6"/>'; svg += '<text x="'+(padL-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="10" fill="#7a7e8c" font-family="JetBrains Mono">£'+_skNum(max*g/4,0)+'</text>'; }
+      if(hasT){ var ty = py(series[0].target); svg += '<line x1="'+padL+'" y1="'+ty+'" x2="'+(W-padR)+'" y2="'+ty+'" stroke="#c9a23a" stroke-width="2" stroke-dasharray="6 4"/>'; }
+      var line = '';
+      series.forEach(function(s,i){ var X=px(i), Y=py(s.val); line += (i===0?'M':'L')+X+','+Y+' '; });
+      svg += '<path d="'+line+'" fill="none" stroke="#2f3d7e" stroke-width="2.5"/>';
+      series.forEach(function(s,i){ svg += '<circle cx="'+px(i)+'" cy="'+py(s.val)+'" r="3" fill="#2f3d7e"/>'; svg += '<text x="'+px(i)+'" y="'+(padT+ih+16)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+s.label+'</text>'; });
+      return svg + '</svg>';
+    }
+    function _skStackBars(series){
+      if(!series.length) return '<p class="sk-empty">No data yet.</p>';
+      var max = Math.max.apply(null, series.map(function(s){ return s.retained + s.newbiz; }).concat([1]));
+      var W = 900, H = 250, padL = 64, padR = 18, padT = 22, padB = 40, iw = W-padL-padR, ih = H-padT-padB;
+      var slot = iw/series.length, bw = Math.max(12, Math.min(48, slot*0.6));
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;">';
+      svg += '<rect x="'+padL+'" y="4" width="12" height="12" rx="2" fill="#2f3d7e"/><text x="'+(padL+18)+'" y="14" font-size="11" fill="#4a4e5c" font-family="Manrope">Retained</text>';
+      svg += '<rect x="'+(padL+110)+'" y="4" width="12" height="12" rx="2" fill="#2f7d4f"/><text x="'+(padL+128)+'" y="14" font-size="11" fill="#4a4e5c" font-family="Manrope">New business</text>';
+      for(var g=0; g<=4; g++){ var y = padT+ih*(1-g/4); svg += '<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="#e6e1d6"/>'; svg += '<text x="'+(padL-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="10" fill="#7a7e8c" font-family="JetBrains Mono">£'+_skNum(max*g/4,0)+'</text>'; }
+      series.forEach(function(s,i){ var cx = padL+slot*(i+0.5), hr = s.retained/max*ih, hn = s.newbiz/max*ih, yr = padT+ih-hr; svg += '<rect x="'+(cx-bw/2)+'" y="'+yr+'" width="'+bw+'" height="'+hr+'" fill="#2f3d7e"/>'; svg += '<rect x="'+(cx-bw/2)+'" y="'+(yr-hn)+'" width="'+bw+'" height="'+hn+'" rx="3" fill="#2f7d4f"/>'; svg += '<text x="'+cx+'" y="'+(padT+ih+16)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+s.label+'</text>'; });
+      return svg + '</svg>';
+    }
+    function _skGroupBars(series, aLabel, bLabel){
+      if(!series.length) return '<p class="sk-empty">No data yet.</p>';
+      var max = Math.max.apply(null, series.map(function(s){ return Math.max(s.a, s.b); }).concat([1]));
+      var W = 900, H = 250, padL = 64, padR = 18, padT = 22, padB = 40, iw = W-padL-padR, ih = H-padT-padB;
+      var slot = iw/series.length, bw = Math.min(20, slot*0.3);
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;">';
+      svg += '<rect x="'+padL+'" y="4" width="12" height="12" rx="2" fill="#2f3d7e"/><text x="'+(padL+18)+'" y="14" font-size="11" fill="#4a4e5c" font-family="Manrope">'+aLabel+'</text>';
+      svg += '<rect x="'+(padL+90)+'" y="4" width="12" height="12" rx="2" fill="#c9a23a"/><text x="'+(padL+108)+'" y="14" font-size="11" fill="#4a4e5c" font-family="Manrope">'+bLabel+'</text>';
+      for(var g=0; g<=4; g++){ var y = padT+ih*(1-g/4); svg += '<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="#e6e1d6"/>'; svg += '<text x="'+(padL-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="10" fill="#7a7e8c" font-family="JetBrains Mono">£'+_skNum(max*g/4,0)+'</text>'; }
+      series.forEach(function(s,i){ var cx = padL+slot*(i+0.5), ha = s.a/max*ih, hb = s.b/max*ih; svg += '<rect x="'+(cx-bw-1)+'" y="'+(padT+ih-ha)+'" width="'+bw+'" height="'+ha+'" rx="2" fill="#2f3d7e"/>'; svg += '<rect x="'+(cx+1)+'" y="'+(padT+ih-hb)+'" width="'+bw+'" height="'+hb+'" rx="2" fill="#c9a23a"/>'; svg += '<text x="'+cx+'" y="'+(padT+ih+16)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+s.label+'</text>'; });
+      return svg + '</svg>';
+    }
+    function _skDonut(parts){
+      var total = parts.reduce(function(a,p){ return a + (p.val>0?p.val:0); }, 0);
+      if(total <= 0) return '<p class="sk-empty">No data yet.</p>';
+      var cx = 90, cy = 90, r = 72, rin = 44, ang = -Math.PI/2, W = 360, H = 184;
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;max-width:380px;">';
+      parts.forEach(function(p){ if(p.val <= 0) return; var frac = p.val/total, a2 = ang + frac*2*Math.PI; var large = frac>0.5?1:0; var x1=cx+r*Math.cos(ang), y1=cy+r*Math.sin(ang), x2=cx+r*Math.cos(a2), y2=cy+r*Math.sin(a2), xi2=cx+rin*Math.cos(a2), yi2=cy+rin*Math.sin(a2), xi1=cx+rin*Math.cos(ang), yi1=cy+rin*Math.sin(ang); svg += '<path d="M'+x1+','+y1+' A'+r+','+r+' 0 '+large+' 1 '+x2+','+y2+' L'+xi2+','+yi2+' A'+rin+','+rin+' 0 '+large+' 0 '+xi1+','+yi1+' Z" fill="'+p.color+'"/>'; ang = a2; });
+      svg += '<text x="'+cx+'" y="'+(cy+5)+'" text-anchor="middle" font-size="15" font-weight="800" font-family="Manrope" fill="#1c1f2a">'+_skMoney(total)+'</text>';
+      var ly = 34; parts.forEach(function(p){ svg += '<rect x="195" y="'+(ly-11)+'" width="12" height="12" rx="2" fill="'+p.color+'"/><text x="213" y="'+ly+'" font-size="12" font-family="Manrope" fill="#1c1f2a">'+p.label+' '+_skMoney(p.val)+'</text>'; ly += 26; });
+      return svg + '</svg>';
+    }
+    function _skGauge(pct){
+      var p = Math.max(0, Math.min(1, pct/100)), W = 340, H = 180, cx = 170, cy = 150, r = 112;
+      function pt(f){ var a = Math.PI*(1-f); return [cx+r*Math.cos(a), cy+r*Math.sin(a)]; }
+      var bg = 'M'+pt(0)[0]+','+pt(0)[1]+' A'+r+','+r+' 0 0 1 '+pt(1)[0]+','+pt(1)[1];
+      var val = 'M'+pt(0)[0]+','+pt(0)[1]+' A'+r+','+r+' 0 0 1 '+pt(p)[0]+','+pt(p)[1];
+      var col = pct>=100 ? '#2f7d4f' : (pct>=70 ? '#2f3d7e' : '#b5840a');
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;max-width:360px;">';
+      svg += '<path d="'+bg+'" fill="none" stroke="#e6e1d6" stroke-width="18" stroke-linecap="round"/>';
+      if(p>0) svg += '<path d="'+val+'" fill="none" stroke="'+col+'" stroke-width="18" stroke-linecap="round"/>';
+      svg += '<text x="'+cx+'" y="'+(cy-6)+'" text-anchor="middle" font-size="34" font-weight="800" font-family="Manrope" fill="#1c1f2a">'+Math.round(pct)+'%</text>';
+      svg += '<text x="'+cx+'" y="'+(cy+16)+'" text-anchor="middle" font-size="12" fill="#7a7e8c" font-family="Manrope">of target</text>';
+      return svg + '</svg>';
+    }
+    function _skTeamAvgByMonth(){
+      var m = {}; _SK.kpis.forEach(function(k){ if((Number(k.billing_total)||0) > 0){ (m[k.period] = m[k.period] || []).push(Number(k.billing_total)||0); } });
+      var out = {}; Object.keys(m).forEach(function(p){ out[p] = m[p].reduce(function(a,b){ return a+b; }, 0) / m[p].length; });
+      return out;
+    }
+    function _skRankInMonth(periodKey){
+      var arr = _SK.kpis.filter(function(k){ return k.period === periodKey && (Number(k.billing_total)||0) > 0; }).sort(function(a,b){ return b.billing_total - a.billing_total; });
+      var n = arr.length; for(var i=0;i<n;i++){ if(arr[i].rep_id === _SK.myRepId) return '#' + (i+1) + ' of ' + n; }
+      return '—';
+    }
+    function _skChartPanel(title, svg){ return '<div class="sk-chart"><div class="sk-chart__t">' + title + '</div>' + svg + '</div>'; }
+    // Money-forward dashboard: hero earnings + a grid of motivational charts
+    function renderMoneyDashboard(key, k){
+      var heroHost = document.getElementById('bxCards'), gridHost = document.getElementById('bxCharts');
+      var rep = _SK.reps.filter(function(r){ return r.id === _SK.myRepId; })[0];
+      if(!rep){ if(heroHost) heroHost.innerHTML = ''; if(gridHost) gridHost.innerHTML = ''; return; }
+      var comp = _SK.compByRep[_SK.myRepId];
+      var hist = _SK.kpis.filter(function(x){ return x.rep_id === _SK.myRepId; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
+      k = k || { billing_total:0, total_kwh:0, new_business_gbp:0 };
+      var tgt = Number(rep.monthly_target) || 0;
+      var rank = _skRankInMonth(key);
+      // ── Hero cards ──
+      if(comp){
+        var cc = _skCommission(k, comp);
+        var commYTD = hist.reduce(function(a,h){ return a + _skCommission(h, comp).commission; }, 0);
+        var mWith = hist.filter(function(h){ return (Number(h.billing_total)||0) > 0; }).length || 1;
+        var proj = commYTD / mWith * 12;
+        heroHost.innerHTML =
+          _skCard('Commission this month', _skMoney(cc.commission), '+ base ' + _skMoney(cc.base) + ' = ' + _skMoney(cc.total)) +
+          _skCard('Earned this year', _skMoney(commYTD), 'commission so far') +
+          _skCard('On track for', _skMoney(proj), 'annualised at this pace') +
+          _skCard('Your rank', rank, 'team billing · ' + _skPeriodLabel(key));
+      } else {
+        var ytdBill = hist.reduce(function(a,h){ return a + (Number(h.billing_total)||0); }, 0);
+        heroHost.innerHTML =
+          _skCard('Billing this month', _skMoney(k.billing_total)) +
+          _skCard('Billing this year', _skMoney(ytdBill), 'so far') +
+          _skCard('New business', _skMoney(k.new_business_gbp)) +
+          _skCard('Your rank', rank, _skPeriodLabel(key));
+      }
+      // ── Charts grid ──
+      var panels = [];
+      panels.push(_skChartPanel('💷 Billing each month', _skColBars(hist.map(function(h){ return { label:_skPeriodLabel(h.period), val:Number(h.billing_total)||0 }; }), { color:'#2f3d7e', money:true })));
+      if(comp){
+        var commSeries = hist.map(function(h){ return { label:_skPeriodLabel(h.period), val:_skCommission(h, comp).commission }; });
+        panels.push(_skChartPanel('💰 Commission each month', _skColBars(commSeries, { color:'#2f7d4f', money:true })));
+        var run = 0; var cumSeries = commSeries.map(function(s){ run += s.val; return { label:s.label, val:run }; });
+        panels.push(_skChartPanel('📈 Commission banked this year', _skArea(cumSeries, '#2f7d4f')));
+        var cc2 = _skCommission(k, comp);
+        panels.push(_skChartPanel('🧩 This month’s pay make-up', _skDonut([{ label:'Base', val:cc2.base, color:'#9aa3c7' }, { label:'Retained', val:cc2.retainedComm, color:'#2f3d7e' }, { label:'New business', val:cc2.newbizComm, color:'#2f7d4f' }])));
+      }
+      panels.push(_skChartPanel('🎯 Billing vs target', _skLineTarget(hist.map(function(h){ return { label:_skPeriodLabel(h.period), val:Number(h.billing_total)||0, target:tgt }; }))));
+      panels.push(_skChartPanel('🌱 New business vs retained', _skStackBars(hist.map(function(h){ return { label:_skPeriodLabel(h.period), retained:Math.max(0,(Number(h.billing_total)||0)-(Number(h.new_business_gbp)||0)), newbiz:Number(h.new_business_gbp)||0 }; }))));
+      var avg = _skTeamAvgByMonth();
+      panels.push(_skChartPanel('🏆 You vs team average', _skGroupBars(hist.map(function(h){ return { label:_skPeriodLabel(h.period), a:Number(h.billing_total)||0, b:avg[h.period]||0 }; }), 'You', 'Team avg')));
+      panels.push(_skChartPanel('⚡ Average uplift (p/kWh)', _skColBars(hist.map(function(h){ return { label:_skPeriodLabel(h.period), val:(Number(h.total_kwh)||0) ? (Number(h.billing_total)||0)/(Number(h.total_kwh)||0)*100 : 0 }; }), { color:'#7a5cc0' })));
+      panels.push(_skChartPanel('🎯 % to target — ' + _skPeriodLabel(key), _skGauge(tgt > 0 ? (Number(k.billing_total)||0)/tgt*100 : 0)));
+      if(gridHost) gridHost.innerHTML = panels.join('');
     }
     function _skCalcCell(l, v, s){ return '<div><div class="sk-calc-l">' + l + '</div><div class="sk-calc-v">' + v + '</div><div class="sk-calc-s">' + s + '</div></div>'; }
     function renderSalaryCalc(key, k){
