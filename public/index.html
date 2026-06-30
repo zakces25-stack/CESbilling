@@ -1091,10 +1091,9 @@
           <div class="b2" id="dashClientName">—</div>
         </div>
         <div class="sidebar-nav">
-          <div class="sidebar-nav-label">Pages</div>
-          <div class="nav-item active" data-page="reports">Reports</div>
+          <div class="nav-item active" data-page="reports">Bill Validation Reports</div>
           <div class="nav-item" data-page="sites">Site List</div>
-          <div class="nav-item" data-page="compare">Consumption comparison</div>
+          <div class="nav-item" data-page="compare">Consumption and cost comparison</div>
           <div class="nav-item" data-page="usage">Carbon Reporting</div>
           <div class="nav-item" data-page="league">League Table</div>
         </div>
@@ -1146,7 +1145,7 @@
               <div class="stat-value" id="ds1">—</div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">Ongoing Errors</div>
+              <div class="stat-label">Ongoing Validation Errors</div>
               <div class="stat-value" id="ds2">—</div>
             </div>
             <div class="stat-card">
@@ -1155,7 +1154,7 @@
               <div class="stat-foot" id="ds3sub" style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'Manrope',sans-serif;">Including VAT + CCL</div>
             </div>
           </div>
-          <div class="section-head"><h2>Your validation reports</h2></div>
+          <div class="section-head"><h2>Your validation reports and invoices</h2></div>
           <div class="report-grid" id="reportGrid"></div>
           <div class="section-head"><h2>Your occupancy reports</h2></div>
           <div class="report-grid" id="occupancyGrid"></div>
@@ -1174,7 +1173,7 @@
         <!-- Page: Consumption comparison -->
         <div class="dash-section" data-page="compare" style="display:none;">
           <div class="section-head">
-            <h2>Consumption comparison</h2>
+            <h2>Consumption and cost comparison</h2>
             <div class="section-meta">Compare any two periods — a single month or several months each — across the sites you choose. Period B is measured against Period A (the baseline).</div>
           </div>
           <div class="cmp-card">
@@ -2655,13 +2654,16 @@
         return '£' + num.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       };
 
+      // Lookup of total by Year-Month so each card can also show "vs same month last year".
+      const _byYM = {};
+      reports.forEach(rr => { const t = parseTotal(rr.total_net); if (t != null && rr.year != null && rr.month_num != null) _byYM[rr.year + '-' + rr.month_num] = t; });
       grid.innerHTML = reports.map((r, i) => {
         const badges = [];
         const _ic = (window._issueCountsByReport || {})[r.id] || { ongoing: (r.fail_count || 0), resolved: 0 };
         const _ong = _ic.ongoing, _res = _ic.resolved;
         if (_ong > 0) badges.push(`<span class="badge badge-fail err-badge" data-error-badge title="View the issues log"><span class="bdot"></span>${escapeHtml(_ong)} error${_ong === 1 ? '' : 's'}</span>`);
         if (_res > 0) badges.push(`<span class="badge badge-ok"><span class="bdot"></span>${escapeHtml(_res)} resolved</span>`);
-        if (_ong === 0 && _res === 0) badges.push(`<span class="badge badge-ok"><span class="bdot"></span>All clean</span>`);
+        if (_ong === 0 && _res === 0) badges.push(`<span class="badge badge-ok"><span class="bdot"></span>No errors</span>`);
 
         // Compute "vs last month". Preferred source: r.prev_total_net (embedded
         // in the validation HTML at upload time — works even when only one
@@ -2682,6 +2684,17 @@
           vsHtml = `<span class="v" style="color:var(--muted);">—</span>`;
         }
 
+        // "vs same month last year" — only when a prior-year report for the same month exists.
+        const lyTotal = (r.year != null && r.month_num != null) ? _byYM[(Number(r.year) - 1) + '-' + r.month_num] : null;
+        let vsYHtml = null;
+        if (cur != null && lyTotal != null && lyTotal !== 0) {
+          const pY = ((cur - lyTotal) / lyTotal) * 100;
+          const sY = pY > 0 ? '+' : '';
+          const cY = pY > 0.5 ? 'var(--fail)' : (pY < -0.5 ? 'var(--ok)' : 'var(--muted)');
+          const aY = pY > 0.5 ? '▲' : (pY < -0.5 ? '▼' : '◆');
+          vsYHtml = `<span class="v" style="color:${cY};font-weight:600;">${aY} ${sY}${pY.toFixed(1)}%</span>`;
+        }
+
         return `
           <div class="report-card ${i === 0 ? 'latest' : ''}" data-source="dash" data-report-id="${escapeHtml(r.id)}">
             <div class="report-month">${escapeHtml(r.month)}</div>
@@ -2691,6 +2704,7 @@
               <div class="row"><span>Sites</span><span class="v">${escapeHtml(r.sites || 0)}</span></div>
               <div class="row"><span>Total</span><span class="v">${escapeHtml(fmtGBP(r.total_net))}</span></div>
               <div class="row"><span>vs last month</span>${vsHtml}</div>
+              ${vsYHtml ? `<div class="row"><span>vs last year</span>${vsYHtml}</div>` : ''}
             </div>
           </div>
         `;
@@ -3153,33 +3167,44 @@
       const e2 = document.getElementById('ds2'); if (e2) e2.textContent = ongoingTotal;
     }
     // ───── SITE LIST (customer page) ─────
-    // Reads the sites table (populated from uploaded validation reports). Shows the
-    // supply identifier + the registered site address, grouped by utility. No area code.
+    // Built from the LATEST validation report's bv_summary — same source as the Excel
+    // download, so the on-screen list and the download always match (identifier + site
+    // address + supplier, grouped by utility). Water supplier defaults to Water2Business.
     async function loadSiteList(cid) {
       const body = document.getElementById('siteListBody');
       if (!body) return;
       body.innerHTML = '<div class="empty-state"><p>Loading…</p></div>';
-      let sites = [];
+      let bv = null;
       try {
-        const r = await sb.from('sites').select('utility, identifier, site_address').eq('customer_id', cid).order('utility').order('identifier');
-        sites = r.data || [];
+        const { data } = await sb.from('reports').select('bv_summary, month, year')
+          .eq('customer_id', cid).eq('report_type', 'bill_validation')
+          .order('year', { ascending: false }).order('month_num', { ascending: false }).limit(1);
+        bv = (data && data[0] && data[0].bv_summary) ? data[0].bv_summary : null;
       } catch (e) { console.error('Site list load:', e); body.innerHTML = '<div class="empty-state"><p>Could not load your sites. Please refresh.</p></div>'; return; }
-      if (!sites.length) { body.innerHTML = '<div class="empty-state"><h3>No sites on record yet</h3><p>Your supplies will appear here once CES uploads a validation report.</p></div>'; return; }
-      const groups = {};
-      sites.forEach(function(s){ (groups[s.utility] || (groups[s.utility] = [])).push(s); });
+      if (!bv) { body.innerHTML = '<div class="empty-state"><h3>No sites on record yet</h3><p>Your supplies will appear here once CES uploads a validation report.</p></div>'; return; }
       const idLabel = { electricity: 'MPAN', gas: 'MPRN', water: 'SPID' };
+      const groups = { electricity: [], gas: [], water: [] };
+      const seen = {};
+      function add(util, id, supplier, address){
+        if (!id) return; const k = util + '|' + id; if (seen[k]) return; seen[k] = 1;
+        groups[util].push({ id: String(id), address: address || '', supplier: supplier || '' });
+      }
+      (bv.electricity || []).forEach(function(s){ add('electricity', s.mpan || s.mpr, s.supplier, s.site || s.address); });
+      (bv.gas || []).forEach(function(s){ add('gas', s.mpr || s.mprn || s.mpan, s.supplier, s.site || s.address); });
+      (bv.water || []).forEach(function(s){ add('water', s.spid, s.supplier || 'Water2Business', s.address || s.site); });
+      const total = groups.electricity.length + groups.gas.length + groups.water.length;
+      if (!total) { body.innerHTML = '<div class="empty-state"><h3>No sites on record yet</h3><p>Your supplies will appear here once CES uploads a validation report.</p></div>'; return; }
       const order = ['electricity', 'gas', 'water'];
-      const allUtils = order.concat(Object.keys(groups).filter(function(k){ return order.indexOf(k) === -1; }));
-      body.innerHTML = allUtils.map(function(util){
-        const list = groups[util] || [];
-        if (!list.length) return '';
+      body.innerHTML = order.map(function(util){
+        const list = groups[util]; if (!list.length) return '';
+        list.sort(function(a,b){ return String(a.id).localeCompare(String(b.id)); });
         const title = util.charAt(0).toUpperCase() + util.slice(1);
         const label = idLabel[util] || 'Identifier';
         const rows = list.map(function(s){
-          return '<tr><td class="mono">' + escapeHtml(s.identifier || '—') + '</td><td>' + escapeHtml(s.site_address || '—') + '</td></tr>';
+          return '<tr><td class="mono">' + escapeHtml(s.id) + '</td><td>' + escapeHtml(s.address || '—') + '</td><td>' + escapeHtml(s.supplier || '—') + '</td></tr>';
         }).join('');
         return '<div class="site-group"><h3>' + title + ' <span style="color:var(--muted);font-weight:600;font-size:13px;">· ' + list.length + ' site' + (list.length === 1 ? '' : 's') + '</span></h3>' +
-          '<table class="list"><thead><tr><th>' + label + '</th><th>Site address</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+          '<table class="list"><thead><tr><th>' + label + '</th><th>Site address</th><th>Supplier</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
       }).join('');
     }
     // Download the Site List as an Excel workbook — built from the LATEST validation report,
@@ -3618,8 +3643,78 @@
       statsRows += '<tr><td class="cmp-statlabel">Total cost</td><td class="mono">' + fgbp(totA.cost) + '</td><td class="mono">' + fgbp(totB.cost) + '</td><td>' + pctTxt(totB.cost, totA.cost) + '</td></tr>';
       var stats = '<div class="cmp-section-label">Summary</div><table class="cmp-stats"><thead><tr><th>Measure</th><th>' + escapeHtml(aLab) + '</th><th>' + escapeHtml(bLab) + '</th><th>% diff</th></tr></thead><tbody>' + statsRows + '</tbody></table>';
       var detail = _cmpDetailTable(ids, A, B, aLab, bLab, unit, unitOk, fnum, fgbp, pctTxt);
-      out.innerHTML = caption + boxes + chart + stats + detail;
+      window._cmpExport = { ids: ids.slice(), A: A, B: B, aLab: aLab, bLab: bLab, unit: unit, unitOk: unitOk };
+      var dlBar = '<div style="display:flex;justify-content:flex-end;margin-bottom:10px;"><button class="btn-secondary" style="width:auto;padding:8px 14px;" onclick="downloadComparisonExcel()">⬇ Download Excel</button></div>';
+      out.innerHTML = dlBar + caption + boxes + chart + stats + detail;
       out.querySelectorAll('rect[data-ti]').forEach(function(rc){ var txt = window._cmpTips[+rc.getAttribute('data-ti')]; rc.addEventListener('mousemove', function(e){ cmpTipShow(e, txt); }); rc.addEventListener('mouseleave', cmpTipHide); });
+    }
+    // Render the A-vs-B grouped bars to a PNG (for the Excel export).
+    function _cmpChartCanvas(groups, aLab, bLab, isCost){
+      var scale = 2, n = groups.length;
+      var w = Math.max(720, n * 90 + 170), h = 360;
+      var cv = document.createElement('canvas'); cv.width = w * scale; cv.height = h * scale;
+      var cx = cv.getContext('2d'); cx.scale(scale, scale);
+      cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, w, h);
+      cx.fillStyle = '#1c1f2a'; cx.font = '700 15px Arial'; cx.textAlign = 'left';
+      cx.fillText((isCost ? 'Cost' : 'Usage') + ' by site', 20, 26);
+      cx.fillStyle = '#2f3d7e'; cx.fillRect(20, 38, 12, 12); cx.fillStyle = '#4a4e5c'; cx.font = '12px Arial'; cx.textAlign = 'left'; cx.fillText(aLab, 38, 48);
+      var lw = cx.measureText(aLab).width; cx.fillStyle = '#1faa5f'; cx.fillRect(60 + lw, 38, 12, 12); cx.fillStyle = '#4a4e5c'; cx.fillText(bLab, 78 + lw, 48);
+      var padL = 70, padR = 20, padT = 64, padB = 60, iw = w - padL - padR, ih = h - padT - padB;
+      var max = 0; groups.forEach(function(g){ max = Math.max(max, g.a || 0, g.b || 0); }); if(max <= 0) max = 1;
+      cx.strokeStyle = '#e6e1d6'; cx.fillStyle = '#7a7e8c'; cx.font = '11px Arial'; cx.textAlign = 'right';
+      for(var gi = 0; gi <= 4; gi++){ var y = padT + ih * (1 - gi/4); cx.beginPath(); cx.moveTo(padL, y); cx.lineTo(w - padR, y); cx.stroke(); cx.fillText((isCost ? '£' : '') + Math.round(max * gi/4).toLocaleString('en-GB'), padL - 8, y + 4); }
+      var slot = iw / n, bw = Math.min(26, slot * 0.32);
+      groups.forEach(function(g, i){ var c0 = padL + slot * (i + 0.5), ha = (g.a||0)/max*ih, hb = (g.b||0)/max*ih;
+        cx.fillStyle = '#2f3d7e'; cx.fillRect(c0 - bw - 2, padT + ih - ha, bw, ha);
+        cx.fillStyle = '#1faa5f'; cx.fillRect(c0 + 2, padT + ih - hb, bw, hb);
+        cx.fillStyle = '#4a4e5c'; cx.font = '10px Arial'; cx.textAlign = 'center';
+        var nm = g.site.length > 14 ? (g.site.slice(0, 13) + '…') : g.site; cx.fillText(nm, c0, h - padB + 18);
+      });
+      return { dataUrl: cv.toDataURL('image/png'), w: w, h: h };
+    }
+    async function downloadComparisonExcel(){
+      var C = window._cmp, ex = window._cmpExport;
+      if(!C || !ex || !ex.ids.length){ safeAlert('Run a comparison first, then download.', null); return; }
+      if(typeof ExcelJS === 'undefined' || !ExcelJS.Workbook){ safeAlert('The Excel engine is still loading — please try again in a moment.', null); return; }
+      var ids = ex.ids.slice().sort(function(a, b){ return C.meters[a].site.localeCompare(C.meters[b].site); });
+      var unitOk = ex.unitOk, unit = ex.unit || '';
+      var pct = function(b, a){ if(a == null || b == null || a === 0) return null; return Math.round((b - a) / Math.abs(a) * 1000) / 10 / 100; };
+      try {
+        var navy = 'FF2F3D7E', band = 'FFF7F5F0', thin = { style:'thin', color:{ argb:'FFE3E0D8' } };
+        var wb = new ExcelJS.Workbook(); wb.creator = 'CES Billing Portal';
+        var ws = wb.addWorksheet('Comparison', { views: [{ state:'frozen', ySplit: 4 }] });
+        ws.getColumn(1).width = 34; [2,3,4,5,6,7].forEach(function(c){ ws.getColumn(c).width = 15; });
+        var title = ws.addRow(['Consumption & cost comparison']); ws.mergeCells(title.number, 1, title.number, 7);
+        ws.getCell(title.number, 1).font = { bold:true, size:15, color:{ argb:'FF1C1F2A' } }; title.height = 24;
+        var sub = ws.addRow(['Period B (' + ex.bLab + ') vs Period A (' + ex.aLab + ')   ·   baseline = A']);
+        ws.mergeCells(sub.number, 1, sub.number, 7); ws.getCell(sub.number, 1).font = { size:10, color:{ argb:'FF7A7E8C' } };
+        ws.addRow([]);
+        var uH = (unitOk && unit) ? (' (' + unit + ')') : '';
+        var hr = ws.addRow(['Site', ex.aLab + ' usage' + uH, ex.aLab + ' cost (£)', ex.bLab + ' usage' + uH, ex.bLab + ' cost (£)', 'Usage Δ', 'Cost Δ']); hr.height = 30;
+        hr.eachCell(function(cell, col){ cell.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:11 }; cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:navy } }; cell.alignment = { horizontal: col === 1 ? 'left' : 'center', vertical:'middle', wrapText:true }; });
+        function fmtRow(cell, col){ if(col > 7) return; cell.border = { top:thin, bottom:thin, left:thin, right:thin }; if(col > 1){ cell.alignment = { horizontal:'right' }; if(col === 3 || col === 5) cell.numFmt = '£#,##0.00'; else if(col === 6 || col === 7) cell.numFmt = '+0.0%;-0.0%;0.0%'; else cell.numFmt = '#,##0'; } }
+        var tAu = 0, tAc = 0, tBu = 0, tBc = 0, bandT = false;
+        ids.forEach(function(id){
+          var au = _cmpVal(ex.A, id, 'usage'), ac = _cmpVal(ex.A, id, 'cost'), bu = _cmpVal(ex.B, id, 'usage'), bc = _cmpVal(ex.B, id, 'cost');
+          if(au != null) tAu += au; if(ac != null) tAc += ac; if(bu != null) tBu += bu; if(bc != null) tBc += bc;
+          var row = ws.addRow([ C.meters[id].site, au == null ? '' : Math.round(au), ac == null ? '' : Math.round(ac*100)/100, bu == null ? '' : Math.round(bu), bc == null ? '' : Math.round(bc*100)/100, pct(bu, au), pct(bc, ac) ]);
+          row.eachCell({ includeEmpty:true }, function(cell, col){ fmtRow(cell, col); if(bandT && col <= 7) cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:band } }; });
+          bandT = !bandT;
+        });
+        var tr = ws.addRow(['Total', unitOk ? Math.round(tAu) : '', Math.round(tAc*100)/100, unitOk ? Math.round(tBu) : '', Math.round(tBc*100)/100, unitOk ? pct(tBu, tAu) : '', pct(tBc, tAc) ]);
+        tr.eachCell({ includeEmpty:true }, function(cell, col){ if(col > 7) return; cell.font = { bold:true }; cell.border = { top:{ style:'medium', color:{ argb:navy } }, bottom:thin }; if(col > 1){ cell.alignment = { horizontal:'right' }; if(col === 3 || col === 5) cell.numFmt = '£#,##0.00'; else if(col === 6 || col === 7) cell.numFmt = '+0.0%;-0.0%;0.0%'; else cell.numFmt = '#,##0'; } });
+        var metric = unitOk ? 'usage' : 'cost';
+        var groups = ids.map(function(id){ return { site:C.meters[id].site, a:_cmpVal(ex.A, id, metric), b:_cmpVal(ex.B, id, metric) }; }).sort(function(x, y){ return (y.b||0) - (x.b||0); });
+        var img = _cmpChartCanvas(groups, ex.aLab, ex.bLab, metric === 'cost');
+        var top = ws.lastRow.number + 2;
+        ws.getCell(top, 1).value = (metric === 'cost' ? 'Cost' : 'Usage') + ' by site — ' + ex.aLab + ' vs ' + ex.bLab; ws.getCell(top, 1).font = { bold:true, size:12 };
+        var imgId = wb.addImage({ base64: img.dataUrl, extension:'png' });
+        ws.addImage(imgId, { tl:{ col:0, row:top }, ext:{ width:img.w, height:img.h } });
+        var buf = await wb.xlsx.writeBuffer();
+        var co = ((currentUser && currentUser.name) ? currentUser.name : 'Customer').replace(/[^a-z0-9]+/gi, '_');
+        _downloadBlob(buf, co + '_Comparison_' + (ex.bLab + '_vs_' + ex.aLab).replace(/[^a-z0-9]+/gi, '_') + '.xlsx');
+        logAction('download_comparison_excel', currentUser && currentUser.customerId, { sites: ids.length });
+      } catch (e){ safeAlert('Could not generate the Excel file. Please try again.', e); }
     }
     // ───── ADMIN ─────
     async function loadAdmin() {
