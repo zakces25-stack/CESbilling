@@ -3693,7 +3693,7 @@
       var stats = '<div class="cmp-section-label">Summary</div><table class="cmp-stats"><thead><tr><th>Measure</th><th>' + escapeHtml(aLab) + '</th><th>' + escapeHtml(bLab) + '</th><th>% diff</th></tr></thead><tbody>' + statsRows + '</tbody></table>';
       var detail = _cmpDetailTable(ids, A, B, aLab, bLab, unit, unitOk, fnum, fgbp, pctTxt);
       window._cmpExport = { ids: ids.slice(), A: A, B: B, aLab: aLab, bLab: bLab, unit: unit, unitOk: unitOk };
-      var dlBar = '<div style="display:flex;justify-content:flex-end;margin-bottom:10px;"><button class="btn-secondary" style="width:auto;padding:8px 14px;" onclick="downloadComparisonExcel()">⬇ Download Excel</button></div>';
+      var dlBar = '<div style="display:flex;justify-content:flex-end;margin-bottom:10px;"><button class="btn-secondary" style="width:auto;padding:8px 14px;" onclick="downloadComparisonExcel()">⬇ Download comparison</button></div>';
       out.innerHTML = dlBar + caption + boxes + chart + stats + detail;
       out.querySelectorAll('rect[data-ti]').forEach(function(rc){ var txt = window._cmpTips[+rc.getAttribute('data-ti')]; rc.addEventListener('mousemove', function(e){ cmpTipShow(e, txt); }); rc.addEventListener('mouseleave', cmpTipHide); });
     }
@@ -6253,7 +6253,7 @@
         const num = (s) => { if (s == null) return 0; const n = parseFloat(String(s).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
         // Sum each utility's cost (entry.total) across EVERY validation report (running total), and find the earliest month.
         const byUtil = { electricity: 0, gas: 0, water: 0 };
-        let count = 0, earliest = null, startLabel = '';
+        let count = 0, earliest = null, startLabel = '', latest = null, endLabel = '';
         for (const r of reports) {
           const bv = r.bv_summary || {};
           let rTotal = 0;
@@ -6262,9 +6262,11 @@
           });
           if (rTotal > 0) count++;
           const ord = (Number(r.year) || 0) * 100 + (Number(r.month_num) || 0);
-          if (ord > 0 && (earliest == null || ord < earliest)) { earliest = ord; startLabel = ((r.month || '') + ' ' + (r.year || '')).trim(); }
+          const lbl = ((r.month || '') + ' ' + (r.year || '')).trim();
+          if (ord > 0 && (earliest == null || ord < earliest)) { earliest = ord; startLabel = lbl; }
+          if (ord > 0 && (latest == null || ord > latest)) { latest = ord; endLabel = lbl; }
         }
-        return { hasData: count > 0, byUtil: byUtil, startLabel: startLabel };
+        return { hasData: count > 0, byUtil: byUtil, startLabel: startLabel, endLabel: endLabel };
       } catch (e) {
         console.warn('Annual spend load failed:', e);
         return { hasData: false };
@@ -6276,7 +6278,7 @@
       row.querySelectorAll('.js-util-cost').forEach(function(c){ c.remove(); });
       if (!res || !res.hasData) return;
       var fmt = function(n){ return '£' + (Number(n)||0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
-      var period = res.startLabel ? ('from ' + res.startLabel + ' to date') : 'to date';
+      var period = res.startLabel ? ('from ' + res.startLabel + ' to ' + (res.endLabel || res.startLabel)) : (res.endLabel || '');
       var labels = { electricity: 'Electricity', gas: 'Gas', water: 'Water' };
       ['electricity', 'gas', 'water'].forEach(function(u){
         var v = (res.byUtil && res.byUtil[u]) || 0; if (v <= 0) return;
