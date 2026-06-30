@@ -1578,6 +1578,7 @@
           <button class="admin-tab" onclick="adminTab('reports')">Reports Admin</button>
           <button class="admin-tab" onclick="adminTab('customers')">Customers</button>
           <button class="admin-tab" onclick="adminTab('sales')">Sales KPIs</button>
+          <button class="admin-tab" onclick="adminTab('siteaddr')">Site Addresses</button>
           <button class="admin-tab" onclick="adminTab('carbon')">Carbon Config</button>
         </div>
         <!-- UPLOAD VALIDATION TAB -->
@@ -1735,6 +1736,16 @@
             </div>
             <div id="skAdminChart" style="margin-bottom:16px;"></div>
             <div id="skAdminBoard" style="overflow-x:auto;"></div>
+          </div>
+        </div>
+        <!-- SITE ADDRESSES TAB -->
+        <div class="tab-pane" id="tab-siteaddr">
+          <div class="form-card">
+            <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Site addresses</h2>
+            <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Set the full address (including postcode) for each live supply. These show on the customer's Site List and the Excel download. Addresses set here are never overwritten when a new validation report is uploaded.</p>
+            <div class="form-group" style="max-width:380px;"><label>Customer</label><select id="saCustomer" onchange="loadSiteAddrForCustomer()"></select></div>
+            <div class="success-box" id="saMsg" style="display:none;">Saved.</div>
+            <div id="saEditor"></div>
           </div>
         </div>
         <!-- METERS TAB -->
@@ -3167,36 +3178,43 @@
       const e2 = document.getElementById('ds2'); if (e2) e2.textContent = ongoingTotal;
     }
     // ───── SITE LIST (customer page) ─────
-    // Built from the LATEST validation report's bv_summary — same source as the Excel
-    // download, so the on-screen list and the download always match (identifier + site
-    // address + supplier, grouped by utility). Water supplier defaults to Water2Business.
-    async function loadSiteList(cid) {
-      const body = document.getElementById('siteListBody');
-      if (!body) return;
-      body.innerHTML = '<div class="empty-state"><p>Loading…</p></div>';
-      let bv = null;
-      try {
-        const { data } = await sb.from('reports').select('bv_summary, month, year')
-          .eq('customer_id', cid).eq('report_type', 'bill_validation')
-          .order('year', { ascending: false }).order('month_num', { ascending: false }).limit(1);
-        bv = (data && data[0] && data[0].bv_summary) ? data[0].bv_summary : null;
-      } catch (e) { console.error('Site list load:', e); body.innerHTML = '<div class="empty-state"><p>Could not load your sites. Please refresh.</p></div>'; return; }
-      if (!bv) { body.innerHTML = '<div class="empty-state"><h3>No sites on record yet</h3><p>Your supplies will appear here once CES uploads a validation report.</p></div>'; return; }
-      const idLabel = { electricity: 'MPAN', gas: 'MPRN', water: 'SPID' };
+    // Single source for both the on-screen Site List and the Excel download: the LATEST
+    // validation report's bv_summary gives the live supplies + suppliers; the admin-set
+    // supply_addresses table overrides the address (incl. postcode) where present.
+    async function fetchCustomerSupplies(cid) {
+      const [{ data: repData }, { data: addrData }] = await Promise.all([
+        sb.from('reports').select('bv_summary, month, year').eq('customer_id', cid).eq('report_type', 'bill_validation').order('year', { ascending: false }).order('month_num', { ascending: false }).limit(1),
+        sb.from('supply_addresses').select('utility, identifier, address').eq('customer_id', cid)
+      ]);
+      const rep = repData && repData[0];
+      const bv = (rep && rep.bv_summary) ? rep.bv_summary : null;
+      const ov = {}; (addrData || []).forEach(function(a){ if (a.address) ov[a.utility + '|' + a.identifier] = a.address; });
       const groups = { electricity: [], gas: [], water: [] };
       const seen = {};
       function add(util, id, supplier, address){
         if (!id) return; const k = util + '|' + id; if (seen[k]) return; seen[k] = 1;
-        groups[util].push({ id: String(id), address: address || '', supplier: supplier || '' });
+        groups[util].push({ id: String(id), address: ov[k] || address || '', supplier: supplier || '' });
       }
-      (bv.electricity || []).forEach(function(s){ add('electricity', s.mpan || s.mpr, s.supplier, s.site || s.address); });
-      (bv.gas || []).forEach(function(s){ add('gas', s.mpr || s.mprn || s.mpan, s.supplier, s.site || s.address); });
-      (bv.water || []).forEach(function(s){ add('water', s.spid, s.supplier || 'Water2Business', s.address || s.site); });
+      if (bv) {
+        (bv.electricity || []).forEach(function(s){ add('electricity', s.mpan || s.mpr, s.supplier, s.site || s.address); });
+        (bv.gas || []).forEach(function(s){ add('gas', s.mpr || s.mprn || s.mpan, s.supplier, s.site || s.address); });
+        (bv.water || []).forEach(function(s){ add('water', s.spid, s.supplier || 'Water2Business', s.address || s.site); });
+      }
       const total = groups.electricity.length + groups.gas.length + groups.water.length;
-      if (!total) { body.innerHTML = '<div class="empty-state"><h3>No sites on record yet</h3><p>Your supplies will appear here once CES uploads a validation report.</p></div>'; return; }
+      return { bv: bv, groups: groups, total: total, period: rep ? ((rep.month || '') + ' ' + (rep.year || '')).trim() : '' };
+    }
+    async function loadSiteList(cid) {
+      const body = document.getElementById('siteListBody');
+      if (!body) return;
+      body.innerHTML = '<div class="empty-state"><p>Loading…</p></div>';
+      let sup;
+      try { sup = await fetchCustomerSupplies(cid); }
+      catch (e) { console.error('Site list load:', e); body.innerHTML = '<div class="empty-state"><p>Could not load your sites. Please refresh.</p></div>'; return; }
+      if (!sup.bv || !sup.total) { body.innerHTML = '<div class="empty-state"><h3>No sites on record yet</h3><p>Your supplies will appear here once CES uploads a validation report.</p></div>'; return; }
+      const idLabel = { electricity: 'MPAN', gas: 'MPRN', water: 'SPID' };
       const order = ['electricity', 'gas', 'water'];
       body.innerHTML = order.map(function(util){
-        const list = groups[util]; if (!list.length) return '';
+        const list = sup.groups[util]; if (!list.length) return '';
         list.sort(function(a,b){ return String(a.id).localeCompare(String(b.id)); });
         const title = util.charAt(0).toUpperCase() + util.slice(1);
         const label = idLabel[util] || 'Identifier';
@@ -3216,25 +3234,13 @@
       if (btn) { btn.disabled = true; btn.textContent = 'Preparing…'; }
       try {
         const cid = currentUser && currentUser.customerId;
-        const { data, error } = await sb.from('reports').select('bv_summary, month, year')
-          .eq('customer_id', cid).eq('report_type', 'bill_validation')
-          .order('year', { ascending: false }).order('month_num', { ascending: false }).limit(1);
-        const bv = (data && data[0] && data[0].bv_summary) ? data[0].bv_summary : null;
-        if (error || !bv) { safeAlert('No site data to download yet.', error); return; }
         if (typeof ExcelJS === 'undefined' || !ExcelJS.Workbook) { safeAlert('The Excel engine is still loading — please try again in a moment.', null); return; }
         const idLabel = { electricity: 'MPAN', gas: 'MPRN', water: 'SPID' };
-        const groups = { electricity: [], gas: [], water: [] };
-        const seen = {};
-        function add(util, id, supplier, address) {
-          if (!id) return;
-          const k = util + '|' + id; if (seen[k]) return; seen[k] = 1;
-          groups[util].push({ id: String(id), site: address || '', supplier: supplier || '' });
-        }
-        (bv.electricity || []).forEach(function(s){ add('electricity', s.mpan || s.mpr, s.supplier, s.site || s.address); });
-        (bv.gas || []).forEach(function(s){ add('gas', s.mpr || s.mprn || s.mpan, s.supplier, s.site || s.address); });
-        (bv.water || []).forEach(function(s){ add('water', s.spid, s.supplier || 'Water2Business', s.address || s.site); });
-        const total = groups.electricity.length + groups.gas.length + groups.water.length;
-        if (!total) { safeAlert('No site data to download yet.', null); return; }
+        const sup = await fetchCustomerSupplies(cid);
+        const groups = sup.groups;
+        const total = sup.total;
+        const per = sup.period;
+        if (!sup.bv || !total) { safeAlert('No site data to download yet.', null); return; }
 
         const navy = 'FF2F3D7E', navyLt = 'FFEDEFF6', band = 'FFF7F5F0';
         const thin = { style:'thin', color:{ argb:'FFE3E0D8' } };
@@ -3247,7 +3253,6 @@
         ws.mergeCells(title.number, 1, title.number, nCols);
         const tc = ws.getCell(title.number, 1); tc.font = { bold:true, size:15, color:{ argb:'FF1C1F2A' } };
         title.height = 24;
-        const per = ((data[0].month || '') + ' ' + (data[0].year || '')).trim();
         const sub = ws.addRow(['Live supplies' + (per ? ' as at ' + per : '') + '     ·     ' + total + ' supply point(s)']);
         ws.mergeCells(sub.number, 1, sub.number, nCols);
         ws.getCell(sub.number, 1).font = { size:10, color:{ argb:'FF7A7E8C' } };
@@ -3272,7 +3277,7 @@
           });
           let bandToggle = false;
           items.forEach(function(it){
-            const dr = ws.addRow([it.id, it.site, it.supplier]);
+            const dr = ws.addRow([it.id, it.address, it.supplier]);
             dr.eachCell(function(cell, col){
               cell.border = { top:thin, bottom:thin, left:thin, right:thin };
               cell.alignment = { vertical:'middle', wrapText: col === 2 };
@@ -3295,6 +3300,65 @@
       } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Download Site List'; }
       }
+    }
+    // ───── ADMIN: SITE ADDRESSES (editable address per supply) ─────
+    async function loadSiteAddrAdmin(){
+      const sel = document.getElementById('saCustomer'); if (!sel) return;
+      if (sel.dataset.loaded !== '1') {
+        const { data } = await sb.from('customers').select('customer_id, company_name').order('company_name');
+        sel.innerHTML = (data || []).map(function(c){ return '<option value="' + escapeHtml(c.customer_id) + '">' + escapeHtml(c.company_name) + '</option>'; }).join('');
+        sel.dataset.loaded = '1';
+      }
+      loadSiteAddrForCustomer();
+    }
+    async function loadSiteAddrForCustomer(){
+      const cid = document.getElementById('saCustomer').value;
+      const host = document.getElementById('saEditor'); if (!host) return;
+      if (!cid) { host.innerHTML = ''; return; }
+      host.innerHTML = '<p class="sk-empty">Loading…</p>';
+      let bv = null, ov = {};
+      try {
+        const [{ data: repData }, { data: addrData }] = await Promise.all([
+          sb.from('reports').select('bv_summary').eq('customer_id', cid).eq('report_type', 'bill_validation').order('year', { ascending: false }).order('month_num', { ascending: false }).limit(1),
+          sb.from('supply_addresses').select('utility, identifier, address').eq('customer_id', cid)
+        ]);
+        bv = (repData && repData[0] && repData[0].bv_summary) ? repData[0].bv_summary : null;
+        (addrData || []).forEach(function(a){ ov[a.utility + '|' + a.identifier] = a.address || ''; });
+      } catch (e) { host.innerHTML = '<p class="sk-empty">Could not load supplies.</p>'; return; }
+      if (!bv) { host.innerHTML = '<p class="sk-empty">No validation report for this customer yet — upload one first.</p>'; return; }
+      const groups = { electricity: [], gas: [], water: [] }; const seen = {};
+      function add(util, id, address){ if (!id) return; const k = util + '|' + id; if (seen[k]) return; seen[k] = 1; groups[util].push({ id: String(id), reportAddr: address || '' }); }
+      (bv.electricity || []).forEach(function(s){ add('electricity', s.mpan || s.mpr, s.site || s.address); });
+      (bv.gas || []).forEach(function(s){ add('gas', s.mpr || s.mprn || s.mpan, s.site || s.address); });
+      (bv.water || []).forEach(function(s){ add('water', s.spid, s.address || s.site); });
+      const idLabel = { electricity: 'MPAN', gas: 'MPRN', water: 'SPID' };
+      const order = ['electricity', 'gas', 'water'];
+      let html = '';
+      order.forEach(function(util){
+        const list = groups[util]; if (!list.length) return;
+        list.sort(function(a,b){ return String(a.id).localeCompare(String(b.id)); });
+        html += '<h3 style="font-size:14px;font-weight:800;margin:18px 0 8px;">' + util.charAt(0).toUpperCase() + util.slice(1) + '</h3>';
+        html += '<table class="sk-table"><tr><th style="width:160px;">' + (idLabel[util] || 'Identifier') + '</th><th>Full address (including postcode)</th></tr>';
+        list.forEach(function(s){
+          const cur = (ov[util + '|' + s.id] != null) ? ov[util + '|' + s.id] : '';
+          const ph = s.reportAddr ? s.reportAddr : 'e.g. 12 High Street, Town, AB1 2CD';
+          html += '<tr><td class="mono">' + escapeHtml(s.id) + '</td><td><input type="text" data-util="' + util + '" data-id="' + escapeHtml(s.id) + '" value="' + escapeHtml(cur) + '" placeholder="' + escapeHtml(ph) + '" style="width:100%;min-width:340px;"></td></tr>';
+        });
+        html += '</table>';
+      });
+      html += '<button class="btn-primary" style="width:auto;padding:10px 18px;margin-top:16px;" onclick="saveSiteAddr()">Save addresses</button>';
+      host.innerHTML = html;
+    }
+    async function saveSiteAddr(){
+      const cid = document.getElementById('saCustomer').value; if (!cid) return;
+      const inputs = document.querySelectorAll('#saEditor input[data-id]');
+      const rows = [];
+      inputs.forEach(function(inp){ rows.push({ customer_id: cid, utility: inp.getAttribute('data-util'), identifier: inp.getAttribute('data-id'), address: (inp.value.trim() || null), updated_at: new Date().toISOString() }); });
+      if (!rows.length) { _skFlash('saMsg', 'Nothing to save.'); return; }
+      const resp = await sb.from('supply_addresses').upsert(rows, { onConflict: 'customer_id,utility,identifier' });
+      if (resp.error) { safeAlert('Could not save addresses.', resp.error); return; }
+      logAction('save_supply_addresses', cid, { count: rows.length });
+      _skFlash('saMsg', 'Saved. These addresses now show on the Site List and download.');
     }
     // ───── SITE LEAGUE TABLE (customer page) ─────
     // Maps each meter identifier (MPAN / SPID) to its physical site, so a site's
@@ -3733,6 +3797,7 @@
       if (name === 'carbon') loadCarbonConfig();
       if (name === 'customers') refreshDangerZone();
       if (name === 'sales') loadSalesAdmin();
+      if (name === 'siteaddr') loadSiteAddrAdmin();
     }
 
     // ═══════════════════ SALES / BROKER KPI MODULE ═══════════════════
