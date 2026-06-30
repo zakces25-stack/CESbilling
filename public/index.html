@@ -514,6 +514,22 @@
     .sk-chart__exp { float: right; color: #9aa3c7; font-weight: 700; }
     .sk-bigchart { max-width: 760px; margin: 0 auto; }
     .sk-bigchart svg { width: 100% !important; max-width: 100% !important; height: auto; }
+    /* Interactive charts */
+    .sk-tip { position: fixed; z-index: 5000; pointer-events: none; background: #1c1f2a; color: #fff; padding: 6px 9px; border-radius: 7px; font-family: 'Manrope', sans-serif; box-shadow: 0 4px 14px rgba(0,0,0,0.28); display: none; max-width: 200px; }
+    .sk-tip__l { display: block; opacity: 0.78; font-size: 10.5px; }
+    .sk-tip__v { display: block; font-weight: 800; font-size: 13px; font-family: 'JetBrains Mono', monospace; }
+    .sk-bar { transform-box: fill-box; transform-origin: bottom; animation: skGrow .45s ease both; transition: filter .12s; }
+    .sk-bar:hover { filter: brightness(1.14); }
+    @keyframes skGrow { from { transform: scaleY(.001); } to { transform: scaleY(1); } }
+    .sk-hbar { transform-box: fill-box; transform-origin: left; animation: skGrowX .5s ease both; transition: filter .12s; }
+    .sk-hbar:hover { filter: brightness(1.14); }
+    @keyframes skGrowX { from { transform: scaleX(.001); } to { transform: scaleX(1); } }
+    .sk-barh { transition: filter .12s; }
+    .sk-barh:hover { filter: brightness(1.14); }
+    .sk-dot { transition: r .12s; cursor: pointer; }
+    .sk-dot:hover { r: 6; }
+    .sk-seg { transition: opacity .12s; cursor: pointer; }
+    .sk-seg:hover { opacity: 0.82; }
     .sk-calc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; margin-bottom: 16px; }
     .sk-calc-l { font-size: 12px; color: var(--muted); font-weight: 600; }
     .sk-calc-v { font-size: 22px; font-weight: 800; color: #1c1f2a; margin-top: 2px; }
@@ -3849,7 +3865,7 @@
       var slot = iw / series.length, bw = Math.max(14, Math.min(56, slot*0.6));
       var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;">';
       for(var g=0; g<=4; g++){ var y = padT + ih*(1-g/4); svg += '<line x1="' + padL + '" y1="' + y + '" x2="' + (W-padR) + '" y2="' + y + '" stroke="#e6e1d6"/>'; svg += '<text x="' + (padL-8) + '" y="' + (y+4) + '" text-anchor="end" font-size="10" fill="#7a7e8c" font-family="JetBrains Mono">£' + _skNum(max*g/4, 0) + '</text>'; }
-      series.forEach(function(s, i){ var cx = padL + slot*(i+0.5); var h = s.val/max*ih; var y = padT + ih - h; svg += '<rect x="' + (cx-bw/2) + '" y="' + y + '" width="' + bw + '" height="' + h + '" rx="3" fill="#2f3d7e"/>'; svg += '<text x="' + cx + '" y="' + (padT+ih+16) + '" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">' + s.label + '</text>'; });
+      series.forEach(function(s, i){ var cx = padL + slot*(i+0.5); var h = s.val/max*ih; var y = padT + ih - h; svg += '<rect class="sk-bar" x="' + (cx-bw/2) + '" y="' + y + '" width="' + bw + '" height="' + h + '" rx="3" fill="#2f3d7e" onmousemove="skTip(event,\'' + _skTipArg(s.label) + '\',\'£' + _skNum(s.val,0) + '\')" onmouseout="skTipHide()"/>'; svg += '<text x="' + cx + '" y="' + (padT+ih+16) + '" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">' + s.label + '</text>'; });
       svg += '</svg>'; return svg;
     }
     function _skShortName(n){ return String(n||'').split(' - ')[0].replace(/ ?'.*'/,'').trim() || n; }
@@ -3866,7 +3882,7 @@
       rows.forEach(function(x, i){
         var y = padT + i*rowH, bw = Math.max(2, x.b/max*iw), mine = (x.r.id === _SK.myRepId), fill = mine ? '#16224f' : '#2f3d7e';
         svg += '<text x="' + (padL-10) + '" y="' + (y+rowH/2+4) + '" text-anchor="end" font-family="Manrope" font-size="12.5" font-weight="' + (mine?'800':'600') + '" fill="#1c1f2a">' + (i+1) + '. ' + escapeHtml(_skShortName(x.r.name)) + '</text>';
-        svg += '<rect x="' + padL + '" y="' + (y+6) + '" width="' + bw + '" height="' + (rowH-14) + '" rx="4" fill="' + fill + '"/>';
+        svg += '<rect class="sk-hbar" x="' + padL + '" y="' + (y+6) + '" width="' + bw + '" height="' + (rowH-14) + '" rx="4" fill="' + fill + '" onmousemove="skTip(event,\'' + _skTipArg(_skShortName(x.r.name)) + (mine?' (you)':'') + '\',\'£' + _skNum(x.b,0) + '\')" onmouseout="skTipHide()"/>';
         svg += '<text x="' + (padL+bw+8) + '" y="' + (y+rowH/2+4) + '" font-family="JetBrains Mono" font-size="12" fill="#4a4e5c">' + _skMoney(x.b) + '</text>';
       });
       svg += '</svg>'; return svg;
@@ -3909,6 +3925,20 @@
         '<div style="overflow-x:auto;"><table class="sk-table"><tr><th>Month</th><th class="num">Billing</th><th class="num">New biz</th><th class="num">kWh</th><th class="num">Uplift</th><th class="num">Lost</th><th>Notes</th></tr>' + body + '</table></div>'
       );
     }
+    // ───── Chart interactivity (shared tooltip) ─────
+    function _skTipArg(s){ return String(s == null ? '' : s).replace(/['"\\]/g, '’'); }
+    function skTip(e, label, value){
+      var t = document.getElementById('skTip');
+      if(!t){ t = document.createElement('div'); t.id = 'skTip'; t.className = 'sk-tip'; document.body.appendChild(t); }
+      t.innerHTML = '<span class="sk-tip__l">' + label + '</span>' + (value != null && value !== '' ? '<span class="sk-tip__v">' + value + '</span>' : '');
+      t.style.display = 'block';
+      var x = e.clientX + 14, y = e.clientY + 14;
+      if(x > window.innerWidth - 190) x = e.clientX - 170;
+      if(y > window.innerHeight - 70) y = e.clientY - 60;
+      t.style.left = x + 'px'; t.style.top = y + 'px';
+    }
+    function skTipHide(){ var t = document.getElementById('skTip'); if(t) t.style.display = 'none'; }
+
     // ───── Chart builders (responsive SVG strings) ─────
     function _skColBars(series, opts){
       opts = opts || {}; var color = opts.color || '#2f3d7e';
@@ -3918,7 +3948,7 @@
       var slot = iw/series.length, bw = Math.max(12, Math.min(54, slot*0.6));
       var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;">';
       for(var g=0; g<=4; g++){ var y = padT+ih*(1-g/4); svg += '<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="#e6e1d6"/>'; svg += '<text x="'+(padL-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="10" fill="#7a7e8c" font-family="JetBrains Mono">'+(opts.money?'£':'')+_skNum(max*g/4,0)+'</text>'; }
-      series.forEach(function(s,i){ var cx = padL+slot*(i+0.5), h = s.val/max*ih, y = padT+ih-h; svg += '<rect x="'+(cx-bw/2)+'" y="'+y+'" width="'+bw+'" height="'+h+'" rx="3" fill="'+color+'"/>'; svg += '<text x="'+cx+'" y="'+(padT+ih+16)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+s.label+'</text>'; });
+      series.forEach(function(s,i){ var cx = padL+slot*(i+0.5), h = s.val/max*ih, y = padT+ih-h; var v = (opts.money?'£':'')+_skNum(s.val,opts.dp||0)+(opts.unit?(' '+opts.unit):''); svg += '<rect class="sk-bar" x="'+(cx-bw/2)+'" y="'+y+'" width="'+bw+'" height="'+h+'" rx="3" fill="'+color+'" onmousemove="skTip(event,\''+_skTipArg(s.label)+'\',\''+v+'\')" onmouseout="skTipHide()"/>'; svg += '<text x="'+cx+'" y="'+(padT+ih+16)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+s.label+'</text>'; });
       return svg + '</svg>';
     }
     function _skArea(series, color){
@@ -3935,7 +3965,7 @@
       area += ' L' + px(n-1) + ',' + py(0) + ' Z';
       svg += '<path d="'+area+'" fill="'+color+'" opacity="0.13"/>';
       svg += '<path d="'+line+'" fill="none" stroke="'+color+'" stroke-width="2.5"/>';
-      series.forEach(function(s,i){ svg += '<circle cx="'+px(i)+'" cy="'+py(s.val)+'" r="3" fill="'+color+'"/>'; svg += '<text x="'+px(i)+'" y="'+(padT+ih+16)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+s.label+'</text>'; });
+      series.forEach(function(s,i){ svg += '<circle class="sk-dot" cx="'+px(i)+'" cy="'+py(s.val)+'" r="3.5" fill="'+color+'" onmousemove="skTip(event,\''+_skTipArg(s.label)+'\',\'£'+_skNum(s.val,0)+'\')" onmouseout="skTipHide()"/>'; svg += '<text x="'+px(i)+'" y="'+(padT+ih+16)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+s.label+'</text>'; });
       return svg + '</svg>';
     }
     function _skLineTarget(series){
@@ -3951,7 +3981,7 @@
       var line = '';
       series.forEach(function(s,i){ var X=px(i), Y=py(s.val); line += (i===0?'M':'L')+X+','+Y+' '; });
       svg += '<path d="'+line+'" fill="none" stroke="#2f3d7e" stroke-width="2.5"/>';
-      series.forEach(function(s,i){ svg += '<circle cx="'+px(i)+'" cy="'+py(s.val)+'" r="3" fill="#2f3d7e"/>'; svg += '<text x="'+px(i)+'" y="'+(padT+ih+16)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+s.label+'</text>'; });
+      series.forEach(function(s,i){ var tt = '£'+_skNum(s.val,0)+((s.target||0)>0 ? ('  ·  target £'+_skNum(s.target,0)) : ''); svg += '<circle class="sk-dot" cx="'+px(i)+'" cy="'+py(s.val)+'" r="3.5" fill="#2f3d7e" onmousemove="skTip(event,\''+_skTipArg(s.label)+'\',\''+tt+'\')" onmouseout="skTipHide()"/>'; svg += '<text x="'+px(i)+'" y="'+(padT+ih+16)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+s.label+'</text>'; });
       return svg + '</svg>';
     }
     function _skStackBars(series){
@@ -3963,7 +3993,7 @@
       svg += '<rect x="'+padL+'" y="4" width="12" height="12" rx="2" fill="#2f3d7e"/><text x="'+(padL+18)+'" y="14" font-size="11" fill="#4a4e5c" font-family="Manrope">Retained</text>';
       svg += '<rect x="'+(padL+110)+'" y="4" width="12" height="12" rx="2" fill="#2f7d4f"/><text x="'+(padL+128)+'" y="14" font-size="11" fill="#4a4e5c" font-family="Manrope">New business</text>';
       for(var g=0; g<=4; g++){ var y = padT+ih*(1-g/4); svg += '<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="#e6e1d6"/>'; svg += '<text x="'+(padL-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="10" fill="#7a7e8c" font-family="JetBrains Mono">£'+_skNum(max*g/4,0)+'</text>'; }
-      series.forEach(function(s,i){ var cx = padL+slot*(i+0.5), hr = s.retained/max*ih, hn = s.newbiz/max*ih, yr = padT+ih-hr; svg += '<rect x="'+(cx-bw/2)+'" y="'+yr+'" width="'+bw+'" height="'+hr+'" fill="#2f3d7e"/>'; svg += '<rect x="'+(cx-bw/2)+'" y="'+(yr-hn)+'" width="'+bw+'" height="'+hn+'" rx="3" fill="#2f7d4f"/>'; svg += '<text x="'+cx+'" y="'+(padT+ih+16)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+s.label+'</text>'; });
+      series.forEach(function(s,i){ var cx = padL+slot*(i+0.5), hr = s.retained/max*ih, hn = s.newbiz/max*ih, yr = padT+ih-hr, lab = _skTipArg(s.label); svg += '<rect class="sk-barh" x="'+(cx-bw/2)+'" y="'+yr+'" width="'+bw+'" height="'+hr+'" fill="#2f3d7e" onmousemove="skTip(event,\''+lab+' · Retained\',\'£'+_skNum(s.retained,0)+'\')" onmouseout="skTipHide()"/>'; svg += '<rect class="sk-barh" x="'+(cx-bw/2)+'" y="'+(yr-hn)+'" width="'+bw+'" height="'+hn+'" rx="3" fill="#2f7d4f" onmousemove="skTip(event,\''+lab+' · New business\',\'£'+_skNum(s.newbiz,0)+'\')" onmouseout="skTipHide()"/>'; svg += '<text x="'+cx+'" y="'+(padT+ih+16)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+s.label+'</text>'; });
       return svg + '</svg>';
     }
     function _skGroupBars(series, aLabel, bLabel){
@@ -3975,7 +4005,7 @@
       svg += '<rect x="'+padL+'" y="4" width="12" height="12" rx="2" fill="#2f3d7e"/><text x="'+(padL+18)+'" y="14" font-size="11" fill="#4a4e5c" font-family="Manrope">'+aLabel+'</text>';
       svg += '<rect x="'+(padL+90)+'" y="4" width="12" height="12" rx="2" fill="#c9a23a"/><text x="'+(padL+108)+'" y="14" font-size="11" fill="#4a4e5c" font-family="Manrope">'+bLabel+'</text>';
       for(var g=0; g<=4; g++){ var y = padT+ih*(1-g/4); svg += '<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="#e6e1d6"/>'; svg += '<text x="'+(padL-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="10" fill="#7a7e8c" font-family="JetBrains Mono">£'+_skNum(max*g/4,0)+'</text>'; }
-      series.forEach(function(s,i){ var cx = padL+slot*(i+0.5), ha = s.a/max*ih, hb = s.b/max*ih; svg += '<rect x="'+(cx-bw-1)+'" y="'+(padT+ih-ha)+'" width="'+bw+'" height="'+ha+'" rx="2" fill="#2f3d7e"/>'; svg += '<rect x="'+(cx+1)+'" y="'+(padT+ih-hb)+'" width="'+bw+'" height="'+hb+'" rx="2" fill="#c9a23a"/>'; svg += '<text x="'+cx+'" y="'+(padT+ih+16)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+s.label+'</text>'; });
+      series.forEach(function(s,i){ var cx = padL+slot*(i+0.5), ha = s.a/max*ih, hb = s.b/max*ih, lab = _skTipArg(s.label); svg += '<rect class="sk-bar" x="'+(cx-bw-1)+'" y="'+(padT+ih-ha)+'" width="'+bw+'" height="'+ha+'" rx="2" fill="#2f3d7e" onmousemove="skTip(event,\''+lab+' · '+_skTipArg(aLabel)+'\',\'£'+_skNum(s.a,0)+'\')" onmouseout="skTipHide()"/>'; svg += '<rect class="sk-bar" x="'+(cx+1)+'" y="'+(padT+ih-hb)+'" width="'+bw+'" height="'+hb+'" rx="2" fill="#c9a23a" onmousemove="skTip(event,\''+lab+' · '+_skTipArg(bLabel)+'\',\'£'+_skNum(s.b,0)+'\')" onmouseout="skTipHide()"/>'; svg += '<text x="'+cx+'" y="'+(padT+ih+16)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+s.label+'</text>'; });
       return svg + '</svg>';
     }
     function _skDonut(parts){
@@ -3983,7 +4013,7 @@
       if(total <= 0) return '<p class="sk-empty">No data yet.</p>';
       var cx = 90, cy = 90, r = 72, rin = 44, ang = -Math.PI/2, W = 360, H = 184;
       var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;max-width:380px;">';
-      parts.forEach(function(p){ if(p.val <= 0) return; var frac = p.val/total, a2 = ang + frac*2*Math.PI; var large = frac>0.5?1:0; var x1=cx+r*Math.cos(ang), y1=cy+r*Math.sin(ang), x2=cx+r*Math.cos(a2), y2=cy+r*Math.sin(a2), xi2=cx+rin*Math.cos(a2), yi2=cy+rin*Math.sin(a2), xi1=cx+rin*Math.cos(ang), yi1=cy+rin*Math.sin(ang); svg += '<path d="M'+x1+','+y1+' A'+r+','+r+' 0 '+large+' 1 '+x2+','+y2+' L'+xi2+','+yi2+' A'+rin+','+rin+' 0 '+large+' 0 '+xi1+','+yi1+' Z" fill="'+p.color+'"/>'; ang = a2; });
+      parts.forEach(function(p){ if(p.val <= 0) return; var frac = p.val/total, a2 = ang + frac*2*Math.PI; var large = frac>0.5?1:0; var x1=cx+r*Math.cos(ang), y1=cy+r*Math.sin(ang), x2=cx+r*Math.cos(a2), y2=cy+r*Math.sin(a2), xi2=cx+rin*Math.cos(a2), yi2=cy+rin*Math.sin(a2), xi1=cx+rin*Math.cos(ang), yi1=cy+rin*Math.sin(ang); svg += '<path class="sk-seg" d="M'+x1+','+y1+' A'+r+','+r+' 0 '+large+' 1 '+x2+','+y2+' L'+xi2+','+yi2+' A'+rin+','+rin+' 0 '+large+' 0 '+xi1+','+yi1+' Z" fill="'+p.color+'" onmousemove="skTip(event,\''+_skTipArg(p.label)+'\',\'£'+_skNum(p.val,0)+' ('+Math.round(frac*100)+'%)\')" onmouseout="skTipHide()"/>'; ang = a2; });
       svg += '<text x="'+cx+'" y="'+(cy+5)+'" text-anchor="middle" font-size="15" font-weight="800" font-family="Manrope" fill="#1c1f2a">'+_skMoney(total)+'</text>';
       var ly = 34; parts.forEach(function(p){ svg += '<rect x="195" y="'+(ly-11)+'" width="12" height="12" rx="2" fill="'+p.color+'"/><text x="213" y="'+ly+'" font-size="12" font-family="Manrope" fill="#1c1f2a">'+p.label+' '+_skMoney(p.val)+'</text>'; ly += 26; });
       return svg + '</svg>';
@@ -4117,8 +4147,8 @@
     function _skTwoBar(now, proj){
       var max = Math.max(now, proj, 1), W = 600, H = 72, bn = now/max*(W-130), bp = proj/max*(W-130);
       return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;max-width:520px;">' +
-        '<text x="0" y="23" font-size="12" fill="#4a4e5c" font-family="Manrope">Now</text><rect x="80" y="11" width="' + bn + '" height="18" rx="4" fill="#9aa3c7"/>' +
-        '<text x="0" y="57" font-size="12" fill="#4a4e5c" font-family="Manrope">Projected</text><rect x="80" y="45" width="' + bp + '" height="18" rx="4" fill="#2f3d7e"/>' +
+        '<text x="0" y="23" font-size="12" fill="#4a4e5c" font-family="Manrope">Now</text><rect class="sk-barh" x="80" y="11" width="' + bn + '" height="18" rx="4" fill="#9aa3c7" onmousemove="skTip(event,\'Commission now\',\'£' + _skNum(now,0) + '\')" onmouseout="skTipHide()"/>' +
+        '<text x="0" y="57" font-size="12" fill="#4a4e5c" font-family="Manrope">Projected</text><rect class="sk-barh" x="80" y="45" width="' + bp + '" height="18" rx="4" fill="#2f3d7e" onmousemove="skTip(event,\'Projected commission\',\'£' + _skNum(proj,0) + '\')" onmouseout="skTipHide()"/>' +
         '</svg>';
     }
     async function bxSaveMine(){
