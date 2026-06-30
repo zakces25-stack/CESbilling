@@ -508,8 +508,12 @@
     .sk-entry-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 14px; }
     .sk-empty { color: var(--muted); font-size: 13px; padding: 10px 0; }
     .sk-chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 16px; }
-    .sk-chart { border: 1px solid #ece8df; border-radius: 10px; padding: 12px 14px 14px; background: #fff; }
+    .sk-chart { border: 1px solid #ece8df; border-radius: 10px; padding: 12px 14px 14px; background: #fff; cursor: pointer; transition: box-shadow .15s, border-color .15s; }
+    .sk-chart:hover { border-color: #c9c2b4; box-shadow: 0 4px 14px rgba(0,0,0,0.08); }
     .sk-chart__t { font-size: 12.5px; font-weight: 800; color: #1c1f2a; margin-bottom: 8px; }
+    .sk-chart__exp { float: right; color: #9aa3c7; font-weight: 700; }
+    .sk-bigchart { max-width: 760px; margin: 0 auto; }
+    .sk-bigchart svg { width: 100% !important; max-width: 100% !important; height: auto; }
     .sk-calc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; margin-bottom: 16px; }
     .sk-calc-l { font-size: 12px; color: var(--muted); font-weight: 600; }
     .sk-calc-v { font-size: 22px; font-weight: 800; color: #1c1f2a; margin-top: 2px; }
@@ -4007,7 +4011,17 @@
       var n = arr.length; for(var i=0;i<n;i++){ if(arr[i].rep_id === _SK.myRepId) return '#' + (i+1) + ' of ' + n; }
       return '—';
     }
-    function _skChartPanel(title, svg){ return '<div class="sk-chart"><div class="sk-chart__t">' + title + '</div>' + svg + '</div>'; }
+    var _skCharts = [];
+    function _skChartPanel(title, svg){
+      var i = _skCharts.length;
+      _skCharts.push({ title: title, svg: svg });
+      return '<div class="sk-chart" onclick="skOpenChart(' + i + ')" title="Click to enlarge">' +
+        '<div class="sk-chart__t">' + title + '<span class="sk-chart__exp">⤢</span></div>' + svg + '</div>';
+    }
+    function skOpenChart(i){
+      var c = _skCharts[i]; if(!c) return;
+      skOpenOverlay('<h2 style="font-size:18px;font-weight:800;margin-bottom:16px;">' + c.title + '</h2><div class="sk-bigchart">' + c.svg + '</div>');
+    }
     // Money-forward dashboard: hero earnings + a grid of motivational charts
     function renderMoneyDashboard(key, k){
       var heroHost = document.getElementById('bxCards'), gridHost = document.getElementById('bxCharts');
@@ -4038,6 +4052,7 @@
           _skCard('Your rank', rank, _skPeriodLabel(key));
       }
       // ── Charts grid ──
+      _skCharts = [];
       var panels = [];
       panels.push(_skChartPanel('💷 Billing each month', _skColBars(hist.map(function(h){ return { label:_skPeriodLabel(h.period), val:Number(h.billing_total)||0 }; }), { color:'#2f3d7e', money:true })));
       if(comp){
