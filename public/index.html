@@ -4134,7 +4134,7 @@
       var W = 900, H = 240, padL = 64, padR = 18, padT = 16, padB = 40, iw = W-padL-padR, ih = H-padT-padB;
       var slot = iw/series.length, bw = Math.max(12, Math.min(54, slot*0.6));
       var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;">';
-      for(var g=0; g<=4; g++){ var y = padT+ih*(1-g/4); svg += '<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="#e6e1d6"/>'; svg += '<text x="'+(padL-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="10" fill="#7a7e8c" font-family="JetBrains Mono">'+(opts.money?'£':'')+_skNum(max*g/4,0)+'</text>'; }
+      for(var g=0; g<=4; g++){ var y = padT+ih*(1-g/4); svg += '<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="#e6e1d6"/>'; svg += '<text x="'+(padL-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="10" fill="#7a7e8c" font-family="JetBrains Mono">'+(opts.money?'£':'')+_skNum(max*g/4,opts.dp||0)+(opts.unit?(' '+opts.unit):'')+'</text>'; }
       series.forEach(function(s,i){ var cx = padL+slot*(i+0.5), h = s.val/max*ih, y = padT+ih-h; var v = (opts.money?'£':'')+_skNum(s.val,opts.dp||0)+(opts.unit?(' '+opts.unit):''); svg += '<rect class="sk-bar" x="'+(cx-bw/2)+'" y="'+y+'" width="'+bw+'" height="'+h+'" rx="3" fill="'+color+'" onmousemove="skTip(event,\''+_skTipArg(s.label)+'\',\''+v+'\')" onmouseout="skTipHide()"/>'; svg += '<text x="'+cx+'" y="'+(padT+ih+16)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+s.label+'</text>'; });
       return svg + '</svg>';
     }
@@ -4284,7 +4284,7 @@
       panels.push(_skChartPanel('🌱 New business vs retained', _skStackBars(hist.map(function(h){ return { label:_skPeriodLabel(h.period), retained:Math.max(0,(Number(h.billing_total)||0)-(Number(h.new_business_gbp)||0)), newbiz:Number(h.new_business_gbp)||0 }; }))));
       var avg = _skTeamAvgByMonth();
       panels.push(_skChartPanel('🏆 You vs team average', _skGroupBars(hist.map(function(h){ return { label:_skPeriodLabel(h.period), a:Number(h.billing_total)||0, b:avg[h.period]||0 }; }), 'You', 'Team avg')));
-      panels.push(_skChartPanel('⚡ Average uplift (p/kWh)', _skColBars(hist.map(function(h){ return { label:_skPeriodLabel(h.period), val:(Number(h.total_kwh)||0) ? (Number(h.billing_total)||0)/(Number(h.total_kwh)||0)*100 : 0 }; }), { color:'#7a5cc0' })));
+      panels.push(_skChartPanel('⚡ Average uplift (p/kWh)', _skColBars(hist.map(function(h){ return { label:_skPeriodLabel(h.period), val:(Number(h.total_kwh)||0) ? (Number(h.billing_total)||0)/(Number(h.total_kwh)||0)*100 : 0 }; }), { color:'#7a5cc0', dp:2, unit:'p/kWh' })));
       panels.push(_skChartPanel('🎯 % to target — ' + _skPeriodLabel(key), _skGauge(tgt > 0 ? (Number(k.billing_total)||0)/tgt*100 : 0)));
       if(gridHost) gridHost.innerHTML = panels.join('');
     }
