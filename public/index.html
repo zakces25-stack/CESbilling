@@ -213,9 +213,7 @@
     .nav-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
     .nav-item.active { background: rgba(147,196,58,0.15); color: var(--lime); }
     .sidebar-nav-label { color: rgba(255,255,255,0.4); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.7px; font-weight: 700; padding: 2px 14px 8px; }
-    #dashPage .sidebar-nav .nav-item { justify-content: space-between; }
-    #dashPage .sidebar-nav .nav-item::after { content: '›'; font-size: 18px; line-height: 1; opacity: 0.3; transition: opacity 0.15s, transform 0.15s; }
-    #dashPage .sidebar-nav .nav-item:hover::after, #dashPage .sidebar-nav .nav-item.active::after { opacity: 0.85; transform: translateX(2px); }
+    #dashPage .sidebar-nav .nav-item { justify-content: flex-start; }
     .sidebar-foot { padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.08); }
     .signout-btn { display: block; width: 100%; background: transparent; border: 1px solid rgba(255,255,255,0.14); color: #ff6b6b; font-weight: 800; font-size: 13px; letter-spacing: 0.2px; cursor: pointer; padding: 9px 12px; border-radius: 8px; text-align: center; transition: background 0.15s, border-color 0.15s; }
     .signout-btn:hover { background: rgba(239,68,68,0.10); border-color: rgba(239,68,68,0.45); }
@@ -1139,7 +1137,7 @@
         </div>
         <!-- Page: Reports (default) -->
         <div class="dash-section" data-page="reports">
-          <div class="stats-row">
+          <div class="stats-row" id="dashStatsRow">
             <div class="stat-card">
               <div class="stat-label">Validation Reports</div>
               <div class="stat-value" id="ds1">—</div>
@@ -1148,11 +1146,7 @@
               <div class="stat-label">Ongoing Validation Errors</div>
               <div class="stat-value" id="ds2">—</div>
             </div>
-            <div class="stat-card">
-              <div class="stat-label">Running Utility Costs</div>
-              <div class="stat-value" id="ds3">—</div>
-              <div class="stat-foot" id="ds3sub" style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'Manrope',sans-serif;">Including VAT + CCL</div>
-            </div>
+            <!-- Per-utility running-cost cards (Electricity / Water / Gas) injected by renderRunningCosts() -->
           </div>
           <div class="section-head"><h2>Your validation reports and invoices</h2></div>
           <div class="report-grid" id="reportGrid"></div>
@@ -2722,7 +2716,7 @@
       }).join('');
       grid.querySelectorAll('.report-card[data-source="dash"]').forEach(card => {
         const _find = () => dashReports.find(x => x.id === card.dataset.reportId);
-        card.addEventListener('click', () => { const r = _find(); if (r) openViewer(r); });
+        card.addEventListener('click', () => { const r = _find(); if (!r) return; const _ic2 = (window._issueCountsByReport || {})[r.id]; const _hasErr = _ic2 ? (_ic2.ongoing > 0) : ((r.fail_count || 0) > 0); openViewer(r, _hasErr ? { jumpToIssues: true } : undefined); });
         const _eb = card.querySelector('[data-error-badge]');
         if (_eb) _eb.addEventListener('click', (ev) => { ev.stopPropagation(); const r = _find(); if (r) openViewer(r, { jumpToIssues: true }); });
         card.addEventListener('mouseenter', () => { const r = _find(); if (r) prefetchReport(r); }, { once: true });
@@ -2844,16 +2838,6 @@
     async function loadDash() {
       const cid = currentUser.customerId;
       var _aw = document.getElementById('asstWrap'); if (_aw) _aw.style.display = (currentUser && currentUser._impersonating) ? 'none' : 'block';
-      // Utility breakdown shown under the Running Utility Costs KPI (e.g. "Electricity + Water")
-      window._dashUtilLabel = '';
-      sb.from('sites').select('utility').eq('customer_id', cid).then(function(res){
-        var orderU = ['electricity','gas','water'];
-        var us = Array.from(new Set((res.data||[]).map(function(m){return m.utility;}).filter(Boolean)));
-        us.sort(function(a,b){ return (orderU.indexOf(a)===-1?99:orderU.indexOf(a)) - (orderU.indexOf(b)===-1?99:orderU.indexOf(b)); });
-        var _ul = us.map(function(s){return s.charAt(0).toUpperCase()+s.slice(1);}); window._dashUtilLabel = _ul.length<=1 ? (_ul[0]||'') : (_ul.slice(0,-1).join(', ') + ' & ' + _ul[_ul.length-1]);
-        var sub = document.getElementById('ds3sub');
-        if (sub && /Including VAT/.test(sub.textContent)) sub.textContent = (window._dashUtilLabel ? '(' + window._dashUtilLabel + ') \u2014 ' : '') + 'Including VAT + CCL';
-      });
       document.getElementById('dashClientName').textContent = currentUser.name;
       document.getElementById('welcomeH').textContent = 'Welcome back, ' + currentUser.name + '.';
       const initials = currentUser.name.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
@@ -2864,6 +2848,7 @@
       if (subEl)  subEl.textContent = currentUser.email || 'Signed in';
       // Total annual spend (rolling 12 months from latest report)
       loadAnnualSpend(currentUser.customerId).then(res => {
+        renderRunningCosts(res); return; // per-utility running-cost cards (ds3 single card removed)
         const el = document.getElementById('ds3');
         const sub = document.getElementById('ds3sub');
         if (!el) return;
@@ -6261,28 +6246,47 @@
     async function loadAnnualSpend(customerId) {
       try {
         const { data: reports } = await sb.from('reports')
-          .select('total_net')
+          .select('bv_summary, total_net, month, year, month_num')
           .eq('customer_id', customerId)
           .eq('report_type', 'bill_validation');
-        if (!reports || reports.length === 0) return { spend: 0, hasData: false };
-        const parseTotal = (s) => {
-          if (s == null) return 0;
-          const n = parseFloat(String(s).replace(/[^0-9.\-]/g, ''));
-          return isNaN(n) ? 0 : n;
-        };
-        // Sum total_net across EVERY validation report for this customer (running total — no date window).
-        let total = 0;
-        let count = 0;
+        if (!reports || reports.length === 0) return { hasData: false };
+        const num = (s) => { if (s == null) return 0; const n = parseFloat(String(s).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
+        // Sum each utility's cost (entry.total) across EVERY validation report (running total), and find the earliest month.
+        const byUtil = { electricity: 0, gas: 0, water: 0 };
+        let count = 0, earliest = null, startLabel = '';
         for (const r of reports) {
-          const v = parseTotal(r.total_net);
-          total += v;
-          if (v > 0) count++;
+          const bv = r.bv_summary || {};
+          let rTotal = 0;
+          ['electricity', 'gas', 'water'].forEach(function(u){
+            (Array.isArray(bv[u]) ? bv[u] : []).forEach(function(e){ const v = num(e.total != null ? e.total : e.cur_cost); byUtil[u] += v; rTotal += v; });
+          });
+          if (rTotal > 0) count++;
+          const ord = (Number(r.year) || 0) * 100 + (Number(r.month_num) || 0);
+          if (ord > 0 && (earliest == null || ord < earliest)) { earliest = ord; startLabel = ((r.month || '') + ' ' + (r.year || '')).trim(); }
         }
-        return { spend: total, hasData: count > 0, monthCount: count };
+        return { hasData: count > 0, byUtil: byUtil, startLabel: startLabel };
       } catch (e) {
         console.warn('Annual spend load failed:', e);
-        return { spend: 0, hasData: false };
+        return { hasData: false };
       }
+    }
+    // Render one running-cost stat-card per utility (Electricity / Water / Gas), each with the period covered.
+    function renderRunningCosts(res){
+      var row = document.getElementById('dashStatsRow'); if (!row) return;
+      row.querySelectorAll('.js-util-cost').forEach(function(c){ c.remove(); });
+      if (!res || !res.hasData) return;
+      var fmt = function(n){ return '£' + (Number(n)||0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+      var period = res.startLabel ? ('from ' + res.startLabel + ' to date') : 'to date';
+      var labels = { electricity: 'Electricity', gas: 'Gas', water: 'Water' };
+      ['electricity', 'gas', 'water'].forEach(function(u){
+        var v = (res.byUtil && res.byUtil[u]) || 0; if (v <= 0) return;
+        var card = document.createElement('div');
+        card.className = 'stat-card js-util-cost';
+        card.innerHTML = '<div class="stat-label">' + labels[u] + ' cost</div>' +
+          '<div class="stat-value">' + fmt(v) + '</div>' +
+          '<div class="stat-foot" style="font-size:11px;color:var(--muted);margin-top:4px;font-family:\'Manrope\',sans-serif;">' + period + ' &middot; incl. VAT + CCL</div>';
+        row.appendChild(card);
+      });
     }
 
 
