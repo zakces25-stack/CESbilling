@@ -251,17 +251,17 @@
       color: #fff; display: flex; align-items: center; justify-content: center;
       font-weight: 700; font-size: 14px;
     }
-    .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 28px; }
+    .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 28px; }
     .stat-card, .kpi, .usage-kpi, .form-card, .report-card, .card, .inv-card {
       box-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 0 0 1px rgba(15,23,42,0.04);
     }
     .stat-card {
       background: var(--surface); border: 1.5px solid var(--border); border-radius: 10px;
-      padding: 18px 22px;
+      padding: 14px 16px;
     }
-    .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase;
+    .stat-label { font-size: 10.5px; color: var(--muted); text-transform: uppercase;
       letter-spacing: 0.6px; font-weight: 700; margin-bottom: 6px; }
-    .stat-value { font-family: 'JetBrains Mono', monospace; font-size: 24px;
+    .stat-value { font-family: 'JetBrains Mono', monospace; font-size: 20px;
       font-weight: 700; color: var(--text); }
     .section-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; margin-top: 8px; }
     .section-head h2 { font-size: 18px; font-weight: 800; color: var(--text); letter-spacing: -0.3px; }
