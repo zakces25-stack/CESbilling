@@ -70,9 +70,11 @@
     .two{grid-template-columns:1.6fr 1fr}@media(max-width:900px){.two{grid-template-columns:1fr}.nav{width:60px}.nav-item span.t{display:none}}
     .chart-box{position:relative;height:300px}.chart-box.sm{height:240px}
     table.dt{width:100%;border-collapse:collapse;font-size:13px}
-    table.dt th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:700;padding:8px 9px;border-bottom:1.5px solid var(--border)}
-    table.dt td{padding:8px 9px;border-bottom:1px solid var(--line)}table.dt tr:last-child td{border-bottom:0}
-    td.r,th.r{text-align:right}.kg{font-family:'JetBrains Mono',monospace;font-weight:600}
+    table.dt th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:700;padding:8px 10px;border-bottom:1.5px solid var(--border)}
+    table.dt td{padding:8px 10px;border-bottom:1px solid var(--line)}table.dt tr:last-child td{border-bottom:0}
+    /* right-align helpers — higher specificity so numeric headers line up with their data */
+    table.dt th.r,table.dt td.r{text-align:right}
+    .kg{font-family:'JetBrains Mono',monospace;font-weight:600}
     .scope-tab{display:inline-flex;gap:6px;margin-bottom:16px;background:var(--bg-2);padding:4px;border-radius:10px}
     .scope-tab button{border:0;background:none;padding:8px 15px;border-radius:7px;font-weight:700;font-size:13px;color:var(--text-2);cursor:pointer}
     .scope-tab button.active{background:var(--surface);color:var(--navy);box-shadow:0 1px 4px rgba(0,0,0,.06)}
@@ -90,6 +92,13 @@
     .loading{color:var(--muted);font-size:13px;padding:18px 0}
     .fac-note{font-size:12px;color:var(--muted);margin-top:14px;line-height:1.55}
     .tag{font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:5px;background:var(--bg-2);color:var(--text-2);text-transform:uppercase;letter-spacing:.4px}
+    /* SBTi guidance */
+    .sbti-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:4px 0 16px}
+    .sbti-stat{background:var(--surface-2);border:1px solid var(--border);border-radius:11px;padding:13px 15px}
+    .sbti-stat .l{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+    .sbti-stat .v{font-size:20px;font-weight:800;margin-top:4px;letter-spacing:-.3px}
+    .sbti-stat .n{font-size:11.5px;color:var(--text-2);margin-top:2px}
+    .pill-ok{color:var(--ok)}.pill-bad{color:var(--fail)}
   </style>
 </head>
 <body>
@@ -115,12 +124,12 @@
       <div class="brand-mark">C</div>
       <div class="tb-title">CES Carbon <span>/ <span id="tbCust">—</span></span></div>
       <div class="tb-spacer"></div>
-      <label style="font-size:12px;opacity:.75">Reporting year</label>
+      <label style="font-size:12px;opacity:.75">Financial Year</label>
       <select class="tb-sel" id="yearSel">
-        <option value="25-26">FY2025–26</option>
-        <option value="24-25" selected>FY2024–25</option>
-        <option value="23-24">FY2023–24</option>
-        <option value="22-23">FY2022–23</option>
+        <option value="25-26">2025-26</option>
+        <option value="24-25" selected>2024-25</option>
+        <option value="23-24">2023-24</option>
+        <option value="22-23">2022-23</option>
       </select>
       <button class="tb-logout" id="logoutBtn">Log out</button>
     </div>
@@ -140,7 +149,12 @@
             <div class="card"><h3>Monthly emissions by scope</h3><div class="card-sub" id="monTitle">tCO₂e per month</div><div class="chart-box"><canvas id="chMonthly"></canvas></div></div>
             <div class="card"><h3>Scope split</h3><div class="card-sub">Share of gross emissions</div><div class="chart-box sm"><canvas id="chSplit"></canvas></div><div class="fac-note" id="splitNote"></div></div>
           </div>
-          <div class="card" style="margin-top:16px"><h3>Four-year trend &amp; SBTi 1.5 °C pathway</h3><div class="card-sub">Baseline FY2022–23 · near-term target −4.2%/yr (SBTi floor)</div><div class="chart-box"><canvas id="chTrend"></canvas></div></div>
+          <div class="card" style="margin-top:16px"><h3>Emissions trend &amp; SBTi 1.5 °C pathway</h3><div class="card-sub">Baseline 2022-23 · near-term target −4.2%/yr (SBTi 1.5 °C minimum) · hover any year for values</div><div class="chart-box"><canvas id="chTrend"></canvas></div></div>
+          <div class="card" style="margin-top:16px"><h3>Your SBTi target — what it takes</h3><div class="card-sub" id="sbtiSub">—</div>
+            <div class="sbti-grid" id="sbtiStats"></div>
+            <div class="callout" id="sbtiNarrative"></div>
+            <table class="dt" id="sbtiTable" style="margin-top:16px"></table>
+          </div>
         </section>
         <!-- SCOPES -->
         <section class="pageview" id="v-scopes">
@@ -152,16 +166,21 @@
         <section class="pageview" id="v-grid">
           <div class="ph"><h1>Live grid intensity</h1><p>Real-time GB electricity carbon intensity — National Energy System Operator (NESO).</p></div>
           <div class="grid two">
-            <div class="card"><h3>Right now</h3><div class="card-sub" id="giStamp">Fetching live data…</div><div class="gi-hero" id="giHero"><div class="loading">Loading…</div></div>
-              <div class="gi-win" id="giWin" style="display:none"><div class="t">Greenest window today</div><div class="w" id="giWinTime">—</div><div class="d" id="giWinDesc"></div></div></div>
-            <div class="card"><h3>Generation mix</h3><div class="card-sub">Where GB power is coming from now</div><div class="chart-box sm"><canvas id="chGen"></canvas></div></div>
+            <div class="card">
+              <h3>Live GB Grid Carbon Intensity</h3>
+              <div class="card-sub">Grams of CO₂ released per kWh of electricity generated on the GB grid right now — lower is greener. It reflects how much of today's power is coming from wind, solar and nuclear versus gas.</div>
+              <div class="gi-hero" id="giHero"><div class="loading">Loading live grid data…</div></div>
+              <div class="note" id="giStamp" style="margin-top:10px"></div>
+              <div class="gi-win" id="giWin" style="display:none"><div class="t">Greenest window today</div><div class="w" id="giWinTime">—</div><div class="d" id="giWinDesc"></div></div>
+            </div>
+            <div class="card"><h3>Generation mix</h3><div class="card-sub">Share of GB power by source right now (% of generation)</div><div class="chart-box sm"><canvas id="chGen"></canvas></div></div>
           </div>
-          <div class="card" style="margin-top:16px"><h3>Today's intensity profile</h3><div class="card-sub">Half-hourly gCO₂/kWh · shift flexible load to the low points</div><div class="chart-box"><canvas id="chDay"></canvas></div>
+          <div class="card" style="margin-top:16px"><h3>Today's intensity profile</h3><div class="card-sub">Half-hourly gCO₂/kWh · hover the line to read the time and intensity · shift flexible load to the low points</div><div class="chart-box"><canvas id="chDay"></canvas></div>
             <div class="callout" style="margin-top:14px">Indicative live data — for load-shifting insight only. It is <b>not</b> used for your reported figures, which use the year-fixed DEFRA factors.</div></div>
         </section>
         <!-- FACTORS -->
         <section class="pageview" id="v-factors">
-          <div class="ph"><h1>Emission factors <span class="ro-tag">read-only</span></h1><p>The DEFRA/DESNZ set applied to your reporting year — fixed by CES, never changed retrospectively.</p></div>
+          <div class="ph"><h1>Emission factors <span class="ro-tag">read-only</span></h1><p>The DEFRA/DESNZ set applied to your financial year — fixed by CES, never changed retrospectively.</p></div>
           <div class="card"><h3>Factors applied · <span class="tag" id="facYearTag">—</span></h3><div class="card-sub">kg CO₂e per kWh</div><table class="dt" id="facTable"></table><div class="fac-note" id="facNote"></div></div>
         </section>
       </main>
@@ -170,10 +189,9 @@
 
 <script>
 /* ════════ CES CARBON — client portal (read-only, self-contained demo) ════════
-   All four CCCH reporting years integrated (real reported Scope 1/2/3 figures).
+   All four CCCH financial years integrated (real reported Scope 1/2/3 figures).
    Client cannot change factors or green-tariff share. */
 
-/* demo login */
 const DEMO_USER='carbon@cesgb.com', DEMO_PASS='CarbonDemo2026!';
 document.getElementById('loginForm').addEventListener('submit',e=>{
   e.preventDefault();
@@ -184,6 +202,7 @@ document.getElementById('loginForm').addEventListener('submit',e=>{
 document.getElementById('logoutBtn').addEventListener('click',()=>location.reload());
 
 const MONTHS=['Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar'];
+const FULLMONTHS=['April','May','June','July','August','September','October','November','December','January','February','March'];
 /* Real CCCH reported figures (kg CO2e per month) */
 const CCCH={
  '22-23':{s1:[229532,665158,170898,164168,131530,164044,233933,254113,319111,309449,272476,255630],
@@ -200,8 +219,9 @@ const CCCH={
           s3:[12595,12226,12264,12166,13558,13961,12424,15344,15334,16514,14603,14387]}
 };
 const YEARS=['22-23','23-24','24-25','25-26'];
-const FYLABEL={'22-23':'FY2022–23','23-24':'FY2023–24','24-25':'FY2024–25','25-26':'FY2025–26'};
-/* DEFRA factor set applied per reporting year (grid generation + gas) — display only */
+const FYLABEL={'22-23':'2022-23','23-24':'2023-24','24-25':'2024-25','25-26':'2025-26',
+               '26-27':'2026-27','27-28':'2027-28','28-29':'2028-29','29-30':'2029-30'};
+/* DEFRA factor set applied per financial year (grid generation + gas) — display only */
 const FAC={
  '22-23':{yr:'2022',elecGen:0.19338,elecTD:0.01769,gas:0.18314},
  '23-24':{yr:'2023',elecGen:0.20707,elecTD:0.01899,gas:0.18293},
@@ -209,13 +229,17 @@ const FAC={
  '25-26':{yr:'2025',elecGen:0.17700,elecTD:0.01853,gas:0.18296}
 };
 const COMPANY={name:'Country Court Care Homes',employees:2407,sites:24,greenPct:0};
+/* SBTi near-term: 1.5 °C-aligned minimum = 4.2% absolute cut per year vs baseline */
+const SBTI_RATE=0.042, SBTI_YEARS=['22-23','23-24','24-25','25-26','26-27','27-28','28-29','29-30'];
 let YEAR='24-25', activeScope='s1', charts={};
 
 const sum=a=>a.reduce((x,y)=>x+y,0);
 const T=kg=>kg/1000;
 const fmt=(n,d=0)=>n.toLocaleString('en-GB',{minimumFractionDigits:d,maximumFractionDigits:d});
 function yearTotals(y){const d=CCCH[y];return{s1:sum(d.s1),s2:sum(d.s2),s3:sum(d.s3),gross:sum(d.s1)+sum(d.s2)+sum(d.s3)};}
-const BASELINE=T(yearTotals('22-23').gross);
+const BASELINE=T(yearTotals('22-23').gross);            // tCO2e, FY2022-23
+const TARGET_2030=BASELINE*(1-SBTI_RATE*7);             // 2029-30 endpoint
+const ANNUAL_CUT=BASELINE*SBTI_RATE;                    // t/yr baseline pace
 
 function makeChart(id,type,data,opts){if(charts[id])charts[id].destroy();charts[id]=new Chart(document.getElementById(id),{type,data,options:Object.assign({responsive:true,maintainAspectRatio:false},opts||{})});}
 
@@ -223,30 +247,66 @@ function makeChart(id,type,data,opts){if(charts[id])charts[id].destroy();charts[
 function renderOverview(){
   const d=CCCH[YEAR], tot=yearTotals(YEAR);
   document.getElementById('tbCust').textContent=COMPANY.name;
-  document.getElementById('ovPeriod').textContent='Reporting year '+FYLABEL[YEAR]+' · '+COMPANY.sites+' sites · factors applied: DEFRA '+FAC[YEAR].yr;
+  document.getElementById('ovPeriod').textContent='Financial year '+FYLABEL[YEAR]+' · '+COMPANY.sites+' sites · factors applied: DEFRA '+FAC[YEAR].yr;
   document.getElementById('monTitle').textContent='tCO₂e per month · '+FYLABEL[YEAR];
   const intensity=T(tot.gross)/COMPANY.employees*1000;
   const redPct=(BASELINE-T(tot.gross))/BASELINE*100;
   document.getElementById('kpis').innerHTML=`
     <div class="kpi"><div class="lbl">Gross emissions</div><div class="val">${fmt(T(tot.gross))} <small>tCO₂e</small></div><div class="sub">${FYLABEL[YEAR]}</div></div>
-    <div class="kpi s1"><div class="lbl">Scope 1</div><div class="val">${fmt(T(tot.s1))} <small>t</small></div><div class="sub">gas combustion</div></div>
-    <div class="kpi s2"><div class="lbl">Scope 2</div><div class="val">${fmt(T(tot.s2))} <small>t</small></div><div class="sub">purchased electricity</div></div>
-    <div class="kpi s3"><div class="lbl">Scope 3</div><div class="val">${fmt(T(tot.s3))} <small>t</small></div><div class="sub">value chain</div></div>
-    <div class="kpi"><div class="lbl">Intensity</div><div class="val">${fmt(intensity,0)} <small>kg/emp</small></div><div class="sub">${COMPANY.employees.toLocaleString()} employees</div></div>`;
-  document.getElementById('splitNote').innerHTML='Gross <b>'+fmt(T(tot.gross))+' tCO₂e</b> vs FY22–23 baseline <b>'+fmt(BASELINE)+' t</b> — '+
+    <div class="kpi s1"><div class="lbl">Scope 1</div><div class="val">${fmt(T(tot.s1))} <small>tCO₂e</small></div><div class="sub">gas combustion</div></div>
+    <div class="kpi s2"><div class="lbl">Scope 2</div><div class="val">${fmt(T(tot.s2))} <small>tCO₂e</small></div><div class="sub">purchased electricity</div></div>
+    <div class="kpi s3"><div class="lbl">Scope 3</div><div class="val">${fmt(T(tot.s3))} <small>tCO₂e</small></div><div class="sub">value chain</div></div>
+    <div class="kpi"><div class="lbl">Intensity</div><div class="val">${fmt(intensity,0)} <small>kgCO₂e/emp</small></div><div class="sub">${COMPANY.employees.toLocaleString()} employees</div></div>`;
+  document.getElementById('splitNote').innerHTML='Gross <b>'+fmt(T(tot.gross))+' tCO₂e</b> vs 2022-23 baseline <b>'+fmt(BASELINE)+' t</b> — '+
     (redPct>=0?'<span style="color:var(--ok);font-weight:700">'+fmt(redPct,1)+'% below</span>':'<span style="color:var(--fail);font-weight:700">'+fmt(-redPct,1)+'% above</span>');
   makeChart('chMonthly','bar',{labels:MONTHS,datasets:[
       {label:'Scope 1',data:d.s1.map(T),backgroundColor:'#2f3d7e'},
       {label:'Scope 2',data:d.s2.map(T),backgroundColor:'#1d9e75'},
       {label:'Scope 3',data:d.s3.map(T),backgroundColor:'#e0912b'}]},
-    {scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,title:{display:true,text:'tCO₂e'}}},plugins:{legend:{position:'bottom'}}});
-  makeChart('chSplit','doughnut',{labels:['Scope 1','Scope 2','Scope 3'],datasets:[{data:[T(tot.s1),T(tot.s2),T(tot.s3)],backgroundColor:['#2f3d7e','#1d9e75','#e0912b'],borderWidth:2,borderColor:'#fff'}]},{cutout:'62%',plugins:{legend:{position:'bottom'}}});
-  const grossByYr=YEARS.map(y=>T(yearTotals(y).gross));
-  const target=YEARS.map((y,i)=>BASELINE*(1-0.042*i));
-  makeChart('chTrend','line',{labels:YEARS.map(y=>FYLABEL[y]),datasets:[
-      {label:'SBTi 1.5 °C target (−4.2%/yr)',data:target,borderColor:'#1d9e75',borderDash:[6,4],pointRadius:0,tension:.1},
-      {label:'Actual gross',data:grossByYr,borderColor:'#2f3d7e',backgroundColor:'#2f3d7e',pointRadius:5,tension:.2}]},
-    {plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:true,title:{display:true,text:'tCO₂e'}}}});
+    {interaction:{mode:'index',intersect:false},scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,title:{display:true,text:'tCO₂e'}}},
+     plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${fmt(c.parsed.y,1)} tCO₂e`}}}});
+  makeChart('chSplit','doughnut',{labels:['Scope 1','Scope 2','Scope 3'],datasets:[{data:[T(tot.s1),T(tot.s2),T(tot.s3)],backgroundColor:['#2f3d7e','#1d9e75','#e0912b'],borderWidth:2,borderColor:'#fff'}]},
+    {cutout:'62%',plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>{const tt=c.dataset.data.reduce((a,b)=>a+b,0);return `${c.label}: ${fmt(c.parsed,1)} tCO₂e (${fmt(c.parsed/tt*100,1)}%)`;}}}}});
+  renderTrend(); renderSBTi();
+}
+
+function renderTrend(){
+  const labels=SBTI_YEARS.map(y=>FYLABEL[y]);
+  const actual=SBTI_YEARS.map(y=>YEARS.includes(y)?T(yearTotals(y).gross):null);
+  const target=SBTI_YEARS.map((y,i)=>BASELINE*(1-SBTI_RATE*i));
+  const tgtPts=SBTI_YEARS.map((y,i)=>i===SBTI_YEARS.length-1?6:0);
+  makeChart('chTrend','line',{labels,datasets:[
+      {label:'SBTi 1.5 °C target',data:target,borderColor:'#1d9e75',borderDash:[6,4],pointRadius:tgtPts,pointBackgroundColor:'#1d9e75',tension:.1,spanGaps:true},
+      {label:'Actual gross',data:actual,borderColor:'#2f3d7e',backgroundColor:'#2f3d7e',pointRadius:5,tension:.2,spanGaps:true}]},
+    {interaction:{mode:'index',intersect:false},
+     plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>c.parsed.y==null?null:`${c.dataset.label}: ${fmt(c.parsed.y,0)} tCO₂e`}}},
+     scales:{y:{beginAtZero:true,title:{display:true,text:'tCO₂e'}}}});
+}
+
+function renderSBTi(){
+  const cur=T(yearTotals(YEAR).gross);
+  const idx=SBTI_YEARS.indexOf(YEAR);
+  const onTrack=BASELINE*(1-SBTI_RATE*idx);            // where SBTi says they should be this FY
+  const vsBase=(cur-BASELINE)/BASELINE*100;
+  const yrsLeft=(SBTI_YEARS.length-1)-idx;             // FYs from selected year to 2029-30
+  const needAnnual=yrsLeft>0?(cur-TARGET_2030)/yrsLeft:0;
+  const needPct=cur>0?needAnnual/cur*100:0;
+  const behind=cur>onTrack;
+  document.getElementById('sbtiSub').textContent='1.5 °C-aligned near-term target · '+FYLABEL[YEAR]+' vs 2022-23 baseline';
+  document.getElementById('sbtiStats').innerHTML=`
+    <div class="sbti-stat"><div class="l">2022-23 baseline</div><div class="v">${fmt(BASELINE)} <small style="font-size:12px;color:var(--muted)">tCO₂e</small></div><div class="n">your starting point</div></div>
+    <div class="sbti-stat"><div class="l">2029-30 target</div><div class="v">${fmt(TARGET_2030)} <small style="font-size:12px;color:var(--muted)">tCO₂e</small></div><div class="n">≈${fmt((1-TARGET_2030/BASELINE)*100)}% below baseline</div></div>
+    <div class="sbti-stat"><div class="l">${FYLABEL[YEAR]} actual</div><div class="v ${vsBase<=0?'pill-ok':'pill-bad'}">${fmt(cur)} <small style="font-size:12px;color:var(--muted)">tCO₂e</small></div><div class="n">${vsBase<=0?fmt(-vsBase,1)+'% below':fmt(vsBase,1)+'% above'} baseline</div></div>
+    <div class="sbti-stat"><div class="l">On-track line ${FYLABEL[YEAR]}</div><div class="v">${fmt(onTrack)} <small style="font-size:12px;color:var(--muted)">tCO₂e</small></div><div class="n">${behind?'<span class="pill-bad">above the pathway</span>':'<span class="pill-ok">on/below pathway</span>'}</div></div>
+    <div class="sbti-stat"><div class="l">Cut needed / year</div><div class="v">${fmt(Math.max(needAnnual,0))} <small style="font-size:12px;color:var(--muted)">tCO₂e/yr</small></div><div class="n">≈${fmt(Math.max(needPct,0),1)}%/yr to hit 2029-30</div></div>`;
+  document.getElementById('sbtiNarrative').innerHTML=
+    `A 1.5 °C-aligned SBTi near-term target means committing to cut emissions <b>4.2% every year</b> against your 2022-23 baseline — reaching <b>${fmt(TARGET_2030)} tCO₂e by 2029-30</b> (over a full 2020→2030 cycle this is the headline ~42% reduction). `+
+    (behind
+      ? `You're currently <b>${fmt(vsBase,1)}% above</b> baseline, so you're above the pathway. To reach the 2029-30 target you'd need to reduce by about <b>${fmt(Math.max(needAnnual,0))} tCO₂e/yr</b> (~${fmt(Math.max(needPct,0),1)}%/yr) from here. In practice the biggest levers are your gas use (Scope 1 — your largest source), moving to a certified green electricity tariff (cuts market-based Scope 2), and tackling travel, commuting and supply-chain spend (Scope 3).`
+      : `You're tracking on or below the pathway — hold the line at roughly <b>${fmt(ANNUAL_CUT)} tCO₂e/yr</b> of reductions to stay 1.5 °C-aligned through 2029-30.`);
+  let rows='';SBTI_YEARS.forEach((y,i)=>{const tg=BASELINE*(1-SBTI_RATE*i);const ac=YEARS.includes(y)?T(yearTotals(y).gross):null;
+    rows+=`<tr><td>${FYLABEL[y]}${i===0?' <span class="ro-tag">baseline</span>':''}${y==='29-30'?' <span class="ro-tag">target</span>':''}</td><td class="r kg">${fmt(tg)}</td><td class="r kg">${ac==null?'—':fmt(ac)}</td></tr>`;});
+  document.getElementById('sbtiTable').innerHTML=`<tr><th>Financial year</th><th class="r">SBTi target (tCO₂e)</th><th class="r">Actual (tCO₂e)</th></tr>${rows}`;
 }
 
 /* SCOPES (read-only) */
@@ -265,7 +325,7 @@ function renderScopes(){
      +monthCard('Scope 3 — Value chain','Reported total · factor DEFRA '+F.yr,d.s3,'#e0912b');
 }
 function monthCard(title,sub,arr,color){
-  let rows='';arr.forEach((v,i)=>{rows+=`<tr><td>${MONTHS[i]}</td><td class="r kg">${fmt(T(v),2)}</td></tr>`;});
+  let rows='';arr.forEach((v,i)=>{rows+=`<tr><td>${FULLMONTHS[i]}</td><td class="r kg">${fmt(T(v),2)}</td></tr>`;});
   return `<div class="card"><h3><span class="badge-scope" style="background:${color}">${title.split(' — ')[0]}</span> &nbsp;${title}</h3><div class="card-sub">${sub}</div>
     <table class="dt"><tr><th>Month</th><th class="r">tCO₂e</th></tr>${rows}
     <tr style="font-weight:800"><td>Total</td><td class="r kg">${fmt(T(sum(arr)),1)}</td></tr></table></div>`;
@@ -280,7 +340,7 @@ function renderFactors(){
     <tr><td>Natural gas (combustion)</td><td>Scope 1</td><td class="r mono">${F.gas.toFixed(5)}</td></tr>
     <tr><td>Grid electricity (generation)</td><td>Scope 2 · location</td><td class="r mono">${F.elecGen.toFixed(5)}</td></tr>
     <tr><td>Electricity — T&D losses</td><td>Scope 3 · Cat 3</td><td class="r mono">${F.elecTD.toFixed(5)}</td></tr>`;
-  document.getElementById('facNote').innerHTML='These factors are fixed by CES for the reporting year and are not customer-editable. Each year is calculated on its own DEFRA/DESNZ set — figures are never retro-applied.';
+  document.getElementById('facNote').innerHTML='These factors are fixed by CES for the financial year and are not customer-editable. Each year is calculated on its own DEFRA/DESNZ set — figures are never retro-applied.';
 }
 
 /* LIVE GRID (NESO) */
@@ -290,9 +350,9 @@ async function loadGrid(){
   try{
     const [curR,genR,dayR]=await Promise.all([fetch(NESO+'/intensity').then(r=>r.json()),fetch(NESO+'/generation').then(r=>r.json()),fetch(NESO+'/intensity/date').then(r=>r.json())]);
     const cur=curR.data[0].intensity, val=cur.actual??cur.forecast, idx=cur.index||'moderate', col=IDX_COLOR[idx]||'#e0912b';
-    document.getElementById('giStamp').textContent='Updated '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})+' · GB average';
+    document.getElementById('giStamp').textContent='Updated '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})+' · GB average, incl. transmission & distribution losses';
     document.getElementById('giHero').innerHTML=`<div class="gi-dial" style="background:${col}"><div class="n">${val}</div><div class="u">gCO₂/kWh</div></div>
-      <div class="gi-meta"><div class="gi-index" style="color:${col};text-transform:capitalize">${idx}</div><div class="note" style="margin-top:6px">Carbon intensity of GB grid electricity right now, incl. transmission &amp; distribution losses.</div></div>`;
+      <div class="gi-meta"><div class="gi-index" style="color:${col};text-transform:capitalize">${idx}</div><div class="note" style="margin-top:6px">Right now, every kWh of grid electricity you use carries about <b>${val} g</b> of CO₂. A "${idx}" reading means it's a ${idx.includes('low')?'good':'less ideal'} time to run flexible electrical load.</div></div>`;
     const day=dayR.data.map(d=>({from:d.from,v:(d.intensity.actual??d.intensity.forecast),idx:d.intensity.index}));
     let lo=day[0];day.forEach(d=>{if(d.v<lo.v)lo=d;});
     const hm=x=>x.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
@@ -302,8 +362,10 @@ async function loadGrid(){
     document.getElementById('giWinDesc').textContent='Cleanest half-hour today at '+lo.v+' gCO₂/kWh ('+lo.idx+') — best time to run flexible load.';
     const gm=genR.data.generationmix.filter(x=>x.perc>0).sort((a,b)=>b.perc-a.perc);
     const gcol={gas:'#8b6f47',coal:'#4a4441',nuclear:'#7f77dd',wind:'#1d9e75',solar:'#e0b02b',hydro:'#378add',biomass:'#93c43a',imports:'#9aa0ad',other:'#c9cdd6'};
-    makeChart('chGen','doughnut',{labels:gm.map(x=>x.fuel[0].toUpperCase()+x.fuel.slice(1)),datasets:[{data:gm.map(x=>x.perc),backgroundColor:gm.map(x=>gcol[x.fuel]||'#c9cdd6'),borderWidth:2,borderColor:'#fff'}]},{cutout:'58%',plugins:{legend:{position:'right',labels:{boxWidth:12,font:{size:11}}}}});
-    makeChart('chDay','line',{labels:day.map(d=>hm(new Date(d.from))),datasets:[{label:'gCO₂/kWh',data:day.map(d=>d.v),borderColor:'#2f3d7e',backgroundColor:'rgba(47,61,126,.08)',fill:true,tension:.35,pointRadius:day.map(d=>d===lo?6:0),pointBackgroundColor:'#1d9e75'}]},{plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{maxTicksLimit:12}},y:{title:{display:true,text:'gCO₂/kWh'}}}});
+    makeChart('chGen','doughnut',{labels:gm.map(x=>x.fuel[0].toUpperCase()+x.fuel.slice(1)),datasets:[{data:gm.map(x=>x.perc),backgroundColor:gm.map(x=>gcol[x.fuel]||'#c9cdd6'),borderWidth:2,borderColor:'#fff'}]},
+      {cutout:'58%',plugins:{legend:{position:'right',labels:{boxWidth:12,font:{size:11}}},tooltip:{callbacks:{label:c=>`${c.label}: ${c.parsed}%`}}}});
+    makeChart('chDay','line',{labels:day.map(d=>hm(new Date(d.from))),datasets:[{label:'Carbon intensity',data:day.map(d=>d.v),borderColor:'#2f3d7e',backgroundColor:'rgba(47,61,126,.08)',fill:true,tension:.35,pointRadius:day.map(d=>d===lo?6:0),pointBackgroundColor:'#1d9e75',pointHoverRadius:6}]},
+      {interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{callbacks:{title:items=>'Time '+items[0].label,label:c=>`${c.parsed.y} gCO₂/kWh`}}},scales:{x:{grid:{display:false},ticks:{maxTicksLimit:12}},y:{title:{display:true,text:'gCO₂/kWh'}}}});
   }catch(err){document.getElementById('giHero').innerHTML='<div class="note">Live grid data unavailable right now. It refreshes on reload.</div>';console.warn(err);}
 }
 
@@ -322,4 +384,3 @@ function boot(){renderOverview();renderScopes();renderFactors();loadGrid();}
 </script>
 </body>
 </html>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
