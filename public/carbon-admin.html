@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'; frame-ancestors 'self';" />
+  <title>CES Carbon — Admin</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <meta name="theme-color" content="#1e2a5e">
+  <link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--navy:#2f3d7e;--navy-dark:#1e2a5e;--lime:#93c43a;--leaf:#1d9e75;--leaf-dark:#0f6e56;--leaf-bg:#e1f5ee;
+      --bg:#f5f2ec;--bg-2:#efece4;--surface:#fff;--surface-2:#faf8f4;--border:#e6e1d6;--line:#ede9df;
+      --text:#1c1f2a;--text-2:#4a4e5c;--muted:#7a7e8c;--s1:#2f3d7e;--s2:#1d9e75;--s3:#e0912b;--ok:#3a7a24;--fail:#8b2015}
+    html,body{min-height:100vh;font-family:'Manrope',sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+    h1{font-size:28px;font-weight:800;letter-spacing:-0.5px}h3{font-size:16px;font-weight:700}
+    p,label,span,td,th,li{font-size:14px}.mono{font-family:'JetBrains Mono',monospace}
+    button,a,input,select{transition:all .15s ease;font-family:inherit}
+    #login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(1200px 600px at 70% -10%,rgba(47,61,126,.12),transparent),var(--bg)}
+    .login-card{width:100%;max-width:410px;background:var(--surface);border:1px solid var(--border);border-radius:18px;box-shadow:0 18px 50px rgba(28,31,42,.10);padding:36px 34px}
+    .brand{display:flex;align-items:center;gap:11px;margin-bottom:24px}
+    .brand-mark{width:38px;height:38px;border-radius:9px;background:linear-gradient(135deg,var(--navy),var(--navy-dark));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:16px}
+    .brand-txt b{font-size:18px}.brand-txt span{display:block;font-size:11.5px;color:var(--muted);font-weight:600;letter-spacing:.3px;text-transform:uppercase}
+    .fld{margin-bottom:14px}.fld label{display:block;font-size:11.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+    .fld input{width:100%;padding:12px 13px;border:1.5px solid var(--border);border-radius:9px;font-size:14px;background:#fff}
+    .fld input:focus{outline:none;border-color:var(--navy)}
+    #loginBtn{width:100%;background:var(--navy);color:#fff;border:0;border-radius:9px;padding:13px;font-weight:700;font-size:14px;cursor:pointer;margin-top:6px}
+    #loginBtn:hover{background:var(--navy-dark)}
+    .login-err{background:rgba(139,32,21,.08);color:var(--fail);border:1px solid rgba(139,32,21,.2);padding:10px 12px;border-radius:8px;font-size:13px;margin-top:12px;display:none}
+    .demo-hint{margin-top:20px;padding:12px 14px;background:#eef0f7;border:1px dashed var(--navy);border-radius:9px;font-size:12.5px;color:var(--navy-dark)}
+    .back{position:absolute;top:20px;left:22px;color:var(--muted);text-decoration:none;font-size:13px;font-weight:600}.back:hover{color:var(--navy)}
+    #app{display:none;min-height:100vh}
+    .topbar{background:var(--navy-dark);color:#fff;padding:0 22px;height:60px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:40}
+    .brand-mark.sm{width:32px;height:32px}
+    .tb-title{font-weight:800;font-size:16px}.tb-title span{font-weight:500;opacity:.7}
+    .tb-pill{font-size:11px;font-weight:700;background:var(--lime);color:#1c2b12;padding:3px 9px;border-radius:20px;letter-spacing:.4px}
+    .tb-spacer{flex:1}.tb-logout{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:8px 13px;font-size:13px;font-weight:600;cursor:pointer}.tb-logout:hover{background:rgba(255,255,255,.1)}
+    .main{max-width:1100px;margin:0 auto;padding:26px 30px}
+    .ph{margin-bottom:20px}.ph h1{margin-bottom:4px}.ph p{color:var(--muted)}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:20px;margin-bottom:16px}
+    .card h3{margin-bottom:14px}
+    .ctrl-row{display:grid;grid-template-columns:2fr 1fr 1fr;gap:16px}
+    @media(max-width:800px){.ctrl-row{grid-template-columns:1fr}}
+    .ctrl label{display:block;font-size:11.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+    .ctrl select,.ctrl input{width:100%;padding:11px 12px;border:1.5px solid var(--border);border-radius:9px;font-size:14px;background:#fff;font-weight:600}
+    .ctrl select:focus,.ctrl input:focus{outline:none;border-color:var(--navy)}
+    .drop{border:2px dashed var(--border);border-radius:12px;padding:26px;text-align:center;background:var(--surface-2);cursor:pointer}
+    .drop:hover{border-color:var(--navy);background:#fbfaf7}
+    .drop .big{font-size:15px;font-weight:700;color:var(--text)}.drop .sm{font-size:12.5px;color:var(--muted);margin-top:4px}
+    .btn{border:0;border-radius:9px;padding:11px 18px;font-size:14px;font-weight:700;cursor:pointer}
+    .btn-primary{background:var(--navy);color:#fff}.btn-primary:hover{background:var(--navy-dark)}
+    .btn-leaf{background:var(--leaf);color:#fff}.btn-leaf:hover{background:var(--leaf-dark)}
+    .btn-ghost{background:transparent;color:var(--text-2);border:1.5px solid var(--border)}.btn-ghost:hover{border-color:var(--navy);color:var(--navy)}
+    .row-btns{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;align-items:center}
+    .status{font-size:13px;font-weight:600;padding:6px 0}
+    .status.ok{color:var(--ok)}.status.err{color:var(--fail)}
+    .grid2{display:grid;grid-template-columns:1.5fr 1fr;gap:16px}@media(max-width:800px){.grid2{grid-template-columns:1fr}}
+    .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}@media(max-width:700px){.kpis{grid-template-columns:repeat(2,1fr)}}
+    .kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+    .kpi.s1{border-top:3px solid var(--s1)}.kpi.s2{border-top:3px solid var(--s2)}.kpi.s3{border-top:3px solid var(--s3)}
+    .kpi .lbl{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}.kpi .val{font-size:22px;font-weight:800;margin-top:4px}.kpi .val small{font-size:12px;color:var(--muted);font-weight:600}
+    table.dt{width:100%;border-collapse:collapse;font-size:13px}
+    table.dt th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:700;padding:8px 9px;border-bottom:1.5px solid var(--border)}
+    table.dt td{padding:8px 9px;border-bottom:1px solid var(--line)}table.dt tr:last-child td{border-bottom:0}
+    td.r,th.r{text-align:right}.kg{font-family:'JetBrains Mono',monospace;font-weight:600}
+    .badge-scope{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;color:#fff}
+    .chart-box{position:relative;height:250px}
+    .muted{color:var(--muted);font-size:12.5px;line-height:1.5}
+    .hidden{display:none}
+    .callout{background:#eef0f7;border-left:3px solid var(--navy);border-radius:0 9px 9px 0;padding:12px 15px;font-size:13px;color:var(--navy-dark);line-height:1.5}
+  </style>
+</head>
+<body>
+  <!-- LOGIN -->
+  <div id="login">
+    <a href="/" class="back">← Back to billing portal</a>
+    <div class="login-card">
+      <div class="brand"><div class="brand-mark">CES</div><div class="brand-txt"><b>CES Carbon</b><span>Admin console</span></div></div>
+      <h1 style="font-size:22px;margin-bottom:6px">Admin sign in</h1><p style="color:var(--muted);font-size:13.5px;margin-bottom:22px">Manage customer carbon data.</p>
+      <form id="loginForm" autocomplete="off">
+        <div class="fld"><label>Email</label><input type="email" id="email" placeholder="admin@cesgb.com" /></div>
+        <div class="fld"><label>Password</label><input type="password" id="pass" placeholder="••••••••" /></div>
+        <button type="submit" id="loginBtn">Sign in</button>
+        <div class="login-err" id="loginErr">Incorrect email or password.</div>
+      </form>
+      <div class="demo-hint"><b>Demo admin access</b><br>Email <b>admin@cesgb.com</b> · Password <b>CarbonAdmin2026!</b></div>
+    </div>
+  </div>
+
+  <!-- APP -->
+  <div id="app">
+    <div class="topbar">
+      <div class="brand-mark sm">CES</div>
+      <div class="tb-title">CES Carbon <span>/ Admin</span></div>
+      <span class="tb-pill">ADMIN</span>
+      <div class="tb-spacer"></div>
+      <button class="tb-logout" id="logoutBtn">Log out</button>
+    </div>
+    <div class="main">
+      <div class="ph"><h1>Customer carbon admin</h1><p>Select a customer, set the factor year and green share, then import the CES mass-upload file.</p></div>
+
+      <div class="card">
+        <h3>Customer &amp; settings</h3>
+        <div class="ctrl-row">
+          <div class="ctrl"><label>Customer</label>
+            <select id="custSel">
+              <option value="ccch">Country Court Care Homes</option>
+              <option value="blank">Blank Table Ltd</option>
+              <option value="demo">Demo Manufacturing Ltd</option>
+            </select></div>
+          <div class="ctrl"><label>Factor year (DEFRA)</label>
+            <select id="yearSel"><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option></select></div>
+          <div class="ctrl"><label>Green electricity %</label>
+            <input type="number" id="greenInp" value="0" min="0" max="100" /></div>
+        </div>
+        <div class="callout" style="margin-top:14px">Factor year and green share are <b>admin-only</b> — the client portal cannot change them.</div>
+      </div>
+
+      <div class="card">
+        <h3>Import CES mass-upload file</h3>
+        <div class="drop" id="drop">
+          <div class="big">Drop the completed CES mass-upload .xlsx here</div>
+          <div class="sm">or click to choose a file — sheets: Company · Scope 1 · Scope 2 · Scope 3</div>
+          <input type="file" id="fileInp" accept=".xlsx,.xls" class="hidden" />
+        </div>
+        <div class="row-btns">
+          <button class="btn btn-ghost" id="sampleBtn">Load worked example (CCCH)</button>
+          <span class="status" id="status"></span>
+        </div>
+      </div>
+
+      <div id="results" class="hidden">
+        <div class="card">
+          <h3>Extracted &amp; calculated — <span id="rCust"></span> · <span id="rYear"></span></h3>
+          <div class="kpis" id="kpis"></div>
+          <div class="grid2">
+            <div>
+              <table class="dt" id="s3table"></table>
+            </div>
+            <div>
+              <div class="chart-box"><canvas id="chSplit"></canvas></div>
+              <div class="muted" id="s2note" style="margin-top:12px"></div>
+            </div>
+          </div>
+          <div class="row-btns" style="margin-top:16px">
+            <button class="btn btn-leaf" id="applyBtn">Apply &amp; save to customer</button>
+            <span class="status" id="applyStatus"></span>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Parsed activity data</h3>
+          <table class="dt" id="actTable"></table>
+          <div class="muted" style="margin-top:10px">Source rows read directly from the uploaded workbook. Activity data only — factors are applied by CES.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ════════ CES CARBON — admin console (demo) ════════
+   Parses the CES mass-upload .xlsx (SheetJS), applies year-versioned DEFRA
+   factors, computes full Scope 1/2/3. Factor-year & green share editable here
+   only. Production would persist to Supabase per selected customer. */
+
+const DEMO_USER='admin@cesgb.com', DEMO_PASS='CarbonAdmin2026!';
+document.getElementById('loginForm').addEventListener('submit',e=>{
+  e.preventDefault();
+  const em=document.getElementById('email').value.trim().toLowerCase(), pw=document.getElementById('pass').value;
+  if(em===DEMO_USER&&pw===DEMO_PASS){document.getElementById('login').style.display='none';document.getElementById('app').style.display='block';}
+  else document.getElementById('loginErr').style.display='block';
+});
+document.getElementById('logoutBtn').addEventListener('click',()=>location.reload());
+
+/* year-versioned DEFRA/DESNZ factors (kg CO2e/kWh) — full set incl WTT & T&D */
+const DEFRA={
+ 2025:{elecGen:0.17700,elecTD:0.01853,elecWTTgen:0.03600,elecWTTtd:0.00320,gas:0.18296,gasWTT:0.02460},
+ 2024:{elecGen:0.20705,elecTD:0.01830,elecWTTgen:0.03880,elecWTTtd:0.00340,gas:0.18290,gasWTT:0.02455},
+ 2023:{elecGen:0.20707,elecTD:0.01899,elecWTTgen:0.03910,elecWTTtd:0.00350,gas:0.18293,gasWTT:0.02450}
+};
+const CUST={ccch:'Country Court Care Homes',blank:'Blank Table Ltd',demo:'Demo Manufacturing Ltd'};
+const MONTHS=['Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar'];
+let parsed=null, chart=null;
+const sum=a=>a.reduce((x,y)=>x+y,0), T=k=>k/1000, fmt=(n,d=0)=>Number(n).toLocaleString('en-GB',{minimumFractionDigits:d,maximumFractionDigits:d});
+
+/* ---- file handling ---- */
+const drop=document.getElementById('drop'), fileInp=document.getElementById('fileInp');
+drop.addEventListener('click',()=>fileInp.click());
+drop.addEventListener('dragover',e=>{e.preventDefault();drop.style.borderColor='#2f3d7e';});
+drop.addEventListener('dragleave',()=>drop.style.borderColor='');
+drop.addEventListener('drop',e=>{e.preventDefault();drop.style.borderColor='';if(e.dataTransfer.files[0])readFile(e.dataTransfer.files[0]);});
+fileInp.addEventListener('change',e=>{if(e.target.files[0])readFile(e.target.files[0]);});
+document.getElementById('sampleBtn').addEventListener('click',()=>{parsed=SAMPLE();setStatus('Loaded worked example (CCCH FY2024–25).',true);render();});
+
+function setStatus(msg,ok){const s=document.getElementById('status');s.textContent=msg;s.className='status '+(ok?'ok':'err');}
+
+function readFile(file){
+  setStatus('Reading '+file.name+'…',true);
+  const rd=new FileReader();
+  rd.onload=e=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      parsed=parseWB(wb);
+      if(!parsed.gasKwh && !parsed.elecKwh){setStatus('Could not find Scope 1/2 data — is this the CES template?',false);return;}
+      setStatus('Parsed '+file.name+' ✓',true); render();
+    }catch(err){console.error(err);setStatus('Failed to parse file: '+err.message,false);}
+  };
+  rd.readAsArrayBuffer(file);
+}
+
+/* ---- parser: reads the CES mass-upload template ---- */
+function parseWB(wb){
+  const grid=n=>wb.Sheets[n]?XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:null}):null;
+  // Company
+  const company={name:'',greenPct:0,employees:0,year:''};
+  const cs=grid('Company');
+  if(cs)cs.forEach(r=>{if(!r)return;const f=String(r[0]||'').toLowerCase(),v=r[1];
+    if(f.includes('company name'))company.name=v||'';
+    else if(f.includes('green'))company.greenPct=parseFloat(v)||0;
+    else if(f.includes('employee'))company.employees=parseFloat(v)||0;
+    else if(f.includes('reporting year'))company.year=String(v||'');});
+  // energy sheets
+  function energy(name){const rows=grid(name);if(!rows)return[];
+    let hi=rows.findIndex(r=>r&&r.some(c=>String(c).trim()==='Apr'));if(hi<0)return[];
+    const ai=rows[hi].findIndex(c=>String(c).trim()==='Apr');const out=[];
+    for(let i=hi+1;i<rows.length;i++){const r=rows[i];if(!r||!r[0])continue;
+      const months=[];for(let m=0;m<12;m++){const v=r[ai+m];months.push(typeof v==='number'?v:(parseFloat(v)||0));}
+      out.push({label:String(r[0]),unit:String(r[1]||''),months,annual:sum(months)});}
+    return out;}
+  const s1=energy('Scope 1 (Gas & Fuels)'), s2=energy('Scope 2 (Electricity)');
+  const gasRows=s1.filter(r=>/kwh/i.test(r.unit));
+  const elecRows=s2.filter(r=>/kwh/i.test(r.unit));
+  const gasKwh=gasRows.reduce((t,r)=>t+r.annual,0);
+  const elecKwh=elecRows.reduce((t,r)=>t+r.annual,0);
+  // Scope 3
+  const s3rows=[];const t3=grid('Scope 3');
+  if(t3){let hi=t3.findIndex(r=>r&&r.some(c=>String(c).includes('Emission factor')));
+    if(hi>=0)for(let i=hi+1;i<t3.length;i++){const r=t3[i];if(!r||!r[0])continue;
+      const qty=parseFloat(r[3]),f=parseFloat(r[4]);
+      s3rows.push({cat:String(r[0]),item:String(r[1]||''),unit:String(r[2]||''),qty:isNaN(qty)?null:qty,f:isNaN(f)?null:f});}}
+  return {company,s1,s2,gasRows,elecRows,gasKwh,elecKwh,s3rows};
+}
+
+/* ---- sample (no file) ---- */
+function SAMPLE(){
+  const gas=[1463242,1726992,1864940,1174059,1149262,1256867,2138300,2200408,2051316,2115714,2846167,2641834];
+  const el=[580776,554270,781777,796543,656285,729316,802662,851738,898278,803389,728416,709206];
+  return {company:{name:'Country Court Care Homes',greenPct:0,employees:2407,year:'2024-25'},
+    s1:[{label:'Natural gas',unit:'kWh',months:gas,annual:sum(gas)}],
+    s2:[{label:'Grid electricity',unit:'kWh',months:el,annual:sum(el)}],
+    gasRows:[{label:'Natural gas',unit:'kWh',annual:sum(gas)}],
+    elecRows:[{label:'Grid electricity',unit:'kWh',annual:sum(el)}],
+    gasKwh:sum(gas),elecKwh:sum(el),
+    s3rows:[
+      {cat:'Cat 1 Purchased goods & services',item:'Food & catering supplies',unit:'£ spend',qty:642000,f:0.42},
+      {cat:'Cat 1 Purchased goods & services',item:'Cleaning & consumables',unit:'£ spend',qty:118000,f:0.38},
+      {cat:'Cat 1 Purchased goods & services',item:'Water supply',unit:'m3',qty:34800,f:0.344},
+      {cat:'Cat 2 Capital goods',item:'Refurbishment works',unit:'£ spend',qty:210000,f:0.35},
+      {cat:'Cat 4 Upstream transport',item:'Supplier deliveries',unit:'tonne.km',qty:52000,f:0.107},
+      {cat:'Cat 5 Waste',item:'Mixed commercial (landfill)',unit:'tonnes',qty:290,f:446.2},
+      {cat:'Cat 5 Waste',item:'Mixed recycling',unit:'tonnes',qty:165,f:21.3},
+      {cat:'Cat 6 Business travel',item:'Car — average',unit:'km',qty:184000,f:0.1665},
+      {cat:'Cat 6 Business travel',item:'Rail',unit:'km',qty:41000,f:0.03546},
+      {cat:'Cat 7 Employee commuting',item:'Car commuting',unit:'km',qty:1960000,f:0.1665}
+    ]};
+}
+
+/* ---- compute + render ---- */
+function compute(){
+  const F=DEFRA[document.getElementById('yearSel').value];
+  const green=Math.min(100,Math.max(0,parseFloat(document.getElementById('greenInp').value)||0));
+  const gas=parsed.gasKwh, elec=parsed.elecKwh;
+  const s1=gas*F.gas, s2loc=elec*F.elecGen, s2mkt=elec*(1-green/100)*F.elecGen;
+  const cat3=elec*(F.elecTD+F.elecWTTgen+F.elecWTTtd)+gas*F.gasWTT;
+  // group S3 rows by category
+  const cats={}; parsed.s3rows.forEach(r=>{if(r.qty!=null&&r.f!=null){const k=r.cat;cats[k]=(cats[k]||0)+r.qty*r.f;}});
+  cats['Cat 3 Fuel & energy (WTT + T&D)']=cat3;
+  const s3=Object.values(cats).reduce((a,b)=>a+b,0);
+  return {F,green,gas,elec,s1,s2loc,s2mkt,s3,cats,gross:s1+s2loc+s3};
+}
+
+function render(){
+  if(!parsed)return;
+  document.getElementById('greenInp').value = parsed.company.greenPct||0;
+  const R=compute();
+  document.getElementById('results').classList.remove('hidden');
+  document.getElementById('rCust').textContent = CUST[document.getElementById('custSel').value];
+  document.getElementById('rYear').textContent = (parsed.company.year||'')+' · DEFRA '+document.getElementById('yearSel').value;
+  const emp=parsed.company.employees||0;
+  document.getElementById('kpis').innerHTML=`
+    <div class="kpi"><div class="lbl">Gross</div><div class="val">${fmt(T(R.gross))} <small>tCO₂e</small></div></div>
+    <div class="kpi s1"><div class="lbl">Scope 1</div><div class="val">${fmt(T(R.s1))} <small>t</small></div></div>
+    <div class="kpi s2"><div class="lbl">Scope 2</div><div class="val">${fmt(T(R.s2loc))} <small>t</small></div></div>
+    <div class="kpi s3"><div class="lbl">Scope 3</div><div class="val">${fmt(T(R.s3))} <small>t</small></div></div>`;
+  // S3 category table
+  let rows='';Object.keys(R.cats).sort().forEach(k=>{rows+=`<tr><td>${k}</td><td class="r kg">${fmt(T(R.cats[k]),2)}</td></tr>`;});
+  document.getElementById('s3table').innerHTML=`<tr><th>Scope 3 category</th><th class="r">tCO₂e</th></tr>${rows}<tr style="font-weight:800"><td>Scope 3 total</td><td class="r kg">${fmt(T(R.s3),1)}</td></tr>`;
+  document.getElementById('s2note').innerHTML=`<b>Scope 2 dual reporting:</b> location-based ${fmt(T(R.s2loc),1)} t · market-based ${fmt(T(R.s2mkt),1)} t at ${R.green}% green tariff. Gas ${fmt(R.gas)} kWh · electricity ${fmt(R.elec)} kWh.`;
+  // activity table
+  let a='';
+  parsed.gasRows.concat(parsed.elecRows).forEach(r=>{a+=`<tr><td>${r.label}</td><td>${r.unit}</td><td class="r kg">${fmt(r.annual)}</td></tr>`;});
+  document.getElementById('actTable').innerHTML=`<tr><th>Activity</th><th>Unit</th><th class="r">Annual</th></tr>${a}`;
+  // chart
+  if(chart)chart.destroy();
+  chart=new Chart(document.getElementById('chSplit'),{type:'doughnut',data:{labels:['Scope 1','Scope 2','Scope 3'],datasets:[{data:[T(R.s1),T(R.s2loc),T(R.s3)],backgroundColor:['#2f3d7e','#1d9e75','#e0912b'],borderWidth:2,borderColor:'#fff'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'60%',plugins:{legend:{position:'bottom'}}}});
+  document.getElementById('applyStatus').textContent='';
+}
+['yearSel','greenInp','custSel'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{if(parsed)render();}));
+document.getElementById('applyBtn').addEventListener('click',()=>{
+  const s=document.getElementById('applyStatus');
+  s.className='status ok';
+  s.textContent='✓ Demo — in production this saves to Supabase for '+CUST[document.getElementById('custSel').value]+'.';
+});
+</script>
+</body>
+</html>
