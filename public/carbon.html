@@ -3,9 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- CSP: adds api.carbonintensity.org.uk (live grid) to the billing portal's policy -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co https://api.carbonintensity.org.uk https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; frame-ancestors 'self';" />
-  <title>CES Carbon — Scope 1/2/3 Portal (Demo)</title>
+  <title>CES Carbon — Client Portal</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <meta name="theme-color" content="#2f3d7e">
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -15,622 +14,312 @@
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
-      --navy:#2f3d7e;--navy-dark:#1e2a5e;--navy-xdark:#141d45;
-      --lime:#93c43a;--lime-dark:#78a82e;
+      --navy:#2f3d7e;--navy-dark:#1e2a5e;--lime:#93c43a;
       --leaf:#1d9e75;--leaf-dark:#0f6e56;--leaf-bg:#e1f5ee;
       --bg:#f5f2ec;--bg-2:#efece4;--surface:#fff;--surface-2:#faf8f4;
-      --border:#e6e1d6;--line:#ede9df;
-      --text:#1c1f2a;--text-2:#4a4e5c;--muted:#7a7e8c;
-      --s1:#2f3d7e;--s2:#1d9e75;--s3:#e0912b;
-      --ok:#3a7a24;--fail:#8b2015;--warn:#7a5010;
+      --border:#e6e1d6;--line:#ede9df;--text:#1c1f2a;--text-2:#4a4e5c;--muted:#7a7e8c;
+      --s1:#2f3d7e;--s2:#1d9e75;--s3:#e0912b;--ok:#3a7a24;--fail:#8b2015;
     }
     html,body{min-height:100vh;font-family:'Manrope',sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
-    h1{font-size:34px;font-weight:800;letter-spacing:-0.6px;line-height:1.15}
-    h2{font-size:22px;font-weight:700;letter-spacing:-0.3px}
-    h3{font-size:16px;font-weight:700}
-    p,label,span,td,th,li{font-size:14px}
-    .mono{font-family:'JetBrains Mono',monospace}
+    h1{font-size:32px;font-weight:800;letter-spacing:-0.6px}h2{font-size:21px;font-weight:700}h3{font-size:16px;font-weight:700}
+    p,label,span,td,th,li{font-size:14px}.mono{font-family:'JetBrains Mono',monospace}
     button,a,input,select{transition:all .15s ease;font-family:inherit}
-    .btn{border:0;border-radius:8px;padding:11px 18px;font-size:14px;font-weight:700;cursor:pointer}
-    .btn-primary{background:var(--navy);color:#fff}
-    .btn-primary:hover{background:var(--navy-dark)}
-    .btn-primary:active{transform:scale(.98)}
-    .btn-ghost{background:transparent;color:var(--text-2);border:1.5px solid var(--border)}
-    .btn-ghost:hover{border-color:var(--navy);color:var(--navy)}
-
-    /* ───── LOGIN ───── */
-    #login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;
-      background:radial-gradient(1200px 600px at 70% -10%,rgba(29,158,117,.10),transparent),var(--bg)}
-    .login-card{width:100%;max-width:410px;background:var(--surface);border:1px solid var(--border);
-      border-radius:18px;box-shadow:0 18px 50px rgba(28,31,42,.10);padding:36px 34px}
-    .brand{display:flex;align-items:center;gap:11px;margin-bottom:26px}
-    .brand-mark{width:38px;height:38px;border-radius:9px;background:linear-gradient(135deg,var(--leaf),var(--leaf-dark));
-      display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:19px}
-    .brand-txt b{font-size:18px;letter-spacing:-.3px}
-    .brand-txt span{display:block;font-size:11.5px;color:var(--muted);font-weight:600;letter-spacing:.3px;text-transform:uppercase}
-    .login-card h1{font-size:23px;margin-bottom:6px}
-    .login-card .sub{color:var(--muted);font-size:13.5px;margin-bottom:22px}
-    .fld{margin-bottom:14px}
-    .fld label{display:block;font-size:11.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+    /* LOGIN */
+    #login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(1200px 600px at 70% -10%,rgba(29,158,117,.10),transparent),var(--bg)}
+    .login-card{width:100%;max-width:410px;background:var(--surface);border:1px solid var(--border);border-radius:18px;box-shadow:0 18px 50px rgba(28,31,42,.10);padding:36px 34px}
+    .brand{display:flex;align-items:center;gap:11px;margin-bottom:24px}
+    .brand-mark{width:38px;height:38px;border-radius:9px;background:linear-gradient(135deg,var(--leaf),var(--leaf-dark));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:19px}
+    .brand-txt b{font-size:18px;letter-spacing:-.3px}.brand-txt span{display:block;font-size:11.5px;color:var(--muted);font-weight:600;letter-spacing:.3px;text-transform:uppercase}
+    .login-card h1{font-size:23px;margin-bottom:6px}.login-card .sub{color:var(--muted);font-size:13.5px;margin-bottom:22px}
+    .fld{margin-bottom:14px}.fld label{display:block;font-size:11.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
     .fld input{width:100%;padding:12px 13px;border:1.5px solid var(--border);border-radius:9px;font-size:14px;background:#fff}
     .fld input:focus{outline:none;border-color:var(--leaf)}
-    #loginBtn{width:100%;background:var(--leaf);color:#fff;margin-top:6px}
+    #loginBtn{width:100%;background:var(--leaf);color:#fff;border:0;border-radius:9px;padding:13px;font-weight:700;font-size:14px;cursor:pointer;margin-top:6px}
     #loginBtn:hover{background:var(--leaf-dark)}
-    .login-err{background:rgba(139,32,21,.08);color:var(--fail);border:1px solid rgba(139,32,21,.2);
-      padding:10px 12px;border-radius:8px;font-size:13px;margin-top:12px;display:none}
-    .demo-hint{margin-top:20px;padding:12px 14px;background:var(--leaf-bg);border:1px dashed var(--leaf);
-      border-radius:9px;font-size:12.5px;color:var(--leaf-dark)}
-    .demo-hint b{color:var(--leaf-dark)}
-
-    /* ───── APP SHELL ───── */
+    .login-err{background:rgba(139,32,21,.08);color:var(--fail);border:1px solid rgba(139,32,21,.2);padding:10px 12px;border-radius:8px;font-size:13px;margin-top:12px;display:none}
+    .demo-hint{margin-top:20px;padding:12px 14px;background:var(--leaf-bg);border:1px dashed var(--leaf);border-radius:9px;font-size:12.5px;color:var(--leaf-dark)}
+    .back{position:absolute;top:20px;left:22px;color:var(--muted);text-decoration:none;font-size:13px;font-weight:600}
+    .back:hover{color:var(--navy)}
+    /* APP */
     #app{display:none;min-height:100vh}
-    .topbar{background:var(--navy);color:#fff;padding:0 22px;height:60px;display:flex;align-items:center;gap:18px;position:sticky;top:0;z-index:40}
+    .topbar{background:var(--navy);color:#fff;padding:0 22px;height:60px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:40}
     .topbar .brand-mark{width:32px;height:32px;font-size:16px}
-    .topbar .tb-title{font-weight:800;font-size:16px;letter-spacing:-.2px}
-    .topbar .tb-title span{font-weight:500;opacity:.7}
+    .tb-title{font-weight:800;font-size:16px}.tb-title span{font-weight:500;opacity:.72}
     .tb-spacer{flex:1}
     .tb-sel{background:var(--navy-dark);color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:8px 11px;font-size:13px;font-weight:600}
     .tb-sel:focus{outline:none;border-color:var(--lime)}
     .tb-logout{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:8px 13px;font-size:13px;font-weight:600;cursor:pointer}
     .tb-logout:hover{background:rgba(255,255,255,.1)}
     .layout{display:flex;min-height:calc(100vh - 60px)}
-    .nav{width:216px;background:var(--surface);border-right:1px solid var(--border);padding:16px 12px;flex-shrink:0}
-    .nav-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;
-      padding:11px 13px;border-radius:9px;font-size:14px;font-weight:600;color:var(--text-2);cursor:pointer;margin-bottom:3px}
-    .nav-item:hover{background:var(--bg-2)}
-    .nav-item.active{background:var(--navy);color:#fff}
-    .nav-item .ic{font-size:16px;width:20px;text-align:center}
+    .nav{width:210px;background:var(--surface);border-right:1px solid var(--border);padding:16px 12px;flex-shrink:0}
+    .nav-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;padding:11px 13px;border-radius:9px;font-size:14px;font-weight:600;color:var(--text-2);cursor:pointer;margin-bottom:3px}
+    .nav-item:hover{background:var(--bg-2)}.nav-item.active{background:var(--navy);color:#fff}
+    .nav-item .ic{font-size:15px;width:20px;text-align:center}
     .main{flex:1;padding:26px 30px;max-width:1180px}
-    .pageview{display:none;animation:fade .25s ease both}
-    .pageview.active{display:block}
+    .pageview{display:none;animation:fade .25s ease both}.pageview.active{display:block}
     @keyframes fade{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
-    .ph{margin-bottom:22px}
-    .ph h1{margin-bottom:4px}
-    .ph p{color:var(--muted);font-size:14px}
-
-    /* cards / kpis */
-    .grid{display:grid;gap:16px}
-    .kpis{grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:20px}
+    .ph{margin-bottom:22px}.ph h1{margin-bottom:4px}.ph p{color:var(--muted)}
+    .grid{display:grid;gap:16px}.kpis{grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:20px}
     .kpi{background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:17px 18px}
     .kpi .lbl{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-    .kpi .val{font-size:27px;font-weight:800;letter-spacing:-.5px;margin-top:5px}
-    .kpi .val small{font-size:14px;font-weight:600;color:var(--muted)}
+    .kpi .val{font-size:26px;font-weight:800;letter-spacing:-.5px;margin-top:5px}.kpi .val small{font-size:13px;font-weight:600;color:var(--muted)}
     .kpi .sub{font-size:12px;color:var(--text-2);margin-top:3px}
     .kpi.s1{border-top:3px solid var(--s1)}.kpi.s2{border-top:3px solid var(--s2)}.kpi.s3{border-top:3px solid var(--s3)}
     .card{background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:20px}
-    .card h3{margin-bottom:3px}
-    .card .card-sub{color:var(--muted);font-size:12.5px;margin-bottom:16px}
-    .two{grid-template-columns:1.6fr 1fr}
-    @media(max-width:900px){.two{grid-template-columns:1fr}.nav{width:64px}.nav-item span.t{display:none}}
-    .chart-box{position:relative;height:300px}
-    .chart-box.sm{height:230px}
-
+    .card h3{margin-bottom:3px}.card .card-sub{color:var(--muted);font-size:12.5px;margin-bottom:16px}
+    .two{grid-template-columns:1.6fr 1fr}@media(max-width:900px){.two{grid-template-columns:1fr}.nav{width:60px}.nav-item span.t{display:none}}
+    .chart-box{position:relative;height:300px}.chart-box.sm{height:240px}
     table.dt{width:100%;border-collapse:collapse;font-size:13px}
-    table.dt th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);
-      font-weight:700;padding:8px 9px;border-bottom:1.5px solid var(--border)}
-    table.dt td{padding:8px 9px;border-bottom:1px solid var(--line)}
-    table.dt tr:last-child td{border-bottom:0}
-    table.dt input,table.dt select{width:100%;padding:6px 7px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;background:#fff}
-    table.dt input:focus,table.dt select:focus{outline:none;border-color:var(--leaf)}
-    table.dt input.num{text-align:right}
-    td.r,th.r{text-align:right}
-    .kg{font-family:'JetBrains Mono',monospace;font-weight:600}
+    table.dt th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:700;padding:8px 9px;border-bottom:1.5px solid var(--border)}
+    table.dt td{padding:8px 9px;border-bottom:1px solid var(--line)}table.dt tr:last-child td{border-bottom:0}
+    td.r,th.r{text-align:right}.kg{font-family:'JetBrains Mono',monospace;font-weight:600}
     .scope-tab{display:inline-flex;gap:6px;margin-bottom:16px;background:var(--bg-2);padding:4px;border-radius:10px}
     .scope-tab button{border:0;background:none;padding:8px 15px;border-radius:7px;font-weight:700;font-size:13px;color:var(--text-2);cursor:pointer}
     .scope-tab button.active{background:var(--surface);color:var(--navy);box-shadow:0 1px 4px rgba(0,0,0,.06)}
-    .pill{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700}
-    .addrow{margin-top:12px;display:flex;gap:8px;align-items:center}
     .badge-scope{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;color:#fff}
-
-    /* live grid */
-    .gi-hero{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
-    .gi-dial{width:150px;height:150px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;flex-shrink:0}
-    .gi-dial .n{font-size:40px;font-weight:800;line-height:1}
-    .gi-dial .u{font-size:11px;font-weight:600;opacity:.9;margin-top:3px}
-    .gi-meta{flex:1;min-width:220px}
-    .gi-index{font-size:24px;font-weight:800;letter-spacing:-.3px}
-    .gi-win{background:var(--leaf-bg);border:1px solid #bfe6d8;border-radius:11px;padding:14px 16px;margin-top:14px}
-    .gi-win .t{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--leaf-dark)}
-    .gi-win .w{font-size:20px;font-weight:800;color:var(--leaf-dark);margin-top:3px}
-    .gi-win .d{font-size:12.5px;color:var(--text-2);margin-top:2px}
     .note{font-size:12.5px;color:var(--muted);line-height:1.55}
     .callout{background:var(--leaf-bg);border-left:3px solid var(--leaf);border-radius:0 9px 9px 0;padding:13px 16px;font-size:13px;color:var(--leaf-dark);line-height:1.5}
+    .ro-tag{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--bg-2);color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+    .gi-hero{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+    .gi-dial{width:150px;height:150px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;flex-shrink:0}
+    .gi-dial .n{font-size:40px;font-weight:800;line-height:1}.gi-dial .u{font-size:11px;font-weight:600;opacity:.9;margin-top:3px}
+    .gi-meta{flex:1;min-width:220px}.gi-index{font-size:24px;font-weight:800}
+    .gi-win{background:var(--leaf-bg);border:1px solid #bfe6d8;border-radius:11px;padding:14px 16px;margin-top:14px}
+    .gi-win .t{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--leaf-dark)}
+    .gi-win .w{font-size:20px;font-weight:800;color:var(--leaf-dark);margin-top:3px}.gi-win .d{font-size:12.5px;color:var(--text-2);margin-top:2px}
     .loading{color:var(--muted);font-size:13px;padding:18px 0}
-    .sbti-line{font-size:12.5px;color:var(--text-2);margin-top:10px;line-height:1.5}
     .fac-note{font-size:12px;color:var(--muted);margin-top:14px;line-height:1.55}
     .tag{font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:5px;background:var(--bg-2);color:var(--text-2);text-transform:uppercase;letter-spacing:.4px}
   </style>
 </head>
 <body>
-
-  <!-- ═════════════════ LOGIN ═════════════════ -->
+  <!-- LOGIN -->
   <div id="login">
+    <a href="/" class="back">← Back to billing portal</a>
     <div class="login-card">
-      <div class="brand">
-        <div class="brand-mark">C</div>
-        <div class="brand-txt"><b>CES Carbon</b><span>Net Zero &amp; SBTi Portal</span></div>
-      </div>
-      <h1>Sign in</h1>
-      <p class="sub">Scope 1, 2 &amp; 3 carbon accounting for your sites.</p>
+      <div class="brand"><div class="brand-mark">C</div><div class="brand-txt"><b>CES Carbon</b><span>Net Zero &amp; SBTi Portal</span></div></div>
+      <h1>Sign in</h1><p class="sub">Your Scope 1, 2 &amp; 3 carbon report.</p>
       <form id="loginForm" autocomplete="off">
         <div class="fld"><label>Email</label><input type="email" id="email" placeholder="you@company.com" /></div>
         <div class="fld"><label>Password</label><input type="password" id="pass" placeholder="••••••••" /></div>
-        <button type="submit" class="btn" id="loginBtn">Sign in</button>
+        <button type="submit" id="loginBtn">Sign in</button>
         <div class="login-err" id="loginErr">Incorrect email or password.</div>
       </form>
-      <div class="demo-hint">
-        <b>Demo access</b> — this is a self-contained preview.<br>
-        Email <b>carbon@cesgb.com</b> &nbsp;·&nbsp; Password <b>CarbonDemo2026!</b>
-      </div>
+      <div class="demo-hint"><b>Demo access</b> — client view.<br>Email <b>carbon@cesgb.com</b> · Password <b>CarbonDemo2026!</b></div>
     </div>
   </div>
 
-  <!-- ═════════════════ APP ═════════════════ -->
+  <!-- APP -->
   <div id="app">
     <div class="topbar">
       <div class="brand-mark">C</div>
       <div class="tb-title">CES Carbon <span>/ <span id="tbCust">—</span></span></div>
       <div class="tb-spacer"></div>
-      <label style="font-size:12px;opacity:.75;margin-right:-8px">Factor year</label>
+      <label style="font-size:12px;opacity:.75">Reporting year</label>
       <select class="tb-sel" id="yearSel">
-        <option value="2025">DEFRA 2025</option>
-        <option value="2024">DEFRA 2024</option>
-        <option value="2023">DEFRA 2023</option>
+        <option value="25-26">FY2025–26</option>
+        <option value="24-25" selected>FY2024–25</option>
+        <option value="23-24">FY2023–24</option>
+        <option value="22-23">FY2022–23</option>
       </select>
       <button class="tb-logout" id="logoutBtn">Log out</button>
     </div>
-
     <div class="layout">
       <nav class="nav">
         <button class="nav-item active" data-view="overview"><span class="ic">◔</span><span class="t">Overview</span></button>
-        <button class="nav-item" data-view="scopes"><span class="ic">▦</span><span class="t">Scope data</span></button>
+        <button class="nav-item" data-view="scopes"><span class="ic">▦</span><span class="t">Scope detail</span></button>
         <button class="nav-item" data-view="grid"><span class="ic">⚡</span><span class="t">Live grid</span></button>
         <button class="nav-item" data-view="factors"><span class="ic">📎</span><span class="t">Factors</span></button>
       </nav>
-
       <main class="main">
         <!-- OVERVIEW -->
         <section class="pageview active" id="v-overview">
-          <div class="ph"><h1>Carbon overview</h1><p id="ovPeriod">Reporting year —</p></div>
+          <div class="ph"><h1>Carbon overview</h1><p id="ovPeriod">—</p></div>
           <div class="grid kpis" id="kpis"></div>
           <div class="grid two">
-            <div class="card">
-              <h3>Monthly emissions by scope</h3>
-              <div class="card-sub">tCO₂e per month · location-based Scope 2</div>
-              <div class="chart-box"><canvas id="chMonthly"></canvas></div>
-            </div>
-            <div class="card">
-              <h3>Scope split</h3>
-              <div class="card-sub">Share of gross emissions</div>
-              <div class="chart-box sm"><canvas id="chSplit"></canvas></div>
-              <div class="sbti-line" id="sbtiLine"></div>
-            </div>
+            <div class="card"><h3>Monthly emissions by scope</h3><div class="card-sub" id="monTitle">tCO₂e per month</div><div class="chart-box"><canvas id="chMonthly"></canvas></div></div>
+            <div class="card"><h3>Scope split</h3><div class="card-sub">Share of gross emissions</div><div class="chart-box sm"><canvas id="chSplit"></canvas></div><div class="fac-note" id="splitNote"></div></div>
           </div>
-          <div class="card" style="margin-top:16px">
-            <h3>Progress vs baseline &amp; SBTi 1.5 °C pathway</h3>
-            <div class="card-sub">Baseline FY2022–23 · near-term target −4.2%/yr (SBTi floor)</div>
-            <div class="chart-box"><canvas id="chTarget"></canvas></div>
-          </div>
+          <div class="card" style="margin-top:16px"><h3>Four-year trend &amp; SBTi 1.5 °C pathway</h3><div class="card-sub">Baseline FY2022–23 · near-term target −4.2%/yr (SBTi floor)</div><div class="chart-box"><canvas id="chTrend"></canvas></div></div>
         </section>
-
         <!-- SCOPES -->
         <section class="pageview" id="v-scopes">
-          <div class="ph"><h1>Scope data</h1><p>Activity data × emission factor. Edit any figure — totals recalculate live.</p></div>
-          <div class="scope-tab">
-            <button class="active" data-scope="s1">Scope 1</button>
-            <button data-scope="s2">Scope 2</button>
-            <button data-scope="s3">Scope 3</button>
-          </div>
+          <div class="ph"><h1>Scope detail <span class="ro-tag">read-only</span></h1><p>Reported emissions for <b id="scYr">—</b>. Detailed figures are compiled by CES from your data.</p></div>
+          <div class="scope-tab"><button class="active" data-scope="s1">Scope 1</button><button data-scope="s2">Scope 2</button><button data-scope="s3">Scope 3</button></div>
           <div id="scopeBody"></div>
         </section>
-
         <!-- LIVE GRID -->
         <section class="pageview" id="v-grid">
           <div class="ph"><h1>Live grid intensity</h1><p>Real-time GB electricity carbon intensity — National Energy System Operator (NESO).</p></div>
           <div class="grid two">
-            <div class="card">
-              <h3>Right now</h3>
-              <div class="card-sub" id="giStamp">Fetching live data…</div>
-              <div class="gi-hero" id="giHero"><div class="loading">Loading live grid data…</div></div>
-              <div class="gi-win" id="giWin" style="display:none">
-                <div class="t">Greenest window today</div>
-                <div class="w" id="giWinTime">—</div>
-                <div class="d" id="giWinDesc"></div>
-              </div>
-            </div>
-            <div class="card">
-              <h3>Generation mix</h3>
-              <div class="card-sub">Where GB power is coming from now</div>
-              <div class="chart-box sm"><canvas id="chGen"></canvas></div>
-            </div>
+            <div class="card"><h3>Right now</h3><div class="card-sub" id="giStamp">Fetching live data…</div><div class="gi-hero" id="giHero"><div class="loading">Loading…</div></div>
+              <div class="gi-win" id="giWin" style="display:none"><div class="t">Greenest window today</div><div class="w" id="giWinTime">—</div><div class="d" id="giWinDesc"></div></div></div>
+            <div class="card"><h3>Generation mix</h3><div class="card-sub">Where GB power is coming from now</div><div class="chart-box sm"><canvas id="chGen"></canvas></div></div>
           </div>
-          <div class="card" style="margin-top:16px">
-            <h3>Today's intensity profile</h3>
-            <div class="card-sub">Half-hourly gCO₂/kWh · shift flexible load to the low points</div>
-            <div class="chart-box"><canvas id="chDay"></canvas></div>
-            <div class="callout" style="margin-top:14px">
-              This feed is indicative and live — it powers engagement and load-shifting advice.
-              It is <b>not</b> used for reported figures; those use the year-fixed DEFRA factors.
-            </div>
-          </div>
+          <div class="card" style="margin-top:16px"><h3>Today's intensity profile</h3><div class="card-sub">Half-hourly gCO₂/kWh · shift flexible load to the low points</div><div class="chart-box"><canvas id="chDay"></canvas></div>
+            <div class="callout" style="margin-top:14px">Indicative live data — for load-shifting insight only. It is <b>not</b> used for your reported figures, which use the year-fixed DEFRA factors.</div></div>
         </section>
-
         <!-- FACTORS -->
         <section class="pageview" id="v-factors">
-          <div class="ph"><h1>Emission factors</h1><p>Year-versioned DEFRA / DESNZ set. The reporting year fixes the factors — never retro-applied.</p></div>
-          <div class="card">
-            <h3>UK Government GHG conversion factors <span class="tag" id="facYearTag">2025</span></h3>
-            <div class="card-sub">kg CO₂e per kWh · switch year in the top bar to see the effect</div>
-            <table class="dt" id="facTable"></table>
-            <div class="fac-note" id="facNote"></div>
-          </div>
+          <div class="ph"><h1>Emission factors <span class="ro-tag">read-only</span></h1><p>The DEFRA/DESNZ set applied to your reporting year — fixed by CES, never changed retrospectively.</p></div>
+          <div class="card"><h3>Factors applied · <span class="tag" id="facYearTag">—</span></h3><div class="card-sub">kg CO₂e per kWh</div><table class="dt" id="facTable"></table><div class="fac-note" id="facNote"></div></div>
         </section>
       </main>
     </div>
   </div>
 
 <script>
-/* ════════════════════════════════════════════════════════════════════
-   CES CARBON — self-contained demo
-   Scope 1/2/3 engine + year-versioned DEFRA factors + live NESO grid.
-   No backend required (sample data baked in). Production would read the
-   same figures from Supabase (usage_data / carbon_factors) and wire the
-   login to Supabase Auth like the main billing portal.
-   ════════════════════════════════════════════════════════════════════ */
+/* ════════ CES CARBON — client portal (read-only, self-contained demo) ════════
+   All four CCCH reporting years integrated (real reported Scope 1/2/3 figures).
+   Client cannot change factors or green-tariff share. */
 
-/* ---------- 1. DEMO LOGIN GATE (dedicated demo account) ---------- */
-const DEMO_USER = 'carbon@cesgb.com';
-const DEMO_PASS = 'CarbonDemo2026!';
-document.getElementById('loginForm').addEventListener('submit', function(e){
+/* demo login */
+const DEMO_USER='carbon@cesgb.com', DEMO_PASS='CarbonDemo2026!';
+document.getElementById('loginForm').addEventListener('submit',e=>{
   e.preventDefault();
-  const em = document.getElementById('email').value.trim().toLowerCase();
-  const pw = document.getElementById('pass').value;
-  if(em === DEMO_USER && pw === DEMO_PASS){
-    document.getElementById('login').style.display = 'none';
-    document.getElementById('app').style.display = 'block';
-    boot();
-  } else {
-    document.getElementById('loginErr').style.display = 'block';
-  }
+  const em=document.getElementById('email').value.trim().toLowerCase(), pw=document.getElementById('pass').value;
+  if(em===DEMO_USER&&pw===DEMO_PASS){document.getElementById('login').style.display='none';document.getElementById('app').style.display='block';boot();}
+  else document.getElementById('loginErr').style.display='block';
 });
-document.getElementById('logoutBtn').addEventListener('click', function(){
-  location.reload();
-});
+document.getElementById('logoutBtn').addEventListener('click',()=>location.reload());
 
-/* ---------- 2. YEAR-VERSIONED DEFRA / DESNZ FACTORS (kg CO2e / kWh) ----------
-   Headline electricity & gas values are the published DESNZ figures;
-   WTT / T&D shown are representative of the annual set for the demo. */
-const DEFRA = {
-  2025:{ elecGen:0.17700, elecTD:0.01853, elecWTTgen:0.03600, elecWTTtd:0.00320, gas:0.18296, gasWTT:0.02460, label:'2025 (published 10 Jun 2025)' },
-  2024:{ elecGen:0.20705, elecTD:0.01830, elecWTTgen:0.03880, elecWTTtd:0.00340, gas:0.18290, gasWTT:0.02455, label:'2024' },
-  2023:{ elecGen:0.20707, elecTD:0.01899, elecWTTgen:0.03910, elecWTTtd:0.00350, gas:0.18293, gasWTT:0.02450, label:'2023' }
+const MONTHS=['Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar'];
+/* Real CCCH reported figures (kg CO2e per month) */
+const CCCH={
+ '22-23':{s1:[229532,665158,170898,164168,131530,164044,233933,254113,319111,309449,272476,255630],
+          s2:[54676,34513,4477,39147,42937,39180,62178,94486,107769,107728,109818,113205],
+          s3:[5002,3157,410,3581,3928,3584,5688,8643,9858,9320,9501,9794]},
+ '23-24':{s1:[268052,237742,146398,145848,156049,151224,187291,301966,349095,378265,304309,349501],
+          s2:[111666,99888,96000,99084,98960,97366,108296,116783,118936,129839,122536,123198],
+          s3:[9661,8642,8306,8572,8562,8424,9369,10104,10290,11476,10830,10889]},
+ '24-25':{s1:[267715,315970,341160,214786,210249,229926,391134,402467,375259,387031,520635,483250],
+          s2:[113559,108376,152861,155748,128323,142603,156945,166541,175640,157087,142427,138671],
+          s3:[10037,9579,13510,13766,11342,12604,13872,14720,15524,16445,14911,14517]},
+ '25-26':{s1:[299473,233928,183836,135122,153284,4492,301099,389420,417244,522141,432387,393312],
+          s2:[120307,116784,117151,116207,129508,133356,118673,146564,146473,157747,139493,137424],
+          s3:[12595,12226,12264,12166,13558,13961,12424,15344,15334,16514,14603,14387]}
 };
-
-/* ---------- 3. SAMPLE COMPANY (mirrors the real CCCH 24-25 export) ----------
-   Monthly gas & electricity kWh (whole group). These reproduce the
-   Scope 1/2 totals seen in the client's Notch report. */
-const MONTHS = ['Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar'];
-const COMPANY = {
-  name:'Country Court Care Homes',
-  year:'FY2024–25 (Apr 2024 – Mar 2025)',
-  employees:2407,
-  sites:24,
-  greenPct:0,               // % of electricity on a certified green tariff (market-based)
-  gas_kwh:  [1463242,1726992,1864940,1174059,1149262,1256867,2138300,2200408,2051316,2115714,2846167,2641834],
-  elec_kwh: [ 580776, 554270, 781777, 796543, 656285, 729316, 802662, 851738, 898278, 803389, 728416, 709206],
-  baselineTCO2e: 8200      // FY2022-23 gross (illustrative baseline year) for SBTi tracking
+const YEARS=['22-23','23-24','24-25','25-26'];
+const FYLABEL={'22-23':'FY2022–23','23-24':'FY2023–24','24-25':'FY2024–25','25-26':'FY2025–26'};
+/* DEFRA factor set applied per reporting year (grid generation + gas) — display only */
+const FAC={
+ '22-23':{yr:'2022',elecGen:0.19338,elecTD:0.01769,gas:0.18314},
+ '23-24':{yr:'2023',elecGen:0.20707,elecTD:0.01899,gas:0.18293},
+ '24-25':{yr:'2024',elecGen:0.20705,elecTD:0.01830,gas:0.18290},
+ '25-26':{yr:'2025',elecGen:0.17700,elecTD:0.01853,gas:0.18296}
 };
+const COMPANY={name:'Country Court Care Homes',employees:2407,sites:24,greenPct:0};
+let YEAR='24-25', activeScope='s1', charts={};
 
-/* Scope 3 line items — "attempt full S3": all 15 GHG Protocol categories.
-   Each row: activity quantity × factor (kg CO2e/unit) = emissions.
-   Cat 3 (fuel & energy) is computed from the energy data, not entered here. */
-const S3CATS = [
-  {c:1, name:'Purchased goods & services', rows:[
-     {desc:'Food & catering supplies', unit:'£ spend', qty:642000, f:0.42},
-     {desc:'Cleaning & consumables',   unit:'£ spend', qty:118000, f:0.38},
-     {desc:'Water supply',             unit:'m³',      qty:34800,  f:0.344}]},
-  {c:2, name:'Capital goods', rows:[
-     {desc:'Refurbishment works',      unit:'£ spend', qty:210000, f:0.35}]},
-  {c:3, name:'Fuel & energy related (WTT + T&D)', auto:true, rows:[]},
-  {c:4, name:'Upstream transport & distribution', rows:[
-     {desc:'Supplier deliveries',      unit:'tonne.km',qty:52000,  f:0.107}]},
-  {c:5, name:'Waste generated', rows:[
-     {desc:'Mixed commercial (landfill)',unit:'tonnes',qty:290, f:446.2},
-     {desc:'Mixed recycling',          unit:'tonnes',  qty:165,  f:21.3}]},
-  {c:6, name:'Business travel', rows:[
-     {desc:'Car — average (grey fleet)',unit:'km',     qty:184000, f:0.1665},
-     {desc:'Rail',                     unit:'km',      qty:41000,  f:0.03546}]},
-  {c:7, name:'Employee commuting', rows:[
-     {desc:'Car commuting',            unit:'km',      qty:1960000,f:0.1665}]},
-  {c:8, name:'Upstream leased assets', rows:[]},
-  {c:9, name:'Downstream transport & distribution', rows:[]},
-  {c:10,name:'Processing of sold products', rows:[]},
-  {c:11,name:'Use of sold products', rows:[]},
-  {c:12,name:'End-of-life treatment', rows:[]},
-  {c:13,name:'Downstream leased assets', rows:[]},
-  {c:14,name:'Franchises', rows:[]},
-  {c:15,name:'Investments', rows:[]}
-];
+const sum=a=>a.reduce((x,y)=>x+y,0);
+const T=kg=>kg/1000;
+const fmt=(n,d=0)=>n.toLocaleString('en-GB',{minimumFractionDigits:d,maximumFractionDigits:d});
+function yearTotals(y){const d=CCCH[y];return{s1:sum(d.s1),s2:sum(d.s2),s3:sum(d.s3),gross:sum(d.s1)+sum(d.s2)+sum(d.s3)};}
+const BASELINE=T(yearTotals('22-23').gross);
 
-let YEAR = 2025;          // active DEFRA factor set
-let charts = {};          // Chart.js instances
+function makeChart(id,type,data,opts){if(charts[id])charts[id].destroy();charts[id]=new Chart(document.getElementById(id),{type,data,options:Object.assign({responsive:true,maintainAspectRatio:false},opts||{})});}
 
-/* ---------- 4. CALC ENGINE ---------- */
-function sum(a){ return a.reduce((x,y)=>x+y,0); }
-
-function compute(){
-  const F = DEFRA[YEAR];
-  const gas = sum(COMPANY.gas_kwh);
-  const elec = sum(COMPANY.elec_kwh);
-
-  // Scope 1 — stationary combustion (gas)
-  const s1 = gas * F.gas;
-
-  // Scope 2 — purchased electricity
-  const s2_loc = elec * F.elecGen;                                  // location-based
-  const s2_mkt = elec * (1 - COMPANY.greenPct/100) * F.elecGen;     // market-based
-
-  // Scope 3 Cat 3 — fuel & energy related (WTT + T&D), from the energy data
-  const s3cat3 = elec*(F.elecTD + F.elecWTTgen + F.elecWTTtd) + gas*F.gasWTT;
-
-  // Scope 3 — other categories from line items
-  let s3other = 0;
-  S3CATS.forEach(cat=>{
-    if(cat.auto) return;
-    cat.rows.forEach(r=> s3other += r.qty * r.f );
-  });
-  const s3 = s3cat3 + s3other;
-
-  // Monthly series (Scope 1 & 2 vary by month; Scope 3 spread evenly for the chart)
-  const monthly = MONTHS.map((m,i)=>({
-    m,
-    s1: COMPANY.gas_kwh[i]*F.gas,
-    s2: COMPANY.elec_kwh[i]*F.elecGen,
-    s3: (s3)/12
-  }));
-
-  const gross = s1 + s2_loc + s3;
-  return { F, gas, elec, s1, s2_loc, s2_mkt, s3, s3cat3, s3other, gross, monthly };
-}
-
-/* ---------- 5. RENDER: OVERVIEW ---------- */
-const T = kg => (kg/1000);                         // kg -> tonnes
-const fmt = (n,d=0) => n.toLocaleString('en-GB',{minimumFractionDigits:d,maximumFractionDigits:d});
-
+/* OVERVIEW */
 function renderOverview(){
-  const R = compute();
-  document.getElementById('tbCust').textContent = COMPANY.name;
-  document.getElementById('ovPeriod').textContent =
-    'Reporting year ' + COMPANY.year + ' · factors: ' + R.F.label;
-
-  const intensity = T(R.gross)/COMPANY.employees*1000; // kg per employee
-  document.getElementById('kpis').innerHTML = `
-    <div class="kpi"><div class="lbl">Gross emissions</div><div class="val">${fmt(T(R.gross))} <small>tCO₂e</small></div><div class="sub">location-based</div></div>
-    <div class="kpi s1"><div class="lbl">Scope 1</div><div class="val">${fmt(T(R.s1))} <small>t</small></div><div class="sub">gas combustion</div></div>
-    <div class="kpi s2"><div class="lbl">Scope 2</div><div class="val">${fmt(T(R.s2_loc))} <small>t</small></div><div class="sub">market-based ${fmt(T(R.s2_mkt))} t</div></div>
-    <div class="kpi s3"><div class="lbl">Scope 3</div><div class="val">${fmt(T(R.s3))} <small>t</small></div><div class="sub">${S3CATS.filter(c=>c.auto||c.rows.length).length} categories</div></div>
+  const d=CCCH[YEAR], tot=yearTotals(YEAR);
+  document.getElementById('tbCust').textContent=COMPANY.name;
+  document.getElementById('ovPeriod').textContent='Reporting year '+FYLABEL[YEAR]+' · '+COMPANY.sites+' sites · factors applied: DEFRA '+FAC[YEAR].yr;
+  document.getElementById('monTitle').textContent='tCO₂e per month · '+FYLABEL[YEAR];
+  const intensity=T(tot.gross)/COMPANY.employees*1000;
+  const redPct=(BASELINE-T(tot.gross))/BASELINE*100;
+  document.getElementById('kpis').innerHTML=`
+    <div class="kpi"><div class="lbl">Gross emissions</div><div class="val">${fmt(T(tot.gross))} <small>tCO₂e</small></div><div class="sub">${FYLABEL[YEAR]}</div></div>
+    <div class="kpi s1"><div class="lbl">Scope 1</div><div class="val">${fmt(T(tot.s1))} <small>t</small></div><div class="sub">gas combustion</div></div>
+    <div class="kpi s2"><div class="lbl">Scope 2</div><div class="val">${fmt(T(tot.s2))} <small>t</small></div><div class="sub">purchased electricity</div></div>
+    <div class="kpi s3"><div class="lbl">Scope 3</div><div class="val">${fmt(T(tot.s3))} <small>t</small></div><div class="sub">value chain</div></div>
     <div class="kpi"><div class="lbl">Intensity</div><div class="val">${fmt(intensity,0)} <small>kg/emp</small></div><div class="sub">${COMPANY.employees.toLocaleString()} employees</div></div>`;
-
-  // reduction vs baseline
-  const redPct = (COMPANY.baselineTCO2e - T(R.gross))/COMPANY.baselineTCO2e*100;
-  document.getElementById('sbtiLine').innerHTML =
-    `Gross <b>${fmt(T(R.gross))} tCO₂e</b> vs FY22–23 baseline <b>${fmt(COMPANY.baselineTCO2e)} t</b> — `+
-    (redPct>=0? `<span style="color:var(--ok);font-weight:700">${fmt(redPct,1)}% below baseline</span>`
-              : `<span style="color:var(--fail);font-weight:700">${fmt(-redPct,1)}% above baseline</span>`);
-
-  // monthly stacked bar
-  makeChart('chMonthly','bar',{
-    labels: R.monthly.map(x=>x.m),
-    datasets:[
-      {label:'Scope 1',data:R.monthly.map(x=>T(x.s1)),backgroundColor:'#2f3d7e'},
-      {label:'Scope 2',data:R.monthly.map(x=>T(x.s2)),backgroundColor:'#1d9e75'},
-      {label:'Scope 3',data:R.monthly.map(x=>T(x.s3)),backgroundColor:'#e0912b'}
-    ]},{
-    scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,title:{display:true,text:'tCO₂e'}}},
-    plugins:{legend:{position:'bottom'}}
-  });
-
-  // split donut
-  makeChart('chSplit','doughnut',{
-    labels:['Scope 1','Scope 2','Scope 3'],
-    datasets:[{data:[T(R.s1),T(R.s2_loc),T(R.s3)],backgroundColor:['#2f3d7e','#1d9e75','#e0912b'],borderWidth:2,borderColor:'#fff'}]
-  },{cutout:'62%',plugins:{legend:{position:'bottom'}}});
-
-  // SBTi target line
-  const base = COMPANY.baselineTCO2e;
-  const yrs = ['FY22-23','FY23-24','FY24-25','FY25-26','FY26-27','FY27-28','FY28-29','FY29-30'];
-  const target = yrs.map((_,i)=> base*(1-0.042*i));
-  const actual = [base, null, T(R.gross), null,null,null,null,null];
-  makeChart('chTarget','line',{
-    labels:yrs,
-    datasets:[
-      {label:'SBTi 1.5 °C target (−4.2%/yr)',data:target,borderColor:'#1d9e75',borderDash:[6,4],pointRadius:0,tension:.1,fill:false},
-      {label:'Actual gross',data:actual,borderColor:'#2f3d7e',backgroundColor:'#2f3d7e',pointRadius:5,spanGaps:true}
-    ]},{plugins:{legend:{position:'bottom'}},scales:{y:{title:{display:true,text:'tCO₂e'},beginAtZero:true}}});
+  document.getElementById('splitNote').innerHTML='Gross <b>'+fmt(T(tot.gross))+' tCO₂e</b> vs FY22–23 baseline <b>'+fmt(BASELINE)+' t</b> — '+
+    (redPct>=0?'<span style="color:var(--ok);font-weight:700">'+fmt(redPct,1)+'% below</span>':'<span style="color:var(--fail);font-weight:700">'+fmt(-redPct,1)+'% above</span>');
+  makeChart('chMonthly','bar',{labels:MONTHS,datasets:[
+      {label:'Scope 1',data:d.s1.map(T),backgroundColor:'#2f3d7e'},
+      {label:'Scope 2',data:d.s2.map(T),backgroundColor:'#1d9e75'},
+      {label:'Scope 3',data:d.s3.map(T),backgroundColor:'#e0912b'}]},
+    {scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,title:{display:true,text:'tCO₂e'}}},plugins:{legend:{position:'bottom'}}});
+  makeChart('chSplit','doughnut',{labels:['Scope 1','Scope 2','Scope 3'],datasets:[{data:[T(tot.s1),T(tot.s2),T(tot.s3)],backgroundColor:['#2f3d7e','#1d9e75','#e0912b'],borderWidth:2,borderColor:'#fff'}]},{cutout:'62%',plugins:{legend:{position:'bottom'}}});
+  const grossByYr=YEARS.map(y=>T(yearTotals(y).gross));
+  const target=YEARS.map((y,i)=>BASELINE*(1-0.042*i));
+  makeChart('chTrend','line',{labels:YEARS.map(y=>FYLABEL[y]),datasets:[
+      {label:'SBTi 1.5 °C target (−4.2%/yr)',data:target,borderColor:'#1d9e75',borderDash:[6,4],pointRadius:0,tension:.1},
+      {label:'Actual gross',data:grossByYr,borderColor:'#2f3d7e',backgroundColor:'#2f3d7e',pointRadius:5,tension:.2}]},
+    {plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:true,title:{display:true,text:'tCO₂e'}}}});
 }
 
-/* ---------- 6. RENDER: SCOPES ---------- */
-let activeScope = 's1';
+/* SCOPES (read-only) */
 function renderScopes(){
-  const R = compute();
-  const el = document.getElementById('scopeBody');
-  if(activeScope==='s1'){
-    el.innerHTML = energyTable('Scope 1 — Stationary combustion (natural gas)',
-      'Gas consumption × '+R.F.gas+' kg CO₂e/kWh (DEFRA '+YEAR+')', COMPANY.gas_kwh, R.F.gas, 's1');
-  } else if(activeScope==='s2'){
-    el.innerHTML = `
-      <div class="card" style="margin-bottom:16px">
-        <h3>Scope 2 — Purchased electricity</h3>
-        <div class="card-sub">Dual reporting per GHG Protocol</div>
-        <table class="dt">
-          <tr><th>Method</th><th>Factor</th><th class="r">Electricity kWh</th><th class="r">tCO₂e</th></tr>
-          <tr><td><b>Location-based</b> (grid average)</td><td class="mono">${R.F.elecGen}</td><td class="r kg">${fmt(R.elec)}</td><td class="r kg">${fmt(T(R.s2_loc),1)}</td></tr>
-          <tr><td><b>Market-based</b> (${COMPANY.greenPct}% green tariff)</td><td class="mono">${R.F.elecGen}</td><td class="r kg">${fmt(R.elec)}</td><td class="r kg">${fmt(T(R.s2_mkt),1)}</td></tr>
-        </table>
-        <div class="addrow"><label class="note">Green-tariff share (market-based):</label>
-          <input type="number" id="greenInp" value="${COMPANY.greenPct}" min="0" max="100" style="width:90px;padding:6px 8px;border:1px solid var(--border);border-radius:6px"> %</div>
-      </div>` + energyTable('Monthly electricity consumption','Location-based · × '+R.F.elecGen+' kg CO₂e/kWh', COMPANY.elec_kwh, R.F.elecGen, 's2');
-  } else {
-    el.innerHTML = renderS3(R);
-  }
-  wireScopeInputs();
+  const d=CCCH[YEAR], F=FAC[YEAR];
+  document.getElementById('scYr').textContent=FYLABEL[YEAR];
+  const el=document.getElementById('scopeBody');
+  if(activeScope==='s1') el.innerHTML=monthCard('Scope 1 — Stationary combustion (gas)','Natural gas & on-site fuels · factor DEFRA '+F.yr,d.s1,'#2f3d7e');
+  else if(activeScope==='s2') el.innerHTML=
+     `<div class="card" style="margin-bottom:14px"><h3>Scope 2 — Purchased electricity</h3>
+      <table class="dt"><tr><th>Reporting basis</th><th>Green tariff</th><th class="r">tCO₂e</th></tr>
+      <tr><td><b>Location-based</b> (grid average)</td><td>${COMPANY.greenPct}% <span class="ro-tag">set by CES</span></td><td class="r kg">${fmt(T(sum(d.s2)),1)}</td></tr>
+      <tr><td><b>Market-based</b></td><td>${COMPANY.greenPct}% green</td><td class="r kg">${fmt(T(sum(d.s2))*(1-COMPANY.greenPct/100),1)}</td></tr></table></div>`
+     +monthCard('Monthly electricity emissions','Location-based · factor DEFRA '+F.yr,d.s2,'#1d9e75');
+  else el.innerHTML=`<div class="callout" style="margin-bottom:14px">Scope 3 covers value-chain emissions (purchased goods, travel, commuting, waste, fuel &amp; energy well-to-tank and grid losses). CES compiles the category detail from your data and the mass-upload return.</div>`
+     +monthCard('Scope 3 — Value chain','Reported total · factor DEFRA '+F.yr,d.s3,'#e0912b');
+}
+function monthCard(title,sub,arr,color){
+  let rows='';arr.forEach((v,i)=>{rows+=`<tr><td>${MONTHS[i]}</td><td class="r kg">${fmt(T(v),2)}</td></tr>`;});
+  return `<div class="card"><h3><span class="badge-scope" style="background:${color}">${title.split(' — ')[0]}</span> &nbsp;${title}</h3><div class="card-sub">${sub}</div>
+    <table class="dt"><tr><th>Month</th><th class="r">tCO₂e</th></tr>${rows}
+    <tr style="font-weight:800"><td>Total</td><td class="r kg">${fmt(T(sum(arr)),1)}</td></tr></table></div>`;
 }
 
-function energyTable(title, sub, arr, factor, cls){
-  let rows='', tot=0;
-  arr.forEach((v,i)=>{ const kg=v*factor; tot+=kg;
-    rows += `<tr><td>${MONTHS[i]}</td><td class="r"><input class="num" data-arr="${cls}" data-i="${i}" value="${v}"></td><td class="r kg">${fmt(T(kg),2)}</td></tr>`; });
-  return `<div class="card"><h3>${title}</h3><div class="card-sub">${sub}</div>
-    <table class="dt"><tr><th>Month</th><th class="r">Activity (kWh)</th><th class="r">tCO₂e</th></tr>${rows}
-    <tr style="font-weight:800"><td>Total</td><td class="r kg">${fmt(sum(arr))}</td><td class="r kg">${fmt(T(tot),1)}</td></tr></table></div>`;
-}
-
-function renderS3(R){
-  let html = `<div class="callout" style="margin-bottom:16px">All 15 GHG Protocol Scope 3 categories are modelled below.
-    Category 3 is calculated from your energy data; the rest are activity/spend line items — edit or add rows and totals update live.</div>`;
-  S3CATS.forEach((cat)=>{
-    let catTot=0, rows='';
-    if(cat.auto){
-      const elecFe = R.elec*(R.F.elecTD+R.F.elecWTTgen+R.F.elecWTTtd);
-      const gasFe = R.gas*R.F.gasWTT;
-      catTot = elecFe+gasFe;
-      rows = `<tr><td>Electricity WTT + T&D losses</td><td>kWh</td><td class="r kg">${fmt(R.elec)}</td><td class="r mono">${(R.F.elecTD+R.F.elecWTTgen+R.F.elecWTTtd).toFixed(5)}</td><td class="r kg">${fmt(T(elecFe),2)}</td></tr>
-              <tr><td>Gas well-to-tank</td><td>kWh</td><td class="r kg">${fmt(R.gas)}</td><td class="r mono">${R.F.gasWTT.toFixed(5)}</td><td class="r kg">${fmt(T(gasFe),2)}</td></tr>`;
-    } else if(cat.rows.length){
-      cat.rows.forEach((r,ri)=>{ const kg=r.qty*r.f; catTot+=kg;
-        rows += `<tr><td>${r.desc}</td><td>${r.unit}</td>
-          <td class="r"><input class="num" data-s3="${cat.c}" data-ri="${ri}" data-k="qty" value="${r.qty}"></td>
-          <td class="r"><input class="num" data-s3="${cat.c}" data-ri="${ri}" data-k="f" value="${r.f}"></td>
-          <td class="r kg">${fmt(T(kg),2)}</td></tr>`; });
-    } else {
-      rows = `<tr><td colspan="5" class="note" style="padding:10px 9px">No activity recorded — not material for this business.</td></tr>`;
-    }
-    html += `<div class="card" style="margin-bottom:12px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <h3><span class="badge-scope" style="background:#e0912b">Cat ${cat.c}</span> &nbsp;${cat.name}</h3>
-        <div class="kg" style="font-size:15px;font-weight:800">${fmt(T(catTot),2)} t</div></div>
-      <table class="dt"><tr><th>Line item</th><th>Unit</th><th class="r">Quantity</th><th class="r">Factor kgCO₂e</th><th class="r">tCO₂e</th></tr>${rows}</table>
-    </div>`;
-  });
-  return html;
-}
-
-function wireScopeInputs(){
-  document.querySelectorAll('input[data-arr]').forEach(inp=>{
-    inp.addEventListener('change',e=>{
-      const a=e.target.dataset.arr, i=+e.target.dataset.i, v=parseFloat(e.target.value)||0;
-      if(a==='s1') COMPANY.gas_kwh[i]=v; else COMPANY.elec_kwh[i]=v;
-      renderScopes();
-    });
-  });
-  document.querySelectorAll('input[data-s3]').forEach(inp=>{
-    inp.addEventListener('change',e=>{
-      const c=+e.target.dataset.s3, ri=+e.target.dataset.ri, k=e.target.dataset.k, v=parseFloat(e.target.value)||0;
-      const cat=S3CATS.find(x=>x.c===c); if(cat&&cat.rows[ri]){ cat.rows[ri][k]=v; renderScopes(); }
-    });
-  });
-  const gi=document.getElementById('greenInp');
-  if(gi) gi.addEventListener('change',e=>{ COMPANY.greenPct=Math.min(100,Math.max(0,parseFloat(e.target.value)||0)); renderScopes(); });
-}
-
-/* ---------- 7. RENDER: FACTORS ---------- */
+/* FACTORS (read-only) */
 function renderFactors(){
-  const F=DEFRA[YEAR];
-  document.getElementById('facYearTag').textContent=YEAR;
+  const F=FAC[YEAR];
+  document.getElementById('facYearTag').textContent='DEFRA '+F.yr+' · '+FYLABEL[YEAR];
   document.getElementById('facTable').innerHTML=`
     <tr><th>Activity</th><th>Scope</th><th class="r">kg CO₂e / kWh</th></tr>
     <tr><td>Natural gas (combustion)</td><td>Scope 1</td><td class="r mono">${F.gas.toFixed(5)}</td></tr>
     <tr><td>Grid electricity (generation)</td><td>Scope 2 · location</td><td class="r mono">${F.elecGen.toFixed(5)}</td></tr>
-    <tr><td>Electricity — T&D losses</td><td>Scope 3 · Cat 3</td><td class="r mono">${F.elecTD.toFixed(5)}</td></tr>
-    <tr><td>Electricity — WTT (generation)</td><td>Scope 3 · Cat 3</td><td class="r mono">${F.elecWTTgen.toFixed(5)}</td></tr>
-    <tr><td>Electricity — WTT (T&D)</td><td>Scope 3 · Cat 3</td><td class="r mono">${F.elecWTTtd.toFixed(5)}</td></tr>
-    <tr><td>Gas — well-to-tank</td><td>Scope 3 · Cat 3</td><td class="r mono">${F.gasWTT.toFixed(5)}</td></tr>`;
-  document.getElementById('facNote').innerHTML =
-    `Active set: <b>DEFRA/DESNZ ${F.label}</b>. In production these are held per year in a versioned table and refreshed by the automated June ingestion job. `+
-    `A reporting year is always calculated on its own year's factors — changing the year here re-runs the whole model so you can see the effect (e.g. the 2025 grid factor is ~15% lower than 2024).`;
+    <tr><td>Electricity — T&D losses</td><td>Scope 3 · Cat 3</td><td class="r mono">${F.elecTD.toFixed(5)}</td></tr>`;
+  document.getElementById('facNote').innerHTML='These factors are fixed by CES for the reporting year and are not customer-editable. Each year is calculated on its own DEFRA/DESNZ set — figures are never retro-applied.';
 }
 
-/* ---------- 8. LIVE NESO GRID ---------- */
+/* LIVE GRID (NESO) */
 const NESO='https://api.carbonintensity.org.uk';
 const IDX_COLOR={'very low':'#1d9e75','low':'#4bbf8a','moderate':'#e0912b','high':'#d8622f','very high':'#b3261e'};
-
 async function loadGrid(){
   try{
-    const [curR,genR,dayR]=await Promise.all([
-      fetch(NESO+'/intensity').then(r=>r.json()),
-      fetch(NESO+'/generation').then(r=>r.json()),
-      fetch(NESO+'/intensity/date').then(r=>r.json())
-    ]);
-    // current
-    const cur=curR.data[0].intensity;
-    const val=cur.actual ?? cur.forecast;
-    const idx=cur.index||'moderate';
-    const col=IDX_COLOR[idx]||'#e0912b';
+    const [curR,genR,dayR]=await Promise.all([fetch(NESO+'/intensity').then(r=>r.json()),fetch(NESO+'/generation').then(r=>r.json()),fetch(NESO+'/intensity/date').then(r=>r.json())]);
+    const cur=curR.data[0].intensity, val=cur.actual??cur.forecast, idx=cur.index||'moderate', col=IDX_COLOR[idx]||'#e0912b';
     document.getElementById('giStamp').textContent='Updated '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})+' · GB average';
-    document.getElementById('giHero').innerHTML=`
-      <div class="gi-dial" style="background:${col}"><div class="n">${val}</div><div class="u">gCO₂/kWh</div></div>
-      <div class="gi-meta"><div class="gi-index" style="color:${col};text-transform:capitalize">${idx}</div>
-      <div class="note" style="margin-top:6px">Carbon intensity of electricity generated on the GB grid right now, including transmission &amp; distribution losses.</div></div>`;
-
-    // greenest window (from today's half-hourly)
-    const day=dayR.data.map(d=>({from:d.from,v:(d.intensity.actual ?? d.intensity.forecast),idx:d.intensity.index}));
-    let lo=day[0]; day.forEach(d=>{ if(d.v<lo.v) lo=d; });
-    const t=new Date(lo.from);
-    const t2=new Date(t.getTime()+30*60000);
+    document.getElementById('giHero').innerHTML=`<div class="gi-dial" style="background:${col}"><div class="n">${val}</div><div class="u">gCO₂/kWh</div></div>
+      <div class="gi-meta"><div class="gi-index" style="color:${col};text-transform:capitalize">${idx}</div><div class="note" style="margin-top:6px">Carbon intensity of GB grid electricity right now, incl. transmission &amp; distribution losses.</div></div>`;
+    const day=dayR.data.map(d=>({from:d.from,v:(d.intensity.actual??d.intensity.forecast),idx:d.intensity.index}));
+    let lo=day[0];day.forEach(d=>{if(d.v<lo.v)lo=d;});
     const hm=x=>x.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+    const t=new Date(lo.from),t2=new Date(t.getTime()+18e5);
     document.getElementById('giWin').style.display='block';
     document.getElementById('giWinTime').textContent=hm(t)+' – '+hm(t2);
     document.getElementById('giWinDesc').textContent='Cleanest half-hour today at '+lo.v+' gCO₂/kWh ('+lo.idx+') — best time to run flexible load.';
-
-    // generation donut
     const gm=genR.data.generationmix.filter(x=>x.perc>0).sort((a,b)=>b.perc-a.perc);
     const gcol={gas:'#8b6f47',coal:'#4a4441',nuclear:'#7f77dd',wind:'#1d9e75',solar:'#e0b02b',hydro:'#378add',biomass:'#93c43a',imports:'#9aa0ad',other:'#c9cdd6'};
-    makeChart('chGen','doughnut',{
-      labels:gm.map(x=>x.fuel[0].toUpperCase()+x.fuel.slice(1)),
-      datasets:[{data:gm.map(x=>x.perc),backgroundColor:gm.map(x=>gcol[x.fuel]||'#c9cdd6'),borderWidth:2,borderColor:'#fff'}]
-    },{cutout:'58%',plugins:{legend:{position:'right',labels:{boxWidth:12,font:{size:11}}}}});
-
-    // day profile line, greenest point highlighted
-    makeChart('chDay','line',{
-      labels:day.map(d=>hm(new Date(d.from))),
-      datasets:[{label:'gCO₂/kWh',data:day.map(d=>d.v),borderColor:'#2f3d7e',backgroundColor:'rgba(47,61,126,.08)',fill:true,tension:.35,
-        pointRadius:day.map(d=>d===lo?6:0),pointBackgroundColor:'#1d9e75'}]
-    },{plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{maxTicksLimit:12}},y:{title:{display:true,text:'gCO₂/kWh'}}}});
-  }catch(err){
-    document.getElementById('giHero').innerHTML='<div class="note">Live grid data unavailable right now (network/API). It refreshes on reload.</div>';
-    console.warn('NESO fetch failed',err);
-  }
+    makeChart('chGen','doughnut',{labels:gm.map(x=>x.fuel[0].toUpperCase()+x.fuel.slice(1)),datasets:[{data:gm.map(x=>x.perc),backgroundColor:gm.map(x=>gcol[x.fuel]||'#c9cdd6'),borderWidth:2,borderColor:'#fff'}]},{cutout:'58%',plugins:{legend:{position:'right',labels:{boxWidth:12,font:{size:11}}}}});
+    makeChart('chDay','line',{labels:day.map(d=>hm(new Date(d.from))),datasets:[{label:'gCO₂/kWh',data:day.map(d=>d.v),borderColor:'#2f3d7e',backgroundColor:'rgba(47,61,126,.08)',fill:true,tension:.35,pointRadius:day.map(d=>d===lo?6:0),pointBackgroundColor:'#1d9e75'}]},{plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{maxTicksLimit:12}},y:{title:{display:true,text:'gCO₂/kWh'}}}});
+  }catch(err){document.getElementById('giHero').innerHTML='<div class="note">Live grid data unavailable right now. It refreshes on reload.</div>';console.warn(err);}
 }
 
-/* ---------- 9. CHART HELPER + NAV ---------- */
-function makeChart(id,type,data,opts){
-  if(charts[id]) charts[id].destroy();
-  charts[id]=new Chart(document.getElementById(id),{type,data,options:Object.assign({responsive:true,maintainAspectRatio:false},opts||{})});
-}
-document.querySelectorAll('.nav-item').forEach(b=>{
-  b.addEventListener('click',()=>{
-    document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));
-    b.classList.add('active');
-    const v=b.dataset.view;
-    document.querySelectorAll('.pageview').forEach(p=>p.classList.remove('active'));
-    document.getElementById('v-'+v).classList.add('active');
-    if(v==='grid' && !charts.chDay) loadGrid();
-  });
-});
-document.querySelectorAll('.scope-tab button').forEach(b=>{
-  b.addEventListener('click',()=>{
-    document.querySelectorAll('.scope-tab button').forEach(x=>x.classList.remove('active'));
-    b.classList.add('active'); activeScope=b.dataset.scope; renderScopes();
-  });
-});
-document.getElementById('yearSel').addEventListener('change',e=>{
-  YEAR=+e.target.value; renderOverview(); renderScopes(); renderFactors();
-});
+/* NAV */
+document.querySelectorAll('.nav-item').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));b.classList.add('active');
+  const v=b.dataset.view;document.querySelectorAll('.pageview').forEach(p=>p.classList.remove('active'));document.getElementById('v-'+v).classList.add('active');
+  if(v==='grid'&&!charts.chDay)loadGrid();
+}));
+document.querySelectorAll('.scope-tab button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.scope-tab button').forEach(x=>x.classList.remove('active'));b.classList.add('active');activeScope=b.dataset.scope;renderScopes();
+}));
+document.getElementById('yearSel').addEventListener('change',e=>{YEAR=e.target.value;renderOverview();renderScopes();renderFactors();});
 
-/* ---------- 10. BOOT ---------- */
-function boot(){
-  renderOverview(); renderScopes(); renderFactors(); loadGrid();
-}
+function boot(){renderOverview();renderScopes();renderFactors();loadGrid();}
 </script>
 </body>
 </html>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
