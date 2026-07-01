@@ -1365,10 +1365,11 @@
 
           <div class="admin-tabs" id="bxTabs">
             <button class="admin-tab active" id="bxTabBtn-overview" onclick="bxTab('overview')">Overview</button>
+            <button class="admin-tab" id="bxTabBtn-team" onclick="bxTab('team')">Team leaderboard</button>
             <button class="admin-tab" id="bxTabBtn-monthly" onclick="bxTab('monthly')">Monthly performance</button>
+            <button class="admin-tab" id="bxTabBtn-targets" onclick="bxTab('targets')">My Targets</button>
             <button class="admin-tab" id="bxTabBtn-salary" onclick="bxTab('salary')">Salary calculator</button>
             <button class="admin-tab" id="bxTabBtn-notes" onclick="bxTab('notes')">Notes</button>
-            <button class="admin-tab" id="bxTabBtn-team" onclick="bxTab('team')">Team leaderboard</button>
           </div>
 
           <!-- ===================== OVERVIEW ===================== -->
@@ -1421,17 +1422,9 @@
 
           <!-- ===================== MONTHLY PERFORMANCE ===================== -->
           <div class="bx-pane" id="bxPane-monthly">
-            <div class="card" id="bxEntryCard" style="margin-bottom:16px;">
-              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">My figures for <span id="bxEntryMonthLbl">this month</span></h3>
-              <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Enter this month's activity numbers and save — they update the team leaderboard for everyone. Use <b>Add a sale</b> to log won contracts; that fills in your billing, new business and kWh automatically.</p>
-              <div class="success-box" id="bxMsg" style="display:none;">Saved.</div>
-              <div class="sk-entry-grid sk-entry-vert" id="bxEntryFields"></div>
-              <button class="btn-primary" style="width:auto;padding:10px 18px;margin-top:12px;" onclick="bxSaveMine()">Save my figures</button>
-              <button class="btn-secondary" style="width:auto;padding:10px 18px;margin-top:12px;margin-left:8px;color:#b5340f;border-color:#e3b3a6;" onclick="bxDeleteMine()">Delete this month</button>
-            </div>
-
-            <div id="bxAddSaleWrap" style="margin-bottom:14px;">
-              <button class="btn-primary" style="width:auto;padding:11px 20px;" onclick="bxToggleSaleForm()">＋ Add a sale</button>
+            <div id="bxAddSaleWrap" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+              <h3 style="font-size:15px;font-weight:800;">Monthly performance</h3>
+              <button class="btn-primary" style="width:auto;padding:10px 18px;" onclick="bxToggleSaleForm()">＋ Add a sale</button>
             </div>
 
             <div class="card" id="bxSaleCard" style="margin-bottom:16px;display:none;">
@@ -1456,6 +1449,15 @@
               <button class="btn-secondary" id="bxSaleCancel" style="width:auto;padding:10px 18px;margin-top:12px;margin-left:8px;display:none;" onclick="bxResetSaleForm()">Cancel edit</button>
             </div>
 
+            <div class="card" id="bxEntryCard" style="margin-bottom:16px;">
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">My figures for <span id="bxEntryMonthLbl">this month</span></h3>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Enter this month's activity numbers and save — they update the team leaderboard for everyone. Use <b>Add a sale</b> to log won contracts; that fills in your billing, new business and kWh automatically.</p>
+              <div class="success-box" id="bxMsg" style="display:none;">Saved.</div>
+              <div class="sk-entry-grid sk-entry-vert" id="bxEntryFields"></div>
+              <button class="btn-primary" style="width:auto;padding:10px 18px;margin-top:12px;" onclick="bxSaveMine()">Save my figures</button>
+              <button class="btn-secondary" style="width:auto;padding:10px 18px;margin-top:12px;margin-left:8px;color:#b5340f;border-color:#e3b3a6;" onclick="bxDeleteMine()">Delete this month</button>
+            </div>
+
             <div class="card">
               <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Logged sales</h3>
               <div id="bxSaleList" style="overflow-x:auto;"></div>
@@ -1475,6 +1477,33 @@
                 <p>The company reserves the right to amend, withdraw, or correct the tool, its assumptions, calculations, inputs, outputs, or underlying commission and bonus structures at any time, subject always to applicable law and any contractual obligations. Use of this tool does not create any right to receive the estimated amount displayed.</p>
                 <p>Users should not rely on this tool as a statement of pay entitlement or as financial, tax, legal, or employment advice. Any questions about actual pay, commission, bonus entitlement, or contractual terms should be referred to the company's HR department or management team.</p>
               </div>
+            </div>
+          </div>
+
+          <!-- ===================== MY TARGETS ===================== -->
+          <div class="bx-pane" id="bxPane-targets">
+            <div class="card" style="margin-bottom:16px;">
+              <h3 style="font-size:15px;font-weight:800;margin-bottom:6px;">My targets</h3>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Your CES-set target and your own target. The chart below updates live as you change your targets.</p>
+              <div class="stats-row" id="bxTgtCards"></div>
+            </div>
+            <div class="card" style="margin-bottom:16px;">
+              <h4 style="font-size:13px;font-weight:800;margin-bottom:8px;">Set my own targets</h4>
+              <div class="success-box" id="bxTgtMsg" style="display:none;">Saved.</div>
+              <div class="sk-entry-grid sk-entry-vert">
+                <div class="form-group"><label>My monthly billing target (£)</label><input type="number" step="any" min="0" id="tgtSelfMonthly" oninput="renderTargetsChart()" placeholder="e.g. 22000"></div>
+                <div class="form-group"><label>My yearly billing target (£)</label><input type="number" step="any" min="0" id="tgtSelfYearly" oninput="renderTargetsChart()" placeholder="defaults to monthly × 12"></div>
+              </div>
+              <button class="btn-primary" style="width:auto;padding:9px 16px;margin-top:8px;" onclick="bxSaveTargets()">Save my targets</button>
+            </div>
+            <div class="card" style="margin-bottom:16px;">
+              <h4 style="font-size:13px;font-weight:800;margin-bottom:6px;">Monthly billing vs target</h4>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;" id="bxTgtHitLbl"></p>
+              <div id="bxTgtChart"></div>
+            </div>
+            <div class="card">
+              <h4 style="font-size:13px;font-weight:800;margin-bottom:10px;">Annual target progress</h4>
+              <div id="bxTgtProgress"></div>
             </div>
           </div>
 
@@ -4211,7 +4240,7 @@
       var calcCard = document.getElementById('bxCalcCard'); if(calcCard) calcCard.style.display = _SK.myRepId ? '' : 'none';
       var notesCard = document.getElementById('bxNotesCard'); if(notesCard) notesCard.style.display = _SK.myRepId ? '' : 'none';
       var custCard = document.getElementById('bxCustNotesCard'); if(custCard) custCard.style.display = _SK.myRepId ? '' : 'none';
-      var addWrap = document.getElementById('bxAddSaleWrap'); if(addWrap) addWrap.style.display = _SK.myRepId ? '' : 'none';
+      var addWrap = document.getElementById('bxAddSaleWrap'); if(addWrap) addWrap.style.display = _SK.myRepId ? 'flex' : 'none';
       var goalsCard = document.getElementById('bxGoalsCard'); if(goalsCard) goalsCard.style.display = _SK.myRepId ? '' : 'none';
       var sMon = document.getElementById('saleMonth'); if(sMon && !sMon.value) sMon.value = _skDefaultMonth();
       bxSaleType();
@@ -4869,10 +4898,11 @@
     }
     // ── Broker: sub-tabs (Overview / Monthly performance / Salary calculator / Notes) ──
     function bxTab(name){
-      ['overview','monthly','salary','notes','team'].forEach(function(n){
+      ['overview','team','monthly','targets','salary','notes'].forEach(function(n){
         var pane = document.getElementById('bxPane-' + n); if(pane) pane.classList.toggle('active', n === name);
         var btn = document.getElementById('bxTabBtn-' + n); if(btn) btn.classList.toggle('active', n === name);
       });
+      if(name === 'targets') renderTargetsTab();
     }
     function bxToggleSaleForm(){
       var card = document.getElementById('bxSaleCard'); if(!card) return;
@@ -4894,7 +4924,8 @@
       var lastLbl = last ? _skPeriodLabel(last.period) : '—';
       var ytd = hist.reduce(function(a,k){ return a + (Number(k.billing_total)||0); }, 0);
       var cesM = Number(rep.monthly_target)||0, cesY = cesM*12;
-      var self = Number((_SK.targets[_SK.myRepId]||{}).self_monthly)||0, selfY = self*12;
+      var _tgtRow = _SK.targets[_SK.myRepId]||{};
+      var self = Number(_tgtRow.self_monthly)||0, selfY = Number(_tgtRow.self_yearly)>0 ? Number(_tgtRow.self_yearly) : self*12;
       function gap(bill, tgt, label){
         if(tgt<=0) return 'no ' + label + ' set';
         var g = tgt - bill, pct = Math.round(bill/tgt*100);
@@ -5064,6 +5095,78 @@
       if(resp.error){ safeAlert('Could not delete this entry.', resp.error); return; }
       logAction('delete_proj_entry', null, { id:id });
       await salesFetchAll(); bxRenderProject();
+    }
+    // ── Broker: My Targets tab (editable target chart) ──
+    function _bxTgtVals(){
+      var rep = _SK.reps.filter(function(r){ return r.id === _SK.myRepId; })[0] || {};
+      var cesM = Number(rep.monthly_target)||0;
+      var smEl = document.getElementById('tgtSelfMonthly'), syEl = document.getElementById('tgtSelfYearly');
+      var sm = smEl ? parseFloat(smEl.value) : NaN; sm = isNaN(sm) ? 0 : sm;
+      var sy = syEl ? parseFloat(syEl.value) : NaN; sy = isNaN(sy) ? (sm>0 ? sm*12 : 0) : sy;
+      return { cesM:cesM, cesY:cesM*12, selfM:sm, selfY:sy };
+    }
+    function renderTargetsCards(){
+      var host = document.getElementById('bxTgtCards'); if(!host) return;
+      var t = _bxTgtVals();
+      var ytd = _SK.eff.filter(function(k){ return k.rep_id === _SK.myRepId; }).reduce(function(a,k){ return a + (Number(k.billing_total)||0); }, 0);
+      function card(l,v,s){ return '<div class="stat-card"><div class="stat-label">'+l+'</div><div class="stat-value">'+v+'</div><div class="stat-foot" style="font-size:11px;color:var(--muted);margin-top:4px;">'+s+'</div></div>'; }
+      host.innerHTML =
+        card('CES monthly target', t.cesM>0?_skMoney(t.cesM):'—', 'set by CES') +
+        card('Your monthly target', t.selfM>0?_skMoney(t.selfM):'not set', 'you set this') +
+        card('CES yearly target', t.cesY>0?_skMoney(t.cesY):'—', t.cesY>0?(Math.round(ytd/t.cesY*100)+'% reached'):'monthly × 12') +
+        card('Your yearly target', t.selfY>0?_skMoney(t.selfY):'not set', t.selfY>0?(Math.round(ytd/t.selfY*100)+'% reached'):'—');
+    }
+    function _skTargetBars(series, tgt){
+      if(!series.length) return '<p class="sk-empty">No months yet.</p>';
+      var max = Math.max.apply(null, series.map(function(s){ return s.val; }).concat([tgt||0, 1]));
+      var W=900, H=260, padL=64, padR=18, padT=20, padB=40, iw=W-padL-padR, ih=H-padT-padB;
+      var slot=iw/series.length, bw=Math.max(12, Math.min(54, slot*0.6));
+      var svg='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;">';
+      for(var g=0; g<=4; g++){ var y=padT+ih*(1-g/4); svg+='<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="#e6e1d6"/>'; svg+='<text x="'+(padL-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="10" fill="#7a7e8c" font-family="JetBrains Mono">£'+_skNum(max*g/4,0)+'</text>'; }
+      series.forEach(function(s,i){
+        var cx=padL+slot*(i+0.5), h=s.val/max*ih, y=padT+ih-h;
+        var hit=(tgt>0 && s.val>=tgt), col=hit?'#2f7d4f':'#c9a23a';
+        var tip='£'+_skNum(s.val,0)+(tgt>0?(hit?' · hit':' · missed'):'');
+        svg+='<rect class="sk-bar" x="'+(cx-bw/2)+'" y="'+y+'" width="'+bw+'" height="'+h+'" rx="3" fill="'+col+'" onmousemove="skTip(event,\''+_skTipArg(s.label)+'\',\''+tip+'\')" onmouseout="skTipHide()"/>';
+        svg+='<text x="'+cx+'" y="'+(padT+ih+16)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+s.label+'</text>';
+      });
+      if(tgt>0){ var ty=padT+ih*(1-Math.min(tgt,max)/max); svg+='<line x1="'+padL+'" y1="'+ty+'" x2="'+(W-padR)+'" y2="'+ty+'" stroke="#2f3d7e" stroke-width="2" stroke-dasharray="6 4"/>'; svg+='<text x="'+(W-padR)+'" y="'+(ty-5)+'" text-anchor="end" font-size="10" fill="#2f3d7e" font-weight="800" font-family="Manrope">Target £'+_skNum(tgt,0)+'</text>'; }
+      return svg+'</svg>';
+    }
+    function _skTargetProgress(ytd, tgt, who){
+      if(tgt<=0) return '<p class="sk-empty">Set a yearly target to track annual progress.</p>';
+      var full=ytd/tgt*100, pct=Math.max(0, Math.min(100, Math.round(full)));
+      var col=full>=100?'#2f7d4f':(full>=70?'#2f3d7e':'#c9a23a');
+      return '<div style="font-size:13px;margin-bottom:8px;">Billed <b>'+_skMoney(ytd)+'</b> of your '+who+' yearly target <b>'+_skMoney(tgt)+'</b> — <b>'+Math.round(full)+'%</b>'+(ytd<tgt?(' · <b>'+_skMoney(tgt-ytd)+'</b> to go') : ' · reached 🎉')+'.</div>' +
+        '<div style="background:#e6e1d6;border-radius:999px;height:18px;overflow:hidden;"><div style="width:'+pct+'%;height:100%;background:'+col+';border-radius:999px;"></div></div>';
+    }
+    function renderTargetsChart(){
+      renderTargetsCards();
+      var host = document.getElementById('bxTgtChart'); if(!host) return;
+      var t = _bxTgtVals();
+      var tgt = t.selfM>0 ? t.selfM : t.cesM;
+      var hist = _SK.eff.filter(function(k){ return k.rep_id === _SK.myRepId; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
+      var series = hist.map(function(k){ return { label:_skPeriodLabel(k.period), val:Number(k.billing_total)||0 }; });
+      host.innerHTML = _skTargetBars(series, tgt);
+      var lbl = document.getElementById('bxTgtHitLbl');
+      if(lbl){ if(tgt>0){ var hit = series.filter(function(s){ return s.val>=tgt; }).length; lbl.innerHTML = '<b>'+hit+' of '+series.length+'</b> month'+(series.length===1?'':'s')+' hit your '+(t.selfM>0?'own':'CES')+' monthly target of <b>'+_skMoney(tgt)+'</b> — green = hit, amber = missed.'; } else { lbl.textContent = 'Set a monthly target to see which months you hit it.'; } }
+      var prog = document.getElementById('bxTgtProgress');
+      if(prog){ var ytd = hist.reduce(function(a,k){ return a + (Number(k.billing_total)||0); }, 0); var yTgt = t.selfY>0 ? t.selfY : t.cesY; prog.innerHTML = _skTargetProgress(ytd, yTgt, t.selfY>0?'own':'CES'); }
+    }
+    function renderTargetsTab(){
+      var row = _SK.targets[_SK.myRepId] || {};
+      var mIn = document.getElementById('tgtSelfMonthly'); if(mIn) mIn.value = Number(row.self_monthly)>0 ? row.self_monthly : '';
+      var yIn = document.getElementById('tgtSelfYearly'); if(yIn) yIn.value = Number(row.self_yearly)>0 ? row.self_yearly : '';
+      renderTargetsChart();
+    }
+    async function bxSaveTargets(){
+      if(!_SK.myRepId){ safeAlert('Your sales profile isn’t linked yet.', null); return; }
+      var sm = parseFloat((document.getElementById('tgtSelfMonthly')||{}).value)||0;
+      var sy = parseFloat((document.getElementById('tgtSelfYearly')||{}).value)||0;
+      var resp = await sb.from('broker_targets').upsert({ rep_id:_SK.myRepId, self_monthly:sm, self_yearly:sy, updated_at:new Date().toISOString() }, { onConflict:'rep_id' });
+      if(resp.error){ safeAlert('Could not save your targets.', resp.error); return; }
+      logAction('save_self_target', null, { self_monthly:sm, self_yearly:sy });
+      await salesFetchAll(); renderTargetsTab(); renderBrokerGoals(); _skFlash('bxTgtMsg', 'Saved.');
     }
     function brokerNav(view){
       var sales = document.getElementById('brokerSalesView');
