@@ -1907,7 +1907,7 @@
           <div class="form-card" style="margin-bottom:16px;">
             <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Sales team KPIs</h2>
             <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Set each rep's commission rates and monthly target, enter their figures, and view the team leaderboard. Commission rates feed each rep's private salary calculator — only they can see their own.</p>
-            <h3 style="font-size:14px;font-weight:800;margin-bottom:8px;">Commission &amp; targets</h3>
+            <h3 style="font-size:14px;font-weight:800;margin-bottom:8px;">Commission, targets &amp; broker email</h3>
             <div class="success-box" id="skCompMsg" style="display:none;">Saved.</div>
             <div id="skCompEditor" style="overflow-x:auto;"></div>
           </div>
@@ -4270,17 +4270,19 @@
           '<td><input type="number" step="0.1" id="cn_' + r.id + '" value="' + c.new_business_rate + '" style="width:78px"></td>' +
           '<td><input type="number" step="1" id="cb_' + r.id + '" value="' + c.base_salary + '" style="width:108px"></td>' +
           '<td><input type="number" step="1" id="ct_' + r.id + '" value="' + (Number(r.monthly_target)||0) + '" style="width:118px"></td>' +
+          '<td><input type="email" id="ce_' + r.id + '" value="' + escapeHtml(r.email||'') + '" placeholder="broker@cesgb.com" style="width:200px"></td>' +
           '<td><button class="btn-primary" style="padding:6px 12px;width:auto" onclick="skSaveComp(\'' + r.id + '\')">Save</button></td></tr>';
       }).join('');
-      host.innerHTML = '<table class="sk-table"><tr><th>Rep</th><th>Retained %</th><th>New business %</th><th>Base £/mo</th><th>Monthly target £</th><th></th></tr>' + rows + '</table>';
+      host.innerHTML = '<table class="sk-table"><tr><th>Rep</th><th>Retained %</th><th>New business %</th><th>Base £/mo</th><th>Monthly target £</th><th>Email (for reminders)</th><th></th></tr>' + rows + '</table>';
     }
     async function skSaveComp(repId){
       var rr = parseFloat(document.getElementById('cr_' + repId).value) || 0;
       var nr = parseFloat(document.getElementById('cn_' + repId).value) || 0;
       var bs = parseFloat(document.getElementById('cb_' + repId).value) || 0;
       var tg = parseFloat(document.getElementById('ct_' + repId).value) || 0;
+      var em = (document.getElementById('ce_' + repId).value || '').trim();
       var e1 = await sb.from('broker_comp').upsert({ rep_id:repId, retained_rate:rr, new_business_rate:nr, base_salary:bs, updated_at:new Date().toISOString() }, { onConflict:'rep_id' });
-      var e2 = await sb.from('sales_reps').update({ monthly_target:tg }).eq('id', repId);
+      var e2 = await sb.from('sales_reps').update({ monthly_target:tg, email: em || null }).eq('id', repId);
       if(e1.error || e2.error){ safeAlert('Could not save commission settings.', e1.error || e2.error); return; }
       _SK.compByRep[repId] = { rep_id:repId, retained_rate:rr, new_business_rate:nr, base_salary:bs };
       var rep = _SK.reps.filter(function(r){ return r.id === repId; })[0]; if(rep) rep.monthly_target = tg;
