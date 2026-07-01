@@ -1335,6 +1335,7 @@
           <div class="nav-item active" id="bkNavSales" onclick="brokerNav('sales')">Sales Performance</div>
           <div class="nav-item" id="bkNavCust" onclick="brokerNav('customers')">My Customers</div>
           <div class="nav-item" id="bkNavProjects" onclick="brokerNav('projects')">My Projects</div>
+          <div class="nav-item" id="bkNavAnalytics" onclick="brokerNav('analytics')">Analytical Data</div>
         </div>
         <div class="sidebar-foot">
           <button class="signout-btn" onclick="doSignOut()">Sign out</button>
@@ -1374,18 +1375,10 @@
 
           <!-- ===================== OVERVIEW ===================== -->
           <div class="bx-pane active" id="bxPane-overview">
-            <!-- Targets & goals — first thing a broker sees -->
-            <div class="card" id="bxGoalsCard" style="margin-bottom:16px;border:2px solid var(--lime);background:#f6faef;">
-              <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
-                <h3 style="font-size:16px;font-weight:800;color:var(--navy);">🎯 Targets &amp; goals</h3>
-                <button class="btn-secondary" style="padding:6px 12px;" onclick="bxToggleTargetForm()">Set my target</button>
-              </div>
-              <div id="bxGoalsBody"></div>
-              <div id="bxTargetForm" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #e6e1d6;">
-                <div class="form-group" style="max-width:340px;"><label style="font-size:12.5px;font-weight:700;">My own monthly billing target (£)</label><input type="number" step="any" min="0" id="selfTargetInput" placeholder="e.g. 22000" style="width:100%;"></div>
-                <button class="btn-primary" style="width:auto;padding:8px 16px;margin-top:8px;" onclick="bxSaveSelfTarget()">Save my target</button>
-                <span class="success-box" id="bxTargetMsg" style="display:none;margin-left:8px;">Saved.</span>
-              </div>
+            <!-- Annual target banner — first thing a broker sees -->
+            <div class="card" id="bxAnnualBanner" style="margin-bottom:16px;border:2px solid var(--lime);background:#f6faef;">
+              <div id="bxAnnualBody" style="font-size:16px;line-height:1.5;color:var(--navy);font-weight:700;">—</div>
+              <div style="margin-top:10px;"><button class="btn-secondary" style="padding:6px 12px;" onclick="bxTab('targets')">See my targets →</button></div>
             </div>
             <!-- Month-scoped personal block (changes with the Viewing month picker) -->
             <div class="card" style="margin-bottom:16px;border:2px solid var(--navy);">
@@ -1497,6 +1490,10 @@
               <button class="btn-primary" style="width:auto;padding:9px 16px;margin-top:8px;" onclick="bxSaveTargets()">Save my targets</button>
             </div>
             <div class="card" style="margin-bottom:16px;">
+              <h4 style="font-size:13px;font-weight:800;margin-bottom:8px;">What you need each month</h4>
+              <div id="bxTgtRequired"></div>
+            </div>
+            <div class="card" style="margin-bottom:16px;">
               <h4 style="font-size:13px;font-weight:800;margin-bottom:6px;">Monthly billing vs target</h4>
               <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;" id="bxTgtHitLbl"></p>
               <div id="bxTgtChart"></div>
@@ -1596,6 +1593,13 @@
           </div>
           <div class="report-grid" id="bxProjGrid"></div>
           <div id="bxProjDetail" style="margin-top:16px;"></div>
+        </div>
+
+        <!-- View: Analytical Data (calls/emails vs revenue) -->
+        <div id="brokerAnalyticsView" style="display:none;">
+          <div class="section-head"><h2>Analytical data</h2></div>
+          <div id="bxAnalyticsLinkWarn"></div>
+          <div id="bxAnalyticsBody"></div>
         </div>
 
         <!-- View: the broker's customers -->
@@ -3986,7 +3990,7 @@
     // Team leaderboard (visible to all reps) + each rep's own entry, dashboard
     // and PRIVATE salary calculator. Data: sales_reps / broker_kpis (team-read)
     // / broker_comp (private: own + admin only, enforced by RLS).
-    var _SK = { reps: [], kpis: [], sales: [], salesTeam: [], eff: [], notes: [], targets: {}, projects: [], projEntries: [], compByRep: {}, myRepId: null };
+    var _SK = { reps: [], kpis: [], sales: [], salesTeam: [], eff: [], notes: [], targets: {}, projects: [], projEntries: [], activity: [], compByRep: {}, myRepId: null };
     var _SK_FIELDS = [
       ['billing_total', 'Billing total (£, annual equivalent)'],
       ['long_term_total', 'Long term total (£)'],
@@ -4044,6 +4048,7 @@
       var tg = await sb.from('broker_targets').select('*'); _SK.targets = {}; (tg.data||[]).forEach(function(t){ _SK.targets[t.rep_id] = t; });
       var pj = await sb.from('broker_projects').select('*'); _SK.projects = pj.data || [];   // own / admin; private
       var pe = await sb.from('broker_project_entries').select('*'); _SK.projEntries = pe.data || [];
+      var ba = await sb.from('broker_activity').select('*'); _SK.activity = ba.data || [];   // calls/emails per rep per month (own/admin)
       var cp = await sb.from('broker_comp').select('*'); // RLS: admin=all, rep=own only
       _SK.compByRep = {};
       (cp.data || []).forEach(function(c){ _SK.compByRep[c.rep_id] = c; });
@@ -4241,7 +4246,7 @@
       var notesCard = document.getElementById('bxNotesCard'); if(notesCard) notesCard.style.display = _SK.myRepId ? '' : 'none';
       var custCard = document.getElementById('bxCustNotesCard'); if(custCard) custCard.style.display = _SK.myRepId ? '' : 'none';
       var addWrap = document.getElementById('bxAddSaleWrap'); if(addWrap) addWrap.style.display = _SK.myRepId ? 'flex' : 'none';
-      var goalsCard = document.getElementById('bxGoalsCard'); if(goalsCard) goalsCard.style.display = _SK.myRepId ? '' : 'none';
+      var goalsCard = document.getElementById('bxAnnualBanner'); if(goalsCard) goalsCard.style.display = _SK.myRepId ? '' : 'none';
       var sMon = document.getElementById('saleMonth'); if(sMon && !sMon.value) sMon.value = _skDefaultMonth();
       bxSaleType();
       bxTab('overview');
@@ -4265,7 +4270,7 @@
       var _h = document.getElementById('bxHeroMonthLbl'); if(_h) _h.textContent = _lbl;
       var _e = document.getElementById('bxEntryMonthLbl'); if(_e) _e.textContent = _lbl;
       bxRenderNotes();
-      renderBrokerGoals();
+      renderOverviewTarget();
       var _teamPk = key || '__all__';
       var _tl = document.getElementById('bxOvTeamLbl'); if(_tl) _tl.textContent = key ? _skPeriodLabel(key) : 'full year';
       renderTeamChart('bxOvTeamChart', _teamPk);
@@ -5150,6 +5155,13 @@
       host.innerHTML = _skTargetBars(series, tgt);
       var lbl = document.getElementById('bxTgtHitLbl');
       if(lbl){ if(tgt>0){ var hit = series.filter(function(s){ return s.val>=tgt; }).length; lbl.innerHTML = '<b>'+hit+' of '+series.length+'</b> month'+(series.length===1?'':'s')+' hit your '+(t.selfM>0?'own':'CES')+' monthly target of <b>'+_skMoney(tgt)+'</b> — green = hit, amber = missed.'; } else { lbl.textContent = 'Set a monthly target to see which months you hit it.'; } }
+      var req = document.getElementById('bxTgtRequired');
+      if(req){
+        var _yr = new Date().getFullYear(), _ml = 12 - new Date().getMonth();
+        var ytdY = hist.filter(function(k){ return String(k.period).slice(0,4) == String(_yr); }).reduce(function(a,k){ return a + (Number(k.billing_total)||0); }, 0);
+        function _reqLine(tot, who){ if(tot<=0) return '<div style="margin-bottom:6px;color:var(--muted);">No '+who+' yearly target set.</div>'; var need = Math.max(0, tot - ytdY) / (_ml||1); return '<div style="margin-bottom:6px;font-size:13px;">To hit your <b>'+who+'</b> yearly target of <b>'+_skMoney(tot)+'</b>, bill <b style="color:var(--navy);">'+_skMoney(need)+'</b>/month for the remaining <b>'+_ml+'</b> month'+(_ml===1?'':'s')+' of '+_yr+'.</div>'; }
+        req.innerHTML = _reqLine(t.cesY, 'CES') + _reqLine(t.selfY, 'own');
+      }
       var prog = document.getElementById('bxTgtProgress');
       if(prog){ var ytd = hist.reduce(function(a,k){ return a + (Number(k.billing_total)||0); }, 0); var yTgt = t.selfY>0 ? t.selfY : t.cesY; prog.innerHTML = _skTargetProgress(ytd, yTgt, t.selfY>0?'own':'CES'); }
     }
@@ -5168,26 +5180,114 @@
       logAction('save_self_target', null, { self_monthly:sm, self_yearly:sy });
       await salesFetchAll(); renderTargetsTab(); renderBrokerGoals(); _skFlash('bxTgtMsg', 'Saved.');
     }
+    // ── Broker: Analytical Data (calls/emails vs revenue & commission) ──
+    function _pearson(xs, ys){
+      var n = xs.length; if(n < 2) return null;
+      var sx=0, sy=0, i; for(i=0;i<n;i++){ sx+=xs[i]; sy+=ys[i]; }
+      var mx=sx/n, my=sy/n, cov=0, vx=0, vy=0;
+      for(i=0;i<n;i++){ var dx=xs[i]-mx, dy=ys[i]-my; cov+=dx*dy; vx+=dx*dx; vy+=dy*dy; }
+      if(vx===0 || vy===0) return null;
+      return cov/Math.sqrt(vx*vy);
+    }
+    function _corrWord(r){ var a=Math.abs(r); return a>=0.7?'strong':(a>=0.4?'moderate':(a>=0.2?'weak':'little to no')); }
+    function _skScatter(points, xlab, ylab){
+      if(points.length < 2) return '<p class="sk-empty">Not enough months yet.</p>';
+      var W=560, H=300, padL=66, padR=20, padT=16, padB=44, iw=W-padL-padR, ih=H-padT-padB;
+      var xmax=Math.max.apply(null, points.map(function(p){return p.x;}).concat([1]));
+      var ymax=Math.max.apply(null, points.map(function(p){return p.y;}).concat([1]));
+      function px(x){ return padL + (x/xmax)*iw; } function py(y){ return padT+ih-(y/ymax)*ih; }
+      var svg='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;max-width:600px;">';
+      for(var g=0; g<=4; g++){ var yy=padT+ih*(1-g/4); svg+='<line x1="'+padL+'" y1="'+yy+'" x2="'+(W-padR)+'" y2="'+yy+'" stroke="#e6e1d6"/>'; svg+='<text x="'+(padL-8)+'" y="'+(yy+4)+'" text-anchor="end" font-size="9" fill="#7a7e8c" font-family="JetBrains Mono">£'+_skNum(ymax*g/4,0)+'</text>'; }
+      points.forEach(function(p){ var tip=_skNum(p.x,0)+' calls → £'+_skNum(p.y,0); svg+='<circle cx="'+px(p.x)+'" cy="'+py(p.y)+'" r="6" fill="#2f3d7e" opacity="0.8" onmousemove="skTip(event,\''+_skTipArg(p.label)+'\',\''+tip+'\')" onmouseout="skTipHide()"/>'; });
+      svg+='<text x="'+(padL+iw/2)+'" y="'+(H-8)+'" text-anchor="middle" font-size="11" fill="#4a4e5c" font-family="Manrope">'+xlab+'</text>';
+      svg+='<text transform="translate(14,'+(padT+ih/2)+') rotate(-90)" text-anchor="middle" font-size="11" fill="#4a4e5c" font-family="Manrope">'+ylab+'</text>';
+      return svg+'</svg>';
+    }
+    function renderAnalytics(){
+      var host = document.getElementById('bxAnalyticsBody'); if(!host) return;
+      var warn = document.getElementById('bxAnalyticsLinkWarn'); if(warn) warn.innerHTML = _SK.myRepId ? '' : '<div class="card" style="border-left:3px solid #b5840a;margin-bottom:14px;">Your sales profile isn’t linked yet, so analytics are unavailable. Contact CES.</div>';
+      if(!_SK.myRepId){ host.innerHTML = ''; return; }
+      var comp = _SK.compByRep[_SK.myRepId];
+      var act = (_SK.activity||[]).filter(function(a){ return a.rep_id === _SK.myRepId; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
+      if(!act.length){ host.innerHTML = '<div class="card"><p class="sk-empty">No calls/emails data loaded yet — CES uploads this from the work-output report.</p></div>'; return; }
+      var rows = act.map(function(a){
+        var eff = _skEffRow(_SK.myRepId, a.period);
+        var rev = eff ? (Number(eff.billing_total)||0) : 0;
+        var comm = (comp && eff) ? _skCommission(eff, comp).commission : 0;
+        return { label:_skPeriodLabel(a.period), calls:Number(a.calls)||0, emails:Number(a.emails)||0, rev:rev, comm:comm };
+      });
+      var tCalls=rows.reduce(function(s,r){return s+r.calls;},0), tEmails=rows.reduce(function(s,r){return s+r.emails;},0);
+      var tRev=rows.reduce(function(s,r){return s+r.rev;},0), tComm=rows.reduce(function(s,r){return s+r.comm;},0);
+      var perCall=tCalls?tRev/tCalls:0, perEmail=tEmails?tRev/tEmails:0, commPerCall=tCalls?tComm/tCalls:0;
+      var rCall=_pearson(rows.map(function(r){return r.calls;}), rows.map(function(r){return r.rev;}));
+      var rEmail=_pearson(rows.map(function(r){return r.emails;}), rows.map(function(r){return r.rev;}));
+      var callsEmails=_skGroupBars(rows.map(function(r){return {label:r.label, a:r.calls, b:r.emails};}), 'Calls', 'Emails');
+      var revChart=_skColBars(rows.map(function(r){return {label:r.label, val:r.rev};}), {color:'#2f7d4f', money:true});
+      var commChart=_skColBars(rows.map(function(r){return {label:r.label, val:r.comm};}), {color:'#2f3d7e', money:true});
+      var scatter=_skScatter(rows.map(function(r){return {x:r.calls, y:r.rev, label:r.label};}), 'External calls in the month', 'Revenue (£)');
+      function card(l,v,s){ return '<div class="stat-card"><div class="stat-label">'+l+'</div><div class="stat-value">'+v+'</div><div class="stat-foot" style="font-size:11px;color:var(--muted);margin-top:4px;">'+s+'</div></div>'; }
+      function corr(r, what){ if(r==null) return 'Not enough data to correlate '+what+' with revenue yet.'; return 'A <b>'+_corrWord(r)+'</b> correlation ('+(r>=0?'+':'')+r.toFixed(2)+') between your <b>'+what+'</b> and revenue.'; }
+      host.innerHTML =
+        '<div class="card" style="margin-bottom:16px;"><p style="font-size:12.5px;color:var(--muted);margin:0;">Your calls and emails month-on-month against the revenue and commission you produced ('+rows[0].label+' – '+rows[rows.length-1].label+'). Private to you.</p></div>' +
+        '<div class="card" style="margin-bottom:16px;"><div class="stats-row">' +
+          card('Total calls', _skNum(tCalls,0), 'over '+rows.length+' months') +
+          card('Total emails', _skNum(tEmails,0), 'over '+rows.length+' months') +
+          card('Revenue', _skMoney(tRev), _skMoney(perCall)+'/call · '+_skMoney(perEmail)+'/email') +
+          card('Commission', _skMoney(tComm), _skMoney(commPerCall)+' per call') +
+        '</div></div>' +
+        '<div class="card" style="margin-bottom:16px;"><h4 style="font-size:13px;font-weight:800;margin-bottom:8px;">Calls &amp; emails per month</h4>'+callsEmails+'</div>' +
+        '<div class="sk-chart-grid">' +
+          '<div class="card" style="margin-bottom:16px;"><h4 style="font-size:13px;font-weight:800;margin-bottom:8px;">Revenue per month</h4>'+revChart+'</div>' +
+          '<div class="card" style="margin-bottom:16px;"><h4 style="font-size:13px;font-weight:800;margin-bottom:8px;">Commission per month</h4>'+commChart+'</div>' +
+        '</div>' +
+        '<div class="card" style="margin-bottom:16px;"><h4 style="font-size:13px;font-weight:800;margin-bottom:8px;">Calls vs revenue</h4>'+scatter+'</div>' +
+        '<div class="card"><h4 style="font-size:13px;font-weight:800;margin-bottom:8px;">What the numbers say</h4><div style="font-size:13px;line-height:1.6;">' +
+          '<div style="margin-bottom:6px;">'+corr(rCall,'calls')+'</div>' +
+          '<div style="margin-bottom:6px;">'+corr(rEmail,'emails')+'</div>' +
+          '<div style="margin-bottom:6px;">On average each external call goes with <b>'+_skMoney(perCall)+'</b> of revenue, and each email <b>'+_skMoney(perEmail)+'</b>.</div>' +
+          '<div style="color:var(--muted);font-size:12px;">Correlation isn’t causation — it just shows how closely the two moved together across these months.</div>' +
+        '</div></div>';
+    }
+    function renderOverviewTarget(){
+      var host = document.getElementById('bxAnnualBody'); if(!host) return;
+      var rep = _SK.reps.filter(function(r){ return r.id === _SK.myRepId; })[0];
+      if(!rep){ host.textContent = 'Your annual target appears once your profile is linked.'; return; }
+      var cesY = (Number(rep.monthly_target)||0) * 12;
+      var yr = new Date().getFullYear(), monthsLeft = 12 - new Date().getMonth();
+      var ytd = _SK.eff.filter(function(k){ return k.rep_id === _SK.myRepId && String(k.period).slice(0,4) == String(yr); }).reduce(function(a,k){ return a + (Number(k.billing_total)||0); }, 0);
+      if(cesY <= 0){ host.innerHTML = 'No CES annual target set yet — ask CES to set your monthly target.'; return; }
+      var mL = monthsLeft + ' month' + (monthsLeft===1?'':'s');
+      var gap = cesY - ytd;
+      if(gap > 0){
+        host.innerHTML = 'You are <span style="color:#b5340f;">'+_skMoney(gap)+'</span> away from your CES annual target of <b>'+_skMoney(cesY)+'</b>, with <b>'+mL+'</b> left to go. <span style="font-weight:600;color:var(--muted);font-size:13px;">('+_skMoney(ytd)+' billed in '+yr+' · '+Math.round(ytd/cesY*100)+'%)</span>';
+      } else {
+        host.innerHTML = '🎉 You’ve <span style="color:#2f7d4f;">hit your CES annual target</span> of <b>'+_skMoney(cesY)+'</b> — <b>'+_skMoney(-gap)+' over</b>, with <b>'+mL+'</b> still to go.';
+      }
+    }
     function brokerNav(view){
       var sales = document.getElementById('brokerSalesView');
       var cust = document.getElementById('brokerCustomersView');
       var proj = document.getElementById('brokerProjectsView');
+      var anl = document.getElementById('brokerAnalyticsView');
       var mv = document.getElementById('brokerMetersView');
-      var nS = document.getElementById('bkNavSales'), nC = document.getElementById('bkNavCust'), nP = document.getElementById('bkNavProjects');
-      function _clr(){ [nS,nC,nP].forEach(function(n){ if(n) n.classList.remove('active'); }); }
+      var nS = document.getElementById('bkNavSales'), nC = document.getElementById('bkNavCust'), nP = document.getElementById('bkNavProjects'), nA = document.getElementById('bkNavAnalytics');
+      function _hideAll(){ [sales,cust,proj,anl,mv].forEach(function(v){ if(v) v.style.display = 'none'; }); }
+      function _clr(){ [nS,nC,nP,nA].forEach(function(n){ if(n) n.classList.remove('active'); }); }
       if(view === 'customers'){
-        if(sales) sales.style.display = 'none'; if(proj) proj.style.display = 'none';
-        backToBrokerCustomers();
+        _hideAll(); backToBrokerCustomers();
         _clr(); if(nC) nC.classList.add('active');
       } else if(view === 'projects'){
-        if(sales) sales.style.display = 'none'; if(cust) cust.style.display = 'none'; if(mv) mv.style.display = 'none';
-        if(proj) proj.style.display = '';
+        _hideAll(); if(proj) proj.style.display = '';
         _clr(); if(nP) nP.classList.add('active');
         var warn = document.getElementById('bxProjLinkWarn'); if(warn) warn.innerHTML = _SK.myRepId ? '' : '<div class="card" style="border-left:3px solid #b5840a;margin-bottom:14px;">Your sales profile isn’t linked yet, so projects are unavailable. Contact CES.</div>';
         var nc = document.getElementById('bxProjNewCard'); if(nc) nc.style.display = _SK.myRepId ? '' : 'none';
         bxBackToProjects();
+      } else if(view === 'analytics'){
+        _hideAll(); if(anl) anl.style.display = '';
+        _clr(); if(nA) nA.classList.add('active');
+        renderAnalytics();
       } else {
-        if(sales) sales.style.display = ''; if(cust) cust.style.display = 'none'; if(mv) mv.style.display = 'none'; if(proj) proj.style.display = 'none';
+        _hideAll(); if(sales) sales.style.display = '';
         _clr(); if(nS) nS.classList.add('active');
       }
     }
