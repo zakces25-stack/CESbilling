@@ -1024,9 +1024,19 @@
   ════════════════════════════════════ -->
   <div id="loginPage" class="page active">
     <div class="login-header">
-      <div class="login-header-title">
-        <span class="lht-main">CES Billing Portal</span>
-        <span class="lht-sub">Commercial Energy Solutions</span>
+      <div style="display:flex;align-items:center;gap:20px;">
+        <div class="login-header-title">
+          <span class="lht-main">CES Billing Portal</span>
+          <span class="lht-sub">Commercial Energy Solutions</span>
+        </div>
+        <!-- Carbon portal gateway → served at /carbon -->
+        <a href="/carbon" title="Open the CES Carbon reporting portal"
+           style="display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:9px;background:#e1f5ee;border:1px solid #1d9e75;color:#0f6e56;font-weight:700;font-size:13px;text-decoration:none;white-space:nowrap;transition:background .15s ease,color .15s ease;"
+           onmouseover="this.style.background='#1d9e75';this.style.color='#fff';"
+           onmouseout="this.style.background='#e1f5ee';this.style.color='#0f6e56';">
+          <span style="width:9px;height:9px;border-radius:50%;background:currentColor;display:inline-block;"></span>
+          Carbon&nbsp;portal
+        </a>
       </div>
       <img class="login-header-logo" src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES" onerror="this.style.display='none'" />
     </div>
@@ -5203,6 +5213,35 @@
       svg+='<text transform="translate(14,'+(padT+ih/2)+') rotate(-90)" text-anchor="middle" font-size="11" fill="#4a4e5c" font-family="Manrope">'+ylab+'</text>';
       return svg+'</svg>';
     }
+    // Combined dual-axis line chart: calls + emails (left, count) and revenue (right, £).
+    function _skComboChart(rows){
+      if(!rows.length) return '<p class="sk-empty">No data yet.</p>';
+      var W=900, H=340, padL=58, padR=76, padT=40, padB=46, iw=W-padL-padR, ih=H-padT-padB, n=rows.length;
+      var cMax=Math.max.apply(null, rows.map(function(r){return Math.max(r.calls,r.emails);}).concat([1]));
+      var rMax=Math.max.apply(null, rows.map(function(r){return r.rev;}).concat([1]));
+      function px(i){ return n===1 ? padL+iw/2 : padL + iw*(i/(n-1)); }
+      function yC(v){ return padT+ih*(1 - v/cMax); }
+      function yR(v){ return padT+ih*(1 - v/rMax); }
+      var svg='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;">';
+      var items=[['Calls','#2f3d7e',padL],['Emails','#c9a23a',padL+110],['Revenue (£)','#2f7d4f',padL+232]];
+      items.forEach(function(L){ svg+='<rect x="'+L[2]+'" y="9" width="16" height="4" rx="2" fill="'+L[1]+'"/><text x="'+(L[2]+22)+'" y="14" font-size="12" fill="#4a4e5c" font-family="Manrope">'+L[0]+'</text>'; });
+      for(var g=0; g<=4; g++){ var y=padT+ih*(1-g/4);
+        svg+='<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="#e6e1d6"/>';
+        svg+='<text x="'+(padL-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="10" fill="#7a7e8c" font-family="JetBrains Mono">'+_skNum(cMax*g/4,0)+'</text>';
+        svg+='<text x="'+(W-padR+8)+'" y="'+(y+4)+'" text-anchor="start" font-size="10" fill="#2f7d4f" font-family="JetBrains Mono">£'+_skNum(rMax*g/4,0)+'</text>';
+      }
+      rows.forEach(function(r,i){ svg+='<text x="'+px(i)+'" y="'+(padT+ih+18)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+r.label+'</text>'; });
+      function line(vals, yfn, col, isRev){
+        var d=''; vals.forEach(function(v,i){ d+=(i===0?'M':'L')+px(i)+','+yfn(v)+' '; });
+        var s='<path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="2.5"'+(isRev?' stroke-dasharray="7 4"':'')+'/>';
+        vals.forEach(function(v,i){ var tip=isRev?('£'+_skNum(v,0)):(_skNum(v,0)); s+='<circle cx="'+px(i)+'" cy="'+yfn(v)+'" r="4" fill="'+col+'" onmousemove="skTip(event,\''+_skTipArg(rows[i].label)+'\',\''+tip+'\')" onmouseout="skTipHide()"/>'; });
+        return s;
+      }
+      svg+=line(rows.map(function(r){return r.calls;}), yC, '#2f3d7e', false);
+      svg+=line(rows.map(function(r){return r.emails;}), yC, '#c9a23a', false);
+      svg+=line(rows.map(function(r){return r.rev;}), yR, '#2f7d4f', true);
+      return svg+'</svg>';
+    }
     function renderAnalytics(){
       var host = document.getElementById('bxAnalyticsBody'); if(!host) return;
       var warn = document.getElementById('bxAnalyticsLinkWarn'); if(warn) warn.innerHTML = _SK.myRepId ? '' : '<div class="card" style="border-left:3px solid #b5840a;margin-bottom:14px;">Your sales profile isn’t linked yet, so analytics are unavailable. Contact CES.</div>';
@@ -5221,10 +5260,7 @@
       var perCall=tCalls?tRev/tCalls:0, perEmail=tEmails?tRev/tEmails:0, commPerCall=tCalls?tComm/tCalls:0;
       var rCall=_pearson(rows.map(function(r){return r.calls;}), rows.map(function(r){return r.rev;}));
       var rEmail=_pearson(rows.map(function(r){return r.emails;}), rows.map(function(r){return r.rev;}));
-      var callsEmails=_skGroupBars(rows.map(function(r){return {label:r.label, a:r.calls, b:r.emails};}), 'Calls', 'Emails');
-      var revChart=_skColBars(rows.map(function(r){return {label:r.label, val:r.rev};}), {color:'#2f7d4f', money:true});
-      var commChart=_skColBars(rows.map(function(r){return {label:r.label, val:r.comm};}), {color:'#2f3d7e', money:true});
-      var scatter=_skScatter(rows.map(function(r){return {x:r.calls, y:r.rev, label:r.label};}), 'External calls in the month', 'Revenue (£)');
+      var combo=_skComboChart(rows);
       function card(l,v,s){ return '<div class="stat-card"><div class="stat-label">'+l+'</div><div class="stat-value">'+v+'</div><div class="stat-foot" style="font-size:11px;color:var(--muted);margin-top:4px;">'+s+'</div></div>'; }
       function corr(r, what){ if(r==null) return 'Not enough data to correlate '+what+' with revenue yet.'; return 'A <b>'+_corrWord(r)+'</b> correlation ('+(r>=0?'+':'')+r.toFixed(2)+') between your <b>'+what+'</b> and revenue.'; }
       host.innerHTML =
@@ -5235,12 +5271,7 @@
           card('Revenue', _skMoney(tRev), _skMoney(perCall)+'/call · '+_skMoney(perEmail)+'/email') +
           card('Commission', _skMoney(tComm), _skMoney(commPerCall)+' per call') +
         '</div></div>' +
-        '<div class="card" style="margin-bottom:16px;"><h4 style="font-size:13px;font-weight:800;margin-bottom:8px;">Calls &amp; emails per month</h4>'+callsEmails+'</div>' +
-        '<div class="sk-chart-grid">' +
-          '<div class="card" style="margin-bottom:16px;"><h4 style="font-size:13px;font-weight:800;margin-bottom:8px;">Revenue per month</h4>'+revChart+'</div>' +
-          '<div class="card" style="margin-bottom:16px;"><h4 style="font-size:13px;font-weight:800;margin-bottom:8px;">Commission per month</h4>'+commChart+'</div>' +
-        '</div>' +
-        '<div class="card" style="margin-bottom:16px;"><h4 style="font-size:13px;font-weight:800;margin-bottom:8px;">Calls vs revenue</h4>'+scatter+'</div>' +
+        '<div class="card" style="margin-bottom:16px;"><h4 style="font-size:13px;font-weight:800;margin-bottom:6px;">Calls, emails &amp; revenue per month</h4><p style="font-size:12px;color:var(--muted);margin-bottom:10px;">Calls and emails read off the left axis (a count); revenue reads off the right axis (£, dashed line).</p>'+combo+'</div>' +
         '<div class="card"><h4 style="font-size:13px;font-weight:800;margin-bottom:8px;">What the numbers say</h4><div style="font-size:13px;line-height:1.6;">' +
           '<div style="margin-bottom:6px;">'+corr(rCall,'calls')+'</div>' +
           '<div style="margin-bottom:6px;">'+corr(rEmail,'emails')+'</div>' +
