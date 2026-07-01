@@ -1377,10 +1377,10 @@
           <div class="admin-tabs" id="bxTabs">
             <button class="admin-tab active" id="bxTabBtn-overview" onclick="bxTab('overview')">Overview</button>
             <button class="admin-tab" id="bxTabBtn-team" onclick="bxTab('team')">Team leaderboard</button>
-            <button class="admin-tab" id="bxTabBtn-monthly" onclick="bxTab('monthly')">Monthly performance</button>
+            <button class="admin-tab" id="bxTabBtn-monthly" onclick="bxTab('monthly')">Monthly figures</button>
             <button class="admin-tab" id="bxTabBtn-targets" onclick="bxTab('targets')">My Targets</button>
             <button class="admin-tab" id="bxTabBtn-salary" onclick="bxTab('salary')">Salary calculator</button>
-            <button class="admin-tab" id="bxTabBtn-notes" onclick="bxTab('notes')">Notes</button>
+            <button class="admin-tab" id="bxTabBtn-notes" onclick="bxTab('notes')">New business reminders</button>
           </div>
 
           <!-- ===================== OVERVIEW ===================== -->
@@ -1457,8 +1457,33 @@
               <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Enter this month's activity numbers and save — they update the team leaderboard for everyone. Use <b>Add a sale</b> to log won contracts; that fills in your billing, new business and kWh automatically.</p>
               <div class="success-box" id="bxMsg" style="display:none;">Saved.</div>
               <div class="sk-entry-grid sk-entry-vert" id="bxEntryFields"></div>
+              <div class="form-group" style="margin-top:12px;"><label id="bxLostReasonLbl">If you lost any customers or meters — why?</label><textarea id="bx_lost_reason" rows="2" style="width:100%;padding:10px 12px;border:1px solid var(--border,#d9d9e3);border-radius:8px;font:inherit;resize:vertical;box-sizing:border-box;" placeholder="Reason customers / meters were lost this month"></textarea></div>
+              <div class="form-group"><label>Customers of concern</label><textarea id="bx_customers_of_concern" rows="2" style="width:100%;padding:10px 12px;border:1px solid var(--border,#d9d9e3);border-radius:8px;font:inherit;resize:vertical;box-sizing:border-box;" placeholder="Any accounts at risk, and why"></textarea></div>
               <button class="btn-primary" style="width:auto;padding:10px 18px;margin-top:12px;" onclick="bxSaveMine()">Save my figures</button>
               <button class="btn-secondary" style="width:auto;padding:10px 18px;margin-top:12px;margin-left:8px;color:#b5340f;border-color:#e3b3a6;" onclick="bxDeleteMine()">Delete this month</button>
+            </div>
+
+            <div class="card" id="bxNewBizCard" style="margin-bottom:16px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+                <h3 style="font-size:14px;font-weight:800;">New business detail — <span id="bxNbMonthLbl">this month</span></h3>
+                <button class="btn-secondary" style="padding:7px 12px;" onclick="bxToggleNewBizForm()">＋ Add new-business win</button>
+              </div>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px;">Break down the month's new business by business won — this is asked whenever you record new business.</p>
+              <div class="success-box" id="bxNbMsg" style="display:none;">Saved.</div>
+              <div id="bxNewBizForm" style="display:none;margin-bottom:12px;padding:12px;border:1px solid #e6e1d6;border-radius:8px;">
+                <div class="sk-entry-grid sk-entry-vert">
+                  <div class="form-group"><label>Business name</label><input type="text" id="nbName" placeholder="e.g. XXX Restaurant Ltd"></div>
+                  <div class="form-group"><label>Type</label><select id="nbType"><option value="new">Completely new business</option><option value="referral">Referral</option></select></div>
+                  <div class="form-group"><label>Nature</label><select id="nbNature"><option value="both">Shared savings &amp; procurement</option><option value="shared_savings">Shared savings</option><option value="procurement">Procurement</option></select></div>
+                  <div class="form-group"><label>Number of clients</label><input type="number" min="1" step="1" id="nbClients" value="1"></div>
+                  <div class="form-group"><label>Value (£)</label><input type="number" min="0" step="any" id="nbGbp" placeholder="e.g. 5000"></div>
+                  <div class="form-group"><label>Note (optional)</label><input type="text" id="nbNote" placeholder="Anything worth recording"></div>
+                </div>
+                <input type="hidden" id="nbEditId" value="">
+                <button class="btn-primary" style="width:auto;padding:9px 16px;margin-top:8px;" onclick="bxSaveNewBiz()">Save win</button>
+                <button class="btn-secondary" id="nbCancel" style="width:auto;padding:9px 16px;margin-top:8px;margin-left:8px;" onclick="bxResetNewBizForm()">Cancel</button>
+              </div>
+              <div id="bxNewBizList" style="overflow-x:auto;"></div>
             </div>
 
             <div class="card">
@@ -1514,55 +1539,21 @@
             </div>
           </div>
 
-          <!-- ===================== NOTES ===================== -->
+          <!-- ===================== NEW BUSINESS REMINDERS ===================== -->
           <div class="bx-pane" id="bxPane-notes">
-            <div class="card" id="bxNotesCard" style="margin-bottom:16px;">
-              <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
-                <h3 style="font-size:14px;font-weight:800;">Monthly notes &amp; reminders</h3>
-                <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--navy);font-weight:800;">Month
-                  <select id="bxNotesMonth" onchange="bxRenderNotes()" style="width:auto;font-weight:800;padding:7px 12px;border:2px solid var(--navy);border-radius:8px;color:var(--navy);background:#fff;cursor:pointer;"></select>
-                </label>
-              </div>
-              <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Notes and reminders you file against <b><span id="bxNotesMonthLbl">this month</span></b>. Tick them off, edit or delete. Private to you.</p>
+            <div class="card">
+              <h3 style="font-size:15px;font-weight:800;margin-bottom:6px;">New business reminders</h3>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Set reminders to follow up new-business prospects. You'll get an email on the reminder date. Private to you.</p>
               <div class="success-box" id="bxNotesMsg" style="display:none;">Saved.</div>
               <div class="sk-entry-grid sk-entry-vert">
-                <div class="form-group"><label>New note or reminder</label><input type="text" id="noteBody" placeholder="e.g. Chase renewal paperwork" onkeydown="if(event.key==='Enter')bxAddNote()"></div>
-                <div class="form-group"><label style="display:flex;align-items:center;gap:8px;font-weight:600;"><input type="checkbox" id="noteIsReminder" onchange="bxNoteReminderToggle()" style="width:auto;"> Make this a reminder (set a date)</label><input type="date" id="noteRemindOn" style="display:none;margin-top:8px;"></div>
+                <div class="form-group"><label>Business / customer</label><input type="text" id="remName" placeholder="e.g. XXX Restaurant Ltd"></div>
+                <div class="form-group"><label>Remind me on</label><input type="date" id="remDate"></div>
+                <div class="form-group"><label>Note</label><input type="text" id="remBody" placeholder="e.g. Chase signed contract" onkeydown="if(event.key==='Enter')bxAddReminder()"></div>
               </div>
-              <input type="hidden" id="noteEditId" value="">
-              <button class="btn-primary" style="width:auto;padding:9px 16px;margin-top:8px;" onclick="bxAddNote()">Add</button>
-              <button class="btn-secondary" id="noteCancel" style="width:auto;padding:9px 16px;margin-top:8px;margin-left:8px;display:none;" onclick="bxResetNoteForm()">Cancel edit</button>
-              <div style="margin-top:16px;">
-                <h4 style="font-size:12.5px;font-weight:800;color:var(--navy);margin:0 0 6px;">⏰ Reminders</h4>
-                <div id="bxMonthReminderList"></div>
-                <h4 style="font-size:12.5px;font-weight:800;color:var(--navy);margin:16px 0 6px;">Notes</h4>
-                <div id="bxMonthNoteList"></div>
-              </div>
-            </div>
-
-            <div class="card" id="bxCustNotesCard">
-              <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
-                <h3 style="font-size:14px;font-weight:800;">Customer notes &amp; reminders</h3>
-                <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--navy);font-weight:800;">Customer
-                  <select id="bxCustSel" onchange="bxRenderNotes()" style="width:auto;font-weight:800;padding:7px 12px;border:2px solid var(--navy);border-radius:8px;color:var(--navy);background:#fff;cursor:pointer;"></select>
-                </label>
-              </div>
-              <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Notes and reminders against a customer — separate from monthly notes, and private to you.</p>
-              <div class="success-box" id="bxCustNoteMsg" style="display:none;">Saved.</div>
-              <div class="sk-entry-grid sk-entry-vert">
-                <div class="form-group"><label>Customer</label><input type="text" id="custNoteName" list="bxCustList" placeholder="Customer name"><datalist id="bxCustList"></datalist></div>
-                <div class="form-group"><label>New note or reminder</label><input type="text" id="custNoteBody" placeholder="e.g. Prefers email contact" onkeydown="if(event.key==='Enter')bxAddCustNote()"></div>
-                <div class="form-group"><label style="display:flex;align-items:center;gap:8px;font-weight:600;"><input type="checkbox" id="custNoteIsReminder" onchange="bxCustReminderToggle()" style="width:auto;"> Make this a reminder (set a date)</label><input type="date" id="custNoteRemindOn" style="display:none;margin-top:8px;"></div>
-              </div>
-              <input type="hidden" id="custNoteEditId" value="">
-              <button class="btn-primary" style="width:auto;padding:9px 16px;margin-top:8px;" onclick="bxAddCustNote()">Add</button>
-              <button class="btn-secondary" id="custNoteCancel" style="width:auto;padding:9px 16px;margin-top:8px;margin-left:8px;display:none;" onclick="bxResetCustNoteForm()">Cancel edit</button>
-              <div style="margin-top:16px;">
-                <h4 style="font-size:12.5px;font-weight:800;color:var(--navy);margin:0 0 6px;">⏰ Reminders</h4>
-                <div id="bxCustReminderList"></div>
-                <h4 style="font-size:12.5px;font-weight:800;color:var(--navy);margin:16px 0 6px;">Notes</h4>
-                <div id="bxCustNoteList"></div>
-              </div>
+              <input type="hidden" id="remEditId" value="">
+              <button class="btn-primary" style="width:auto;padding:9px 16px;margin-top:8px;" onclick="bxAddReminder()">Add reminder</button>
+              <button class="btn-secondary" id="remCancel" style="width:auto;padding:9px 16px;margin-top:8px;margin-left:8px;display:none;" onclick="bxResetReminder()">Cancel edit</button>
+              <div id="bxReminderList" style="margin-top:18px;"></div>
             </div>
           </div>
 
@@ -1941,6 +1932,18 @@
             </div>
             <div id="skAdminChart" style="margin-bottom:16px;"></div>
             <div id="skAdminBoard" style="overflow-x:auto;"></div>
+          </div>
+          <div class="form-card" style="margin-top:16px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+              <h3 style="font-size:14px;font-weight:800;">Month-end report</h3>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <select id="meReportMonth" onchange="renderMonthEndReport()" style="width:auto;"></select>
+                <button class="btn-secondary" style="padding:7px 12px;" onclick="downloadMonthEndReport()">⬇ Download (CSV)</button>
+              </div>
+            </div>
+            <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Auto-built once every active rep has submitted that month. <span style="color:#b5340f;font-weight:700;">Red</span> = a month-on-month drop over 15%, or average uplift below 0.6p/kWh. Emailed to management when the month is complete.</p>
+            <div id="meReportStatus" style="margin-bottom:10px;"></div>
+            <div id="meReportBody" style="overflow-x:auto;"></div>
           </div>
         </div>
         <!-- SITE ADDRESSES TAB -->
@@ -4000,7 +4003,7 @@
     // Team leaderboard (visible to all reps) + each rep's own entry, dashboard
     // and PRIVATE salary calculator. Data: sales_reps / broker_kpis (team-read)
     // / broker_comp (private: own + admin only, enforced by RLS).
-    var _SK = { reps: [], kpis: [], sales: [], salesTeam: [], eff: [], notes: [], targets: {}, projects: [], projEntries: [], activity: [], compByRep: {}, myRepId: null };
+    var _SK = { reps: [], kpis: [], sales: [], salesTeam: [], eff: [], notes: [], targets: {}, projects: [], projEntries: [], activity: [], newBiz: [], compByRep: {}, myRepId: null };
     var _SK_FIELDS = [
       ['billing_total', 'Billing total (£, annual equivalent)'],
       ['long_term_total', 'Long term total (£)'],
@@ -4059,6 +4062,7 @@
       var pj = await sb.from('broker_projects').select('*'); _SK.projects = pj.data || [];   // own / admin; private
       var pe = await sb.from('broker_project_entries').select('*'); _SK.projEntries = pe.data || [];
       var ba = await sb.from('broker_activity').select('*'); _SK.activity = ba.data || [];   // calls/emails per rep per month (own/admin)
+      var nbq = await sb.from('broker_new_business').select('*'); _SK.newBiz = nbq.data || [];  // itemised new-business wins (own/admin)
       var cp = await sb.from('broker_comp').select('*'); // RLS: admin=all, rep=own only
       _SK.compByRep = {};
       (cp.data || []).forEach(function(c){ _SK.compByRep[c.rep_id] = c; });
@@ -4172,11 +4176,90 @@
       renderCommissionEditor();
       adminRenderBoard();
       skKpiLoadForm();
+      _skFillReportMonths();
+      renderMonthEndReport();
     }
     function adminRenderBoard(){
       var pk = (document.getElementById('skAdminPeriod')||{}).value || '__all__';
       renderTeamChart('skAdminChart', pk);
       renderSalesLeaderboard('skAdminBoard', pk);
+    }
+    // ── Admin: month-end report (matches Sales Team KPIs layout; red flags) ──
+    var _ME_COLS = [
+      {k:'billing_total',label:'Billing Total',money:true,flag:true},
+      {k:'ces_direct_total',label:'CES Direct',money:true,flag:true},
+      {k:'long_term_total',label:'Long Term',money:true,flag:true},
+      {k:'total_kwh',label:'Total kWh',money:false,flag:true},
+      {k:'__uplift',label:'Avg Uplift (p/kWh)',money:false,flag:true},
+      {k:'lost_customers',label:'Lost Customers',money:false,flag:false},
+      {k:'lost_kwh',label:'Lost kWh',money:false,flag:false},
+      {k:'new_business_gbp',label:'New Business £',money:true,flag:true},
+      {k:'new_business_kwh',label:'New Business kWh',money:false,flag:true}
+    ];
+    function _skFillReportMonths(){
+      var sel=document.getElementById('meReportMonth'); if(!sel) return; var cur=sel.value;
+      var ps=_skPeriods();
+      sel.innerHTML = ps.map(function(p){ return '<option value="'+p+'">'+_skPeriodLabel(p)+'</option>'; }).join('');
+      if(cur) sel.value=cur;
+    }
+    function _mePrevKey(period){ var d=new Date(period+'T00:00:00'); d.setMonth(d.getMonth()-1); return d.toISOString().slice(0,10); }
+    function _meVal(row,k){ if(!row) return 0; if(k==='__uplift'){ var kw=Number(row.total_kwh)||0; return kw ? (Number(row.billing_total)||0)/kw*100 : 0; } return Number(row[k])||0; }
+    function _meFmt(v,money){ return money ? _skMoney(v) : (Math.abs(v)<10 ? _skNum(v,2) : _skNum(v,0)); }
+    function _meRed(c,v,pv){ if(c.flag && pv>0 && v < pv*0.85) return true; if(c.k==='__uplift' && v>0 && v<0.6) return true; return false; }
+    function renderMonthEndReport(){
+      var host=document.getElementById('meReportBody'); if(!host) return;
+      var statusEl=document.getElementById('meReportStatus');
+      var sel=document.getElementById('meReportMonth'); var key=sel? sel.value : null;
+      if(!key){ host.innerHTML=''; if(statusEl) statusEl.innerHTML=''; return; }
+      var prev=_mePrevKey(key);
+      var reps=_SK.reps.filter(function(r){ return r.active !== false; });
+      var submitted={}; _SK.kpis.forEach(function(k){ if(k.period===key) submitted[k.rep_id]=1; });
+      var missing=reps.filter(function(r){ return !submitted[r.id]; });
+      if(statusEl){
+        statusEl.innerHTML = missing.length
+          ? '<div style="background:#fdf3e7;border-left:3px solid #b5840a;padding:8px 12px;border-radius:6px;font-size:12.5px;"><b>Draft</b> — waiting on: '+missing.map(function(r){return escapeHtml(r.name);}).join(', ')+'. Finalised and emailed once all have submitted.</div>'
+          : '<div style="background:#eef6ee;border-left:3px solid #2f7d4f;padding:8px 12px;border-radius:6px;font-size:12.5px;"><b>Complete</b> — all reps have submitted for '+_skPeriodLabel(key)+'.</div>';
+      }
+      var effByRep={}, prevByRep={};
+      _SK.eff.forEach(function(e){ if(e.period===key) effByRep[e.rep_id]=e; if(e.period===prev) prevByRep[e.rep_id]=e; });
+      var tot={}, ptot={}; _ME_COLS.forEach(function(c){ tot[c.k]=0; ptot[c.k]=0; });
+      var totBill=0, totKwh=0, ptotBill=0, ptotKwh=0;
+      var thead='<tr><th>Rep</th>'+_ME_COLS.map(function(c){return '<th class="num">'+c.label+'</th>';}).join('')+'</tr>';
+      var body=reps.map(function(r){
+        var cur=effByRep[r.id], pr=prevByRep[r.id];
+        totBill+=_meVal(cur,'billing_total'); totKwh+=_meVal(cur,'total_kwh'); ptotBill+=_meVal(pr,'billing_total'); ptotKwh+=_meVal(pr,'total_kwh');
+        var tds=_ME_COLS.map(function(c){
+          var v=_meVal(cur,c.k), pv=_meVal(pr,c.k);
+          if(c.k!=='__uplift'){ tot[c.k]+=v; ptot[c.k]+=pv; }
+          var red=_meRed(c,v,pv);
+          return '<td class="num"'+(red?' style="color:#b5340f;font-weight:800;background:#fdecea;"':'')+'>'+_meFmt(v,c.money)+'</td>';
+        }).join('');
+        return '<tr><td>'+escapeHtml(r.name)+'</td>'+tds+'</tr>';
+      }).join('');
+      var upT=totKwh? totBill/totKwh*100 : 0, upP=ptotKwh? ptotBill/ptotKwh*100 : 0;
+      var totTds=_ME_COLS.map(function(c){
+        var v=c.k==='__uplift'?upT:tot[c.k], pv=c.k==='__uplift'?upP:ptot[c.k];
+        return '<td class="num"'+(_meRed(c,v,pv)?' style="color:#b5340f;font-weight:800;background:#fdecea;"':'')+'>'+_meFmt(v,c.money)+'</td>';
+      }).join('');
+      host.innerHTML='<table class="sk-table"><thead>'+thead+'</thead><tbody>'+body+
+        '<tr style="font-weight:800;background:#f7f5f0;"><td>Total / Average</td>'+totTds+'</tr></tbody></table>';
+    }
+    function downloadMonthEndReport(){
+      var sel=document.getElementById('meReportMonth'); var key=sel? sel.value : null; if(!key) return;
+      var reps=_SK.reps.filter(function(r){ return r.active !== false; });
+      var effByRep={}; _SK.eff.forEach(function(e){ if(e.period===key) effByRep[e.rep_id]=e; });
+      var lines=[['Rep'].concat(_ME_COLS.map(function(c){return c.label;})).join(',')];
+      var totBill=0, totKwh=0, tot={}; _ME_COLS.forEach(function(c){tot[c.k]=0;});
+      reps.forEach(function(r){
+        var cur=effByRep[r.id];
+        totBill+=_meVal(cur,'billing_total'); totKwh+=_meVal(cur,'total_kwh');
+        var cells=['"'+String(r.name).replace(/"/g,'""')+'"'].concat(_ME_COLS.map(function(c){ var v=_meVal(cur,c.k); if(c.k!=='__uplift') tot[c.k]+=v; return c.k==='__uplift'? v.toFixed(2) : (Math.round(v*100)/100); }));
+        lines.push(cells.join(','));
+      });
+      var upT=totKwh? (totBill/totKwh*100).toFixed(2) : '0';
+      lines.push(['Total / Average'].concat(_ME_COLS.map(function(c){ return c.k==='__uplift'? upT : (Math.round(tot[c.k]*100)/100); })).join(','));
+      var blob=new Blob([lines.join('\n')], {type:'text/csv;charset=utf-8;'});
+      var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='CES Sales KPIs '+_skPeriodLabel(key).replace(/\s/g,'-')+'.csv'; document.body.appendChild(a); a.click(); setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 100);
     }
     function renderCommissionEditor(){
       var host = document.getElementById('skCompEditor'); if(!host) return;
@@ -4273,9 +4356,12 @@
       var rawK = _SK.myRepId ? _SK.kpis.filter(function(x){ return x.rep_id === _SK.myRepId && x.period === key; })[0] : null;
       var effK = _SK.myRepId ? _skEffRow(_SK.myRepId, key) : null;
       _skFillEntry('bx_', rawK);              // entry form edits the manually-typed base only
+      var _lr = document.getElementById('bx_lost_reason'); if(_lr) _lr.value = (rawK && rawK.lost_reason) || '';
+      var _coc = document.getElementById('bx_customers_of_concern'); if(_coc) _coc.value = (rawK && rawK.customers_of_concern) || '';
       renderMoneyDashboard(key, effK);        // dashboards/commission read the sales-inclusive figure
       renderSalaryCalc(key, effK);
       bxRenderSaleList();
+      bxRenderNewBiz();
       var _lbl = key ? _skPeriodLabel(key) : 'this month';
       var _h = document.getElementById('bxHeroMonthLbl'); if(_h) _h.textContent = _lbl;
       var _e = document.getElementById('bxEntryMonthLbl'); if(_e) _e.textContent = _lbl;
@@ -4546,8 +4632,6 @@
         panels.push(_skChartPanel('💰 Commission each month', _skColBars(commSeries, { color:'#2f7d4f', money:true })));
         var run = 0; var cumSeries = commSeries.map(function(s){ run += s.val; return { label:s.label, val:run }; });
         panels.push(_skChartPanel('📈 Commission banked this year', _skArea(cumSeries, '#2f7d4f')));
-        var cc2 = _skCommission(k, comp);
-        panels.push(_skChartPanel('🧩 This month’s pay make-up', _skDonut([{ label:'Base', val:cc2.base, color:'#9aa3c7' }, { label:'Retained', val:cc2.retainedComm, color:'#2f3d7e' }, { label:'New business', val:cc2.newbizComm, color:'#2f7d4f' }])));
       }
       panels.push(_skChartPanel('🎯 Billing vs target', _skLineTarget(hist.map(function(h){ return { label:_skPeriodLabel(h.period), val:Number(h.billing_total)||0, target:tgt }; }))));
       panels.push(_skChartPanel('🌱 New business vs retained', _skStackBars(hist.map(function(h){ return { label:_skPeriodLabel(h.period), retained:Math.max(0,(Number(h.billing_total)||0)-(Number(h.new_business_gbp)||0)), newbiz:Number(h.new_business_gbp)||0 }; }))));
@@ -4623,6 +4707,9 @@
       var key = _skMonthKey('bxMonth');
       if(!key){ safeAlert('Pick a month.', null); return; }
       var rec = _skReadEntry('bx_', _SK.myRepId, key);
+      var lrEl = document.getElementById('bx_lost_reason'); rec.lost_reason = (lrEl && lrEl.value.trim()) ? lrEl.value.trim() : null;
+      var cocEl = document.getElementById('bx_customers_of_concern'); rec.customers_of_concern = (cocEl && cocEl.value.trim()) ? cocEl.value.trim() : null;
+      if(((Number(rec.lost_customers)||0) > 0 || (Number(rec.lost_meters)||0) > 0) && !rec.lost_reason){ safeAlert('You entered lost customers/meters — please add a short reason why they were lost.', null); if(lrEl && lrEl.focus) lrEl.focus(); return; }
       var resp = await sb.from('broker_kpis').upsert(rec, { onConflict:'rep_id,period' });
       if(resp.error){ safeAlert('Could not save your figures.', resp.error); return; }
       logAction('save_my_kpi', null, { period:key });
@@ -4813,20 +4900,66 @@
       return Object.keys(months).sort().reverse().map(function(m){ return '<option value="' + m + '">' + _skPeriodLabel(m + '-01') + '</option>'; }).join('');
     }
     function bxFillMonthSelect(id){ var sel = document.getElementById(id); if(!sel) return; var cur = sel.value; sel.innerHTML = bxMonthOptionsHtml(); if(cur) sel.value = cur; }
-    function bxRenderNotes(){
-      var msel = document.getElementById('bxNotesMonth');
-      var mkey = (msel && msel.value) ? msel.value + '-01' : null;
-      var mlbl = document.getElementById('bxNotesMonthLbl'); if(mlbl) mlbl.textContent = mkey ? _skPeriodLabel(mkey) : 'this month';
-      var monthItems = _skMyNotes().filter(function(n){ return n.scope === 'month' && n.period === mkey; });
-      _bxRenderList('bxMonthReminderList', monthItems.filter(function(n){ return n.is_reminder; }), 'No reminders for this month.', false);
-      _bxRenderList('bxMonthNoteList', monthItems.filter(function(n){ return !n.is_reminder; }), 'No notes for this month.', false);
-      bxFillCustSelectors();
-      var csel = document.getElementById('bxCustSel'); var cval = csel ? csel.value : '__all__';
-      if(csel && cval !== '__all__'){ var cn = document.getElementById('custNoteName'); if(cn && !cn.value) cn.value = cval; }
-      var custItems = _skMyNotes().filter(function(n){ return n.scope === 'customer' && (cval === '__all__' || n.customer_name === cval); });
-      var showCust = (cval === '__all__');
-      _bxRenderList('bxCustReminderList', custItems.filter(function(n){ return n.is_reminder; }), 'No customer reminders.', showCust);
-      _bxRenderList('bxCustNoteList', custItems.filter(function(n){ return !n.is_reminder; }), 'No customer notes.', showCust);
+    function bxRenderNotes(){  // now renders the New business reminders list
+      var host = document.getElementById('bxReminderList'); if(!host) return;
+      var mine = _skMyNotes().filter(function(n){ return n.is_reminder; })
+        .sort(function(a,b){ return (a.remind_on||'') < (b.remind_on||'') ? -1 : 1; });
+      if(!mine.length){ host.innerHTML = '<p class="sk-empty" style="margin:4px 0 0;">No reminders yet. Add one above and you’ll get an email on the date.</p>'; return; }
+      var today = new Date().toISOString().slice(0,10);
+      host.innerHTML = mine.map(function(n){
+        var done = !!n.done, overdue = !done && n.remind_on && String(n.remind_on).slice(0,10) < today;
+        var dstr = n.remind_on ? _bxDateLabel(n.remind_on) : 'no date';
+        var dcol = done ? '#7a7e8c' : (overdue ? '#b5340f' : '#2f7d4f');
+        return '<div style="display:flex;align-items:flex-start;gap:12px;border:1.5px solid #d8d2c6;border-radius:10px;padding:12px 14px;margin-bottom:10px;background:#fff;' + (done?'opacity:0.55;':'') + '">' +
+          '<input type="checkbox" ' + (done?'checked':'') + ' onchange="bxReminderDone(\'' + n.id + '\')" title="Mark done" style="width:20px;height:20px;margin-top:2px;flex:0 0 auto;cursor:pointer;">' +
+          '<div style="flex:1;' + (done?'text-decoration:line-through;':'') + '">' +
+            '<div style="font-size:14px;font-weight:800;">' + escapeHtml(n.customer_name||'(no name)') + '</div>' +
+            (n.body ? '<div style="font-size:13px;color:#4a4e5c;margin-top:2px;">' + escapeHtml(n.body) + '</div>' : '') +
+            '<div style="font-size:12px;font-weight:700;margin-top:4px;color:' + dcol + ';">⏰ ' + dstr + (overdue?' · overdue':'') + (done?' · done':'') + '</div>' +
+          '</div>' +
+          '<span style="white-space:nowrap;font-size:13px;flex:0 0 auto;"><a href="javascript:void(0)" onclick="bxReminderEdit(\'' + n.id + '\')">Edit</a> · <a href="javascript:void(0)" style="color:#b5340f;" onclick="bxReminderDel(\'' + n.id + '\')">Delete</a></span>' +
+        '</div>';
+      }).join('');
+    }
+    function bxResetReminder(){
+      ['remName','remDate','remBody'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; });
+      var eid=document.getElementById('remEditId'); if(eid) eid.value='';
+      var c=document.getElementById('remCancel'); if(c) c.style.display='none';
+    }
+    async function bxAddReminder(){
+      if(!_SK.myRepId){ safeAlert('Your sales profile isn’t linked yet.', null); return; }
+      var name=(document.getElementById('remName').value||'').trim();
+      var date=(document.getElementById('remDate').value||'');
+      var body=(document.getElementById('remBody').value||'').trim();
+      if(!name){ safeAlert('Enter the business / customer name.', null); return; }
+      if(!date){ safeAlert('Pick a reminder date.', null); return; }
+      var editId=(document.getElementById('remEditId')||{}).value||'';
+      var rec={ rep_id:_SK.myRepId, scope:'customer', is_reminder:true, customer_name:name, remind_on:date, body:(body||null), emailed_at:null, updated_at:new Date().toISOString() };
+      var resp = editId ? await sb.from('broker_notes').update(rec).eq('id', editId) : await sb.from('broker_notes').insert(rec);
+      if(resp.error){ safeAlert('Could not save this reminder.', resp.error); return; }
+      logAction(editId?'update_reminder':'add_reminder', null, { customer:name, remind_on:date });
+      await salesFetchAll(); bxResetReminder(); bxRenderNotes(); _skFlash('bxNotesMsg', 'Saved.');
+    }
+    function bxReminderEdit(id){
+      var n=(_SK.notes||[]).filter(function(x){ return x.id===id; })[0]; if(!n) return;
+      document.getElementById('remName').value=n.customer_name||'';
+      document.getElementById('remDate').value=(n.remind_on||'').slice(0,10);
+      document.getElementById('remBody').value=n.body||'';
+      document.getElementById('remEditId').value=n.id;
+      var c=document.getElementById('remCancel'); if(c) c.style.display='';
+      var card=document.getElementById('bxPane-notes'); if(card && card.scrollIntoView) card.scrollIntoView({behavior:'smooth',block:'start'});
+    }
+    async function bxReminderDone(id){
+      var n=(_SK.notes||[]).filter(function(x){ return x.id===id; })[0]; if(!n) return;
+      var resp=await sb.from('broker_notes').update({ done: !n.done, updated_at:new Date().toISOString() }).eq('id', id);
+      if(resp.error){ safeAlert('Could not update this reminder.', resp.error); return; }
+      await salesFetchAll(); bxRenderNotes();
+    }
+    async function bxReminderDel(id){
+      if(!window.confirm('Delete this reminder? This cannot be undone.')) return;
+      var resp=await sb.from('broker_notes').delete().eq('id', id);
+      if(resp.error){ safeAlert('Could not delete this reminder.', resp.error); return; }
+      await salesFetchAll(); bxRenderNotes();
     }
     function bxNoteReminderToggle(){ var d = document.getElementById('noteRemindOn'), r = document.getElementById('noteIsReminder'); if(d && r) d.style.display = r.checked ? '' : 'none'; }
     function bxResetNoteForm(){
@@ -5296,6 +5429,65 @@
       } else {
         host.innerHTML = '🎉 You’ve <span style="color:#2f7d4f;">hit your CES annual target</span> of <b>'+_skMoney(cesY)+'</b> — <b>'+_skMoney(-gap)+' over</b>, with <b>'+mL+'</b> still to go.';
       }
+    }
+    // ── Broker: itemised new-business detail (per month) ──
+    function bxToggleNewBizForm(){ var f=document.getElementById('bxNewBizForm'); if(f) f.style.display = f.style.display==='none' ? '' : 'none'; }
+    function bxResetNewBizForm(){
+      ['nbName','nbGbp','nbNote'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; });
+      var c=document.getElementById('nbClients'); if(c) c.value='1';
+      var ty=document.getElementById('nbType'); if(ty) ty.value='new';
+      var nt=document.getElementById('nbNature'); if(nt) nt.value='both';
+      var eid=document.getElementById('nbEditId'); if(eid) eid.value='';
+      var f=document.getElementById('bxNewBizForm'); if(f) f.style.display='none';
+    }
+    function _nbNatureLabel(v){ return v==='shared_savings'?'Shared savings':(v==='procurement'?'Procurement':'Shared savings & procurement'); }
+    async function bxSaveNewBiz(){
+      if(!_SK.myRepId){ safeAlert('Your sales profile isn’t linked yet.', null); return; }
+      var key=_skMonthKey('bxMonth'); if(!key){ safeAlert('Pick a month at the top of the page first.', null); return; }
+      var name=(document.getElementById('nbName').value||'').trim(); if(!name){ safeAlert('Enter the business name.', null); return; }
+      var rec={ rep_id:_SK.myRepId, period:key, business_name:name,
+        is_referral:(document.getElementById('nbType').value==='referral'),
+        nature:document.getElementById('nbNature').value,
+        num_clients:parseInt(document.getElementById('nbClients').value,10)||1,
+        gbp:parseFloat(document.getElementById('nbGbp').value)||0,
+        note:(document.getElementById('nbNote').value||'').trim()||null,
+        updated_at:new Date().toISOString() };
+      var editId=(document.getElementById('nbEditId')||{}).value||'';
+      var resp = editId ? await sb.from('broker_new_business').update(rec).eq('id', editId) : await sb.from('broker_new_business').insert(rec);
+      if(resp.error){ safeAlert('Could not save this new-business win.', resp.error); return; }
+      logAction(editId?'update_newbiz':'add_newbiz', null, { period:key, business:name });
+      await salesFetchAll(); bxResetNewBizForm(); bxRenderNewBiz(); _skFlash('bxNbMsg','Saved.');
+    }
+    function bxEditNewBiz(id){
+      var n=(_SK.newBiz||[]).filter(function(x){ return x.id===id; })[0]; if(!n) return;
+      document.getElementById('nbName').value=n.business_name||'';
+      document.getElementById('nbType').value=n.is_referral?'referral':'new';
+      document.getElementById('nbNature').value=n.nature||'both';
+      document.getElementById('nbClients').value=n.num_clients!=null?n.num_clients:1;
+      document.getElementById('nbGbp').value=n.gbp!=null?n.gbp:'';
+      document.getElementById('nbNote').value=n.note||'';
+      document.getElementById('nbEditId').value=n.id;
+      var f=document.getElementById('bxNewBizForm'); if(f) f.style.display='';
+    }
+    async function bxDeleteNewBiz(id){
+      if(!window.confirm('Delete this new-business win? This cannot be undone.')) return;
+      var resp=await sb.from('broker_new_business').delete().eq('id', id);
+      if(resp.error){ safeAlert('Could not delete this win.', resp.error); return; }
+      logAction('delete_newbiz', null, { id:id }); await salesFetchAll(); bxRenderNewBiz();
+    }
+    function bxRenderNewBiz(){
+      var host=document.getElementById('bxNewBizList'); if(!host) return;
+      var key=_skMonthKey('bxMonth');
+      var lbl=document.getElementById('bxNbMonthLbl'); if(lbl) lbl.textContent = key ? _skPeriodLabel(key) : 'this month';
+      var mine=(_SK.newBiz||[]).filter(function(n){ return n.rep_id===_SK.myRepId && n.period===key; });
+      if(!mine.length){ host.innerHTML='<p class="sk-empty" style="margin:4px 0 0;">No new-business detail for this month yet.</p>'; return; }
+      var tot=mine.reduce(function(a,n){ return a+(Number(n.gbp)||0); },0);
+      var totClients=mine.reduce(function(a,n){ return a+(Number(n.num_clients)||0); },0);
+      var rows=mine.map(function(n){
+        return '<tr><td>'+escapeHtml(n.business_name||'')+'</td><td>'+(n.is_referral?'Referral':'New')+'</td><td>'+_nbNatureLabel(n.nature)+'</td><td class="num">'+(Number(n.num_clients)||0)+'</td><td class="num">'+_skMoney(n.gbp)+'</td><td>'+(n.note?escapeHtml(n.note):'—')+'</td><td style="white-space:nowrap;"><a href="javascript:void(0)" onclick="bxEditNewBiz(\''+n.id+'\')">Edit</a> · <a href="javascript:void(0)" style="color:#b5340f;" onclick="bxDeleteNewBiz(\''+n.id+'\')">Delete</a></td></tr>';
+      }).join('');
+      host.innerHTML='<table class="sk-table"><tr><th>Business</th><th>Type</th><th>Nature</th><th class="num">Clients</th><th class="num">Value</th><th>Note</th><th></th></tr>'+rows+
+        '<tr style="font-weight:800;background:#f7f5f0;"><td>Total</td><td></td><td></td><td class="num">'+totClients+'</td><td class="num">'+_skMoney(tot)+'</td><td></td><td></td></tr></table>';
     }
     function brokerNav(view){
       var sales = document.getElementById('brokerSalesView');
