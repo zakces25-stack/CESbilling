@@ -5213,33 +5213,35 @@
       svg+='<text transform="translate(14,'+(padT+ih/2)+') rotate(-90)" text-anchor="middle" font-size="11" fill="#4a4e5c" font-family="Manrope">'+ylab+'</text>';
       return svg+'</svg>';
     }
-    // Combined dual-axis line chart: calls + emails (left, count) and revenue (right, £).
+    // Combined grouped BAR chart: calls + emails (left, count) and revenue (right, £),
+    // every bar labelled with its value so nothing needs hovering.
     function _skComboChart(rows){
       if(!rows.length) return '<p class="sk-empty">No data yet.</p>';
-      var W=900, H=340, padL=58, padR=76, padT=40, padB=46, iw=W-padL-padR, ih=H-padT-padB, n=rows.length;
-      var cMax=Math.max.apply(null, rows.map(function(r){return Math.max(r.calls,r.emails);}).concat([1]));
-      var rMax=Math.max.apply(null, rows.map(function(r){return r.rev;}).concat([1]));
-      function px(i){ return n===1 ? padL+iw/2 : padL + iw*(i/(n-1)); }
-      function yC(v){ return padT+ih*(1 - v/cMax); }
-      function yR(v){ return padT+ih*(1 - v/rMax); }
+      var W=900, H=350, padL=52, padR=68, padT=46, padB=44, iw=W-padL-padR, ih=H-padT-padB, n=rows.length;
+      var cMax=Math.max.apply(null, rows.map(function(r){return Math.max(r.calls,r.emails);}).concat([1]))*1.16;
+      var rMax=Math.max.apply(null, rows.map(function(r){return r.rev;}).concat([1]))*1.16;
+      var slot=iw/n, gw=Math.min(slot*0.74, 150), bw=gw/3;
+      function shortM(v){ if(v>=1000) return '£'+(v/1000).toFixed(v>=10000?0:1)+'k'; return '£'+Math.round(v); }
       var svg='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;">';
-      var items=[['Calls','#2f3d7e',padL],['Emails','#c9a23a',padL+110],['Revenue (£)','#2f7d4f',padL+232]];
-      items.forEach(function(L){ svg+='<rect x="'+L[2]+'" y="9" width="16" height="4" rx="2" fill="'+L[1]+'"/><text x="'+(L[2]+22)+'" y="14" font-size="12" fill="#4a4e5c" font-family="Manrope">'+L[0]+'</text>'; });
+      var items=[['Calls','#2f3d7e',padL],['Emails','#c9a23a',padL+92],['Revenue (£, right axis)','#2f7d4f',padL+196]];
+      items.forEach(function(L){ svg+='<rect x="'+L[2]+'" y="10" width="14" height="12" rx="2" fill="'+L[1]+'"/><text x="'+(L[2]+20)+'" y="20" font-size="12" fill="#4a4e5c" font-family="Manrope">'+L[0]+'</text>'; });
       for(var g=0; g<=4; g++){ var y=padT+ih*(1-g/4);
         svg+='<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="#e6e1d6"/>';
         svg+='<text x="'+(padL-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="10" fill="#7a7e8c" font-family="JetBrains Mono">'+_skNum(cMax*g/4,0)+'</text>';
-        svg+='<text x="'+(W-padR+8)+'" y="'+(y+4)+'" text-anchor="start" font-size="10" fill="#2f7d4f" font-family="JetBrains Mono">£'+_skNum(rMax*g/4,0)+'</text>';
+        svg+='<text x="'+(W-padR+8)+'" y="'+(y+4)+'" text-anchor="start" font-size="10" fill="#2f7d4f" font-family="JetBrains Mono">'+shortM(rMax*g/4)+'</text>';
       }
-      rows.forEach(function(r,i){ svg+='<text x="'+px(i)+'" y="'+(padT+ih+18)+'" text-anchor="middle" font-size="9.5" fill="#4a4e5c" font-family="Manrope">'+r.label+'</text>'; });
-      function line(vals, yfn, col, isRev){
-        var d=''; vals.forEach(function(v,i){ d+=(i===0?'M':'L')+px(i)+','+yfn(v)+' '; });
-        var s='<path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="2.5"'+(isRev?' stroke-dasharray="7 4"':'')+'/>';
-        vals.forEach(function(v,i){ var tip=isRev?('£'+_skNum(v,0)):(_skNum(v,0)); s+='<circle cx="'+px(i)+'" cy="'+yfn(v)+'" r="4" fill="'+col+'" onmousemove="skTip(event,\''+_skTipArg(rows[i].label)+'\',\''+tip+'\')" onmouseout="skTipHide()"/>'; });
-        return s;
+      function bar(x, v, vmax, col, lblCol, label){
+        var h=(v/vmax)*ih, yb=padT+ih-h;
+        return '<rect x="'+x+'" y="'+yb+'" width="'+(bw-3)+'" height="'+h+'" rx="2" fill="'+col+'"/>' +
+               '<text x="'+(x+(bw-3)/2)+'" y="'+(yb-4)+'" text-anchor="middle" font-size="10" font-weight="700" fill="'+lblCol+'" font-family="Manrope">'+label+'</text>';
       }
-      svg+=line(rows.map(function(r){return r.calls;}), yC, '#2f3d7e', false);
-      svg+=line(rows.map(function(r){return r.emails;}), yC, '#c9a23a', false);
-      svg+=line(rows.map(function(r){return r.rev;}), yR, '#2f7d4f', true);
+      rows.forEach(function(r,i){
+        var x0=padL+slot*(i+0.5)-gw/2;
+        svg+=bar(x0,        r.calls,  cMax, '#2f3d7e', '#2f3d7e', _skNum(r.calls,0));
+        svg+=bar(x0+bw,     r.emails, cMax, '#c9a23a', '#b5840a', _skNum(r.emails,0));
+        svg+=bar(x0+bw*2,   r.rev,    rMax, '#2f7d4f', '#2f7d4f', shortM(r.rev));
+        svg+='<text x="'+(padL+slot*(i+0.5))+'" y="'+(padT+ih+18)+'" text-anchor="middle" font-size="10.5" font-weight="600" fill="#4a4e5c" font-family="Manrope">'+r.label+'</text>';
+      });
       return svg+'</svg>';
     }
     function renderAnalytics(){
@@ -5271,7 +5273,7 @@
           card('Revenue', _skMoney(tRev), _skMoney(perCall)+'/call · '+_skMoney(perEmail)+'/email') +
           card('Commission', _skMoney(tComm), _skMoney(commPerCall)+' per call') +
         '</div></div>' +
-        '<div class="card" style="margin-bottom:16px;"><h4 style="font-size:13px;font-weight:800;margin-bottom:6px;">Calls, emails &amp; revenue per month</h4><p style="font-size:12px;color:var(--muted);margin-bottom:10px;">Calls and emails read off the left axis (a count); revenue reads off the right axis (£, dashed line).</p>'+combo+'</div>' +
+        '<div class="card" style="margin-bottom:16px;"><h4 style="font-size:13px;font-weight:800;margin-bottom:6px;">Calls, emails &amp; revenue per month</h4><p style="font-size:12px;color:var(--muted);margin-bottom:10px;">Calls and emails read off the left axis (a count); revenue reads off the right axis (£). Every bar shows its value, so no hovering needed.</p>'+combo+'</div>' +
         '<div class="card"><h4 style="font-size:13px;font-weight:800;margin-bottom:8px;">What the numbers say</h4><div style="font-size:13px;line-height:1.6;">' +
           '<div style="margin-bottom:6px;">'+corr(rCall,'calls')+'</div>' +
           '<div style="margin-bottom:6px;">'+corr(rEmail,'emails')+'</div>' +
