@@ -99,6 +99,26 @@
     .sbti-stat .v{font-size:20px;font-weight:800;margin-top:4px;letter-spacing:-.3px}
     .sbti-stat .n{font-size:11.5px;color:var(--text-2);margin-top:2px}
     .pill-ok{color:var(--ok)}.pill-bad{color:var(--fail)}
+    /* Carbon Assistant chatbot */
+    .ask-btn{position:fixed;bottom:22px;right:22px;z-index:60;background:var(--leaf);color:#fff;border:0;border-radius:30px;padding:13px 20px;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 8px 24px rgba(29,158,117,.35)}
+    .ask-btn:hover{background:var(--leaf-dark)}
+    .ask-panel{position:fixed;bottom:22px;right:22px;z-index:61;width:390px;max-width:calc(100vw - 32px);height:560px;max-height:calc(100vh - 44px);background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:0 20px 60px rgba(28,31,42,.22);display:none;flex-direction:column;overflow:hidden}
+    .ask-panel.open{display:flex}
+    .ask-head{background:var(--navy);color:#fff;padding:13px 16px;display:flex;align-items:center;gap:10px}
+    .ask-head .dot{width:9px;height:9px;border-radius:50%;background:var(--lime)}
+    .ask-head b{font-size:15px}.ask-head .x{margin-left:auto;background:none;border:0;color:#fff;font-size:22px;line-height:1;cursor:pointer;opacity:.85}
+    .ask-msgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:11px;background:var(--bg)}
+    .msg{max-width:90%;padding:11px 13px;border-radius:12px;font-size:13.5px;line-height:1.55}
+    .msg.bot{background:var(--surface);border:1px solid var(--border);align-self:flex-start;border-bottom-left-radius:4px}
+    .msg.user{background:var(--navy);color:#fff;align-self:flex-end;border-bottom-right-radius:4px}
+    .msg.bot b{color:var(--navy)}
+    .chips{display:flex;flex-wrap:wrap;gap:7px;padding:0 14px 10px;background:var(--bg)}
+    .chip{background:var(--leaf-bg);border:1px solid #bfe6d8;color:var(--leaf-dark);border-radius:16px;padding:6px 11px;font-size:12px;font-weight:600;cursor:pointer}
+    .chip:hover{background:var(--leaf);color:#fff}
+    .ask-input{display:flex;gap:8px;padding:12px;border-top:1px solid var(--border);background:var(--surface)}
+    .ask-input input{flex:1;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:13.5px;font-family:inherit}
+    .ask-input input:focus{outline:none;border-color:var(--leaf)}
+    .ask-input button{background:var(--leaf);color:#fff;border:0;border-radius:10px;padding:0 16px;font-weight:700;cursor:pointer}
   </style>
 </head>
 <body>
@@ -184,6 +204,14 @@
           <div class="card"><h3>Factors applied · <span class="tag" id="facYearTag">—</span></h3><div class="card-sub">kg CO₂e per kWh</div><table class="dt" id="facTable"></table><div class="fac-note" id="facNote"></div></div>
         </section>
       </main>
+    </div>
+    <!-- CARBON ASSISTANT (chatbot) -->
+    <button id="askBtn" class="ask-btn">💬 Carbon Assistant</button>
+    <div id="askPanel" class="ask-panel">
+      <div class="ask-head"><span class="dot"></span><b>Carbon Assistant</b><button class="x" id="askClose">×</button></div>
+      <div class="ask-msgs" id="askMsgs"></div>
+      <div class="chips" id="askChips"></div>
+      <div class="ask-input"><input id="askInput" placeholder="Ask about your scopes, SBTi, load shifting…" /><button id="askSend">Send</button></div>
     </div>
   </div>
 
@@ -361,6 +389,7 @@ async function loadGrid(){
     document.getElementById('giWinTime').textContent=hm(t)+' – '+hm(t2);
     document.getElementById('giWinDesc').textContent='Cleanest half-hour today at '+lo.v+' gCO₂/kWh ('+lo.idx+') — best time to run flexible load.';
     const gm=genR.data.generationmix.filter(x=>x.perc>0).sort((a,b)=>b.perc-a.perc);
+    window.GRID={val,idx,loTime:hm(t)+' – '+hm(t2),loVal:lo.v,loIdx:lo.idx,gm};
     const gcol={gas:'#8b6f47',coal:'#4a4441',nuclear:'#7f77dd',wind:'#1d9e75',solar:'#e0b02b',hydro:'#378add',biomass:'#93c43a',imports:'#9aa0ad',other:'#c9cdd6'};
     makeChart('chGen','doughnut',{labels:gm.map(x=>x.fuel[0].toUpperCase()+x.fuel.slice(1)),datasets:[{data:gm.map(x=>x.perc),backgroundColor:gm.map(x=>gcol[x.fuel]||'#c9cdd6'),borderWidth:2,borderColor:'#fff'}]},
       {cutout:'58%',plugins:{legend:{position:'right',labels:{boxWidth:12,font:{size:11}}},tooltip:{callbacks:{label:c=>`${c.label}: ${c.parsed}%`}}}});
@@ -379,6 +408,79 @@ document.querySelectorAll('.scope-tab button').forEach(b=>b.addEventListener('cl
   document.querySelectorAll('.scope-tab button').forEach(x=>x.classList.remove('active'));b.classList.add('active');activeScope=b.dataset.scope;renderScopes();
 }));
 document.getElementById('yearSel').addEventListener('change',e=>{YEAR=e.target.value;renderOverview();renderScopes();renderFactors();});
+
+/* ════════ CARBON ASSISTANT — client-side analytical bot ════════
+   Answers from the portal's own data (CCCH scopes, SBTi maths, live grid).
+   Production note: this can be upgraded to the same LLM backend as BillWise
+   (Supabase edge function + chat_logs), grounded on these same numbers. */
+const CHIPS=['Which scope is largest?','How do I reduce Scope 1?','What are Scopes 1, 2 & 3?','What if we miss SBTi by 2030?','Future outlook to 2030','Best time to shift load today?'];
+function botTotals(){const t=yearTotals(YEAR);return {t,parts:[['Scope 1',t.s1,'gas combustion'],['Scope 2',t.s2,'purchased electricity'],['Scope 3',t.s3,'value chain']].sort((a,b)=>b[1]-a[1])};}
+function pctG(v,g){return fmt(v/g*100,0);}
+function carbonAnswer(qRaw){
+  const q=qRaw.toLowerCase(); const {t,parts}=botTotals(); const fy=FYLABEL[YEAR];
+  const has=(...w)=>w.some(x=>q.includes(x));
+  // 1. load shifting
+  if(has('load shift','load-shift','shift load','shift','best time','when should','greenest','off-peak')){
+    const g=window.GRID;
+    const live=g?`Right now the grid is <b>${g.val} gCO₂/kWh</b> (${g.idx}). The greenest window today is <b>${g.loTime}</b> (down to ${g.loVal} gCO₂/kWh).`:`Open the Live grid tab first and I'll read today's greenest window for you.`;
+    return `${live}<br><br><b>Load shifting</b> = moving flexible electricity use (EV charging, laundry, dishwashers, battery charging, non-urgent plant) into that low-carbon window.<br><br><b>What it actually helps with:</b><br>• <b>Cost</b> — the biggest win on time-of-use tariffs.<br>• <b>Grid support</b> — uses cleaner power and helps balance renewables.<br>• <b>Reported emissions</b> — only if you account on a half-hourly / market-based basis. Your SBTi &amp; SECR figures use DEFRA's <i>annual average</i> factor, so shifting the timing alone won't change that number.<br><br>For your <b>SBTi target</b>, the levers that move the reported figure are cutting total kWh and switching to a certified green tariff — treat load shifting as a cost &amp; grid-support tool alongside those.`;
+  }
+  // 2. live grid now
+  if(has('grid','intensity','live')&&!has('scope')){
+    const g=window.GRID;
+    if(!g) return `Open the Live grid tab and I'll summarise the live numbers.`;
+    const top=g.gm&&g.gm[0]?`${g.gm[0].fuel} (${g.gm[0].perc}%)`:'—';
+    return `The GB grid is at <b>${g.val} gCO₂/kWh</b> right now (${g.idx}). Largest source in the mix: <b>${top}</b>. Greenest window today: <b>${g.loTime}</b> at ${g.loVal} gCO₂/kWh — a good time to run flexible load.`;
+  }
+  // 3. SBTi miss / consequences
+  if(has('sbti','target','science based','science-based','net zero')&&has('miss','fail','not meet',"don't",'dont','fall short','happens','consequence','penalt',"can't")){
+    return `<b>If you don't hit your SBTi 2030 target:</b><br>• SBTi can mark the target <b>expired / not met</b> and remove it from their public dashboard — you lose the validated status.<br>• <b>Commercial risk</b> — a growing share of tenders and large customers require a validated SBTi target; losing it can cost contracts.<br>• <b>Reputation &amp; investor/ESG pressure</b> — missing a public commitment draws scrutiny.<br>• <b>Regulatory direction</b> — mandatory climate disclosure keeps tightening, so gaps get more visible.<br><br>SBTi itself doesn't fine you — the consequences are commercial, reputational and status-based. The fix is getting back on the −4.2%/yr pathway; ask me "what do I need to cut per year?".`;
+  }
+  // 4. future outlook / projection
+  if(has('future','outlook','forecast','projection','project','2030','if we keep','if i keep','same rate','trajectory','on track','will we','keep reducing')){
+    const y1=YEARS[YEARS.length-2],y2=YEARS[YEARS.length-1];
+    const g1=T(yearTotals(y1).gross),g2=T(yearTotals(y2).gross);
+    const rate=(g2-g1)/g1; const yrsAhead=(SBTI_YEARS.length-1)-SBTI_YEARS.indexOf(y2);
+    const proj=g2*Math.pow(1+rate,yrsAhead);
+    const dir=rate<-0.001?`falling ${fmt(-rate*100,1)}%/yr`:rate>0.001?`rising ${fmt(rate*100,1)}%/yr`:`roughly flat`;
+    const verdict=(rate<0&&proj<=TARGET_2030*1.03)?`that would put you broadly <b>on track</b> for the 2029-30 target of ${fmt(TARGET_2030)} tCO₂e ✅`:`that's <b>short of</b> the 2029-30 target of ${fmt(TARGET_2030)} tCO₂e — you'd need to cut faster`;
+    return `Between ${FYLABEL[y1]} and ${FYLABEL[y2]} your gross went ${fmt(g1)} → ${fmt(g2)} tCO₂e (<b>${dir}</b>).<br><br>If you hold that rate you'd reach about <b>${fmt(proj>0?proj:0)} tCO₂e by 2029-30</b>. ${verdict}.<br><br>The SBTi 1.5 °C pathway needs you at <b>${fmt(TARGET_2030)} tCO₂e by 2029-30</b> (−4.2%/yr from your 2022-23 baseline of ${fmt(BASELINE)} tCO₂e).`;
+  }
+  // 5. SBTi general / how much to cut
+  if(has('sbti','target','science based','science-based','net zero','per year','how much','commit','pathway')){
+    const cur=T(yearTotals(YEAR).gross); const idx=SBTI_YEARS.indexOf(YEAR); const yrsLeft=(SBTI_YEARS.length-1)-idx;
+    const need=yrsLeft>0?(cur-TARGET_2030)/yrsLeft:0; const needPct=cur>0?need/cur*100:0;
+    return `Your SBTi near-term target is a <b>1.5 °C-aligned −4.2%/yr</b> cut from your <b>2022-23 baseline (${fmt(BASELINE)} tCO₂e)</b>, reaching <b>${fmt(TARGET_2030)} tCO₂e by 2029-30</b> (~${fmt((1-TARGET_2030/BASELINE)*100)}% below baseline; over a full 2020→2030 cycle that's the headline ~42%).<br><br>From ${fy} (${fmt(cur)} tCO₂e) you'd need to cut about <b>${fmt(Math.max(need,0))} tCO₂e/yr (~${fmt(Math.max(needPct,0),1)}%/yr)</b> to get there. The "Your SBTi target" card on the Overview breaks this down year by year.`;
+  }
+  // 6. largest / proportions
+  if(has('largest','biggest','which scope','proportion','most','breakdown','split','make up','makes up')){
+    const p=parts[0];
+    return `For ${fy}, your largest source is <b>${p[0]}</b> (${p[2]}) at <b>${fmt(T(p[1]))} tCO₂e — ${pctG(p[1],t.gross)}%</b> of your ${fmt(T(t.gross))} tCO₂e gross.<br><br>Full split: Scope 1 ${pctG(t.s1,t.gross)}% · Scope 2 ${pctG(t.s2,t.gross)}% · Scope 3 ${pctG(t.s3,t.gross)}%.<br><br>Because Scope 1 (gas) dominates, that's where reduction effort pays back fastest — ask "how do I reduce Scope 1?".`;
+  }
+  // 7. reduce
+  if(has('reduce','cut','lower','decrease','how do i','how can we','improve','save')){
+    if(has('scope 1','scope1','gas','heating')) return `<b>Reducing Scope 1 (gas — your biggest source):</b><br>• Optimise heating controls / BMS setpoints across the ${COMPANY.sites} sites.<br>• Improve insulation, draught-proofing and hot-water efficiency (big in care homes).<br>• Service and optimise boilers; cut standing losses.<br>• Plan fuel switching — high-efficiency or heat-pump replacement at boiler end-of-life.<br>• Sub-meter gas by site to find the worst performers.`;
+    if(has('scope 2','scope2','electric')) return `<b>Reducing Scope 2 (purchased electricity):</b><br>• Move to a certified green tariff (REGO) — drives your <i>market-based</i> Scope 2 towards zero.<br>• LED lighting + occupancy controls.<br>• Efficient HVAC and equipment; cut standby loads.<br>• On-site solar PV where roof space allows.<br>• Reduce total kWh — that's what lowers the location-based figure used for SBTi.`;
+    if(has('scope 3','scope3','supply','travel','commut','waste','procure')) return `<b>Reducing Scope 3 (value chain):</b><br>• Green procurement — ask suppliers for lower-carbon products and their own emissions data.<br>• Reduce / avoid business travel; switch car to rail or EV.<br>• Employee commuting — cycle-to-work, EV salary sacrifice, car-share.<br>• Cut waste to landfill; increase recycling.<br>• Note: Scope 3 Cat 3 (well-to-tank + grid losses) falls automatically as you cut Scope 1 &amp; 2.`;
+    return `Start with your biggest source — for ${fy} that's <b>${parts[0][0]}</b> (${pctG(parts[0][1],t.gross)}% of gross).<br><br>Priority order:<br>1. <b>Scope 1 (gas)</b> — heating controls, insulation, boiler efficiency, heat pumps.<br>2. <b>Scope 2 (electricity)</b> — green tariff, LED, solar, efficiency.<br>3. <b>Scope 3</b> — procurement, travel, commuting, waste.<br><br>Ask "how do I reduce Scope 1/2/3?" for detail on each.`;
+  }
+  // 8. scope definitions
+  if(has('scope 1','scope1')) return `<b>Scope 1 — direct emissions</b> from sources you own or control. For ${COMPANY.name} that's almost entirely <b>natural gas combustion</b> (heating &amp; hot water) across your ${COMPANY.sites} sites, plus any owned vehicles. It's your largest scope at ${pctG(t.s1,t.gross)}% of gross.`;
+  if(has('scope 2','scope2')) return `<b>Scope 2 — indirect emissions</b> from the <b>electricity you purchase</b>. Reported two ways: <b>location-based</b> (grid-average factor) and <b>market-based</b> (reflects a green tariff). Currently ${pctG(t.s2,t.gross)}% of your gross.`;
+  if(has('scope 3','scope3')) return `<b>Scope 3 — all other value-chain emissions</b>: purchased goods &amp; services, capital goods, <b>fuel &amp; energy well-to-tank and grid losses</b>, transport, waste, business travel, employee commuting and more (15 categories). Currently ${pctG(t.s3,t.gross)}% of your gross.`;
+  if(has('scope','what are','what is','made up','made of','definition','explain')) return `<b>The three scopes (GHG Protocol):</b><br>• <b>Scope 1</b> — direct: your gas combustion &amp; owned vehicles.<br>• <b>Scope 2</b> — indirect: purchased electricity.<br>• <b>Scope 3</b> — everything else in your value chain: procurement, travel, commuting, waste, fuel well-to-tank &amp; grid losses.<br><br>For ${fy}: Scope 1 ${pctG(t.s1,t.gross)}% · Scope 2 ${pctG(t.s2,t.gross)}% · Scope 3 ${pctG(t.s3,t.gross)}%.`;
+  // 9. help / greeting
+  if(has('hi','hello','hey','help','what can you','who are you')) return `I'm your Carbon Assistant. I can explain your scopes, tell you which is largest, advise how to cut each, project your emissions to 2030, explain your SBTi target (and what happens if you miss it), and read the live grid to advise on load shifting. Try a suggestion below.`;
+  return `I can help with your scopes, reduction advice, SBTi targets &amp; projections, and live-grid load shifting. Try a suggestion below, or ask e.g. "which scope is largest?" or "future outlook to 2030".`;
+}
+const askPanel=document.getElementById('askPanel');
+function botSay(html,cls){const m=document.getElementById('askMsgs');const d=document.createElement('div');d.className='msg '+(cls||'bot');d.innerHTML=html;m.appendChild(d);m.scrollTop=m.scrollHeight;}
+function renderChips(){const c=document.getElementById('askChips');c.innerHTML=CHIPS.map(x=>`<button class="chip">${x}</button>`).join('');c.querySelectorAll('.chip').forEach(b=>b.addEventListener('click',()=>askSubmit(b.textContent)));}
+function askSubmit(text){if(!text||!text.trim())return;botSay(text,'user');const a=carbonAnswer(text);setTimeout(()=>botSay(a,'bot'),160);document.getElementById('askInput').value='';}
+document.getElementById('askBtn').addEventListener('click',()=>{askPanel.classList.add('open');if(!document.getElementById('askMsgs').children.length)botSay("Hi — I'm your Carbon Assistant. Ask me about your scopes, SBTi target, projections to 2030, or the best time to shift electricity load today.");renderChips();document.getElementById('askInput').focus();});
+document.getElementById('askClose').addEventListener('click',()=>askPanel.classList.remove('open'));
+document.getElementById('askSend').addEventListener('click',()=>askSubmit(document.getElementById('askInput').value));
+document.getElementById('askInput').addEventListener('keydown',e=>{if(e.key==='Enter')askSubmit(document.getElementById('askInput').value);});
 
 function boot(){renderOverview();renderScopes();renderFactors();loadGrid();}
 </script>
