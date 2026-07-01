@@ -32,7 +32,25 @@
     #loginBtn:hover{background:var(--navy-dark)}
     .login-err{background:rgba(139,32,21,.08);color:var(--fail);border:1px solid rgba(139,32,21,.2);padding:10px 12px;border-radius:8px;font-size:13px;margin-top:12px;display:none}
     .demo-hint{margin-top:20px;padding:12px 14px;background:#eef0f7;border:1px dashed var(--navy);border-radius:9px;font-size:12.5px;color:var(--navy-dark)}
-    .back{position:absolute;top:20px;left:22px;color:var(--muted);text-decoration:none;font-size:13px;font-weight:600}.back:hover{color:var(--navy)}
+    /* login visual — green eco-tech backdrop */
+    #login{position:relative;overflow:hidden;background:
+      radial-gradient(820px 480px at 82% 6%,rgba(147,196,58,.22),transparent 62%),
+      radial-gradient(760px 640px at 10% 98%,rgba(29,158,117,.32),transparent 60%),
+      linear-gradient(135deg,#0f5c45 0%,#114e44 34%,#123a4a 70%,#0e2340 100%)}
+    .login-bg{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+    .login-bg svg.hex{position:absolute;inset:0;width:100%;height:100%;opacity:.13}
+    .login-bg .glow{position:absolute;border-radius:50%;filter:blur(46px)}
+    .login-bg .motif{position:absolute;color:#eaffe0;opacity:.12}
+    .login-bg .motif svg{width:100%;height:100%;display:block}
+    .login-bg .motif.co2{font-family:'Manrope',sans-serif;font-weight:800;font-size:30px;opacity:.10;letter-spacing:-.5px}
+    .login-card{position:relative;z-index:2;box-shadow:0 26px 64px rgba(3,26,20,.35)}
+    .brand-logo{height:44px;width:auto;display:block}
+    .brand-sub{font-size:11.5px;font-weight:800;color:var(--leaf-dark);text-transform:uppercase;letter-spacing:.6px;margin:12px 0 18px}
+    .page-logo{position:absolute;top:20px;right:24px;z-index:3;background:#fff;border-radius:11px;padding:8px 13px;box-shadow:0 8px 22px rgba(0,0,0,.22)}
+    .page-logo img{height:30px;width:auto;display:block}
+    .back-btn{position:absolute;top:22px;left:24px;z-index:3;display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:10px;padding:9px 15px;font-size:13px;font-weight:700;text-decoration:none;cursor:pointer;backdrop-filter:blur(4px)}
+    .back-btn:hover{background:rgba(255,255,255,.26)}
+    @media(max-width:560px){.page-logo{display:none}}
     #app{display:none;min-height:100vh}
     .topbar{background:var(--navy-dark);color:#fff;padding:0 22px;height:60px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:40}
     .brand-mark.sm{width:32px;height:32px}
@@ -77,9 +95,21 @@
 <body>
   <!-- LOGIN -->
   <div id="login">
-    <a href="/" class="back">← Back to billing portal</a>
+    <div class="login-bg" aria-hidden="true">
+      <svg class="hex" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="hexp" width="72" height="62" patternUnits="userSpaceOnUse"><polygon points="56,31 46,48.3 26,48.3 16,31 26,13.7 46,13.7" fill="none" stroke="#eaffe0" stroke-width="1.2"/></pattern></defs><rect width="100%" height="100%" fill="url(#hexp)"/></svg>
+      <span class="glow" style="width:320px;height:320px;top:-70px;right:-40px;background:rgba(147,196,58,.35)"></span>
+      <span class="glow" style="width:380px;height:380px;bottom:-90px;left:-70px;background:rgba(29,158,117,.42)"></span>
+      <div class="motif" style="top:13%;left:9%;width:64px;height:64px"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 20C6 11 11 5 20 4c0 9-5 15-14 16z"/></svg></div>
+      <div class="motif" style="top:31%;right:8%;width:70px;height:70px"><svg viewBox="0 0 60 60" fill="none" stroke="currentColor" stroke-width="2"><polygon points="30,4 52,17 52,43 30,56 8,43 8,17"/></svg></div>
+      <div class="motif" style="top:15%;right:24%;width:38px;height:58px"><svg viewBox="0 0 24 36" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v27M4 21l8 9 8-9"/></svg></div>
+      <div class="motif" style="bottom:19%;left:15%;width:46px;height:46px"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 20C6 11 11 5 20 4c0 9-5 15-14 16z"/></svg></div>
+      <div class="motif co2" style="bottom:16%;right:13%">CO₂ ↓</div>
+    </div>
+    <a href="/" class="back-btn">← Back to billing</a>
+    <div class="page-logo"><img src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES" onerror="this.parentNode.style.display='none'"></div>
     <div class="login-card">
-      <div class="brand"><div class="brand-mark">CES</div><div class="brand-txt"><b>CES Carbon</b><span>Admin console</span></div></div>
+      <div class="brand"><img class="brand-logo" src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="Commercial Energy Solutions" onerror="this.style.display='none'"></div>
+      <div class="brand-sub">Admin · Carbon Portal</div>
       <h1 style="font-size:22px;margin-bottom:6px">Admin sign in</h1><p style="color:var(--muted);font-size:13.5px;margin-bottom:22px">Manage customer carbon data.</p>
       <form id="loginForm" autocomplete="off" novalidate>
         <div class="fld"><label>Email</label><input type="text" id="email" name="cb_admin_user" autocomplete="off" autocorrect="off" autocapitalize="none" placeholder="admin@cesgb.com" /></div>
