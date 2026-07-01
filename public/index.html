@@ -1367,10 +1367,24 @@
             <button class="admin-tab" id="bxTabBtn-monthly" onclick="bxTab('monthly')">Monthly performance</button>
             <button class="admin-tab" id="bxTabBtn-salary" onclick="bxTab('salary')">Salary calculator</button>
             <button class="admin-tab" id="bxTabBtn-notes" onclick="bxTab('notes')">Notes</button>
+            <button class="admin-tab" id="bxTabBtn-projects" onclick="bxTab('projects')">My projects</button>
           </div>
 
           <!-- ===================== OVERVIEW ===================== -->
           <div class="bx-pane active" id="bxPane-overview">
+            <!-- Targets & goals — first thing a broker sees -->
+            <div class="card" id="bxGoalsCard" style="margin-bottom:16px;border:2px solid var(--lime);background:#f6faef;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+                <h3 style="font-size:16px;font-weight:800;color:var(--navy);">🎯 Targets &amp; goals</h3>
+                <button class="btn-secondary" style="padding:6px 12px;" onclick="bxToggleTargetForm()">Set my target</button>
+              </div>
+              <div id="bxGoalsBody"></div>
+              <div id="bxTargetForm" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #e6e1d6;">
+                <div class="form-group" style="max-width:340px;"><label style="font-size:12.5px;font-weight:700;">My own monthly billing target (£)</label><input type="number" step="any" min="0" id="selfTargetInput" placeholder="e.g. 22000" style="width:100%;"></div>
+                <button class="btn-primary" style="width:auto;padding:8px 16px;margin-top:8px;" onclick="bxSaveSelfTarget()">Save my target</button>
+                <span class="success-box" id="bxTargetMsg" style="display:none;margin-left:8px;">Saved.</span>
+              </div>
+            </div>
             <!-- Month-scoped personal block (changes with the Viewing month picker) -->
             <div class="card" style="margin-bottom:16px;border:2px solid var(--navy);">
               <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
@@ -1516,6 +1530,30 @@
                 <div id="bxCustNoteList"></div>
               </div>
             </div>
+          </div>
+
+          <!-- ===================== MY PROJECTS ===================== -->
+          <div class="bx-pane" id="bxPane-projects">
+            <div class="card" id="bxProjNewCard" style="margin-bottom:16px;">
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">My projects</h3>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Track a campaign end-to-end — month-by-month revenue, commission and notes. Private to you.</p>
+              <div class="success-box" id="bxProjMsg" style="display:none;">Saved.</div>
+              <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--navy);font-weight:800;">Project
+                  <select id="bxProjSel" onchange="bxRenderProject()" style="width:auto;font-weight:800;padding:7px 12px;border:2px solid var(--navy);border-radius:8px;color:var(--navy);background:#fff;cursor:pointer;"></select>
+                </label>
+                <button class="btn-secondary" style="padding:8px 14px;" onclick="bxToggleProjForm()">+ New project</button>
+              </div>
+              <div id="bxProjForm" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #e6e1d6;">
+                <div class="sk-entry-grid sk-entry-vert">
+                  <div class="form-group"><label>Project name</label><input type="text" id="projName" placeholder="e.g. School campaign"></div>
+                  <div class="form-group"><label>Description (optional)</label><input type="text" id="projDesc" placeholder="What is this project?"></div>
+                </div>
+                <button class="btn-primary" style="width:auto;padding:9px 16px;margin-top:8px;" onclick="bxSaveProject()">Create project</button>
+                <button class="btn-secondary" style="width:auto;padding:9px 16px;margin-top:8px;margin-left:8px;" onclick="bxToggleProjForm()">Cancel</button>
+              </div>
+            </div>
+            <div id="bxProjDetail"></div>
           </div>
         </div>
 
@@ -2332,7 +2370,7 @@
         userId:     user.id,
         customerId: profile.customer_id || '__admin__',
         name:       profile.is_admin ? 'CES Admin'
-                  : profile.role === 'broker' ? (user.email || 'Broker')
+                  : profile.role === 'broker' ? 'Broker'
                   : (profile.customers?.company_name || 'Customer'),
         isAdmin:    !!profile.is_admin,
         isBroker:   profile.role === 'broker',
@@ -2359,7 +2397,7 @@
     }
     async function loadBroker() {
       var nameEl = document.getElementById('brokerName');
-      if (nameEl) nameEl.textContent = currentUser.email || '';
+      if (nameEl) nameEl.textContent = currentUser.name || '';
       brokerSalesInit();      // load Sales Performance (leaderboard + my dashboard/calculator)
       brokerNav('sales');     // default broker landing = Sales Performance
       var grid = document.getElementById('brokerCustomerGrid');
@@ -3907,7 +3945,7 @@
     // Team leaderboard (visible to all reps) + each rep's own entry, dashboard
     // and PRIVATE salary calculator. Data: sales_reps / broker_kpis (team-read)
     // / broker_comp (private: own + admin only, enforced by RLS).
-    var _SK = { reps: [], kpis: [], sales: [], salesTeam: [], eff: [], notes: [], compByRep: {}, myRepId: null };
+    var _SK = { reps: [], kpis: [], sales: [], salesTeam: [], eff: [], notes: [], targets: {}, projects: [], projEntries: [], compByRep: {}, myRepId: null };
     var _SK_FIELDS = [
       ['billing_total', 'Billing total (£, annual equivalent)'],
       ['long_term_total', 'Long term total (£)'],
@@ -3962,6 +4000,9 @@
       _SK.salesTeam = slt.data || [];
       var bn = await sb.from('broker_notes').select('*');  // own (rep) / all (admin); private itemised notes + reminders
       _SK.notes = bn.data || [];
+      var tg = await sb.from('broker_targets').select('*'); _SK.targets = {}; (tg.data||[]).forEach(function(t){ _SK.targets[t.rep_id] = t; });
+      var pj = await sb.from('broker_projects').select('*'); _SK.projects = pj.data || [];   // own / admin; private
+      var pe = await sb.from('broker_project_entries').select('*'); _SK.projEntries = pe.data || [];
       var cp = await sb.from('broker_comp').select('*'); // RLS: admin=all, rep=own only
       _SK.compByRep = {};
       (cp.data || []).forEach(function(c){ _SK.compByRep[c.rep_id] = c; });
@@ -4144,6 +4185,7 @@
     // ── Broker: my dashboard, entry, private calculator, leaderboard ──
     async function brokerSalesInit(){
       await salesFetchAll();
+      (function(){ var me = _SK.reps.filter(function(r){ return r.id === _SK.myRepId; })[0]; if(me && me.name){ currentUser.name = me.name; var _bn=document.getElementById('brokerName'); if(_bn) _bn.textContent=me.name; var _an=document.getElementById('avatarMenuName'); if(_an) _an.textContent=me.name; var _as=document.getElementById('avatarMenuSub'); if(_as) _as.textContent='Signed in as broker'; } })();
       var ef = document.getElementById('bxEntryFields'); if(ef) ef.innerHTML = _skEntryFieldsHtml('bx_', true);
       bxFillMonthSelect('bxMonth');
       var mIn = document.getElementById('bxMonth'); if(mIn && !mIn.value) mIn.value = _skDefaultMonth();
@@ -4158,11 +4200,14 @@
       var notesCard = document.getElementById('bxNotesCard'); if(notesCard) notesCard.style.display = _SK.myRepId ? '' : 'none';
       var custCard = document.getElementById('bxCustNotesCard'); if(custCard) custCard.style.display = _SK.myRepId ? '' : 'none';
       var addWrap = document.getElementById('bxAddSaleWrap'); if(addWrap) addWrap.style.display = _SK.myRepId ? '' : 'none';
+      var projCard = document.getElementById('bxProjNewCard'); if(projCard) projCard.style.display = _SK.myRepId ? '' : 'none';
+      var goalsCard = document.getElementById('bxGoalsCard'); if(goalsCard) goalsCard.style.display = _SK.myRepId ? '' : 'none';
       var sMon = document.getElementById('saleMonth'); if(sMon && !sMon.value) sMon.value = _skDefaultMonth();
       bxSaleType();
       bxTab('overview');
       brokerRenderTeam();
       brokerRenderMine();
+      bxRenderProject();
     }
     function brokerRenderTeam(){
       var pk = (document.getElementById('bxTeamPeriod')||{}).value || '__all__';
@@ -4181,6 +4226,7 @@
       var _h = document.getElementById('bxHeroMonthLbl'); if(_h) _h.textContent = _lbl;
       var _e = document.getElementById('bxEntryMonthLbl'); if(_e) _e.textContent = _lbl;
       bxRenderNotes();
+      renderBrokerGoals();
     }
     function _skCard(label, val, sub){
       return '<div class="stat-card"><div class="stat-label">' + label + '</div><div class="stat-value">' + val + '</div>' +
@@ -4370,16 +4416,17 @@
       return svg + '</svg>';
     }
     function _skGauge(pct){
-      var p = Math.max(0, Math.min(1, pct/100)), W = 340, H = 180, cx = 170, cy = 150, r = 112;
-      function pt(f){ var a = Math.PI*(1-f); return [cx+r*Math.cos(a), cy+r*Math.sin(a)]; }
+      pct = Number(pct) || 0;
+      var p = Math.max(0, Math.min(1, pct/100)), W = 340, H = 190, cx = 170, cy = 168, r = 120;
+      function pt(f){ var a = Math.PI*(1-f); return [cx + r*Math.cos(a), cy - r*Math.sin(a)]; } // minus → arc bulges UP
       var bg = 'M'+pt(0)[0]+','+pt(0)[1]+' A'+r+','+r+' 0 0 1 '+pt(1)[0]+','+pt(1)[1];
       var val = 'M'+pt(0)[0]+','+pt(0)[1]+' A'+r+','+r+' 0 0 1 '+pt(p)[0]+','+pt(p)[1];
       var col = pct>=100 ? '#2f7d4f' : (pct>=70 ? '#2f3d7e' : '#b5840a');
       var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;max-width:360px;">';
       svg += '<path d="'+bg+'" fill="none" stroke="#e6e1d6" stroke-width="18" stroke-linecap="round"/>';
       if(p>0) svg += '<path d="'+val+'" fill="none" stroke="'+col+'" stroke-width="18" stroke-linecap="round"/>';
-      svg += '<text x="'+cx+'" y="'+(cy-6)+'" text-anchor="middle" font-size="34" font-weight="800" font-family="Manrope" fill="#1c1f2a">'+Math.round(pct)+'%</text>';
-      svg += '<text x="'+cx+'" y="'+(cy+16)+'" text-anchor="middle" font-size="12" fill="#7a7e8c" font-family="Manrope">of target</text>';
+      svg += '<text x="'+cx+'" y="'+(cy-24)+'" text-anchor="middle" font-size="38" font-weight="800" font-family="Manrope" fill="#1c1f2a">'+Math.round(pct)+'%</text>';
+      svg += '<text x="'+cx+'" y="'+(cy-2)+'" text-anchor="middle" font-size="12" fill="#7a7e8c" font-family="Manrope">of target</text>';
       return svg + '</svg>';
     }
     function _skTeamAvgByMonth(){
@@ -4422,7 +4469,7 @@
         heroHost.innerHTML =
           _skCard('Commission this month', _skMoney(cc.commission), '+ base ' + _skMoney(cc.base) + ' = ' + _skMoney(cc.total)) +
           _skCard('Earned this year', _skMoney(commYTD), 'commission so far') +
-          _skCard('On track for', _skMoney(proj), 'annualised at this pace') +
+          _skCard('On pace for (full year)', _skMoney(proj), 'your monthly average × 12 — moves as the year fills in') +
           _skCard('Your rank', rank, 'team billing · ' + _skPeriodLabel(key));
       } else {
         var ytdBill = hist.reduce(function(a,h){ return a + (Number(h.billing_total)||0); }, 0);
@@ -4808,7 +4855,7 @@
     }
     // ── Broker: sub-tabs (Overview / Monthly performance / Salary calculator / Notes) ──
     function bxTab(name){
-      ['overview','monthly','salary','notes'].forEach(function(n){
+      ['overview','monthly','salary','notes','projects'].forEach(function(n){
         var pane = document.getElementById('bxPane-' + n); if(pane) pane.classList.toggle('active', n === name);
         var btn = document.getElementById('bxTabBtn-' + n); if(btn) btn.classList.toggle('active', n === name);
       });
@@ -4822,6 +4869,156 @@
       if(card.scrollIntoView) card.scrollIntoView({ behavior:'smooth', block:'start' });
     }
     function bxHideSaleForm(){ var card = document.getElementById('bxSaleCard'); if(card) card.style.display = 'none'; }
+    // ── Broker: targets & goals ──
+    function renderBrokerGoals(){
+      var host = document.getElementById('bxGoalsBody'); if(!host) return;
+      var rep = _SK.reps.filter(function(r){ return r.id === _SK.myRepId; })[0];
+      if(!rep){ host.innerHTML = '<p class="sk-empty">Your targets appear once your profile is linked.</p>'; return; }
+      var hist = _SK.eff.filter(function(k){ return k.rep_id === _SK.myRepId; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
+      var last = hist.length ? hist[hist.length-1] : null;
+      var lastBill = last ? (Number(last.billing_total)||0) : 0;
+      var lastLbl = last ? _skPeriodLabel(last.period) : '—';
+      var ytd = hist.reduce(function(a,k){ return a + (Number(k.billing_total)||0); }, 0);
+      var cesM = Number(rep.monthly_target)||0, cesY = cesM*12;
+      var self = Number((_SK.targets[_SK.myRepId]||{}).self_monthly)||0, selfY = self*12;
+      function gap(bill, tgt, label){
+        if(tgt<=0) return 'no ' + label + ' set';
+        var g = tgt - bill, pct = Math.round(bill/tgt*100);
+        return g>0 ? ('<b style="color:#b5340f;">£'+_skNum(g,0)+' under</b> your '+label+' of £'+_skNum(tgt,0)+' ('+pct+'%)')
+                   : ('<b style="color:#2f7d4f;">£'+_skNum(-g,0)+' over</b> your '+label+' of £'+_skNum(tgt,0)+' ('+pct+'%)');
+      }
+      var head = '<div style="font-size:15px;line-height:1.55;margin-bottom:12px;">Last month (<b>'+lastLbl+'</b>) you billed <b>'+_skMoney(lastBill)+'</b> — '+gap(lastBill, cesM, 'CES monthly target')+(self>0?('; and '+gap(lastBill, self, 'own monthly target')):'')+'.</div>';
+      function card(lbl, val, sub, colr){ return '<div class="stat-card"><div class="stat-label">'+lbl+'</div><div class="stat-value"'+(colr?' style="color:'+colr+'"':'')+'>'+val+'</div><div class="stat-foot" style="font-size:11px;color:var(--muted);margin-top:4px;">'+sub+'</div></div>'; }
+      var cells = '';
+      cells += card('CES monthly target', cesM>0?_skMoney(cesM):'—', 'set by CES');
+      cells += card('Your monthly target', self>0?_skMoney(self):'not set', self>0?'you set this':'tap “Set my target”');
+      cells += card('Year so far', _skMoney(ytd), 'billed over '+hist.length+' month'+(hist.length===1?'':'s'));
+      cells += card('CES yearly target', cesY>0?_skMoney(cesY):'—', cesY>0?(Math.round(ytd/cesY*100)+'% reached · £'+_skNum(Math.max(0,cesY-ytd),0)+' to go'):'monthly × 12');
+      if(self>0) cells += card('Your yearly target', _skMoney(selfY), Math.round(ytd/selfY*100)+'% reached · £'+_skNum(Math.max(0,selfY-ytd),0)+' to go');
+      host.innerHTML = head + '<div class="stats-row">'+cells+'</div>';
+    }
+    function bxToggleTargetForm(){
+      var f = document.getElementById('bxTargetForm'); if(!f) return;
+      var show = f.style.display === 'none'; f.style.display = show ? '' : 'none';
+      if(show){ var inp = document.getElementById('selfTargetInput'); var cur = Number((_SK.targets[_SK.myRepId]||{}).self_monthly)||0; if(inp) inp.value = cur>0 ? cur : ''; }
+    }
+    async function bxSaveSelfTarget(){
+      if(!_SK.myRepId){ safeAlert('Your sales profile isn’t linked yet.', null); return; }
+      var v = parseFloat((document.getElementById('selfTargetInput')||{}).value)||0;
+      var resp = await sb.from('broker_targets').upsert({ rep_id:_SK.myRepId, self_monthly:v, updated_at:new Date().toISOString() }, { onConflict:'rep_id' });
+      if(resp.error){ safeAlert('Could not save your target.', resp.error); return; }
+      logAction('save_self_target', null, { self_monthly:v });
+      await salesFetchAll(); renderBrokerGoals(); _skFlash('bxTargetMsg', 'Saved.');
+    }
+    // ── Broker: my projects (campaign tracking) ──
+    function _skMyProjects(){ return (_SK.projects||[]).filter(function(p){ return p.rep_id === _SK.myRepId; }).sort(function(a,b){ return (a.created_at < b.created_at) ? 1 : -1; }); }
+    function bxFillProjSelect(){
+      var sel = document.getElementById('bxProjSel'); if(!sel) return; var cur = sel.value;
+      var ps = _skMyProjects();
+      sel.innerHTML = ps.length ? ps.map(function(p){ return '<option value="'+p.id+'">'+escapeHtml(p.name)+'</option>'; }).join('') : '<option value="">No projects yet</option>';
+      if(cur) sel.value = cur;
+    }
+    function bxToggleProjForm(){ var f = document.getElementById('bxProjForm'); if(f) f.style.display = f.style.display === 'none' ? '' : 'none'; }
+    async function bxSaveProject(){
+      if(!_SK.myRepId){ safeAlert('Your sales profile isn’t linked yet.', null); return; }
+      var name = (document.getElementById('projName').value||'').trim();
+      if(!name){ safeAlert('Enter a project name.', null); return; }
+      var desc = (document.getElementById('projDesc').value||'').trim() || null;
+      var resp = await sb.from('broker_projects').insert({ rep_id:_SK.myRepId, name:name, description:desc }).select();
+      if(resp.error){ safeAlert('Could not create this project.', resp.error); return; }
+      logAction('add_project', null, { name:name });
+      await salesFetchAll();
+      var newId = (resp.data && resp.data[0]) ? resp.data[0].id : '';
+      bxFillProjSelect(); var sel = document.getElementById('bxProjSel'); if(sel && newId) sel.value = newId;
+      document.getElementById('projName').value = ''; document.getElementById('projDesc').value = '';
+      bxToggleProjForm(); bxRenderProject(); _skFlash('bxProjMsg', 'Project created.');
+    }
+    async function bxDeleteProject(id){
+      var p = (_SK.projects||[]).filter(function(x){ return x.id === id; })[0];
+      if(!window.confirm('Delete the project'+(p?' “'+p.name+'”':'')+' and all its entries? This cannot be undone.')) return;
+      var resp = await sb.from('broker_projects').delete().eq('id', id);
+      if(resp.error){ safeAlert('Could not delete this project.', resp.error); return; }
+      logAction('delete_project', null, { id:id });
+      await salesFetchAll(); var sel = document.getElementById('bxProjSel'); if(sel) sel.value = ''; bxRenderProject(); _skFlash('bxProjMsg', 'Project deleted.');
+    }
+    function bxRenderProject(){
+      bxFillProjSelect();
+      var host = document.getElementById('bxProjDetail'); if(!host) return;
+      var sel = document.getElementById('bxProjSel'); var pid = sel ? sel.value : '';
+      var proj = (_SK.projects||[]).filter(function(p){ return p.id === pid; })[0];
+      if(!proj){ host.innerHTML = '<div class="card"><p class="sk-empty">No project selected. Create one above to start tracking.</p></div>'; return; }
+      var entries = (_SK.projEntries||[]).filter(function(e){ return e.project_id === pid; });
+      var byDate = entries.slice().sort(function(a,b){ return a.period < b.period ? -1 : 1; });
+      var totRev = entries.reduce(function(a,e){ return a + (Number(e.revenue_gbp)||0); }, 0);
+      var totComm = entries.reduce(function(a,e){ return a + (Number(e.commission_gbp)||0); }, 0);
+      var rows = byDate.length ? byDate.slice().reverse().map(function(e){
+        return '<tr><td>'+_skPeriodLabel(e.period)+'</td><td class="num">'+_skMoney(e.revenue_gbp)+'</td><td class="num">'+_skMoney(e.commission_gbp)+'</td><td>'+(e.note?escapeHtml(e.note):'—')+'</td><td style="white-space:nowrap;"><a href="javascript:void(0)" onclick="bxEditProjEntry(\''+e.id+'\')">Edit</a> · <a href="javascript:void(0)" style="color:#b5340f;" onclick="bxDeleteProjEntry(\''+e.id+'\')">Delete</a></td></tr>';
+      }).join('') : '<tr><td colspan="5"><span class="sk-empty">No monthly entries yet.</span></td></tr>';
+      var chart = byDate.length ? _skColBars(byDate.map(function(e){ return { label:_skPeriodLabel(e.period), val:Number(e.revenue_gbp)||0 }; }), { color:'#2f7d4f', money:true }) : '<p class="sk-empty">Add entries to see the revenue trend.</p>';
+      host.innerHTML =
+        '<div class="card" style="margin-bottom:16px;">' +
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:6px;">' +
+            '<div><h3 style="font-size:15px;font-weight:800;">'+escapeHtml(proj.name)+'</h3>'+(proj.description?'<p style="font-size:12.5px;color:var(--muted);margin-top:2px;">'+escapeHtml(proj.description)+'</p>':'')+'</div>' +
+            '<button class="btn-secondary" style="padding:6px 12px;color:#b5340f;border-color:#e3b3a6;" onclick="bxDeleteProject(\''+proj.id+'\')">Delete project</button>' +
+          '</div>' +
+          '<div class="stats-row" style="margin:10px 0 2px;">' +
+            '<div class="stat-card"><div class="stat-label">Total revenue</div><div class="stat-value">'+_skMoney(totRev)+'</div></div>' +
+            '<div class="stat-card"><div class="stat-label">Total commission</div><div class="stat-value" style="color:var(--navy)">'+_skMoney(totComm)+'</div></div>' +
+            '<div class="stat-card"><div class="stat-label">Months tracked</div><div class="stat-value">'+byDate.length+'</div></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="card" style="margin-bottom:16px;">' +
+          '<h4 style="font-size:13px;font-weight:800;margin-bottom:8px;">Add monthly progress</h4>' +
+          '<div class="success-box" id="bxProjEntryMsg" style="display:none;">Saved.</div>' +
+          '<div class="sk-entry-grid sk-entry-vert">' +
+            '<div class="form-group"><label>Month</label><input type="month" id="projEntMonth"></div>' +
+            '<div class="form-group"><label>Revenue this month (£)</label><input type="number" step="any" min="0" id="projEntRev"></div>' +
+            '<div class="form-group"><label>Commission this month (£)</label><input type="number" step="any" min="0" id="projEntComm"></div>' +
+            '<div class="form-group"><label>Note (optional)</label><input type="text" id="projEntNote" placeholder="Progress this month"></div>' +
+          '</div>' +
+          '<input type="hidden" id="projEntEditId" value="">' +
+          '<button class="btn-primary" style="width:auto;padding:9px 16px;margin-top:8px;" onclick="bxSaveProjEntry()">Add entry</button>' +
+          '<button class="btn-secondary" id="projEntCancel" style="width:auto;padding:9px 16px;margin-top:8px;margin-left:8px;display:none;" onclick="bxResetProjEntry()">Cancel edit</button>' +
+        '</div>' +
+        '<div class="card" style="margin-bottom:16px;"><h4 style="font-size:13px;font-weight:800;margin-bottom:8px;">Revenue month-by-month</h4>'+chart+'</div>' +
+        '<div class="card"><h4 style="font-size:13px;font-weight:800;margin-bottom:8px;">Monthly log</h4><div style="overflow-x:auto;"><table class="sk-table"><tr><th>Month</th><th class="num">Revenue</th><th class="num">Commission</th><th>Note</th><th></th></tr>'+rows+'</table></div></div>';
+      var pm = document.getElementById('projEntMonth'); if(pm && !pm.value) pm.value = _skDefaultMonth();
+    }
+    async function bxSaveProjEntry(){
+      if(!_SK.myRepId){ safeAlert('Your sales profile isn’t linked yet.', null); return; }
+      var sel = document.getElementById('bxProjSel'); var pid = sel ? sel.value : ''; if(!pid){ safeAlert('Create or pick a project first.', null); return; }
+      var mon = (document.getElementById('projEntMonth').value||''); if(!mon){ safeAlert('Pick a month.', null); return; }
+      var rev = parseFloat((document.getElementById('projEntRev')||{}).value)||0;
+      var comm = parseFloat((document.getElementById('projEntComm')||{}).value)||0;
+      var note = (document.getElementById('projEntNote').value||'').trim() || null;
+      var editId = (document.getElementById('projEntEditId')||{}).value || '';
+      var rec = { project_id:pid, rep_id:_SK.myRepId, period:mon+'-01', revenue_gbp:rev, commission_gbp:comm, note:note, updated_at:new Date().toISOString() };
+      var resp = editId ? await sb.from('broker_project_entries').update(rec).eq('id', editId) : await sb.from('broker_project_entries').insert(rec);
+      if(resp.error){ safeAlert('Could not save this entry.', resp.error); return; }
+      logAction(editId ? 'update_proj_entry' : 'add_proj_entry', null, { project_id:pid, period:rec.period });
+      await salesFetchAll(); bxRenderProject(); _skFlash('bxProjMsg', 'Saved.');
+    }
+    function bxEditProjEntry(id){
+      var e = (_SK.projEntries||[]).filter(function(x){ return x.id === id; })[0]; if(!e) return;
+      var m = document.getElementById('projEntMonth'); if(m) m.value = (e.period||'').slice(0,7);
+      var r = document.getElementById('projEntRev'); if(r) r.value = e.revenue_gbp != null ? e.revenue_gbp : '';
+      var c = document.getElementById('projEntComm'); if(c) c.value = e.commission_gbp != null ? e.commission_gbp : '';
+      var nt = document.getElementById('projEntNote'); if(nt) nt.value = e.note || '';
+      var eid = document.getElementById('projEntEditId'); if(eid) eid.value = e.id;
+      var cb = document.getElementById('projEntCancel'); if(cb) cb.style.display = '';
+    }
+    function bxResetProjEntry(){
+      ['projEntRev','projEntComm','projEntNote'].forEach(function(id){ var el = document.getElementById(id); if(el) el.value = ''; });
+      var eid = document.getElementById('projEntEditId'); if(eid) eid.value = '';
+      var cb = document.getElementById('projEntCancel'); if(cb) cb.style.display = 'none';
+    }
+    async function bxDeleteProjEntry(id){
+      if(!window.confirm('Delete this monthly entry? This cannot be undone.')) return;
+      var resp = await sb.from('broker_project_entries').delete().eq('id', id);
+      if(resp.error){ safeAlert('Could not delete this entry.', resp.error); return; }
+      logAction('delete_proj_entry', null, { id:id });
+      await salesFetchAll(); bxRenderProject();
+    }
     function brokerNav(view){
       var sales = document.getElementById('brokerSalesView');
       var cust = document.getElementById('brokerCustomersView');
