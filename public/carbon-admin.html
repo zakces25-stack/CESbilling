@@ -81,9 +81,9 @@
     <div class="login-card">
       <div class="brand"><div class="brand-mark">CES</div><div class="brand-txt"><b>CES Carbon</b><span>Admin console</span></div></div>
       <h1 style="font-size:22px;margin-bottom:6px">Admin sign in</h1><p style="color:var(--muted);font-size:13.5px;margin-bottom:22px">Manage customer carbon data.</p>
-      <form id="loginForm" autocomplete="off">
-        <div class="fld"><label>Email</label><input type="email" id="email" placeholder="admin@cesgb.com" /></div>
-        <div class="fld"><label>Password</label><input type="password" id="pass" placeholder="••••••••" /></div>
+      <form id="loginForm" autocomplete="off" novalidate>
+        <div class="fld"><label>Email</label><input type="text" id="email" name="cb_admin_user" autocomplete="off" autocorrect="off" autocapitalize="none" placeholder="admin@cesgb.com" /></div>
+        <div class="fld"><label>Password</label><input type="password" id="pass" name="cb_admin_pass" autocomplete="new-password" placeholder="••••••••" /></div>
         <button type="submit" id="loginBtn">Sign in</button>
         <div class="login-err" id="loginErr">Incorrect email or password.</div>
       </form>

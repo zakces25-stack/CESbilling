@@ -128,9 +128,9 @@
     <div class="login-card">
       <div class="brand"><div class="brand-mark">C</div><div class="brand-txt"><b>CES Carbon</b><span>Net Zero &amp; SBTi Portal</span></div></div>
       <h1>Sign in</h1><p class="sub">Your Scope 1, 2 &amp; 3 carbon report.</p>
-      <form id="loginForm" autocomplete="off">
-        <div class="fld"><label>Email</label><input type="email" id="email" placeholder="you@company.com" /></div>
-        <div class="fld"><label>Password</label><input type="password" id="pass" placeholder="••••••••" /></div>
+      <form id="loginForm" autocomplete="off" novalidate>
+        <div class="fld"><label>Email</label><input type="text" id="email" name="cb_user" autocomplete="off" autocorrect="off" autocapitalize="none" placeholder="you@company.com" /></div>
+        <div class="fld"><label>Password</label><input type="password" id="pass" name="cb_pass" autocomplete="new-password" placeholder="••••••••" /></div>
         <button type="submit" id="loginBtn">Sign in</button>
         <div class="login-err" id="loginErr">Incorrect email or password.</div>
       </form>
