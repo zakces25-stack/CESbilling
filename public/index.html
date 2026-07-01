@@ -1334,6 +1334,7 @@
         <div class="sidebar-nav">
           <div class="nav-item active" id="bkNavSales" onclick="brokerNav('sales')">Sales Performance</div>
           <div class="nav-item" id="bkNavCust" onclick="brokerNav('customers')">My Customers</div>
+          <div class="nav-item" id="bkNavProjects" onclick="brokerNav('projects')">My Projects</div>
         </div>
         <div class="sidebar-foot">
           <button class="signout-btn" onclick="doSignOut()">Sign out</button>
@@ -1367,7 +1368,7 @@
             <button class="admin-tab" id="bxTabBtn-monthly" onclick="bxTab('monthly')">Monthly performance</button>
             <button class="admin-tab" id="bxTabBtn-salary" onclick="bxTab('salary')">Salary calculator</button>
             <button class="admin-tab" id="bxTabBtn-notes" onclick="bxTab('notes')">Notes</button>
-            <button class="admin-tab" id="bxTabBtn-projects" onclick="bxTab('projects')">My projects</button>
+            <button class="admin-tab" id="bxTabBtn-team" onclick="bxTab('team')">Team leaderboard</button>
           </div>
 
           <!-- ===================== OVERVIEW ===================== -->
@@ -1400,18 +1401,15 @@
               <div class="sk-chart-grid" id="bxCharts"></div>
             </div>
 
-            <!-- Team block: whole team, NOT tied to the month picker -->
+            <!-- Team snapshot — follows the Viewing month -->
             <div class="card" style="margin-bottom:16px;background:#f7f5f0;">
               <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px;">
-                <h3 style="font-size:14px;font-weight:800;">Team leaderboard <span style="font-weight:600;color:var(--muted);font-size:12px;">· whole team · tap a rep for detail</span></h3>
-                <div style="display:flex;gap:8px;align-items:center;">
-                  <select id="bxTeamPeriod" style="width:auto;" onchange="brokerRenderTeam()"></select>
-                  <button class="btn-secondary" style="padding:7px 12px;" onclick="skExpandLeaderboard()">⤢ Expand</button>
-                </div>
+                <h3 style="font-size:14px;font-weight:800;">Team leaderboard — <span id="bxOvTeamLbl" style="color:var(--navy);"></span> <span style="font-weight:600;color:var(--muted);font-size:12px;">· tap a rep for detail</span></h3>
+                <button class="btn-secondary" style="padding:7px 12px;" onclick="bxTab('team')">Full team leaderboard →</button>
               </div>
-              <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">This is the whole team and is <b>not</b> tied to the month picker at the top — use the dropdown here to change the team period (defaults to the full year).</p>
-              <div id="bxTeamChart" style="margin-bottom:16px;"></div>
-              <div id="bxBoard" style="overflow-x:auto;"></div>
+              <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Follows the <b>Viewing month</b> at the top of the page. For the full year or other periods, open the <b>Team leaderboard</b> tab.</p>
+              <div id="bxOvTeamChart" style="margin-bottom:16px;"></div>
+              <div id="bxOvBoard" style="overflow-x:auto;"></div>
             </div>
 
             <div class="card">
@@ -1532,29 +1530,43 @@
             </div>
           </div>
 
-          <!-- ===================== MY PROJECTS ===================== -->
-          <div class="bx-pane" id="bxPane-projects">
-            <div class="card" id="bxProjNewCard" style="margin-bottom:16px;">
-              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">My projects</h3>
-              <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Track a campaign end-to-end — month-by-month revenue, commission and notes. Private to you.</p>
-              <div class="success-box" id="bxProjMsg" style="display:none;">Saved.</div>
-              <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
-                <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--navy);font-weight:800;">Project
-                  <select id="bxProjSel" onchange="bxRenderProject()" style="width:auto;font-weight:800;padding:7px 12px;border:2px solid var(--navy);border-radius:8px;color:var(--navy);background:#fff;cursor:pointer;"></select>
+          <!-- ===================== TEAM LEADERBOARD ===================== -->
+          <div class="bx-pane" id="bxPane-team">
+            <div class="card" style="margin-bottom:16px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
+                <h3 style="font-size:15px;font-weight:800;">Team leaderboard <span style="font-weight:600;color:var(--muted);font-size:12px;">· tap a rep for their monthly detail</span></h3>
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--navy);font-weight:800;">Period
+                  <select id="bxTeamPeriod" onchange="brokerRenderTeam()" style="width:auto;font-weight:800;padding:7px 12px;border:2px solid var(--navy);border-radius:8px;color:var(--navy);background:#fff;cursor:pointer;"></select>
                 </label>
-                <button class="btn-secondary" style="padding:8px 14px;" onclick="bxToggleProjForm()">+ New project</button>
               </div>
-              <div id="bxProjForm" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #e6e1d6;">
-                <div class="sk-entry-grid sk-entry-vert">
-                  <div class="form-group"><label>Project name</label><input type="text" id="projName" placeholder="e.g. School campaign"></div>
-                  <div class="form-group"><label>Description (optional)</label><input type="text" id="projDesc" placeholder="What is this project?"></div>
-                </div>
-                <button class="btn-primary" style="width:auto;padding:9px 16px;margin-top:8px;" onclick="bxSaveProject()">Create project</button>
-                <button class="btn-secondary" style="width:auto;padding:9px 16px;margin-top:8px;margin-left:8px;" onclick="bxToggleProjForm()">Cancel</button>
-              </div>
+              <p style="font-size:12px;color:var(--muted);margin-bottom:14px;">Full team billing for the chosen period. Defaults to the full year; pick a month to compare a single month.</p>
+              <div id="bxTeamChart" style="margin-bottom:18px;"></div>
+              <div id="bxBoard" style="overflow-x:auto;"></div>
             </div>
-            <div id="bxProjDetail"></div>
           </div>
+        </div>
+
+        <!-- View: My Projects (campaign tracking) -->
+        <div id="brokerProjectsView" style="display:none;">
+          <div class="section-head"><h2>My projects</h2></div>
+          <div id="bxProjLinkWarn"></div>
+          <div class="card" id="bxProjNewCard" style="margin-bottom:16px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+              <p style="font-size:12.5px;color:var(--muted);margin:0;">Track a campaign end-to-end — month-by-month revenue, commission and notes. Private to you.</p>
+              <button class="btn-primary" style="width:auto;padding:9px 16px;" onclick="bxToggleProjForm()">+ New project</button>
+            </div>
+            <div class="success-box" id="bxProjMsg" style="display:none;margin-top:10px;">Saved.</div>
+            <div id="bxProjForm" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #e6e1d6;">
+              <div class="sk-entry-grid sk-entry-vert">
+                <div class="form-group"><label>Project name</label><input type="text" id="projName" placeholder="e.g. School campaign"></div>
+                <div class="form-group"><label>Description (optional)</label><input type="text" id="projDesc" placeholder="What is this project?"></div>
+              </div>
+              <button class="btn-primary" style="width:auto;padding:9px 16px;margin-top:8px;" onclick="bxSaveProject()">Create project</button>
+              <button class="btn-secondary" style="width:auto;padding:9px 16px;margin-top:8px;margin-left:8px;" onclick="bxToggleProjForm()">Cancel</button>
+            </div>
+          </div>
+          <div class="report-grid" id="bxProjGrid"></div>
+          <div id="bxProjDetail" style="margin-top:16px;"></div>
         </div>
 
         <!-- View: the broker's customers -->
@@ -4200,14 +4212,12 @@
       var notesCard = document.getElementById('bxNotesCard'); if(notesCard) notesCard.style.display = _SK.myRepId ? '' : 'none';
       var custCard = document.getElementById('bxCustNotesCard'); if(custCard) custCard.style.display = _SK.myRepId ? '' : 'none';
       var addWrap = document.getElementById('bxAddSaleWrap'); if(addWrap) addWrap.style.display = _SK.myRepId ? '' : 'none';
-      var projCard = document.getElementById('bxProjNewCard'); if(projCard) projCard.style.display = _SK.myRepId ? '' : 'none';
       var goalsCard = document.getElementById('bxGoalsCard'); if(goalsCard) goalsCard.style.display = _SK.myRepId ? '' : 'none';
       var sMon = document.getElementById('saleMonth'); if(sMon && !sMon.value) sMon.value = _skDefaultMonth();
       bxSaleType();
       bxTab('overview');
       brokerRenderTeam();
       brokerRenderMine();
-      bxRenderProject();
     }
     function brokerRenderTeam(){
       var pk = (document.getElementById('bxTeamPeriod')||{}).value || '__all__';
@@ -4227,6 +4237,10 @@
       var _e = document.getElementById('bxEntryMonthLbl'); if(_e) _e.textContent = _lbl;
       bxRenderNotes();
       renderBrokerGoals();
+      var _teamPk = key || '__all__';
+      var _tl = document.getElementById('bxOvTeamLbl'); if(_tl) _tl.textContent = key ? _skPeriodLabel(key) : 'full year';
+      renderTeamChart('bxOvTeamChart', _teamPk);
+      renderSalesLeaderboard('bxOvBoard', _teamPk);
     }
     function _skCard(label, val, sub){
       return '<div class="stat-card"><div class="stat-label">' + label + '</div><div class="stat-value">' + val + '</div>' +
@@ -4719,12 +4733,12 @@
     function _bxDateLabel(d){ try { return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }); } catch(e){ return d; } }
     function _bxNoteItemHtml(n, showCust){
       var done = !!n.done;
-      var rem = (n.is_reminder && n.remind_on) ? '<span style="font-size:11px;color:#b5840a;font-weight:800;margin-left:6px;white-space:nowrap;">⏰ ' + _bxDateLabel(n.remind_on) + '</span>' : '';
+      var rem = (n.is_reminder && n.remind_on) ? '<span style="font-size:12px;color:#b5840a;font-weight:800;margin-left:8px;white-space:nowrap;">⏰ ' + _bxDateLabel(n.remind_on) + '</span>' : '';
       var cust = (showCust && n.customer_name) ? '<b>' + escapeHtml(n.customer_name) + ':</b> ' : '';
-      return '<div style="display:flex;align-items:flex-start;gap:8px;border:1px solid #e6e1d6;border-radius:8px;padding:8px 10px;margin-bottom:6px;' + (done ? 'opacity:0.55;' : '') + '">' +
-        '<input type="checkbox" ' + (done ? 'checked' : '') + ' onchange="bxToggleNoteDone(\'' + n.id + '\')" style="width:auto;margin-top:3px;flex:0 0 auto;">' +
-        '<div style="flex:1;font-size:13px;' + (done ? 'text-decoration:line-through;' : '') + '">' + cust + escapeHtml(n.body||'') + rem + '</div>' +
-        '<span style="white-space:nowrap;font-size:12px;flex:0 0 auto;"><a href="javascript:void(0)" onclick="bxEditNote(\'' + n.id + '\')">Edit</a> · <a href="javascript:void(0)" style="color:#b5340f;" onclick="bxDeleteNote(\'' + n.id + '\')">Delete</a></span>' +
+      return '<div style="display:flex;align-items:flex-start;gap:12px;border:1.5px solid #d8d2c6;border-radius:10px;padding:14px 16px;margin-bottom:10px;background:#fff;' + (done ? 'opacity:0.55;' : '') + '">' +
+        '<input type="checkbox" ' + (done ? 'checked' : '') + ' onchange="bxToggleNoteDone(\'' + n.id + '\')" title="Tick when done" style="width:20px;height:20px;margin-top:1px;flex:0 0 auto;cursor:pointer;">' +
+        '<div style="flex:1;font-size:15px;line-height:1.45;' + (done ? 'text-decoration:line-through;' : '') + '">' + cust + escapeHtml(n.body||'') + rem + '</div>' +
+        '<span style="white-space:nowrap;font-size:13px;flex:0 0 auto;"><a href="javascript:void(0)" onclick="bxEditNote(\'' + n.id + '\')">Edit</a> · <a href="javascript:void(0)" style="color:#b5340f;" onclick="bxDeleteNote(\'' + n.id + '\')">Delete</a></span>' +
       '</div>';
     }
     function _bxRenderList(hostId, items, emptyMsg, showCust){
@@ -4855,7 +4869,7 @@
     }
     // ── Broker: sub-tabs (Overview / Monthly performance / Salary calculator / Notes) ──
     function bxTab(name){
-      ['overview','monthly','salary','notes','projects'].forEach(function(n){
+      ['overview','monthly','salary','notes','team'].forEach(function(n){
         var pane = document.getElementById('bxPane-' + n); if(pane) pane.classList.toggle('active', n === name);
         var btn = document.getElementById('bxTabBtn-' + n); if(btn) btn.classList.toggle('active', n === name);
       });
@@ -4910,13 +4924,44 @@
       logAction('save_self_target', null, { self_monthly:v });
       await salesFetchAll(); renderBrokerGoals(); _skFlash('bxTargetMsg', 'Saved.');
     }
-    // ── Broker: my projects (campaign tracking) ──
+    // ── Broker: my projects (campaign tracking) — card grid + drill-in ──
+    var _bxProjId = null;
     function _skMyProjects(){ return (_SK.projects||[]).filter(function(p){ return p.rep_id === _SK.myRepId; }).sort(function(a,b){ return (a.created_at < b.created_at) ? 1 : -1; }); }
-    function bxFillProjSelect(){
-      var sel = document.getElementById('bxProjSel'); if(!sel) return; var cur = sel.value;
+    function _bxProjTotals(pid){
+      var es = (_SK.projEntries||[]).filter(function(e){ return e.project_id === pid; });
+      return { rev: es.reduce(function(a,e){ return a+(Number(e.revenue_gbp)||0); }, 0), comm: es.reduce(function(a,e){ return a+(Number(e.commission_gbp)||0); }, 0), months: es.length };
+    }
+    function bxRenderProjects(){
+      var grid = document.getElementById('bxProjGrid'); if(!grid) return;
       var ps = _skMyProjects();
-      sel.innerHTML = ps.length ? ps.map(function(p){ return '<option value="'+p.id+'">'+escapeHtml(p.name)+'</option>'; }).join('') : '<option value="">No projects yet</option>';
-      if(cur) sel.value = cur;
+      if(!ps.length){ grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><p>No projects yet. Tap “+ New project” to start tracking a campaign.</p></div>'; return; }
+      grid.innerHTML = ps.map(function(p){
+        var t = _bxProjTotals(p.id);
+        return '<div class="report-card" style="cursor:pointer;" onclick="bxOpenProject(\''+p.id+'\')">' +
+          '<div style="font-size:15px;font-weight:800;color:var(--navy);margin-bottom:4px;">'+escapeHtml(p.name)+'</div>' +
+          (p.description ? '<div style="font-size:12.5px;color:var(--muted);margin-bottom:10px;">'+escapeHtml(p.description)+'</div>' : '<div style="margin-bottom:10px;"></div>') +
+          '<div style="display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;">' +
+            '<div><div style="color:var(--muted);">Revenue</div><b>'+_skMoney(t.rev)+'</b></div>' +
+            '<div><div style="color:var(--muted);">Commission</div><b style="color:var(--navy);">'+_skMoney(t.comm)+'</b></div>' +
+            '<div><div style="color:var(--muted);">Months</div><b>'+t.months+'</b></div>' +
+          '</div>' +
+          '<div style="margin-top:10px;font-size:12px;font-weight:800;color:var(--lime);">Open project →</div>' +
+        '</div>';
+      }).join('');
+    }
+    function bxOpenProject(id){
+      _bxProjId = id;
+      var g = document.getElementById('bxProjGrid'); if(g) g.style.display = 'none';
+      var nc = document.getElementById('bxProjNewCard'); if(nc) nc.style.display = 'none';
+      bxRenderProject();
+      var d = document.getElementById('bxProjDetail'); if(d && d.scrollIntoView) d.scrollIntoView({ behavior:'smooth', block:'start' });
+    }
+    function bxBackToProjects(){
+      _bxProjId = null;
+      var d = document.getElementById('bxProjDetail'); if(d) d.innerHTML = '';
+      var g = document.getElementById('bxProjGrid'); if(g) g.style.display = '';
+      var nc = document.getElementById('bxProjNewCard'); if(nc && _SK.myRepId) nc.style.display = '';
+      bxRenderProjects();
     }
     function bxToggleProjForm(){ var f = document.getElementById('bxProjForm'); if(f) f.style.display = f.style.display === 'none' ? '' : 'none'; }
     async function bxSaveProject(){
@@ -4928,10 +4973,11 @@
       if(resp.error){ safeAlert('Could not create this project.', resp.error); return; }
       logAction('add_project', null, { name:name });
       await salesFetchAll();
-      var newId = (resp.data && resp.data[0]) ? resp.data[0].id : '';
-      bxFillProjSelect(); var sel = document.getElementById('bxProjSel'); if(sel && newId) sel.value = newId;
+      var newId = (resp.data && resp.data[0]) ? resp.data[0].id : null;
       document.getElementById('projName').value = ''; document.getElementById('projDesc').value = '';
-      bxToggleProjForm(); bxRenderProject(); _skFlash('bxProjMsg', 'Project created.');
+      bxToggleProjForm();
+      if(newId) bxOpenProject(newId); else bxRenderProjects();
+      _skFlash('bxProjMsg', 'Project created.');
     }
     async function bxDeleteProject(id){
       var p = (_SK.projects||[]).filter(function(x){ return x.id === id; })[0];
@@ -4939,14 +4985,13 @@
       var resp = await sb.from('broker_projects').delete().eq('id', id);
       if(resp.error){ safeAlert('Could not delete this project.', resp.error); return; }
       logAction('delete_project', null, { id:id });
-      await salesFetchAll(); var sel = document.getElementById('bxProjSel'); if(sel) sel.value = ''; bxRenderProject(); _skFlash('bxProjMsg', 'Project deleted.');
+      await salesFetchAll(); bxBackToProjects(); _skFlash('bxProjMsg', 'Project deleted.');
     }
     function bxRenderProject(){
-      bxFillProjSelect();
       var host = document.getElementById('bxProjDetail'); if(!host) return;
-      var sel = document.getElementById('bxProjSel'); var pid = sel ? sel.value : '';
+      var pid = _bxProjId;
       var proj = (_SK.projects||[]).filter(function(p){ return p.id === pid; })[0];
-      if(!proj){ host.innerHTML = '<div class="card"><p class="sk-empty">No project selected. Create one above to start tracking.</p></div>'; return; }
+      if(!proj){ host.innerHTML = ''; return; }
       var entries = (_SK.projEntries||[]).filter(function(e){ return e.project_id === pid; });
       var byDate = entries.slice().sort(function(a,b){ return a.period < b.period ? -1 : 1; });
       var totRev = entries.reduce(function(a,e){ return a + (Number(e.revenue_gbp)||0); }, 0);
@@ -4956,6 +5001,7 @@
       }).join('') : '<tr><td colspan="5"><span class="sk-empty">No monthly entries yet.</span></td></tr>';
       var chart = byDate.length ? _skColBars(byDate.map(function(e){ return { label:_skPeriodLabel(e.period), val:Number(e.revenue_gbp)||0 }; }), { color:'#2f7d4f', money:true }) : '<p class="sk-empty">Add entries to see the revenue trend.</p>';
       host.innerHTML =
+        '<div style="margin-bottom:12px;"><a href="javascript:void(0)" onclick="bxBackToProjects()" style="font-weight:800;">← All projects</a></div>' +
         '<div class="card" style="margin-bottom:16px;">' +
           '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:6px;">' +
             '<div><h3 style="font-size:15px;font-weight:800;">'+escapeHtml(proj.name)+'</h3>'+(proj.description?'<p style="font-size:12.5px;color:var(--muted);margin-top:2px;">'+escapeHtml(proj.description)+'</p>':'')+'</div>' +
@@ -4986,7 +5032,7 @@
     }
     async function bxSaveProjEntry(){
       if(!_SK.myRepId){ safeAlert('Your sales profile isn’t linked yet.', null); return; }
-      var sel = document.getElementById('bxProjSel'); var pid = sel ? sel.value : ''; if(!pid){ safeAlert('Create or pick a project first.', null); return; }
+      var pid = _bxProjId; if(!pid){ safeAlert('Open a project first.', null); return; }
       var mon = (document.getElementById('projEntMonth').value||''); if(!mon){ safeAlert('Pick a month.', null); return; }
       var rev = parseFloat((document.getElementById('projEntRev')||{}).value)||0;
       var comm = parseFloat((document.getElementById('projEntComm')||{}).value)||0;
@@ -5022,17 +5068,24 @@
     function brokerNav(view){
       var sales = document.getElementById('brokerSalesView');
       var cust = document.getElementById('brokerCustomersView');
+      var proj = document.getElementById('brokerProjectsView');
       var mv = document.getElementById('brokerMetersView');
-      var nS = document.getElementById('bkNavSales'), nC = document.getElementById('bkNavCust');
+      var nS = document.getElementById('bkNavSales'), nC = document.getElementById('bkNavCust'), nP = document.getElementById('bkNavProjects');
+      function _clr(){ [nS,nC,nP].forEach(function(n){ if(n) n.classList.remove('active'); }); }
       if(view === 'customers'){
-        if(sales) sales.style.display = 'none';
+        if(sales) sales.style.display = 'none'; if(proj) proj.style.display = 'none';
         backToBrokerCustomers();
-        if(nS) nS.classList.remove('active'); if(nC) nC.classList.add('active');
+        _clr(); if(nC) nC.classList.add('active');
+      } else if(view === 'projects'){
+        if(sales) sales.style.display = 'none'; if(cust) cust.style.display = 'none'; if(mv) mv.style.display = 'none';
+        if(proj) proj.style.display = '';
+        _clr(); if(nP) nP.classList.add('active');
+        var warn = document.getElementById('bxProjLinkWarn'); if(warn) warn.innerHTML = _SK.myRepId ? '' : '<div class="card" style="border-left:3px solid #b5840a;margin-bottom:14px;">Your sales profile isn’t linked yet, so projects are unavailable. Contact CES.</div>';
+        var nc = document.getElementById('bxProjNewCard'); if(nc) nc.style.display = _SK.myRepId ? '' : 'none';
+        bxBackToProjects();
       } else {
-        if(sales) sales.style.display = '';
-        if(cust) cust.style.display = 'none';
-        if(mv) mv.style.display = 'none';
-        if(nS) nS.classList.add('active'); if(nC) nC.classList.remove('active');
+        if(sales) sales.style.display = ''; if(cust) cust.style.display = 'none'; if(mv) mv.style.display = 'none'; if(proj) proj.style.display = 'none';
+        _clr(); if(nS) nS.classList.add('active');
       }
     }
 
