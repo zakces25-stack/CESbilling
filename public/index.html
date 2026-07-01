@@ -1398,11 +1398,39 @@
 
           <div class="card" id="bxEntryCard" style="margin-bottom:16px;">
             <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Update my figures</h3>
-            <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Enter this month's numbers and save. Saved figures update the team leaderboard for everyone, and your notes appear in your rep detail.</p>
+            <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Enter this month's numbers and save. Saved figures update the team leaderboard for everyone. Log won contracts under "Log a sale" below, and add month notes in the Notes box.</p>
             <div class="success-box" id="bxMsg" style="display:none;">Saved.</div>
             <div class="sk-entry-grid sk-entry-vert" id="bxEntryFields"></div>
             <button class="btn-primary" style="width:auto;padding:10px 18px;margin-top:12px;" onclick="bxSaveMine()">Save my figures</button>
             <button class="btn-secondary" style="width:auto;padding:10px 18px;margin-top:12px;margin-left:8px;color:#b5340f;border-color:#e3b3a6;" onclick="bxDeleteMine()">Delete this month</button>
+          </div>
+
+          <div class="card" id="bxSaleCard" style="margin-bottom:16px;">
+            <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Log a sale</h3>
+            <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Add a contract you've won. We work out the revenue and your commission from the AQ, contract length and uplift, then add it to the month you pick.</p>
+            <div class="success-box" id="bxSaleMsg" style="display:none;">Saved.</div>
+            <div class="sk-entry-grid sk-entry-vert">
+              <div class="form-group"><label>Customer name</label><input type="text" id="saleCust" placeholder="e.g. XXX Restaurant Ltd"></div>
+              <div class="form-group"><label>Month of sale</label><input type="month" id="saleMonth"></div>
+              <div class="form-group"><label>Business type</label><select id="saleType" onchange="bxSaleType()"><option value="new">New business</option><option value="retained">Retained CES client</option></select></div>
+              <div class="form-group"><label>Annual quantity — AQ (kWh per year)</label><input type="number" step="any" min="0" id="saleAQ" oninput="bxSaleCalc()" placeholder="e.g. 120000"></div>
+              <div class="form-group"><label>Contract length</label><div style="display:flex;gap:8px;"><input type="number" step="any" min="0" id="saleTerm" value="2" style="flex:1;" oninput="bxSaleCalc()"><select id="saleTermUnit" onchange="bxSaleCalc()" style="width:auto;"><option value="years">years</option><option value="months">months</option></select></div></div>
+              <div class="form-group"><label>Commission value — uplift (p/kWh)</label><input type="number" step="any" min="0" id="saleUplift" oninput="bxSaleCalc()" placeholder="e.g. 1.5"></div>
+              <div class="form-group"><label>Your commission rate (%)</label><input type="number" step="any" min="0" id="salePct" oninput="bxSaleCalc()" placeholder="auto from your rate"></div>
+            </div>
+            <div id="bxSalePreview" style="margin-top:6px;"></div>
+            <input type="hidden" id="saleEditId" value="">
+            <button class="btn-primary" style="width:auto;padding:10px 18px;margin-top:12px;" onclick="bxSaveSale()">Save sale</button>
+            <button class="btn-secondary" id="bxSaleCancel" style="width:auto;padding:10px 18px;margin-top:12px;margin-left:8px;display:none;" onclick="bxResetSaleForm()">Cancel edit</button>
+            <div id="bxSaleList" style="margin-top:16px;overflow-x:auto;"></div>
+          </div>
+
+          <div class="card" id="bxNotesCard" style="margin-bottom:16px;">
+            <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Notes for <span id="bxNotesMonthLbl">this month</span></h3>
+            <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px;">A note against the month selected at the top of the page. It shows in your rep detail. Change the month up top to edit a different month.</p>
+            <div class="success-box" id="bxNotesMsg" style="display:none;">Saved.</div>
+            <textarea id="bxNotesText" rows="3" style="width:100%;padding:10px 12px;border:1px solid var(--border,#d9d9e3);border-radius:8px;font:inherit;resize:vertical;box-sizing:border-box;"></textarea>
+            <button class="btn-primary" style="width:auto;padding:8px 16px;margin-top:10px;" onclick="bxSaveNotes()">Save note</button>
           </div>
 
           <div class="card">
@@ -3802,7 +3830,7 @@
     // Team leaderboard (visible to all reps) + each rep's own entry, dashboard
     // and PRIVATE salary calculator. Data: sales_reps / broker_kpis (team-read)
     // / broker_comp (private: own + admin only, enforced by RLS).
-    var _SK = { reps: [], kpis: [], compByRep: {}, myRepId: null };
+    var _SK = { reps: [], kpis: [], sales: [], salesTeam: [], eff: [], compByRep: {}, myRepId: null };
     var _SK_FIELDS = [
       ['billing_total', 'Billing total (£, annual equivalent)'],
       ['long_term_total', 'Long term total (£)'],
@@ -3831,18 +3859,30 @@
     function _skFlash(id, msg){ var e = document.getElementById(id); if(!e) return; e.textContent = msg; e.style.display = 'block'; setTimeout(function(){ e.style.display = 'none'; }, 2500); }
     function _skCommission(k, comp){
       if(!comp) return null;
-      var nb = Number(k.new_business_gbp)||0;
-      var ret = Math.max(0, (Number(k.billing_total)||0) - nb);
-      var rC = ret * (Number(comp.retained_rate)||0) / 100;
-      var nC = nb * (Number(comp.new_business_rate)||0) / 100;
+      k = k || {};
+      // Comp-rate commission applies to MANUALLY-entered billing only; individually-logged
+      // sales carry their own commission (each at its own %), added on top.
+      var manNB = Number(k._manualNB != null ? k._manualNB : k.new_business_gbp)||0;
+      var manBill = Number(k._manualBilling != null ? k._manualBilling : k.billing_total)||0;
+      var manRet = Math.max(0, manBill - manNB);
+      var rC = manRet * (Number(comp.retained_rate)||0) / 100;
+      var nC = manNB * (Number(comp.new_business_rate)||0) / 100;
+      var salesRet = Number(k._salesCommRet)||0, salesNB = Number(k._salesCommNB)||0;
+      var retainedComm = rC + salesRet, newbizComm = nC + salesNB;
+      var nbTotal = Number(k.new_business_gbp)||0;
+      var retTotal = Math.max(0, (Number(k.billing_total)||0) - nbTotal);
       var base = Number(comp.base_salary)||0;
-      return { retained:ret, newbiz:nb, retainedComm:rC, newbizComm:nC, commission:rC+nC, base:base, total:rC+nC+base };
+      return { retained:retTotal, newbiz:nbTotal, retainedComm:retainedComm, newbizComm:newbizComm, commission:retainedComm+newbizComm, base:base, total:retainedComm+newbizComm+base };
     }
     async function salesFetchAll(){
       var reps = await sb.from('sales_reps').select('*').order('sort_order');
       _SK.reps = reps.data || [];
       var kp = await sb.from('broker_kpis').select('*');
       _SK.kpis = kp.data || [];
+      var sl = await sb.from('broker_sales').select('*');          // full rows: own (rep) or all (admin)
+      _SK.sales = sl.data || [];
+      var slt = await sb.rpc('team_sales');     // masked team read (security-definer fn): revenue/kWh only, no names/commission
+      _SK.salesTeam = slt.data || [];
       var cp = await sb.from('broker_comp').select('*'); // RLS: admin=all, rep=own only
       _SK.compByRep = {};
       (cp.data || []).forEach(function(c){ _SK.compByRep[c.rep_id] = c; });
@@ -3851,8 +3891,36 @@
         var mine = _SK.reps.filter(function(r){ return r.profile_id === currentUser.userId; })[0];
         _SK.myRepId = mine ? mine.id : null;
       }
+      _skBuildEffective();
     }
-    function _skPeriods(){ var s = {}; _SK.kpis.forEach(function(k){ s[k.period] = 1; }); return Object.keys(s).sort().reverse(); }
+    function _skSaleContribKwh(s){ return (Number(s.aq_kwh)||0) * ((Number(s.term_months)||12)/12); }
+    // Build the "effective" monthly figures = manually-entered KPIs + individually-logged sales.
+    // Everything the dashboards/leaderboard/commission read comes from _SK.eff so a logged sale
+    // automatically lands in the right month. Raw _SK.kpis stays untouched for the entry forms.
+    function _skBuildEffective(){
+      var map = {};
+      function mk(rep, per){ var key = rep + '|' + per; if(!map[key]) map[key] = { rep_id:rep, period:per, _manualBilling:0, _manualNB:0, _salesCommRet:0, _salesCommNB:0, _salesCount:0 }; return map[key]; }
+      _SK.kpis.forEach(function(k){
+        var kk = mk(k.rep_id, k.period);
+        for(var p in k){ if(Object.prototype.hasOwnProperty.call(k, p)) kk[p] = k[p]; }
+        kk._manualBilling = Number(k.billing_total)||0;
+        kk._manualNB = Number(k.new_business_gbp)||0;
+      });
+      (_SK.salesTeam||[]).forEach(function(s){
+        var kk = mk(s.rep_id, s.period), rev = Number(s.revenue_gbp)||0, kwh = _skSaleContribKwh(s);
+        kk.billing_total = (Number(kk.billing_total)||0) + rev;
+        kk.total_kwh = (Number(kk.total_kwh)||0) + kwh;
+        if(s.is_new_business){ kk.new_business_gbp = (Number(kk.new_business_gbp)||0) + rev; kk.new_business_kwh = (Number(kk.new_business_kwh)||0) + kwh; }
+        kk._salesCount = (kk._salesCount||0) + 1;
+      });
+      (_SK.sales||[]).forEach(function(s){
+        var kk = mk(s.rep_id, s.period), c = Number(s.commission_gbp)||0;
+        if(s.is_new_business) kk._salesCommNB = (kk._salesCommNB||0) + c; else kk._salesCommRet = (kk._salesCommRet||0) + c;
+      });
+      _SK.eff = Object.keys(map).map(function(key){ return map[key]; });
+    }
+    function _skEffRow(repId, period){ return _SK.eff.filter(function(k){ return k.rep_id === repId && k.period === period; })[0] || null; }
+    function _skPeriods(){ var s = {}; _SK.eff.forEach(function(k){ s[k.period] = 1; }); return Object.keys(s).sort().reverse(); }
     function _skDefaultMonth(){ var p = _skPeriods(); return p.length ? p[0].slice(0,7) : new Date().toISOString().slice(0,7); }
     function _skFillPeriodSelect(selId, includeAll, onchange){
       var sel = document.getElementById(selId); if(!sel) return;
@@ -3865,10 +3933,10 @@
       var sel = document.getElementById(selId); if(!sel) return;
       sel.innerHTML = _SK.reps.map(function(r){ return '<option value="' + r.id + '">' + escapeHtml(r.name) + '</option>'; }).join('');
     }
-    function _skEntryFieldsHtml(prefix){
+    function _skEntryFieldsHtml(prefix, skipNotes){
       return _SK_FIELDS.map(function(f){
         return '<div class="form-group"><label>' + f[1] + '</label><input type="number" step="any" id="' + prefix + f[0] + '"></div>';
-      }).join('') + '<div class="form-group" style="grid-column:1/-1"><label>Notes</label><input type="text" id="' + prefix + 'notes"></div>';
+      }).join('') + (skipNotes ? '' : '<div class="form-group" style="grid-column:1/-1"><label>Notes</label><input type="text" id="' + prefix + 'notes"></div>');
     }
     function _skFillEntry(prefix, k){
       k = k || {};
@@ -3878,13 +3946,13 @@
     function _skReadEntry(prefix, repId, key){
       var rec = { rep_id:repId, period:key, updated_at:new Date().toISOString() };
       _SK_FIELDS.forEach(function(f){ rec[f[0]] = parseFloat(document.getElementById(prefix + f[0]).value) || 0; });
-      rec.notes = document.getElementById(prefix + 'notes').value || null;
+      var nEl = document.getElementById(prefix + 'notes'); if(nEl) rec.notes = nEl.value || null; // omitted when the form has no Notes field (broker uses the dedicated notes card)
       return rec;
     }
     function _skAggregate(periodKey){
       var out = {};
       _SK.reps.forEach(function(r){ out[r.id] = { rep_id:r.id, _n:0 }; _SK_FIELDS.forEach(function(f){ out[r.id][f[0]] = 0; }); });
-      _SK.kpis.forEach(function(k){
+      _SK.eff.forEach(function(k){
         if(periodKey !== '__all__' && k.period !== periodKey) return;
         var o = out[k.rep_id]; if(!o) return;
         _SK_FIELDS.forEach(function(f){ o[f[0]] += Number(k[f[0]]) || 0; });
@@ -3997,12 +4065,16 @@
     // ── Broker: my dashboard, entry, private calculator, leaderboard ──
     async function brokerSalesInit(){
       await salesFetchAll();
-      var ef = document.getElementById('bxEntryFields'); if(ef) ef.innerHTML = _skEntryFieldsHtml('bx_');
+      var ef = document.getElementById('bxEntryFields'); if(ef) ef.innerHTML = _skEntryFieldsHtml('bx_', true);
       var mIn = document.getElementById('bxMonth'); if(mIn && !mIn.value) mIn.value = _skDefaultMonth();
       _skFillPeriodSelect('bxTeamPeriod', true, brokerRenderTeam);
       var warn = document.getElementById('bxLinkWarn');
       if(warn) warn.innerHTML = _SK.myRepId ? '' : '<div class="card" style="border-left:3px solid #b5840a;margin-bottom:14px;">Your sales profile isn’t linked to this login yet, so your personal figures and calculator are hidden. Contact CES to link it.</div>';
       var entryCard = document.getElementById('bxEntryCard'); if(entryCard) entryCard.style.display = _SK.myRepId ? '' : 'none';
+      var saleCard = document.getElementById('bxSaleCard'); if(saleCard) saleCard.style.display = _SK.myRepId ? '' : 'none';
+      var notesCard = document.getElementById('bxNotesCard'); if(notesCard) notesCard.style.display = _SK.myRepId ? '' : 'none';
+      var sMon = document.getElementById('saleMonth'); if(sMon && !sMon.value) sMon.value = _skDefaultMonth();
+      bxSaleType();
       brokerRenderTeam();
       brokerRenderMine();
     }
@@ -4013,10 +4085,13 @@
     }
     function brokerRenderMine(){
       var key = _skMonthKey('bxMonth');
-      var k = _SK.myRepId ? _SK.kpis.filter(function(x){ return x.rep_id === _SK.myRepId && x.period === key; })[0] : null;
-      _skFillEntry('bx_', k);
-      renderMoneyDashboard(key, k);
-      renderSalaryCalc(key, k);
+      var rawK = _SK.myRepId ? _SK.kpis.filter(function(x){ return x.rep_id === _SK.myRepId && x.period === key; })[0] : null;
+      var effK = _SK.myRepId ? _skEffRow(_SK.myRepId, key) : null;
+      _skFillEntry('bx_', rawK);              // entry form edits the manually-typed base only
+      renderMoneyDashboard(key, effK);        // dashboards/commission read the sales-inclusive figure
+      renderSalaryCalc(key, effK);
+      bxSyncNotes(key, rawK);
+      bxRenderSaleList();
     }
     function _skCard(label, val, sub){
       return '<div class="stat-card"><div class="stat-label">' + label + '</div><div class="stat-value">' + val + '</div>' +
@@ -4040,7 +4115,7 @@
     }
     function renderMyTrend(){
       var host = document.getElementById('bxTrend'); if(!host) return;
-      var mine = _SK.kpis.filter(function(k){ return k.rep_id === _SK.myRepId; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
+      var mine = _SK.eff.filter(function(k){ return k.rep_id === _SK.myRepId; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
       host.innerHTML = '<div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px;">Monthly billing</div>' +
         _skTrendSVG(mine.map(function(k){ return { label:_skPeriodLabel(k.period), val:Number(k.billing_total)||0 }; }));
     }
@@ -4093,7 +4168,7 @@
     }
     function skOpenRep(repId){
       var rep = _SK.reps.filter(function(r){ return r.id === repId; })[0]; if(!rep) return;
-      var hist = _SK.kpis.filter(function(k){ return k.rep_id === repId; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
+      var hist = _SK.eff.filter(function(k){ return k.rep_id === repId; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
       var isMe = (repId === _SK.myRepId);
       var trend = _skTrendSVG(hist.map(function(k){ return { label:_skPeriodLabel(k.period), val:Number(k.billing_total)||0 }; }));
       var body = hist.slice().reverse().map(function(k){
@@ -4219,12 +4294,12 @@
       return svg + '</svg>';
     }
     function _skTeamAvgByMonth(){
-      var m = {}; _SK.kpis.forEach(function(k){ if((Number(k.billing_total)||0) > 0){ (m[k.period] = m[k.period] || []).push(Number(k.billing_total)||0); } });
+      var m = {}; _SK.eff.forEach(function(k){ if((Number(k.billing_total)||0) > 0){ (m[k.period] = m[k.period] || []).push(Number(k.billing_total)||0); } });
       var out = {}; Object.keys(m).forEach(function(p){ out[p] = m[p].reduce(function(a,b){ return a+b; }, 0) / m[p].length; });
       return out;
     }
     function _skRankInMonth(periodKey){
-      var arr = _SK.kpis.filter(function(k){ return k.period === periodKey && (Number(k.billing_total)||0) > 0; }).sort(function(a,b){ return b.billing_total - a.billing_total; });
+      var arr = _SK.eff.filter(function(k){ return k.period === periodKey && (Number(k.billing_total)||0) > 0; }).sort(function(a,b){ return b.billing_total - a.billing_total; });
       var n = arr.length; for(var i=0;i<n;i++){ if(arr[i].rep_id === _SK.myRepId) return '#' + (i+1) + ' of ' + n; }
       return '—';
     }
@@ -4245,7 +4320,7 @@
       var rep = _SK.reps.filter(function(r){ return r.id === _SK.myRepId; })[0];
       if(!rep){ if(heroHost) heroHost.innerHTML = ''; if(gridHost) gridHost.innerHTML = ''; return; }
       var comp = _SK.compByRep[_SK.myRepId];
-      var hist = _SK.kpis.filter(function(x){ return x.rep_id === _SK.myRepId; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
+      var hist = _SK.eff.filter(function(x){ return x.rep_id === _SK.myRepId; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
       k = k || { billing_total:0, total_kwh:0, new_business_gbp:0 };
       var tgt = Number(rep.monthly_target) || 0;
       var rank = _skRankInMonth(key);
@@ -4295,12 +4370,12 @@
       if(!comp){ host.innerHTML = '<p class="sk-empty">Your commission settings haven’t been published yet.</p>'; return; }
       k = k || { billing_total:0, new_business_gbp:0 };
       var c = _skCommission(k, comp);
-      window._skCalcCtx = { comp:comp, base:c.base, retained:c.retained, newbiz:c.newbiz, baseComm:c.commission };
+      window._skCalcCtx = { comp:comp, baseComm:c.commission };
       host.innerHTML =
         '<p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Based on <b>' + _skPeriodLabel(key) + '</b>. You earn <b>' + _skNum(comp.retained_rate,1) + '%</b> on retained billing and <b>' + _skNum(comp.new_business_rate,1) + '%</b> on new business.</p>' +
         '<div class="sk-calc-grid">' +
-          _skCalcCell('Retained billing', _skMoney(c.retained), _skNum(comp.retained_rate,1) + '% → ' + _skMoney(c.retainedComm)) +
-          _skCalcCell('New business', _skMoney(c.newbiz), _skNum(comp.new_business_rate,1) + '% → ' + _skMoney(c.newbizComm)) +
+          _skCalcCell('Retained billing', _skMoney(c.retained), '→ ' + _skMoney(c.retainedComm) + ' commission') +
+          _skCalcCell('New business', _skMoney(c.newbiz), '→ ' + _skMoney(c.newbizComm) + ' commission') +
           _skCalcCell('Base salary', _skMoney(c.base), 'fixed each month') +
           '<div class="sk-calc-total"><div class="sk-calc-l">Total earnings</div><div class="sk-calc-v" style="color:var(--navy)">' + _skMoney(c.total) + '</div><div class="sk-calc-s">' + _skMoney(c.commission) + ' commission + base</div></div>' +
         '</div>' +
@@ -4330,7 +4405,7 @@
       }
       var en = val('scNew', 'scNewR');
       var er = val('scRet', 'scRetR');
-      var proj = (ctx.retained + er) * (Number(ctx.comp.retained_rate)||0) / 100 + (ctx.newbiz + en) * (Number(ctx.comp.new_business_rate)||0) / 100;
+      var proj = ctx.baseComm + er * (Number(ctx.comp.retained_rate)||0) / 100 + en * (Number(ctx.comp.new_business_rate)||0) / 100;
       var delta = proj - ctx.baseComm;
       var out = document.getElementById('scOut'); if(!out) return;
       out.innerHTML =
@@ -4374,6 +4449,143 @@
       brokerRenderMine();
       brokerRenderTeam();
       _skFlash('bxMsg', 'Deleted.');
+    }
+    // ── Broker: log individual sales (revenue + commission auto-calculated) ──
+    function _skRepComp(){ return _SK.myRepId ? _SK.compByRep[_SK.myRepId] : null; }
+    function bxSaleTermMonths(){
+      var t = parseFloat((document.getElementById('saleTerm')||{}).value) || 0;
+      var unit = (document.getElementById('saleTermUnit')||{}).value || 'years';
+      return unit === 'months' ? t : t * 12;
+    }
+    function bxSaleType(){
+      // default the commission % to the rep's rate for the chosen business type (still editable)
+      var comp = _skRepComp();
+      if(comp){
+        var t = (document.getElementById('saleType')||{}).value;
+        var pct = (t === 'retained') ? comp.retained_rate : comp.new_business_rate;
+        var el = document.getElementById('salePct'); if(el) el.value = (pct != null ? pct : '');
+      }
+      bxSaleCalc();
+    }
+    function bxSaleFigures(){
+      var aq = parseFloat((document.getElementById('saleAQ')||{}).value) || 0;
+      var months = bxSaleTermMonths();
+      var uplift = parseFloat((document.getElementById('saleUplift')||{}).value) || 0;
+      var pct = parseFloat((document.getElementById('salePct')||{}).value) || 0;
+      var years = months / 12;
+      var revenue = aq * years * uplift / 100;   // £ = (kWh/yr) × yrs × (p/kWh) ÷ 100
+      var commission = revenue * pct / 100;
+      return { aq:aq, months:months, uplift:uplift, pct:pct, revenue:revenue, commission:commission, kwh:aq * years };
+    }
+    function bxSaleCalc(){
+      var host = document.getElementById('bxSalePreview'); if(!host) return;
+      var f = bxSaleFigures();
+      host.innerHTML =
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
+          '<div class="stat-card" style="flex:1;min-width:150px;"><div class="stat-label">Contract revenue</div><div class="stat-value">' + _skMoney(f.revenue) + '</div><div class="stat-foot" style="font-size:11px;color:var(--muted);margin-top:4px;">' + _skNum(f.kwh,0) + ' kWh over ' + _skNum(f.months/12,2) + ' yr · ' + _skNum(f.uplift,2) + 'p/kWh</div></div>' +
+          '<div class="stat-card" style="flex:1;min-width:150px;"><div class="stat-label">Your commission</div><div class="stat-value" style="color:var(--navy)">' + _skMoney(f.commission) + '</div><div class="stat-foot" style="font-size:11px;color:var(--muted);margin-top:4px;">' + _skNum(f.pct,2) + '% of revenue</div></div>' +
+        '</div>';
+    }
+    async function bxSaveSale(){
+      if(!_SK.myRepId){ safeAlert('Your sales profile isn’t linked yet.', null); return; }
+      var cust = (document.getElementById('saleCust').value||'').trim();
+      var mon = (document.getElementById('saleMonth').value||'');
+      if(!cust){ safeAlert('Enter the customer name.', null); return; }
+      if(!mon){ safeAlert('Pick the month of the sale.', null); return; }
+      var f = bxSaleFigures();
+      if(f.aq <= 0 || f.uplift <= 0){ safeAlert('Enter the AQ and the uplift (p/kWh) so we can work out the revenue.', null); return; }
+      var rec = {
+        rep_id:_SK.myRepId, period: mon + '-01', customer_name:cust,
+        aq_kwh:f.aq, term_months:Math.round(f.months), uplift_p_kwh:f.uplift,
+        is_new_business: (document.getElementById('saleType').value !== 'retained'),
+        commission_pct:f.pct, revenue_gbp:f.revenue, commission_gbp:f.commission,
+        updated_at:new Date().toISOString()
+      };
+      var editId = (document.getElementById('saleEditId')||{}).value || '';
+      var resp = editId ? await sb.from('broker_sales').update(rec).eq('id', editId)
+                        : await sb.from('broker_sales').insert(rec);
+      if(resp.error){ safeAlert('Could not save this sale.', resp.error); return; }
+      logAction(editId ? 'update_sale' : 'add_sale', null, { period:rec.period });
+      await salesFetchAll();
+      bxResetSaleForm();
+      brokerRenderMine();
+      brokerRenderTeam();
+      _skFlash('bxSaleMsg', editId ? 'Sale updated.' : 'Sale added.');
+    }
+    function bxResetSaleForm(){
+      ['saleCust','saleAQ','saleUplift','salePct'].forEach(function(id){ var e = document.getElementById(id); if(e) e.value = ''; });
+      var t = document.getElementById('saleTerm'); if(t) t.value = '2';
+      var tu = document.getElementById('saleTermUnit'); if(tu) tu.value = 'years';
+      var ty = document.getElementById('saleType'); if(ty) ty.value = 'new';
+      var eid = document.getElementById('saleEditId'); if(eid) eid.value = '';
+      var cb = document.getElementById('bxSaleCancel'); if(cb) cb.style.display = 'none';
+      bxSaleType();
+    }
+    function bxEditSale(id){
+      var s = (_SK.sales||[]).filter(function(x){ return x.id === id; })[0]; if(!s) return;
+      document.getElementById('saleCust').value = s.customer_name || '';
+      document.getElementById('saleMonth').value = (s.period||'').slice(0,7);
+      document.getElementById('saleType').value = s.is_new_business ? 'new' : 'retained';
+      document.getElementById('saleAQ').value = (s.aq_kwh != null ? s.aq_kwh : '');
+      document.getElementById('saleTermUnit').value = 'months';
+      document.getElementById('saleTerm').value = (s.term_months != null ? s.term_months : '');
+      document.getElementById('saleUplift').value = (s.uplift_p_kwh != null ? s.uplift_p_kwh : '');
+      document.getElementById('salePct').value = (s.commission_pct != null ? s.commission_pct : '');
+      document.getElementById('saleEditId').value = s.id;
+      var cb = document.getElementById('bxSaleCancel'); if(cb) cb.style.display = '';
+      bxSaleCalc();
+      var card = document.getElementById('bxSaleCard'); if(card && card.scrollIntoView) card.scrollIntoView({ behavior:'smooth', block:'start' });
+    }
+    async function bxDeleteSale(id){
+      var s = (_SK.sales||[]).filter(function(x){ return x.id === id; })[0];
+      if(!window.confirm('Delete the sale' + (s ? ' to ' + s.customer_name : '') + '? This cannot be undone.')) return;
+      var resp = await sb.from('broker_sales').delete().eq('id', id);
+      if(resp.error){ safeAlert('Could not delete this sale.', resp.error); return; }
+      logAction('delete_sale', null, { id:id });
+      await salesFetchAll();
+      bxResetSaleForm();
+      brokerRenderMine();
+      brokerRenderTeam();
+      _skFlash('bxSaleMsg', 'Sale deleted.');
+    }
+    function bxRenderSaleList(){
+      var host = document.getElementById('bxSaleList'); if(!host) return;
+      var mine = (_SK.sales||[]).filter(function(s){ return s.rep_id === _SK.myRepId; })
+        .sort(function(a,b){ return (a.period < b.period) ? 1 : ((a.period > b.period) ? -1 : ((a.created_at < b.created_at) ? 1 : -1)); });
+      if(!mine.length){ host.innerHTML = '<p class="sk-empty" style="margin-top:6px;">No sales logged yet — add your first above.</p>'; return; }
+      var rows = mine.map(function(s){
+        return '<tr>' +
+          '<td>' + _skPeriodLabel(s.period) + '</td>' +
+          '<td>' + escapeHtml(s.customer_name||'') + '</td>' +
+          '<td>' + (s.is_new_business ? 'New' : 'Retained') + '</td>' +
+          '<td class="num">' + _skNum(s.aq_kwh,0) + '</td>' +
+          '<td class="num">' + _skNum((Number(s.term_months)||0)/12,2) + '</td>' +
+          '<td class="num">' + _skNum(s.uplift_p_kwh,2) + '</td>' +
+          '<td class="num">' + _skMoney(s.revenue_gbp) + '</td>' +
+          '<td class="num">' + _skMoney(s.commission_gbp) + '</td>' +
+          '<td style="white-space:nowrap;"><a href="javascript:void(0)" onclick="bxEditSale(\'' + s.id + '\')">Edit</a> · <a href="javascript:void(0)" style="color:#b5340f;" onclick="bxDeleteSale(\'' + s.id + '\')">Delete</a></td>' +
+        '</tr>';
+      }).join('');
+      host.innerHTML = '<h4 style="font-size:13px;font-weight:800;margin:4px 0 8px;">Your logged sales</h4>' +
+        '<table class="sk-table"><tr><th>Month</th><th>Customer</th><th>Type</th><th class="num">AQ kWh</th><th class="num">Years</th><th class="num">Uplift</th><th class="num">Revenue</th><th class="num">Commission</th><th></th></tr>' + rows + '</table>';
+    }
+    // ── Broker: per-month notes (dedicated editor; syncs with rep detail) ──
+    function bxSyncNotes(key, rawK){
+      var lbl = document.getElementById('bxNotesMonthLbl'); if(lbl) lbl.textContent = key ? _skPeriodLabel(key) : 'this month';
+      var ta = document.getElementById('bxNotesText'); if(ta) ta.value = (rawK && rawK.notes) ? rawK.notes : '';
+    }
+    async function bxSaveNotes(){
+      if(!_SK.myRepId){ safeAlert('Your sales profile isn’t linked yet.', null); return; }
+      var key = _skMonthKey('bxMonth');
+      if(!key){ safeAlert('Pick a month at the top of the page first.', null); return; }
+      var ta = document.getElementById('bxNotesText');
+      var rec = { rep_id:_SK.myRepId, period:key, notes:(ta && ta.value ? ta.value : null), updated_at:new Date().toISOString() };
+      var resp = await sb.from('broker_kpis').upsert(rec, { onConflict:'rep_id,period' });
+      if(resp.error){ safeAlert('Could not save your note.', resp.error); return; }
+      logAction('save_my_note', null, { period:key });
+      await salesFetchAll();
+      brokerRenderMine();
+      _skFlash('bxNotesMsg', 'Saved.');
     }
     function brokerNav(view){
       var sales = document.getElementById('brokerSalesView');
