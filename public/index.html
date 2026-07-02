@@ -1938,7 +1938,7 @@
               <h3 style="font-size:14px;font-weight:800;">Month-end report</h3>
               <div style="display:flex;gap:8px;align-items:center;">
                 <select id="meReportMonth" onchange="renderMonthEndReport()" style="width:auto;"></select>
-                <button class="btn-secondary" style="padding:7px 12px;" onclick="downloadMonthEndReport()">⬇ Download (CSV)</button>
+                <button class="btn-secondary" style="padding:7px 12px;" onclick="downloadMonthEndReport()">⬇ Download Excel</button>
               </div>
             </div>
             <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Auto-built once every active rep has submitted that month. <span style="color:#b5340f;font-weight:700;">Red</span> = a month-on-month drop over 15%, or average uplift below 0.6p/kWh. Emailed to management when the month is complete.</p>
@@ -4265,22 +4265,176 @@
       var headline='<div style="font-size:14px;font-weight:800;color:var(--navy);margin:4px 0 10px;">Sales KPIs — '+mlab+' &middot; team billing '+_skMoney(totBill)+' &middot; avg uplift '+_skNum(upT,2)+'p/kWh</div>';
       host.innerHTML = headline + table + '<div class="sk-chart-grid" style="margin-top:14px;">'+charts+'</div>';
     }
-    function downloadMonthEndReport(){
-      var sel=document.getElementById('meReportMonth'); var key=sel? sel.value : null; if(!key) return;
-      var reps=_SK.reps.filter(function(r){ return r.active !== false; });
-      var effByRep={}; _SK.eff.forEach(function(e){ if(e.period===key) effByRep[e.rep_id]=e; });
-      var lines=[['Rep'].concat(_ME_COLS.map(function(c){return c.label;})).join(',')];
-      var totBill=0, totKwh=0, tot={}; _ME_COLS.forEach(function(c){tot[c.k]=0;});
-      reps.forEach(function(r){
-        var cur=effByRep[r.id];
-        totBill+=_meVal(cur,'billing_total'); totKwh+=_meVal(cur,'total_kwh');
-        var cells=['"'+String(r.name).replace(/"/g,'""')+'"'].concat(_ME_COLS.map(function(c){ var v=_meVal(cur,c.k); if(c.k!=='__uplift') tot[c.k]+=v; return c.k==='__uplift'? v.toFixed(2) : (Math.round(v*100)/100); }));
-        lines.push(cells.join(','));
+    // ── canvas → PNG chart helpers for the Excel export (mirror on-screen charts) ──
+    function _meBarPng(title, items, opts){
+      opts=opts||{}; var scale=2, n=items.length||1;
+      var w=Math.max(560, n*72+150), h=320;
+      var cv=document.createElement('canvas'); cv.width=w*scale; cv.height=h*scale;
+      var cx=cv.getContext('2d'); cx.scale(scale,scale);
+      cx.fillStyle='#ffffff'; cx.fillRect(0,0,w,h);
+      cx.fillStyle='#1c1f2a'; cx.font='700 15px Arial'; cx.textAlign='left'; cx.fillText(title,18,24);
+      var money=opts.money, unit=opts.unit||'', dp=opts.dp||0;
+      var padL=68, padR=22, padT=46, padB=58, iw=w-padL-padR, ih=h-padT-padB;
+      var max=0; items.forEach(function(it){ max=Math.max(max, it.val||0); });
+      if(opts.threshold) max=Math.max(max, opts.threshold*1.15);
+      if(max<=0) max=1;
+      function lab(v){ return money ? '£'+Math.round(v).toLocaleString('en-GB') : (dp? v.toFixed(dp) : Math.round(v).toLocaleString('en-GB'))+unit; }
+      cx.strokeStyle='#e6e1d6'; cx.lineWidth=1; cx.fillStyle='#7a7e8c'; cx.font='11px Arial'; cx.textAlign='right';
+      for(var g=0; g<=4; g++){ var y=padT+ih*(1-g/4); cx.beginPath(); cx.moveTo(padL,y); cx.lineTo(w-padR,y); cx.stroke(); cx.fillText(lab(max*g/4), padL-8, y+4); }
+      if(opts.threshold){ var ty=padT+ih*(1-Math.min(1,opts.threshold/max)); cx.strokeStyle='#b5340f'; cx.setLineDash([5,4]); cx.lineWidth=1.4; cx.beginPath(); cx.moveTo(padL,ty); cx.lineTo(w-padR,ty); cx.stroke(); cx.setLineDash([]); cx.fillStyle='#b5340f'; cx.font='600 10px Arial'; cx.textAlign='left'; cx.fillText('target '+opts.threshold+unit, padL+4, ty-4); }
+      var slot=iw/n, bw=Math.min(48, slot*0.62);
+      items.forEach(function(it,i){ var c0=padL+slot*(i+0.5), val=it.val||0, bh=Math.max(0, val/max*ih);
+        cx.fillStyle=opts.colorFn? opts.colorFn(val) : (opts.color||'#2f3d7e'); cx.fillRect(c0-bw/2, padT+ih-bh, bw, bh);
+        cx.fillStyle='#1c1f2a'; cx.font='600 10px Arial'; cx.textAlign='center'; cx.fillText(lab(val), c0, padT+ih-bh-5);
+        cx.fillStyle='#4a4e5c'; cx.font='11px Arial'; var nm=String(it.label); if(nm.length>12) nm=nm.slice(0,11)+'…'; cx.fillText(nm, c0, h-padB+18);
       });
-      var upT=totKwh? (totBill/totKwh*100).toFixed(2) : '0';
-      lines.push(['Total / Average'].concat(_ME_COLS.map(function(c){ return c.k==='__uplift'? upT : (Math.round(tot[c.k]*100)/100); })).join(','));
-      var blob=new Blob([lines.join('\n')], {type:'text/csv;charset=utf-8;'});
-      var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='CES Sales KPIs '+_skPeriodLabel(key).replace(/\s/g,'-')+'.csv'; document.body.appendChild(a); a.click(); setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 100);
+      return { dataUrl: cv.toDataURL('image/png'), w:w, h:h };
+    }
+    function _meGroupBarPng(title, items, aLab, bLab, opts){
+      opts=opts||{}; var scale=2, n=items.length||1, money=opts.money;
+      var w=Math.max(560, n*84+170), h=330;
+      var cv=document.createElement('canvas'); cv.width=w*scale; cv.height=h*scale;
+      var cx=cv.getContext('2d'); cx.scale(scale,scale);
+      cx.fillStyle='#ffffff'; cx.fillRect(0,0,w,h);
+      cx.fillStyle='#1c1f2a'; cx.font='700 15px Arial'; cx.textAlign='left'; cx.fillText(title,18,24);
+      cx.fillStyle='#2f3d7e'; cx.fillRect(18,34,12,12); cx.fillStyle='#4a4e5c'; cx.font='12px Arial'; cx.fillText(aLab,34,44);
+      var lw=cx.measureText(aLab).width; cx.fillStyle='#9aa0b4'; cx.fillRect(52+lw,34,12,12); cx.fillStyle='#4a4e5c'; cx.fillText(bLab,70+lw,44);
+      var padL=68, padR=22, padT=60, padB=58, iw=w-padL-padR, ih=h-padT-padB;
+      var max=0; items.forEach(function(it){ max=Math.max(max,it.a||0,it.b||0); }); if(max<=0) max=1;
+      function lab(v){ return (money?'£':'')+Math.round(v).toLocaleString('en-GB'); }
+      cx.strokeStyle='#e6e1d6'; cx.fillStyle='#7a7e8c'; cx.font='11px Arial'; cx.textAlign='right';
+      for(var g=0; g<=4; g++){ var y=padT+ih*(1-g/4); cx.beginPath(); cx.moveTo(padL,y); cx.lineTo(w-padR,y); cx.stroke(); cx.fillText(lab(max*g/4), padL-8, y+4); }
+      var slot=iw/n, bw=Math.min(24, slot*0.3);
+      items.forEach(function(it,i){ var c0=padL+slot*(i+0.5), ha=(it.a||0)/max*ih, hb=(it.b||0)/max*ih;
+        cx.fillStyle='#2f3d7e'; cx.fillRect(c0-bw-2, padT+ih-ha, bw, ha);
+        cx.fillStyle='#9aa0b4'; cx.fillRect(c0+2, padT+ih-hb, bw, hb);
+        cx.fillStyle='#4a4e5c'; cx.font='11px Arial'; cx.textAlign='center'; var nm=String(it.label); if(nm.length>12) nm=nm.slice(0,11)+'…'; cx.fillText(nm, c0, h-padB+18);
+      });
+      return { dataUrl: cv.toDataURL('image/png'), w:w, h:h };
+    }
+    function _meStackBarPng(title, items){
+      var scale=2, n=items.length||1;
+      var w=Math.max(560, n*72+150), h=330;
+      var cv=document.createElement('canvas'); cv.width=w*scale; cv.height=h*scale;
+      var cx=cv.getContext('2d'); cx.scale(scale,scale);
+      cx.fillStyle='#ffffff'; cx.fillRect(0,0,w,h);
+      cx.fillStyle='#1c1f2a'; cx.font='700 15px Arial'; cx.textAlign='left'; cx.fillText(title,18,24);
+      cx.fillStyle='#2f3d7e'; cx.fillRect(18,34,12,12); cx.fillStyle='#4a4e5c'; cx.font='12px Arial'; cx.fillText('Retained',34,44);
+      var lw=cx.measureText('Retained').width; cx.fillStyle='#2f7d4f'; cx.fillRect(52+lw,34,12,12); cx.fillStyle='#4a4e5c'; cx.fillText('New business',70+lw,44);
+      var padL=68, padR=22, padT=60, padB=58, iw=w-padL-padR, ih=h-padT-padB;
+      var max=0; items.forEach(function(it){ max=Math.max(max,(it.retained||0)+(it.newbiz||0)); }); if(max<=0) max=1;
+      cx.strokeStyle='#e6e1d6'; cx.fillStyle='#7a7e8c'; cx.font='11px Arial'; cx.textAlign='right';
+      for(var g=0; g<=4; g++){ var y=padT+ih*(1-g/4); cx.beginPath(); cx.moveTo(padL,y); cx.lineTo(w-padR,y); cx.stroke(); cx.fillText('£'+Math.round(max*g/4).toLocaleString('en-GB'), padL-8, y+4); }
+      var slot=iw/n, bw=Math.min(48, slot*0.62);
+      items.forEach(function(it,i){ var c0=padL+slot*(i+0.5), hr=(it.retained||0)/max*ih, hn=(it.newbiz||0)/max*ih;
+        cx.fillStyle='#2f3d7e'; cx.fillRect(c0-bw/2, padT+ih-hr, bw, hr);
+        cx.fillStyle='#2f7d4f'; cx.fillRect(c0-bw/2, padT+ih-hr-hn, bw, hn);
+        cx.fillStyle='#4a4e5c'; cx.font='11px Arial'; cx.textAlign='center'; var nm=String(it.label); if(nm.length>12) nm=nm.slice(0,11)+'…'; cx.fillText(nm, c0, h-padB+18);
+      });
+      return { dataUrl: cv.toDataURL('image/png'), w:w, h:h };
+    }
+    // Build the styled Excel workbook (formatted KPI table + red flags + embedded charts + team-trend sheet).
+    async function downloadMonthEndReport(){
+      var sel=document.getElementById('meReportMonth'); var key=sel? sel.value : null; if(!key) return;
+      if(typeof ExcelJS==='undefined' || !ExcelJS.Workbook){ safeAlert('The Excel engine is still loading — please try again in a moment.', null); return; }
+      try{
+        var prev=_mePrevKey(key), mlab=_skPeriodLabel(key), plab=_skPeriodLabel(prev);
+        var reps=_SK.reps.filter(function(r){ return r.active !== false; });
+        var submitted={}; _SK.kpis.forEach(function(k){ if(k.period===key) submitted[k.rep_id]=1; });
+        var missing=reps.filter(function(r){ return !submitted[r.id]; });
+        var effByRep={}, prevByRep={};
+        _SK.eff.forEach(function(e){ if(e.period===key) effByRep[e.rep_id]=e; if(e.period===prev) prevByRep[e.rep_id]=e; });
+
+        var NAVY='FF2F3D7E', RED='FFB5340F', REDBG='FFFDECEA', TOTBG='FFEEF1FB', WHITE='FFFFFFFF';
+        var thin={style:'thin',color:{argb:'FFE6E1D6'}};
+        function fmtOf(c){ return c.fmt==='money'?'£#,##0' : c.fmt==='uplift'?'0.00' : '#,##0'; }
+        var wb=new ExcelJS.Workbook(); wb.creator='CES Billing Portal';
+        var sheetName=(mlab+' KPIs').replace(/[^A-Za-z0-9 _-]/g,'').slice(0,31);
+        var ws=wb.addWorksheet(sheetName, {views:[{showGridLines:false}]});
+        var nCols=_ME_COLS.length+1;
+
+        // headline block
+        ws.mergeCells(1,1,1,nCols);
+        var t=ws.getCell(1,1); t.value='CES Sales KPIs — '+mlab; t.font={bold:true,size:16,color:{argb:WHITE}}; t.alignment={vertical:'middle',horizontal:'left'}; t.fill={type:'pattern',pattern:'solid',fgColor:{argb:NAVY}}; ws.getRow(1).height=30;
+        var pkB=0,pkK=0; reps.forEach(function(r){ pkB+=_meVal(effByRep[r.id],'billing_total'); pkK+=_meVal(effByRep[r.id],'total_kwh'); });
+        ws.mergeCells(2,1,2,nCols);
+        var s=ws.getCell(2,1); s.value='Team billing '+_skMoney(pkB)+'    ·    avg uplift '+_skNum(pkK?pkB/pkK*100:0,2)+'p/kWh    ·    compared against '+plab; s.font={size:11,color:{argb:'FF4A4E5C'}}; s.alignment={horizontal:'left'}; ws.getRow(2).height=18;
+        ws.mergeCells(3,1,3,nCols);
+        var st=ws.getCell(3,1);
+        if(missing.length){ st.value='DRAFT — awaiting submission from: '+missing.map(function(r){return r.name;}).join(', '); st.font={size:10.5,bold:true,color:{argb:'FF8A6D00'}}; st.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFDF3E7'}}; }
+        else { st.value='COMPLETE — all reps submitted for '+mlab; st.font={size:10.5,bold:true,color:{argb:'FF2F7D4F'}}; st.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFEEF6EE'}}; }
+        st.alignment={horizontal:'left'}; ws.getRow(3).height=18;
+        ws.addRow([]);
+
+        // header row
+        var hdr=ws.addRow(['Rep'].concat(_ME_COLS.map(function(c){return c.label;})));
+        hdr.height=32; hdr.eachCell(function(cell,col){ cell.font={bold:true,color:{argb:WHITE},size:11}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:NAVY}}; cell.alignment={horizontal: col===1?'left':'right', vertical:'middle', wrapText:true}; cell.border={bottom:thin}; });
+
+        // rep rows
+        var tot={}, ptot={}; _ME_COLS.forEach(function(c){ tot[c.k]=0; ptot[c.k]=0; });
+        var totBill=0, totKwh=0, ptotBill=0, ptotKwh=0;
+        reps.forEach(function(r){
+          var cur=effByRep[r.id], pr=prevByRep[r.id];
+          totBill+=_meVal(cur,'billing_total'); totKwh+=_meVal(cur,'total_kwh'); ptotBill+=_meVal(pr,'billing_total'); ptotKwh+=_meVal(pr,'total_kwh');
+          var row=ws.addRow([r.name].concat(_ME_COLS.map(function(c){ return _meVal(cur,c.k); })));
+          row.getCell(1).font={bold:true}; row.getCell(1).alignment={horizontal:'left'};
+          _ME_COLS.forEach(function(c,ci){
+            var cell=row.getCell(ci+2), v=_meVal(cur,c.k), pv=_meVal(pr,c.k);
+            if(c.k!=='__uplift'){ tot[c.k]+=v; ptot[c.k]+=pv; }
+            cell.numFmt=fmtOf(c); cell.alignment={horizontal:'right'};
+            if(_meRed(c,v,pv)){ cell.font={bold:true,color:{argb:RED}}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:REDBG}}; }
+          });
+          row.eachCell(function(cell){ if(!cell.border) cell.border={bottom:thin}; else cell.border=Object.assign({},cell.border,{bottom:thin}); });
+        });
+
+        // total / average row
+        var upT=totKwh?totBill/totKwh*100:0, upP=ptotKwh?ptotBill/ptotKwh*100:0;
+        var trow=ws.addRow(['Total / Average'].concat(_ME_COLS.map(function(c){ return c.k==='__uplift'?upT:tot[c.k]; })));
+        trow.eachCell(function(cell,col){ cell.font={bold:true}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:TOTBG}}; cell.border={top:{style:'medium',color:{argb:NAVY}}}; cell.alignment={horizontal: col===1?'left':'right'}; });
+        _ME_COLS.forEach(function(c,ci){ var cell=trow.getCell(ci+2), v=c.k==='__uplift'?upT:tot[c.k], pv=c.k==='__uplift'?upP:ptot[c.k]; cell.numFmt=fmtOf(c); if(_meRed(c,v,pv)){ cell.font={bold:true,color:{argb:RED}}; } });
+
+        ws.getColumn(1).width=20; _ME_COLS.forEach(function(c,ci){ ws.getColumn(ci+2).width=(c.label.length>12?15:13); });
+
+        // embedded charts (stacked, one per row-block, non-overlapping)
+        var upFn=function(v){ return v>=0.6?'#2f7d4f':'#c9a23a'; };
+        var byRep=function(k){ return reps.map(function(r){ return { label:_meShort(r.name), val:_meVal(effByRep[r.id],k) }; }); };
+        var stackSeries=reps.map(function(r){ var b=_meVal(effByRep[r.id],'billing_total'), nb=_meVal(effByRep[r.id],'new_business_gbp'); return { label:_meShort(r.name), retained:Math.max(0,b-nb), newbiz:nb }; });
+        var vsSeries=reps.map(function(r){ return { label:_meShort(r.name), a:_meVal(effByRep[r.id],'billing_total'), b:_meVal(prevByRep[r.id],'billing_total') }; });
+        var imgs=[
+          _meBarPng('Billing by rep — '+mlab, byRep('billing_total'), {money:true,color:'#2f3d7e'}),
+          _meBarPng('Average uplift by rep (p/kWh) — target 0.6', byRep('__uplift'), {unit:'p',dp:2,threshold:0.6,colorFn:upFn}),
+          _meBarPng('New business £ by rep — '+mlab, byRep('new_business_gbp'), {money:true,color:'#2f7d4f'}),
+          _meStackBarPng('New business vs retained by rep — '+mlab, stackSeries),
+          _meBarPng('Total kWh by rep — '+mlab, byRep('total_kwh'), {color:'#2f3d7e'}),
+          _meBarPng('Lost customers by rep — '+mlab, byRep('lost_customers'), {color:'#c9a23a'}),
+          _meGroupBarPng('Billing: '+mlab+' vs '+plab, vsSeries, 'This month','Last month', {money:true})
+        ];
+        var anchor=trow.number+2;
+        imgs.forEach(function(im,i){ var id=wb.addImage({base64:im.dataUrl,extension:'png'}); ws.addImage(id,{tl:{col:0,row:anchor+i*17}, ext:{width:im.w,height:im.h}}); });
+
+        // team-trend sheet
+        var months=_skPeriods().slice().reverse();
+        var ws2=wb.addWorksheet('Team trend', {views:[{showGridLines:false}]});
+        ws2.mergeCells(1,1,1,3); var t2=ws2.getCell(1,1); t2.value='Team performance — month by month'; t2.font={bold:true,size:15,color:{argb:WHITE}}; t2.fill={type:'pattern',pattern:'solid',fgColor:{argb:NAVY}}; t2.alignment={horizontal:'left',vertical:'middle'}; ws2.getRow(1).height=26;
+        ws2.addRow([]);
+        var h2=ws2.addRow(['Month','Team Billing (£)','Avg Uplift (p/kWh)']); h2.eachCell(function(cell){ cell.font={bold:true,color:{argb:WHITE}}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:NAVY}}; cell.alignment={horizontal:'left'}; cell.border={bottom:thin}; });
+        var teamByMonth=[], teamUpByMonth=[], prevB=null;
+        months.forEach(function(p){ var b=0,kw=0; _SK.eff.forEach(function(e){ if(e.period===p){ b+=Number(e.billing_total)||0; kw+=Number(e.total_kwh)||0; } }); var up=kw?b/kw*100:0, lab=_skPeriodLabel(p);
+          teamByMonth.push({label:lab,val:b}); teamUpByMonth.push({label:lab,val:up});
+          var rr=ws2.addRow([lab,b,up]); rr.getCell(2).numFmt='£#,##0'; rr.getCell(3).numFmt='0.00'; rr.eachCell(function(cell){ cell.border={bottom:thin}; });
+          if(prevB!==null && prevB>0 && b<prevB*0.85){ rr.getCell(2).font={bold:true,color:{argb:RED}}; rr.getCell(2).fill={type:'pattern',pattern:'solid',fgColor:{argb:REDBG}}; }
+          if(up>0 && up<0.6){ rr.getCell(3).font={bold:true,color:{argb:RED}}; rr.getCell(3).fill={type:'pattern',pattern:'solid',fgColor:{argb:REDBG}}; }
+          prevB=b;
+        });
+        ws2.getColumn(1).width=16; ws2.getColumn(2).width=18; ws2.getColumn(3).width=20;
+        var tImgs=[ _meBarPng('Team billing — month by month', teamByMonth, {money:true,color:'#2f7d4f'}), _meBarPng('Team average uplift — month by month (p/kWh) — target 0.6', teamUpByMonth, {unit:'p',dp:2,threshold:0.6,colorFn:upFn}) ];
+        var arow=ws2.lastRow.number+2;
+        tImgs.forEach(function(im,i){ var id=wb.addImage({base64:im.dataUrl,extension:'png'}); ws2.addImage(id,{tl:{col:0,row:arow+i*17}, ext:{width:im.w,height:im.h}}); });
+
+        var buf=await wb.xlsx.writeBuffer();
+        _downloadBlob(buf, 'CES Sales KPIs '+mlab.replace(/\s/g,'-')+'.xlsx');
+        try{ logAction('download_month_end_report', currentUser && currentUser.customerId, { period:key }); }catch(_e){}
+      }catch(e){ safeAlert('Could not generate the Excel report. Please try again.', e); }
     }
     function renderCommissionEditor(){
       var host = document.getElementById('skCompEditor'); if(!host) return;
