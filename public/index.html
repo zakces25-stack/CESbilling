@@ -1656,6 +1656,10 @@
             </div>
             <div id="bkBulkStatus" style="font-size:12.5px;color:var(--muted);margin-top:10px;"></div>
           </div>
+          <div class="card" style="margin-bottom:16px;display:flex;gap:14px;flex-wrap:wrap;align-items:end;">
+            <div class="form-group" style="margin:0;flex:1;min-width:230px;"><label>Search</label><input type="text" id="bkCustSearch" placeholder="Customer name or MPAN / MPRN / SPID" oninput="bkRenderCustomerGrid()" /></div>
+            <div class="form-group" style="margin:0;"><label>Sort by</label><select id="bkCustSort" onchange="bkRenderCustomerGrid()" style="width:auto;"><option value="size">Portfolio size (largest first)</option><option value="ced">Contract end date (latest first)</option></select></div>
+          </div>
           <div class="report-grid" id="brokerCustomerGrid">
             <div class="empty-state" style="grid-column:1/-1"><p>Loading…</p></div>
           </div>
@@ -1681,6 +1685,11 @@
               <div class="stat-value" id="bkTotalEac">—</div>
               <div class="stat-foot" style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'Manrope',sans-serif;">kWh / year</div>
             </div>
+            <div class="stat-card">
+              <div class="stat-label">Latest CED</div>
+              <div class="stat-value" id="bkLatestCed" style="font-size:20px;">—</div>
+              <div class="stat-foot" style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'Manrope',sans-serif;">furthest contract end date</div>
+            </div>
           </div>
           <div class="card" style="margin-bottom:16px;">
             <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
@@ -1697,11 +1706,11 @@
               <h3 style="font-size:14px;font-weight:800;margin-bottom:12px;" id="bkMeterFormTitle">Add a meter</h3>
               <input type="hidden" id="bkEditId" value="" />
               <div class="form-row-2">
-                <div class="form-group"><label>MPAN / MPR</label><input type="text" id="bkMpan" placeholder="2700003386823" /></div>
+                <div class="form-group"><label>MPAN / MPRN / SPID</label><input type="text" id="bkMpan" placeholder="2700003386823" /></div>
                 <div class="form-group"><label>Supplier</label><input type="text" id="bkSupplier" placeholder="Marble Power" /></div>
               </div>
               <div class="form-row-2">
-                <div class="form-group"><label>Utility</label><select id="bkUtility"><option value="electricity">Electricity</option><option value="gas">Gas</option></select></div>
+                <div class="form-group"><label>Utility</label><select id="bkUtility"><option value="electricity">Electricity</option><option value="gas">Gas</option><option value="water">Water</option></select></div>
                 <div class="form-group"><label>Supply type</label><select id="bkSupplyType"><option value="">—</option><option value="HH">HH</option><option value="NHH">NHH</option></select></div>
               </div>
               <div class="form-row-2">
@@ -2032,11 +2041,11 @@
                 <h3 style="font-size:14px;font-weight:800;margin-bottom:12px;" id="metersFormTitle">Add a meter</h3>
                 <input type="hidden" id="mEditId" value="" />
                 <div class="form-row-2">
-                  <div class="form-group"><label>MPAN / MPR</label><input type="text" id="mMpan" placeholder="2700003386823" /></div>
+                  <div class="form-group"><label>MPAN / MPRN / SPID</label><input type="text" id="mMpan" placeholder="2700003386823" /></div>
                   <div class="form-group"><label>Supplier</label><input type="text" id="mSupplier" placeholder="Marble Power" /></div>
                 </div>
                 <div class="form-row-2">
-                  <div class="form-group"><label>Utility</label><select id="mUtility"><option value="electricity">Electricity</option><option value="gas">Gas</option></select></div>
+                  <div class="form-group"><label>Utility</label><select id="mUtility"><option value="electricity">Electricity</option><option value="gas">Gas</option><option value="water">Water</option></select></div>
                   <div class="form-group"><label>Supply type</label><select id="mSupplyType"><option value="">—</option><option value="HH">HH</option><option value="NHH">NHH</option></select></div>
                 </div>
                 <div class="form-row-2">
@@ -2559,6 +2568,18 @@
       var v = Number(n); if (isNaN(v)) return '—';
       return v.toLocaleString('en-GB', { minimumFractionDigits: dp || 0, maximumFractionDigits: dp || 0 });
     }
+    function _bkTypeLabel(m) {
+      var u = m.utility === 'gas' ? 'Gas' : (m.utility === 'water' ? 'Water' : 'Elec');
+      return u + (m.supply_type ? ' · ' + m.supply_type : '');
+    }
+    function _bkCedCell(d) {
+      if (!d) return '<td>—</td>';
+      d = String(d).slice(0, 10);
+      var today = new Date().toISOString().slice(0, 10);
+      var soon = new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10);
+      var st = d < today ? 'color:#b5340f;font-weight:800;' : (d <= soon ? 'color:#b5840a;font-weight:800;' : '');
+      return '<td style="white-space:nowrap;' + st + '">' + fmtDateUK(d) + '</td>';
+    }
     async function loadBroker() {
       var nameEl = document.getElementById('brokerName');
       if (nameEl) nameEl.textContent = currentUser.name || '';
@@ -2583,20 +2604,118 @@
         grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No customers assigned to you yet. Contact CES.</div>';
         return;
       }
-      grid.innerHTML = customers.map(function(c) {
+      // One flat meters query powers portfolio size, latest CED and MPAN search.
+      var mResp = await sb.from('meters').select('customer_id, mpan, utility, est_annual_consumption, contract_end_date');
+      var stats = {};
+      customers.forEach(function(c){ stats[c.customer_id] = { n:0, eac:0, ced:null, mpans:[] }; });
+      (mResp.data || []).forEach(function(m){
+        var st = stats[m.customer_id]; if (!st) return;
+        st.n++;
+        st.eac += Number(m.est_annual_consumption) || 0;
+        st.mpans.push(String(m.mpan || '').replace(/\s+/g, '').toLowerCase());
+        var d = m.contract_end_date ? String(m.contract_end_date).slice(0, 10) : null;
+        if (d && (!st.ced || d > st.ced)) st.ced = d;
+      });
+      window._bkCustStats = stats;
+      bkRenderCustomerGrid();
+    }
+    // ── Broker: customer grid (search + sort + reminder) ──
+    function bkRenderCustomerGrid() {
+      var grid = document.getElementById('brokerCustomerGrid'); if (!grid) return;
+      var customers = window._bkCustomers || [];
+      var stats = window._bkCustStats || {};
+      function stOf(c){ return stats[c.customer_id] || { n:0, eac:0, ced:null, mpans:[] }; }
+      var q = ((document.getElementById('bkCustSearch') || {}).value || '').trim().toLowerCase();
+      var qm = q.replace(/\s+/g, '');
+      var list = customers.filter(function(c){
+        if (!q) return true;
+        var name = (c.company_name || c.customer_id || '').toLowerCase();
+        if (name.indexOf(q) >= 0) return true;
+        return qm.length >= 3 && stOf(c).mpans.some(function(mp){ return mp.indexOf(qm) >= 0; });
+      });
+      var mode = ((document.getElementById('bkCustSort') || {}).value || 'size');
+      if (mode === 'ced') {
+        list.sort(function(a, b){
+          var ca = stOf(a).ced || '', cb = stOf(b).ced || '';
+          if (ca !== cb) return ca < cb ? 1 : -1;                       // latest CED first, no-CED last
+          return (a.company_name || '') < (b.company_name || '') ? -1 : 1;
+        });
+      } else {
+        list.sort(function(a, b){
+          var A = stOf(a), B = stOf(b);
+          return (B.n - A.n) || (B.eac - A.eac) || ((a.company_name || '') < (b.company_name || '') ? -1 : 1);
+        });
+      }
+      if (!list.length) {
+        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No customers match "' + escapeHtml(q) + '".</div>';
+        return;
+      }
+      var today = new Date().toISOString().slice(0, 10);
+      var soon = new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10);
+      grid.innerHTML = list.map(function(c) {
         var enc = encodeURIComponent(c.customer_id);
+        var st = stOf(c);
+        var cedCol = !st.ced ? 'var(--muted)' : (st.ced < today ? '#b5340f' : (st.ced <= soon ? '#b5840a' : 'var(--navy)'));
+        var cedTxt = st.ced ? ('CED ' + fmtDateUK(st.ced)) : 'No CED';
+        var remOpen = window._bkRemindCid === c.customer_id;
+        var remForm = remOpen ?
+          ('<div style="margin-top:10px;border-top:1.5px solid var(--border);padding-top:10px;" onclick="event.stopPropagation();" onkeydown="event.stopPropagation();">' +
+            '<div style="font-size:11.5px;font-weight:800;color:var(--navy);margin-bottom:6px;">Email me a reminder about this customer</div>' +
+            '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' +
+              '<input type="date" id="bkRemDate" style="padding:7px 8px;border:1.5px solid var(--border);border-radius:7px;font:inherit;font-size:12.5px;">' +
+              '<input type="text" id="bkRemNote" placeholder="e.g. chase renewal before CED" style="flex:1;min-width:140px;padding:7px 8px;border:1.5px solid var(--border);border-radius:7px;font:inherit;font-size:12.5px;">' +
+            '</div>' +
+            '<div style="display:flex;gap:6px;margin-top:8px;">' +
+              '<button class="btn-primary" style="width:auto;padding:6px 12px;font-size:12px;" onclick="bkRemindSave(\'' + enc + '\')">Save reminder</button>' +
+              '<button class="btn-secondary" style="width:auto;padding:6px 12px;font-size:12px;" onclick="bkRemindCancel()">Cancel</button>' +
+            '</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:6px;">Emailed to you on the day via CES reminders. Manage under New business reminders.</div>' +
+          '</div>') : '';
         return '<div class="report-card" role="button" tabindex="0"' +
           ' onclick="openBrokerCustomer(\'' + enc + '\')"' +
           ' onkeydown="if(event.key===\'Enter\'&&event.target===this)openBrokerCustomer(\'' + enc + '\')">' +
             '<div class="report-month">' + escapeHtml(c.company_name || c.customer_id) + '</div>' +
-            '<div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;">' +
+            '<div class="meta" style="margin-top:6px;font-size:12px;color:var(--muted);font-weight:600;">' + st.n + ' meter' + (st.n !== 1 ? 's' : '') + (st.eac ? ' · ' + _bkNum(st.eac, 0) + ' kWh/yr' : '') + '</div>' +
+            '<div class="meta" style="margin-top:3px;font-size:12px;font-weight:800;color:' + cedCol + ';">' + cedTxt + '</div>' +
+            '<div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">' +
               '<span class="meta" style="color:var(--navy);font-weight:600;font-size:12.5px;">View meters →</span>' +
-              '<button class="btn-secondary" style="padding:5px 12px;font-size:12px;color:var(--fail,#8b2015);border-color:var(--fail,#8b2015);" title="Delete this customer" onclick="event.stopPropagation();bkDeleteCustomer(\'' + enc + '\')">Delete</button>' +
-            '</div>' +
+              '<span style="display:flex;gap:6px;">' +
+                '<button class="btn-secondary" style="padding:5px 10px;font-size:12px;" title="Email me a reminder about this customer" onclick="event.stopPropagation();bkRemindOpen(\'' + enc + '\')">⏰ Remind</button>' +
+                '<button class="btn-secondary" style="padding:5px 10px;font-size:12px;color:var(--fail,#8b2015);border-color:var(--fail,#8b2015);" title="Delete this customer" onclick="event.stopPropagation();bkDeleteCustomer(\'' + enc + '\')">Delete</button>' +
+              '</span>' +
+            '</div>' + remForm +
           '</div>';
       }).join('');
+      if (window._bkRemindCid) { var d = document.getElementById('bkRemDate'); if (d && !d.value) d.focus(); }
+    }
+    function bkRemindOpen(cidEnc) {
+      window._bkRemindCid = decodeURIComponent(cidEnc);
+      bkRenderCustomerGrid();
+    }
+    function bkRemindCancel() {
+      window._bkRemindCid = null;
+      bkRenderCustomerGrid();
+    }
+    async function bkRemindSave(cidEnc) {
+      var cid = decodeURIComponent(cidEnc);
+      if (!_SK.myRepId) { safeAlert('Your sales profile isn\u2019t linked yet — reminders need it to know where to email.', null); return; }
+      var date = (document.getElementById('bkRemDate') || {}).value || '';
+      var note = ((document.getElementById('bkRemNote') || {}).value || '').trim();
+      if (!date) { safeAlert('Pick a reminder date.', null); return; }
+      var c = (window._bkCustomers || []).find(function(x){ return x.customer_id === cid; });
+      var name = (c && c.company_name) ? c.company_name : cid;
+      var rec = { rep_id:_SK.myRepId, scope:'customer', is_reminder:true, customer_name:name, remind_on:date, body:(note || null), emailed_at:null, updated_at:new Date().toISOString() };
+      var resp = await sb.from('broker_notes').insert(rec);
+      if (resp.error) { safeAlert('Could not save this reminder.', resp.error); return; }
+      logAction('add_reminder', cid, { customer:name, remind_on:date, via:'customer_card' });
+      window._bkRemindCid = null;
+      await salesFetchAll();
+      if (typeof bxRenderNotes === 'function') bxRenderNotes();
+      bkRenderCustomerGrid();
+      safeAlert('Reminder set for ' + name + ' on ' + fmtDateUK(date) + '. You\u2019ll get an email that morning.', null);
     }
     function backToBrokerCustomers() {
+      window._bkRemindCid = null;
       var lv = document.getElementById('brokerCustomersView');
       var mv = document.getElementById('brokerMetersView');
       if (lv) lv.style.display = '';
@@ -2676,14 +2795,14 @@
       var title = document.getElementById('brokerCustomerTitle');
       var table = document.getElementById('brokerMetersTable');
       if (title) title.textContent = cid;
-      table.innerHTML = '<tbody><tr><td colspan="10" class="empty-state">Loading meters…</td></tr></tbody>';
+      table.innerHTML = '<tbody><tr><td colspan="12" class="empty-state">Loading meters…</td></tr></tbody>';
       sb.from('customers').select('company_name').eq('customer_id', cid).single()
         .then(function(r) { if (r.data && title) title.textContent = r.data.company_name || cid; });
       const { data, error } = await sb
         .from('meters').select('*').eq('customer_id', cid).order('mpan');
       if (error) {
         console.error('Broker load (meters):', error);
-        table.innerHTML = '<tbody><tr><td colspan="10" class="empty-state">Could not load meters. Please refresh.</td></tr></tbody>';
+        table.innerHTML = '<tbody><tr><td colspan="12" class="empty-state">Could not load meters. Please refresh.</td></tr></tbody>';
         return;
       }
       var meters = data || [];
@@ -2693,19 +2812,22 @@
       var totEac = meters.reduce(function(s, m){ return s + (Number(m.est_annual_consumption) || 0); }, 0);
       document.getElementById('bkTotalKva').textContent = totKva ? _bkNum(totKva, 0) : '—';
       document.getElementById('bkTotalEac').textContent = totEac ? _bkNum(totEac, 0) : '—';
+      var latestCed = meters.reduce(function(mx, m){ var d = m.contract_end_date ? String(m.contract_end_date).slice(0,10) : null; return (d && (!mx || d > mx)) ? d : mx; }, null);
+      var cedEl = document.getElementById('bkLatestCed'); if (cedEl) cedEl.textContent = latestCed ? fmtDateUK(latestCed) : '—';
       if (!meters.length) {
-        table.innerHTML = '<tbody><tr><td colspan="10" class="empty-state">No meters recorded for this customer yet.</td></tr></tbody>';
+        table.innerHTML = '<tbody><tr><td colspan="12" class="empty-state">No meters recorded for this customer yet.</td></tr></tbody>';
         return;
       }
       var head = '<thead><tr>' +
-        '<th>MPAN</th><th>Supplier</th><th class="num">Agreed kVA</th>' +
+        '<th>MPAN / MPRN / SPID</th><th>Type</th><th>Supplier</th><th class="num">Agreed kVA</th>' +
         '<th class="num">EAC (kWh)</th><th>Rates (p/kWh)</th>' +
         '<th class="num">Standing p/day</th><th class="num">Capacity p/kVA/day</th>' +
-        '<th>Area</th><th>LLFC</th><th></th></tr></thead>';
+        '<th>Area</th><th>LLFC</th><th>CED</th><th></th></tr></thead>';
       var rows = meters.map(function(m) {
         var rt = (m.current_day_rate!=null||m.current_night_rate!=null) ? ('D '+_bkNum(m.current_day_rate,2)+' / N '+_bkNum(m.current_night_rate,2)+(m.current_eveweekend_rate!=null?(' / E '+_bkNum(m.current_eveweekend_rate,2)):'')) : (m.current_unit_rate!=null?('Single '+_bkNum(m.current_unit_rate,2)):'—');
         return '<tr>' +
           '<td class="mono">' + escapeHtml(m.mpan) + (m.notes ? '<div style="font-size:11px;color:var(--muted);font-weight:400;">' + escapeHtml(m.notes) + '</div>' : '') + '</td>' +
+          '<td style="white-space:nowrap;">' + _bkTypeLabel(m) + '</td>' +
           '<td>' + escapeHtml(m.supplier || '—') + '</td>' +
           '<td class="num">' + _bkNum(m.agreed_kva, 0) + '</td>' +
           '<td class="num">' + _bkNum(m.est_annual_consumption, 0) + '</td>' +
@@ -2714,6 +2836,7 @@
           '<td class="num">' + _bkNum(m.current_capacity_rate, 2) + '</td>' +
           '<td>' + escapeHtml(m.area_code || '—') + '</td>' +
           '<td>' + escapeHtml(m.llfc || '—') + '</td>' +
+          _bkCedCell(m.contract_end_date) +
           '<td style="white-space:nowrap;"><button class="btn-secondary" style="padding:4px 8px;font-size:11.5px;margin-right:3px;" onclick="bkEditMeter(\'' + m.id + '\')">Edit</button><button class="btn-danger" style="padding:4px 8px;font-size:11.5px;margin-right:3px;" onclick="bkDeleteMeter(\'' + m.id + '\')">Del</button><button class="btn-secondary" style="padding:4px 8px;font-size:11.5px;" onclick="openNecForMeter(\'' + encodeURIComponent(m.id) + '\')">NEC</button></td>' +
         '</tr>';
       }).join('');
@@ -2831,13 +2954,15 @@
       logAction('delete_meter', null, { id:id });
       if(window._bkCid) openBrokerCustomer(encodeURIComponent(window._bkCid));
     }
-    var BK_TEMPLATE_COLS = ['MPAN','Supplier','Utility','Supply Type','Area/DNO Code','LLFC','Agreed kVA','EAC (kWh/yr)','Unit Rate (p/kWh)','Day Rate (p/kWh)','Night Rate (p/kWh)','Evening/Weekend Rate (p/kWh)','Standing Charge (p/day)','Capacity Rate (p/kVA/day)','Contract End (YYYY-MM-DD)','Notes'];
+    var BK_TEMPLATE_COLS = ['MPAN / MPRN / SPID','Supplier','Utility','Supply Type','Area/DNO Code','LLFC','Agreed kVA','EAC (kWh/yr)','Unit Rate (p/kWh)','Day Rate (p/kWh)','Night Rate (p/kWh)','Evening/Weekend Rate (p/kWh)','Standing Charge (p/day)','Capacity Rate (p/kVA/day)','Contract End (YYYY-MM-DD)','Notes'];
     function bkDownloadTemplate() {
       if (typeof XLSX === 'undefined') { alert('Spreadsheet library still loading — try again in a second.'); return; }
       var examples = [
         ['1050002996278','Marble Power','electricity','HH','10','072',120,380280,'',21.48,18.20,'',794.0,6.25,'2026-09-30','Day/Night (2-rate): fill Day + Night, leave Unit blank.'],
         ['1234567890123','Example Supplier','electricity','NHH','11','123','',25000,12.50,'','','',45.0,'','2027-03-31','Single rate: fill Unit only.'],
-        ['9876543210987','Example Supplier','electricity','HH','12','456',200,500000,'',24.10,15.80,9.90,610.0,7.00,'2028-01-31','3-rate: Day + Night + Evening/Weekend.']
+        ['9876543210987','Example Supplier','electricity','HH','12','456',200,500000,'',24.10,15.80,9.90,610.0,7.00,'2028-01-31','3-rate: Day + Night + Evening/Weekend.'],
+        ['9123456','Example Gas Co','gas','','','','',300000,6.20,'','','',38.0,'','2027-09-30','Gas MPRN: Utility = gas. Unit + Standing only.'],
+        ['1WA123456789','Example Water Co','water','','','','','','','','','','','','2027-04-01','Water SPID: Utility = water. Rates optional.']
       ];
       var ws = XLSX.utils.aoa_to_sheet([BK_TEMPLATE_COLS].concat(examples));
       ws['!cols'] = BK_TEMPLATE_COLS.map(function(){ return { wch:18 }; });
@@ -2862,12 +2987,12 @@
         function num(v){ v=(''+v).trim(); return v===''?null:(isNaN(Number(v))?null:Number(v)); }
         var out=[]; var skipped=0;
         rows.forEach(function(r){
-          var mpan=(''+pick(r,['mpan','mpanmpr','mpr'])).trim();
+          var mpan=(''+pick(r,['mpan','mpanmpr','mpr','mprn','spid','mpanmprnspid'])).trim();
           if(!mpan){ skipped++; return; }
           out.push({
             customer_id:cid, mpan:mpan,
             supplier:(''+pick(r,['supplier'])).trim()||null,
-            utility:((''+pick(r,['utility'])).trim().toLowerCase()==='gas')?'gas':'electricity',
+            utility:(function(u){ u=(''+u).trim().toLowerCase(); return (u==='gas'||u==='water')?u:'electricity'; })(pick(r,['utility'])),
             supply_type:(function(v){ v=(''+v).trim().toUpperCase(); return (v==='HH'||v==='NHH')?v:null; })(pick(r,['supplytype'])),
             area_code:(''+pick(r,['areadnocode','areacode','area','dnocode'])).trim()||null,
             llfc:(''+pick(r,['llfc'])).trim()||null,
@@ -2909,8 +3034,10 @@
       var ex = [
         ['Acme Ltd','1050002996278','Marble Power','electricity','HH','10','072',120,380280,'',21.48,18.20,'',794.0,6.25,'2026-09-30','Day/Night (2-rate): fill Day + Night, leave Unit blank.'],
         ['Acme Ltd','1234567890123','Example Supplier','electricity','NHH','11','123','',25000,12.50,'','','',45.0,'','2027-03-31','Second meter, same company — repeat the company name.'],
+        ['Acme Ltd','9123456','Example Gas Co','gas','','','','',300000,6.20,'','','',38.0,'','2027-09-30','Gas MPRN: set Utility to gas.'],
+        ['Acme Ltd','1WA123456789','Example Water Co','water','','','','','','','','','','','','2027-04-01','Water SPID: set Utility to water. Rates optional.'],
         ['Bloggs & Co','9876543210987','Example Supplier','electricity','HH','12','456',200,500000,'',24.10,15.80,9.90,610.0,7.00,'2028-01-31','A new company name on a row creates that customer automatically.'],
-        ['Empty Site Ltd','','','','','','','','','','','','','','','Company name with no MPAN = customer created with no meters.']
+        ['Empty Site Ltd','','','','','','','','','','','','','','','Company name with no MPAN / MPRN / SPID = customer created with no meters.']
       ];
       var ws = XLSX.utils.aoa_to_sheet([BK_BULK_COLS].concat(ex));
       ws['!cols'] = BK_BULK_COLS.map(function(){ return { wch:18 }; });
@@ -2971,12 +3098,12 @@
         order.forEach(function(key){
           var g = groups[key];
           g.rows.forEach(function(r){
-            var mpan = ('' + pick(r, ['mpan','mpanmpr','mpr'])).trim();
+            var mpan = ('' + pick(r, ['mpan','mpanmpr','mpr','mprn','spid','mpanmprnspid'])).trim();
             if (!mpan) { skipped++; return; }
             meters.push({
               customer_id: g.cid, mpan: mpan,
               supplier: ('' + pick(r,['supplier'])).trim() || null,
-              utility: (('' + pick(r,['utility'])).trim().toLowerCase() === 'gas') ? 'gas' : 'electricity',
+              utility: (function(u){ u = ('' + u).trim().toLowerCase(); return (u === 'gas' || u === 'water') ? u : 'electricity'; })(pick(r,['utility'])),
               supply_type: (function(v){ v = ('' + v).trim().toUpperCase(); return (v === 'HH' || v === 'NHH') ? v : null; })(pick(r,['supplytype'])),
               area_code: ('' + pick(r,['areadnocode','areacode','area','dnocode'])).trim() || null,
               llfc: ('' + pick(r,['llfc'])).trim() || null,
