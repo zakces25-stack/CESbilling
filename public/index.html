@@ -1739,8 +1739,22 @@
           <div class="b1">CES Billing</div>
           <div class="b2">Admin</div>
         </div>
-        <div class="sidebar-nav">
-          <div class="nav-item active">Admin Dashboard</div>
+        <div class="sidebar-nav" id="adminSidebarNav">
+          <div class="sidebar-nav-label">Billing Portal Admin</div>
+          <div class="nav-item active" data-atab="upload" onclick="adminTab('upload')">Upload Validation</div>
+          <div class="nav-item" data-atab="upload-occ" onclick="adminTab('upload-occ')">Upload Occupancy</div>
+          <div class="nav-item" data-atab="reports" onclick="adminTab('reports')">Reports Admin</div>
+          <div class="nav-item" data-atab="customers" onclick="adminTab('customers')">Customers</div>
+          <div class="nav-item" data-atab="siteaddr" onclick="adminTab('siteaddr')">Site Addresses</div>
+          <div class="sidebar-nav-label" style="margin-top:16px;">Broker Admin Portal</div>
+          <div class="nav-item" data-atab="sales" onclick="adminTab('sales')">Commission &amp; Targets</div>
+          <div class="nav-item" data-atab="sk-figures" onclick="adminTab('sk-figures')">Monthly Figures</div>
+          <div class="nav-item" data-atab="sk-board" onclick="adminTab('sk-board')">Team Leaderboard</div>
+          <div class="nav-item" data-atab="sk-report" onclick="adminTab('sk-report')">Month-End Report</div>
+          <div class="nav-item" data-atab="meters" onclick="adminTab('meters')">Meters / MPANs</div>
+          <div class="sidebar-nav-label" style="margin-top:16px;">Carbon Reporting Portal</div>
+          <div class="nav-item" data-atab="carbon" onclick="adminTab('carbon')">Carbon Config</div>
+          <div class="nav-item" data-atab="carbon-console" onclick="adminTab('carbon-console')">Carbon Console</div>
         </div>
         <div class="sidebar-foot">
           <button class="signout-btn" onclick="doSignOut()">Sign out</button>
@@ -1750,8 +1764,8 @@
         <div class="topbar">
           <button class="mobile-menu-toggle" onclick="toggleSidebar()" aria-label="Menu" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
           <div class="topbar-left">
-            <h1>Admin Dashboard</h1>
-            <div class="meta" id="adminMeta">— customers · — reports</div>
+            <h1 id="adminTitle">Upload Validation</h1>
+            <div class="meta"><span id="adminSectionChip" style="font-weight:800;color:var(--navy);">Billing Portal Admin</span> · <span id="adminMeta">— customers · — reports</span></div>
           </div>
           <div class="topbar-right">
             <div class="avatar-menu-wrapper">
@@ -1767,15 +1781,6 @@
             </div>
             <img class="topbar-ces-logo" src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES" onerror="this.style.display='none'" />
           </div>
-        </div>
-        <div class="admin-tabs">
-          <button class="admin-tab active" onclick="adminTab('upload')">Upload Validation</button>
-          <button class="admin-tab" onclick="adminTab('upload-occ')">Upload Occupancy</button>
-          <button class="admin-tab" onclick="adminTab('reports')">Reports Admin</button>
-          <button class="admin-tab" onclick="adminTab('customers')">Customers</button>
-          <button class="admin-tab" onclick="adminTab('sales')">Sales KPIs</button>
-          <button class="admin-tab" onclick="adminTab('siteaddr')">Site Addresses</button>
-          <button class="admin-tab" onclick="adminTab('carbon')">Carbon Config</button>
         </div>
         <!-- UPLOAD VALIDATION TAB -->
         <div class="tab-pane active" id="tab-upload">
@@ -1911,6 +1916,9 @@
             <div class="success-box" id="skCompMsg" style="display:none;">Saved.</div>
             <div id="skCompEditor" style="overflow-x:auto;"></div>
           </div>
+        </div>
+        <!-- BROKER ADMIN · MONTHLY FIGURES -->
+        <div class="tab-pane" id="tab-sk-figures">
           <div class="form-card" style="margin-bottom:16px;">
             <h3 style="font-size:14px;font-weight:800;margin-bottom:8px;">Enter / edit monthly figures</h3>
             <div class="success-box" id="skKpiMsg" style="display:none;">Saved.</div>
@@ -1922,6 +1930,9 @@
             <button class="btn-primary" style="width:auto;padding:10px 18px;margin-top:12px;" onclick="skSaveKpi()">Save figures</button>
             <button class="btn-secondary" style="width:auto;padding:10px 18px;margin-top:12px;margin-left:8px;color:#b5340f;border-color:#e3b3a6;" onclick="skDeleteKpi()">Delete this month</button>
           </div>
+        </div>
+        <!-- BROKER ADMIN · TEAM LEADERBOARD -->
+        <div class="tab-pane" id="tab-sk-board">
           <div class="form-card">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
               <h3 style="font-size:14px;font-weight:800;">Team leaderboard <span style="font-weight:600;color:var(--muted);font-size:12px;">· click a rep for detail</span></h3>
@@ -1933,7 +1944,10 @@
             <div id="skAdminChart" style="margin-bottom:16px;"></div>
             <div id="skAdminBoard" style="overflow-x:auto;"></div>
           </div>
-          <div class="form-card" style="margin-top:16px;">
+        </div>
+        <!-- BROKER ADMIN · MONTH-END REPORT -->
+        <div class="tab-pane" id="tab-sk-report">
+          <div class="form-card">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
               <h3 style="font-size:14px;font-weight:800;">Month-end report</h3>
               <div style="display:flex;gap:8px;align-items:center;">
@@ -2050,6 +2064,16 @@
           </div>
         </div>
 
+        <!-- CARBON REPORTING · ADMIN CONSOLE -->
+        <div class="tab-pane" id="tab-carbon-console">
+          <div class="form-card" style="margin-bottom:14px;">
+            <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Carbon reporting console</h2>
+            <p style="font-size:13px;color:var(--muted);margin-bottom:0;">Full Scope 1–3 admin console — customer settings, DEFRA factor year, green share and mass-upload import. You are signed in through your CES admin account; no separate login needed. <a href="/carbon-admin.html" target="_blank" rel="noopener" style="color:var(--navy);font-weight:700;">Open full screen ↗</a></p>
+          </div>
+          <div class="form-card" style="padding:0;overflow:hidden;">
+            <iframe id="carbonConsoleFrame" title="Carbon Reporting Admin Console" style="width:100%;height:calc(100vh - 300px);min-height:620px;border:0;display:block;background:#fff;"></iframe>
+          </div>
+        </div>
         <!-- CUSTOMERS TAB -->
         <div class="tab-pane" id="tab-customers">
           <div class="form-card" style="margin-bottom:24px;">
@@ -3988,15 +4012,42 @@
       await refreshAdminReportTable();
       refreshDangerZone();
     }
+    var ADMIN_TAB_META = {
+      'upload':         ['Billing Portal Admin', 'Upload Validation'],
+      'upload-occ':     ['Billing Portal Admin', 'Upload Occupancy'],
+      'reports':        ['Billing Portal Admin', 'Reports Admin'],
+      'customers':      ['Billing Portal Admin', 'Customers'],
+      'siteaddr':       ['Billing Portal Admin', 'Site Addresses'],
+      'sales':          ['Broker Admin Portal', 'Commission & Targets'],
+      'sk-figures':     ['Broker Admin Portal', 'Monthly Figures'],
+      'sk-board':       ['Broker Admin Portal', 'Team Leaderboard'],
+      'sk-report':      ['Broker Admin Portal', 'Month-End Report'],
+      'meters':         ['Broker Admin Portal', 'Meters / MPANs'],
+      'carbon':         ['Carbon Reporting Portal', 'Carbon Config'],
+      'carbon-console': ['Carbon Reporting Portal', 'Carbon Console']
+    };
     function adminTab(name) {
-      document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-      document.querySelector(`.admin-tab[onclick*="'${name}'"]`).classList.add('active');
-      document.getElementById('tab-' + name).classList.add('active');
+      document.querySelectorAll('#adminSidebarNav .nav-item').forEach(function(t){
+        t.classList.toggle('active', t.getAttribute('data-atab') === name);
+      });
+      document.querySelectorAll('#adminPage .tab-pane').forEach(p => p.classList.remove('active'));
+      var pane = document.getElementById('tab-' + name);
+      if (pane) pane.classList.add('active');
+      var meta = ADMIN_TAB_META[name] || ['Admin', 'Admin Dashboard'];
+      var chip = document.getElementById('adminSectionChip'); if (chip) chip.textContent = meta[0];
+      var h = document.getElementById('adminTitle'); if (h) h.textContent = meta[1];
       if (name === 'carbon') loadCarbonConfig();
       if (name === 'customers') refreshDangerZone();
-      if (name === 'sales') loadSalesAdmin();
+      if (name === 'sales' || name === 'sk-figures' || name === 'sk-board' || name === 'sk-report') loadSalesAdmin();
       if (name === 'siteaddr') loadSiteAddrAdmin();
+      if (name === 'meters') loadMeters();
+      if (name === 'carbon-console') openCarbonConsole();
+      var main = document.querySelector('#adminPage .main-area'); if (main) main.scrollTop = 0;
+    }
+    function openCarbonConsole() {
+      try { sessionStorage.setItem('cesCarbonAdmin', '1'); } catch(_) {}
+      var f = document.getElementById('carbonConsoleFrame');
+      if (f && !f.getAttribute('src')) f.setAttribute('src', '/carbon-admin.html');
     }
 
     // ═══════════════════ SALES / BROKER KPI MODULE ═══════════════════
