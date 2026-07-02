@@ -1677,18 +1677,14 @@
               <div class="stat-value" id="bkMeterCount">—</div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">Total Agreed kVA</div>
-              <div class="stat-value" id="bkTotalKva">—</div>
-            </div>
-            <div class="stat-card">
               <div class="stat-label">Est. Annual Consumption</div>
               <div class="stat-value" id="bkTotalEac">—</div>
               <div class="stat-foot" style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'Manrope',sans-serif;">kWh / year</div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">Latest CED</div>
+              <div class="stat-label">Next CED</div>
               <div class="stat-value" id="bkLatestCed" style="font-size:20px;">—</div>
-              <div class="stat-foot" style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'Manrope',sans-serif;">furthest contract end date</div>
+              <div class="stat-foot" style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'Manrope',sans-serif;">soonest contract end date</div>
             </div>
           </div>
           <div class="card" style="margin-bottom:16px;">
@@ -2614,7 +2610,7 @@
         st.eac += Number(m.est_annual_consumption) || 0;
         st.mpans.push(String(m.mpan || '').replace(/\s+/g, '').toLowerCase());
         var d = m.contract_end_date ? String(m.contract_end_date).slice(0, 10) : null;
-        if (d && (!st.ced || d > st.ced)) st.ced = d;
+        if (d && (!st.ced || d < st.ced)) st.ced = d;
       });
       window._bkCustStats = stats;
       bkRenderCustomerGrid();
@@ -2631,7 +2627,7 @@
         if (!q) return true;
         var name = (c.company_name || c.customer_id || '').toLowerCase();
         if (name.indexOf(q) >= 0) return true;
-        return qm.length >= 3 && stOf(c).mpans.some(function(mp){ return mp.indexOf(qm) >= 0; });
+        return qm.length > 0 && stOf(c).mpans.some(function(mp){ return mp.indexOf(qm) >= 0; });
       });
       var mode = ((document.getElementById('bkCustSort') || {}).value || 'size');
       if (mode === 'ced') {
@@ -2656,7 +2652,7 @@
         var enc = encodeURIComponent(c.customer_id);
         var st = stOf(c);
         var cedCol = !st.ced ? 'var(--muted)' : (st.ced < today ? '#b5340f' : (st.ced <= soon ? '#b5840a' : 'var(--navy)'));
-        var cedTxt = st.ced ? ('CED ' + fmtDateUK(st.ced)) : 'No CED';
+        var cedTxt = st.ced ? ('Next CED ' + fmtDateUK(st.ced)) : 'No CED';
         var remOpen = window._bkRemindCid === c.customer_id;
         var remForm = remOpen ?
           ('<div style="margin-top:10px;border-top:1.5px solid var(--border);padding-top:10px;" onclick="event.stopPropagation();" onkeydown="event.stopPropagation();">' +
@@ -2808,12 +2804,10 @@
       var meters = data || [];
       window._bkMeters = meters;
       document.getElementById('bkMeterCount').textContent = meters.length;
-      var totKva = meters.reduce(function(s, m){ return s + (Number(m.agreed_kva) || 0); }, 0);
       var totEac = meters.reduce(function(s, m){ return s + (Number(m.est_annual_consumption) || 0); }, 0);
-      document.getElementById('bkTotalKva').textContent = totKva ? _bkNum(totKva, 0) : '—';
       document.getElementById('bkTotalEac').textContent = totEac ? _bkNum(totEac, 0) : '—';
-      var latestCed = meters.reduce(function(mx, m){ var d = m.contract_end_date ? String(m.contract_end_date).slice(0,10) : null; return (d && (!mx || d > mx)) ? d : mx; }, null);
-      var cedEl = document.getElementById('bkLatestCed'); if (cedEl) cedEl.textContent = latestCed ? fmtDateUK(latestCed) : '—';
+      var nextCed = meters.reduce(function(mx, m){ var d = m.contract_end_date ? String(m.contract_end_date).slice(0,10) : null; return (d && (!mx || d < mx)) ? d : mx; }, null);
+      var cedEl = document.getElementById('bkLatestCed'); if (cedEl) cedEl.textContent = nextCed ? fmtDateUK(nextCed) : '—';
       if (!meters.length) {
         table.innerHTML = '<tbody><tr><td colspan="12" class="empty-state">No meters recorded for this customer yet.</td></tr></tbody>';
         return;
