@@ -1016,6 +1016,34 @@
     @keyframes spin { to { transform: rotate(360deg); } }
 
   </style>
+<style>
+    /* Carbon Console (native port of carbon-admin) */
+    #tab-carbon-console .ccx-ctrl-row{display:grid;grid-template-columns:2fr 1fr 1fr;gap:16px;max-width:900px}
+    @media(max-width:800px){#tab-carbon-console .ccx-ctrl-row{grid-template-columns:1fr}}
+    #tab-carbon-console .ccx-drop{border:2px dashed var(--border);border-radius:12px;padding:26px;text-align:center;background:var(--surface-2);cursor:pointer;transition:border-color .15s}
+    #tab-carbon-console .ccx-drop:hover{border-color:var(--navy)}
+    #tab-carbon-console .ccx-drop .big{font-size:15px;font-weight:700}
+    #tab-carbon-console .ccx-drop .sm{font-size:12.5px;color:var(--muted);margin-top:4px}
+    #tab-carbon-console .ccx-status{font-size:13px;font-weight:600}
+    #tab-carbon-console .ccx-status.ok{color:#3a7a24}
+    #tab-carbon-console .ccx-status.err{color:#8b2015}
+    #tab-carbon-console .ccx-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+    @media(max-width:700px){#tab-carbon-console .ccx-kpis{grid-template-columns:repeat(2,1fr)}}
+    #tab-carbon-console .ccx-kpi{background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+    #tab-carbon-console .ccx-kpi.s1{border-top:3px solid #2f3d7e}
+    #tab-carbon-console .ccx-kpi.s2{border-top:3px solid #1d9e75}
+    #tab-carbon-console .ccx-kpi.s3{border-top:3px solid #e0912b}
+    #tab-carbon-console .ccx-kpi .lbl{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+    #tab-carbon-console .ccx-kpi .val{font-size:22px;font-weight:800;margin-top:4px}
+    #tab-carbon-console .ccx-kpi .val small{font-size:12px;color:var(--muted);font-weight:600}
+    #tab-carbon-console .ccx-grid2{display:grid;grid-template-columns:1.5fr 1fr;gap:16px}
+    @media(max-width:800px){#tab-carbon-console .ccx-grid2{grid-template-columns:1fr}}
+    #tab-carbon-console table.ccx-dt{width:100%;border-collapse:collapse;font-size:13px}
+    #tab-carbon-console table.ccx-dt th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:700;padding:8px 9px;border-bottom:1.5px solid var(--border)}
+    #tab-carbon-console table.ccx-dt td{padding:8px 9px;border-bottom:1px solid #ede9df}
+    #tab-carbon-console table.ccx-dt th.r,#tab-carbon-console table.ccx-dt td.r{text-align:right}
+    #tab-carbon-console .ccx-chart-box{position:relative;height:250px}
+  </style>
 </head>
 <body>
   <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
@@ -1343,9 +1371,9 @@
         </div>
         <div class="sidebar-nav">
           <div class="nav-item active" id="bkNavSales" onclick="brokerNav('sales')">Sales Performance</div>
-          <div class="nav-item" id="bkNavCust" onclick="brokerNav('customers')">My Customers</div>
-          <div class="nav-item" id="bkNavProjects" onclick="brokerNav('projects')">My Projects</div>
           <div class="nav-item" id="bkNavAnalytics" onclick="brokerNav('analytics')">Analytical Data</div>
+          <div class="nav-item" id="bkNavProjects" onclick="brokerNav('projects')">My Projects</div>
+          <div class="nav-item" id="bkNavCust" onclick="brokerNav('customers')">My Customers</div>
         </div>
         <div class="sidebar-foot">
           <button class="signout-btn" onclick="doSignOut()">Sign out</button>
@@ -1416,11 +1444,6 @@
               <div id="bxOvBoard" style="overflow-x:auto;"></div>
             </div>
 
-            <div class="card">
-              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Your sales</h3>
-              <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px;">Every contract you've logged. Add or edit them under <b>Monthly performance</b>.</p>
-              <div id="bxSaleListOverview" style="overflow-x:auto;"></div>
-            </div>
           </div>
 
           <!-- ===================== MONTHLY PERFORMANCE ===================== -->
@@ -2085,14 +2108,52 @@
           </div>
         </div>
 
-        <!-- CARBON REPORTING · ADMIN CONSOLE -->
+        <!-- CARBON REPORTING: ADMIN CONSOLE (native) -->
         <div class="tab-pane" id="tab-carbon-console">
-          <div class="form-card" style="margin-bottom:14px;">
-            <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Carbon reporting console</h2>
-            <p style="font-size:13px;color:var(--muted);margin-bottom:0;">Full Scope 1–3 admin console — customer settings, DEFRA factor year, green share and mass-upload import. You are signed in through your CES admin account; no separate login needed. <a href="/carbon-admin.html" target="_blank" rel="noopener" style="color:var(--navy);font-weight:700;">Open full screen ↗</a></p>
+          <div class="form-card" style="margin-bottom:16px;">
+            <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Customer &amp; settings</h2>
+            <p style="font-size:13px;color:var(--muted);margin-bottom:18px;">Select a customer, set the DEFRA factor year and green share, then import the CES mass-upload file. Factor year and green share are admin-only — the client portal cannot change them.</p>
+            <div class="ccx-ctrl-row">
+              <div class="form-group"><label>Customer</label><select id="ccxCustSel"><option value="">Select a customer…</option></select></div>
+              <div class="form-group"><label>Factor year (DEFRA)</label><select id="ccxYearSel"><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option></select></div>
+              <div class="form-group"><label>Green electricity %</label><input type="number" id="ccxGreenInp" value="0" min="0" max="100" /></div>
+            </div>
           </div>
-          <div class="form-card" style="padding:0;overflow:hidden;">
-            <iframe id="carbonConsoleFrame" title="Carbon Reporting Admin Console" style="width:100%;height:calc(100vh - 300px);min-height:620px;border:0;display:block;background:#fff;"></iframe>
+          <div class="form-card" style="margin-bottom:16px;">
+            <h2 style="font-size:16px;font-weight:800;margin-bottom:6px;">Import CES mass-upload file</h2>
+            <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">Send the blank template to the customer to complete, then import their returned file below. Sheets: Company · Scope 1 · Scope 2 · Scope 3.</p>
+            <a class="btn-secondary" href="/CES_Carbon_Mass_Upload_Template.xlsx" download style="text-decoration:none;display:inline-block;width:auto;padding:9px 14px;margin-bottom:14px;">&#8681; Download blank CES template</a>
+            <div class="ccx-drop" id="ccxDrop">
+              <div class="big">Drop the completed CES mass-upload .xlsx here</div>
+              <div class="sm">or click to choose a file</div>
+              <input type="file" id="ccxFileInp" accept=".xlsx,.xls" style="display:none;" />
+            </div>
+            <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;align-items:center;">
+              <button class="btn-secondary" id="ccxSampleBtn" style="width:auto;padding:9px 14px;">Load worked example (CCCH)</button>
+              <span class="ccx-status" id="ccxStatus"></span>
+            </div>
+          </div>
+          <div id="ccxResults" style="display:none;">
+            <div class="form-card" style="margin-bottom:16px;">
+              <h2 style="font-size:16px;font-weight:800;margin-bottom:14px;">Extracted &amp; calculated — <span id="ccxRCust"></span> · <span id="ccxRYear"></span></h2>
+              <div class="ccx-kpis" id="ccxKpis"></div>
+              <div class="ccx-grid2">
+                <div><table class="ccx-dt" id="ccxS3Table"></table></div>
+                <div>
+                  <div class="ccx-chart-box"><canvas id="ccxChSplit"></canvas></div>
+                  <div style="font-size:12.5px;color:var(--muted);margin-top:12px;" id="ccxS2Note"></div>
+                </div>
+              </div>
+              <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;align-items:center;">
+                <button class="btn-primary" id="ccxApplyBtn" style="width:auto;padding:10px 18px;">Apply &amp; save to customer</button>
+                <span class="ccx-status" id="ccxApplyStatus"></span>
+              </div>
+            </div>
+            <div class="form-card">
+              <h2 style="font-size:16px;font-weight:800;margin-bottom:10px;">Parsed activity data</h2>
+              <table class="ccx-dt" id="ccxActTable"></table>
+              <div style="font-size:12px;color:var(--muted);margin-top:10px;">Source rows read directly from the uploaded workbook. Activity data only — factors are applied by CES.</div>
+            </div>
           </div>
         </div>
         <!-- CUSTOMERS TAB -->
@@ -4194,10 +4255,218 @@
       if (name === 'carbon-console') openCarbonConsole();
       var main = document.querySelector('#adminPage .main-area'); if (main) main.scrollTop = 0;
     }
-    function openCarbonConsole() {
-      try { sessionStorage.setItem('cesCarbonAdmin', '1'); } catch(_) {}
-      var f = document.getElementById('carbonConsoleFrame');
-      if (f && !f.getAttribute('src')) f.setAttribute('src', '/carbon-admin.html');
+    function openCarbonConsole() { ccxOpen(); }
+    // ═══ CARBON CONSOLE — native Scope 1–3 admin (ported from carbon-admin.html) ═══
+    // Same parser, DEFRA factor set and maths as the standalone page, but running
+    // inside the admin session: customers come from the live `customers` table and
+    // "Apply & save" persists the computed footprint to `carbon_reports`.
+    var _ccx = { bound:false, parsed:null, chart:null };
+    var CCX_DEFRA = {
+      2025:{elecGen:0.17700,elecTD:0.01853,elecWTTgen:0.03600,elecWTTtd:0.00320,gas:0.18296,gasWTT:0.02460},
+      2024:{elecGen:0.20705,elecTD:0.01830,elecWTTgen:0.03880,elecWTTtd:0.00340,gas:0.18290,gasWTT:0.02455},
+      2023:{elecGen:0.20707,elecTD:0.01899,elecWTTgen:0.03910,elecWTTtd:0.00350,gas:0.18293,gasWTT:0.02450}
+    };
+    function _ccxSum(a){ return a.reduce(function(x,y){ return x+y; }, 0); }
+    function _ccxT(kg){ return kg/1000; }
+    function _ccxFmt(n,d){ d=d||0; return Number(n).toLocaleString('en-GB',{minimumFractionDigits:d,maximumFractionDigits:d}); }
+    function _ccxChartLib(){
+      return new Promise(function(res){
+        if (window.Chart) return res(true);
+        if (window._ccxChartLoading) { window._ccxChartLoading.push(res); return; }
+        window._ccxChartLoading = [res];
+        var sc = document.createElement('script');
+        sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
+        sc.onload = function(){ (window._ccxChartLoading||[]).forEach(function(f){ f(true); }); window._ccxChartLoading=null; };
+        sc.onerror = function(){ (window._ccxChartLoading||[]).forEach(function(f){ f(false); }); window._ccxChartLoading=null; };
+        document.head.appendChild(sc);
+      });
+    }
+    async function ccxOpen(){
+      if (!_ccx.bound) { _ccx.bound = true; _ccxBind(); }
+      _ccxChartLib();
+      var r = await sb.from('customers').select('customer_id, company_name').order('company_name');
+      var sel = document.getElementById('ccxCustSel');
+      if (sel && !r.error) {
+        var cur = sel.value;
+        sel.innerHTML = '<option value="">Select a customer…</option>' +
+          (r.data||[]).map(function(c){ return '<option value="' + escapeHtml(c.customer_id) + '">' + escapeHtml(c.company_name) + '</option>'; }).join('');
+        if (cur) sel.value = cur;
+      }
+    }
+    function _ccxCustName(){
+      var sel = document.getElementById('ccxCustSel');
+      if (!sel || !sel.value) return '';
+      var o = sel.options[sel.selectedIndex];
+      return o ? o.textContent : '';
+    }
+    function _ccxStatus(msg, ok){
+      var el = document.getElementById('ccxStatus');
+      if (el) { el.textContent = msg; el.className = 'ccx-status ' + (ok ? 'ok' : 'err'); }
+    }
+    function _ccxBind(){
+      var drop = document.getElementById('ccxDrop'), fi = document.getElementById('ccxFileInp');
+      if (drop && fi) {
+        drop.addEventListener('click', function(){ fi.click(); });
+        drop.addEventListener('dragover', function(e){ e.preventDefault(); drop.style.borderColor = 'var(--navy)'; });
+        drop.addEventListener('dragleave', function(){ drop.style.borderColor = ''; });
+        drop.addEventListener('drop', function(e){ e.preventDefault(); drop.style.borderColor = ''; if (e.dataTransfer.files[0]) _ccxRead(e.dataTransfer.files[0]); });
+        fi.addEventListener('change', function(e){ if (e.target.files[0]) _ccxRead(e.target.files[0]); e.target.value = ''; });
+      }
+      ['ccxYearSel','ccxGreenInp','ccxCustSel'].forEach(function(id){
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('change', function(){ if (_ccx.parsed) _ccxRender(); });
+      });
+      var sm = document.getElementById('ccxSampleBtn');
+      if (sm) sm.addEventListener('click', function(){ _ccx.parsed = _ccxSample(); _ccxStatus('Loaded worked example (CCCH FY2024–25).', true); _ccxRender(); });
+      var ap = document.getElementById('ccxApplyBtn');
+      if (ap) ap.addEventListener('click', _ccxApply);
+    }
+    function _ccxRead(file){
+      if (typeof XLSX === 'undefined') { safeAlert('Spreadsheet library still loading — try again in a second.', null); return; }
+      _ccxStatus('Reading ' + file.name + '…', true);
+      var rd = new FileReader();
+      rd.onload = function(e){
+        try {
+          var wb = XLSX.read(new Uint8Array(e.target.result), { type:'array' });
+          _ccx.parsed = _ccxParseWB(wb);
+          if (!_ccx.parsed.gasKwh && !_ccx.parsed.elecKwh) { _ccxStatus('Could not find Scope 1/2 data — is this the CES template?', false); return; }
+          _ccxStatus('Parsed ' + file.name + ' ✓', true);
+          _ccxRender();
+        } catch(err) { console.error('ccx parse:', err); _ccxStatus('Failed to parse file: ' + err.message, false); }
+      };
+      rd.readAsArrayBuffer(file);
+    }
+    function _ccxParseWB(wb){
+      function grid(n){ return wb.Sheets[n] ? XLSX.utils.sheet_to_json(wb.Sheets[n], { header:1, defval:null }) : null; }
+      var company = { name:'', greenPct:0, employees:0, year:'' };
+      var cs = grid('Company');
+      if (cs) cs.forEach(function(r){
+        if (!r) return;
+        var f = String(r[0]||'').toLowerCase(), v = r[1];
+        if (f.indexOf('company name') >= 0) company.name = v || '';
+        else if (f.indexOf('green') >= 0) company.greenPct = parseFloat(v) || 0;
+        else if (f.indexOf('employee') >= 0) company.employees = parseFloat(v) || 0;
+        else if (f.indexOf('reporting year') >= 0) company.year = String(v||'');
+      });
+      function energy(name){
+        var rows = grid(name); if (!rows) return [];
+        var hi = -1;
+        for (var i = 0; i < rows.length; i++) { if (rows[i] && rows[i].some(function(c){ return String(c).trim() === 'Apr'; })) { hi = i; break; } }
+        if (hi < 0) return [];
+        var ai = rows[hi].findIndex(function(c){ return String(c).trim() === 'Apr'; });
+        var out = [];
+        for (var j = hi + 1; j < rows.length; j++) {
+          var r = rows[j]; if (!r || !r[0]) continue;
+          var months = [];
+          for (var mIdx = 0; mIdx < 12; mIdx++) { var v = r[ai + mIdx]; months.push(typeof v === 'number' ? v : (parseFloat(v) || 0)); }
+          out.push({ label:String(r[0]), unit:String(r[1]||''), months:months, annual:_ccxSum(months) });
+        }
+        return out;
+      }
+      var s1 = energy('Scope 1 (Gas & Fuels)'), s2 = energy('Scope 2 (Electricity)');
+      var gasRows = s1.filter(function(r){ return /kwh/i.test(r.unit); });
+      var elecRows = s2.filter(function(r){ return /kwh/i.test(r.unit); });
+      var gasKwh = gasRows.reduce(function(t,r){ return t + r.annual; }, 0);
+      var elecKwh = elecRows.reduce(function(t,r){ return t + r.annual; }, 0);
+      var s3rows = [];
+      var t3 = grid('Scope 3');
+      if (t3) {
+        var h3 = -1;
+        for (var k = 0; k < t3.length; k++) { if (t3[k] && t3[k].some(function(c){ return String(c).indexOf('Emission factor') >= 0; })) { h3 = k; break; } }
+        if (h3 >= 0) for (var q = h3 + 1; q < t3.length; q++) {
+          var rr = t3[q]; if (!rr || !rr[0]) continue;
+          var qty = parseFloat(rr[3]), f = parseFloat(rr[4]);
+          s3rows.push({ cat:String(rr[0]), item:String(rr[1]||''), unit:String(rr[2]||''), qty:isNaN(qty)?null:qty, f:isNaN(f)?null:f });
+        }
+      }
+      return { company:company, s1:s1, s2:s2, gasRows:gasRows, elecRows:elecRows, gasKwh:gasKwh, elecKwh:elecKwh, s3rows:s3rows };
+    }
+    function _ccxSample(){
+      var gas = [1463242,1726992,1864940,1174059,1149262,1256867,2138300,2200408,2051316,2115714,2846167,2641834];
+      var el  = [580776,554270,781777,796543,656285,729316,802662,851738,898278,803389,728416,709206];
+      return { company:{ name:'Country Court Care Homes', greenPct:0, employees:2407, year:'2024-25' },
+        s1:[{ label:'Natural gas', unit:'kWh', months:gas, annual:_ccxSum(gas) }],
+        s2:[{ label:'Grid electricity', unit:'kWh', months:el, annual:_ccxSum(el) }],
+        gasRows:[{ label:'Natural gas', unit:'kWh', annual:_ccxSum(gas) }],
+        elecRows:[{ label:'Grid electricity', unit:'kWh', annual:_ccxSum(el) }],
+        gasKwh:_ccxSum(gas), elecKwh:_ccxSum(el),
+        s3rows:[
+          { cat:'Cat 1 Purchased goods & services', item:'Food & catering supplies', unit:'£ spend', qty:642000, f:0.42 },
+          { cat:'Cat 1 Purchased goods & services', item:'Cleaning & consumables', unit:'£ spend', qty:118000, f:0.38 },
+          { cat:'Cat 1 Purchased goods & services', item:'Water supply', unit:'m3', qty:34800, f:0.344 },
+          { cat:'Cat 2 Capital goods', item:'Refurbishment works', unit:'£ spend', qty:210000, f:0.35 },
+          { cat:'Cat 4 Upstream transport', item:'Supplier deliveries', unit:'tonne.km', qty:52000, f:0.107 },
+          { cat:'Cat 5 Waste', item:'Mixed commercial (landfill)', unit:'tonnes', qty:290, f:446.2 },
+          { cat:'Cat 5 Waste', item:'Mixed recycling', unit:'tonnes', qty:165, f:21.3 },
+          { cat:'Cat 6 Business travel', item:'Car — average', unit:'km', qty:184000, f:0.1665 },
+          { cat:'Cat 6 Business travel', item:'Rail', unit:'km', qty:41000, f:0.03546 },
+          { cat:'Cat 7 Employee commuting', item:'Car commuting', unit:'km', qty:1960000, f:0.1665 }
+        ] };
+    }
+    function _ccxCompute(){
+      var F = CCX_DEFRA[document.getElementById('ccxYearSel').value];
+      var green = Math.min(100, Math.max(0, parseFloat(document.getElementById('ccxGreenInp').value) || 0));
+      var gas = _ccx.parsed.gasKwh, elec = _ccx.parsed.elecKwh;
+      var s1 = gas * F.gas, s2loc = elec * F.elecGen, s2mkt = elec * (1 - green/100) * F.elecGen;
+      var cat3 = elec * (F.elecTD + F.elecWTTgen + F.elecWTTtd) + gas * F.gasWTT;
+      var cats = {};
+      _ccx.parsed.s3rows.forEach(function(r){ if (r.qty != null && r.f != null) { cats[r.cat] = (cats[r.cat]||0) + r.qty * r.f; } });
+      cats['Cat 3 Fuel & energy (WTT + T&D)'] = cat3;
+      var s3 = Object.keys(cats).reduce(function(a,k){ return a + cats[k]; }, 0);
+      return { F:F, green:green, gas:gas, elec:elec, s1:s1, s2loc:s2loc, s2mkt:s2mkt, s3:s3, cats:cats, gross:s1 + s2loc + s3 };
+    }
+    async function _ccxRender(){
+      if (!_ccx.parsed) return;
+      var gEl = document.getElementById('ccxGreenInp');
+      if (gEl && _ccx.parsed.company && _ccx.parsed.company.greenPct) gEl.value = _ccx.parsed.company.greenPct;
+      var R = _ccxCompute();
+      document.getElementById('ccxResults').style.display = '';
+      document.getElementById('ccxRCust').textContent = _ccxCustName() || '(no customer selected)';
+      document.getElementById('ccxRYear').textContent = (_ccx.parsed.company.year || '') + ' · DEFRA ' + document.getElementById('ccxYearSel').value;
+      document.getElementById('ccxKpis').innerHTML =
+        '<div class="ccx-kpi"><div class="lbl">Gross</div><div class="val">' + _ccxFmt(_ccxT(R.gross)) + ' <small>tCO₂e</small></div></div>' +
+        '<div class="ccx-kpi s1"><div class="lbl">Scope 1</div><div class="val">' + _ccxFmt(_ccxT(R.s1)) + ' <small>t</small></div></div>' +
+        '<div class="ccx-kpi s2"><div class="lbl">Scope 2</div><div class="val">' + _ccxFmt(_ccxT(R.s2loc)) + ' <small>t</small></div></div>' +
+        '<div class="ccx-kpi s3"><div class="lbl">Scope 3</div><div class="val">' + _ccxFmt(_ccxT(R.s3)) + ' <small>t</small></div></div>';
+      var rows = '';
+      Object.keys(R.cats).sort().forEach(function(k){ rows += '<tr><td>' + escapeHtml(k) + '</td><td class="r">' + _ccxFmt(_ccxT(R.cats[k]), 2) + '</td></tr>'; });
+      document.getElementById('ccxS3Table').innerHTML = '<tr><th>Scope 3 category</th><th class="r">tCO₂e</th></tr>' + rows +
+        '<tr style="font-weight:800"><td>Scope 3 total</td><td class="r">' + _ccxFmt(_ccxT(R.s3), 1) + '</td></tr>';
+      document.getElementById('ccxS2Note').innerHTML = '<b>Scope 2 dual reporting:</b> location-based ' + _ccxFmt(_ccxT(R.s2loc), 1) +
+        ' t · market-based ' + _ccxFmt(_ccxT(R.s2mkt), 1) + ' t at ' + R.green + '% green tariff. Gas ' + _ccxFmt(R.gas) + ' kWh · electricity ' + _ccxFmt(R.elec) + ' kWh.';
+      var a = '';
+      _ccx.parsed.gasRows.concat(_ccx.parsed.elecRows).forEach(function(r){ a += '<tr><td>' + escapeHtml(r.label) + '</td><td>' + escapeHtml(r.unit) + '</td><td class="r">' + _ccxFmt(r.annual) + '</td></tr>'; });
+      document.getElementById('ccxActTable').innerHTML = '<tr><th>Activity</th><th>Unit</th><th class="r">Annual</th></tr>' + a;
+      var chartOk = await _ccxChartLib();
+      if (chartOk && window.Chart) {
+        if (_ccx.chart) _ccx.chart.destroy();
+        _ccx.chart = new Chart(document.getElementById('ccxChSplit'), {
+          type:'doughnut',
+          data:{ labels:['Scope 1','Scope 2','Scope 3'], datasets:[{ data:[_ccxT(R.s1), _ccxT(R.s2loc), _ccxT(R.s3)], backgroundColor:['#2f3d7e','#1d9e75','#e0912b'], borderWidth:2, borderColor:'#fff' }] },
+          options:{ responsive:true, maintainAspectRatio:false, cutout:'60%', plugins:{ legend:{ position:'bottom' } } }
+        });
+      }
+      var st = document.getElementById('ccxApplyStatus');
+      if (st) { st.textContent = ''; st.className = 'ccx-status'; }
+    }
+    async function _ccxApply(){
+      var sel = document.getElementById('ccxCustSel'), st = document.getElementById('ccxApplyStatus');
+      function err(m){ if (st) { st.className = 'ccx-status err'; st.textContent = m; } }
+      if (!sel || !sel.value) { err('Pick a customer first.'); return; }
+      if (!_ccx.parsed) { err('Import or load data first.'); return; }
+      var R = _ccxCompute();
+      var row = {
+        customer_id: sel.value,
+        factor_year: Number(document.getElementById('ccxYearSel').value),
+        green_pct: R.green,
+        company: _ccx.parsed.company || null,
+        results: { gross_kg:R.gross, s1_kg:R.s1, s2_location_kg:R.s2loc, s2_market_kg:R.s2mkt, s3_kg:R.s3, s3_categories_kg:R.cats, gas_kwh:R.gas, elec_kwh:R.elec },
+        activity: { gas_rows:_ccx.parsed.gasRows, elec_rows:_ccx.parsed.elecRows, s3_rows:_ccx.parsed.s3rows }
+      };
+      var resp = await sb.from('carbon_reports').insert(row);
+      if (resp.error) { console.error('ccxApply:', resp.error); err('Save failed: ' + (resp.error.message || 'see console')); return; }
+      logAction('save_carbon_report', sel.value, { factor_year: row.factor_year });
+      if (st) { st.className = 'ccx-status ok'; st.textContent = '✓ Saved to ' + _ccxCustName() + ' — ' + new Date().toLocaleDateString('en-GB') + '.'; }
     }
 
     // ═══════════════════ SALES / BROKER KPI MODULE ═══════════════════
@@ -4206,10 +4475,10 @@
     // / broker_comp (private: own + admin only, enforced by RLS).
     var _SK = { reps: [], kpis: [], sales: [], salesTeam: [], eff: [], notes: [], targets: {}, projects: [], projEntries: [], activity: [], newBiz: [], compByRep: {}, myRepId: null };
     var _SK_FIELDS = [
-      ['billing_total', 'Billing total (£, annual equivalent)'],
+      ['billing_total', 'Billing total (£, annual equivalent — include consultancy / direct £)'],
       ['long_term_total', 'Long term total (£)'],
       ['ces_direct_total', 'CES direct (£)'],
-      ['consultancy', 'Consultancy (£) · metering / shared saving / fixed fees'],
+      ['consultancy', 'Consultancy / direct sales (£) · shared saving, metering, fixed fees — excluded from uplift'],
       ['total_kwh', 'Total kWh'],
       ['new_business_gbp', 'Total new business (£)'],
       ['new_business_kwh', 'Total new business (kWh)'],
@@ -4228,6 +4497,9 @@
     function _skMoney(n){ return '£' + (Number(n)||0).toLocaleString('en-GB', { maximumFractionDigits:0 }); }
     function _skNum(n, dp){ return (Number(n)||0).toLocaleString('en-GB', { minimumFractionDigits:dp||0, maximumFractionDigits:dp||0 }); }
     function _skUplift(bill, kwh){ kwh = Number(kwh)||0; if(!kwh) return '—'; return ((Number(bill)||0)/kwh*100).toFixed(2); }
+    // Contract billing = billing minus consultancy/direct £ (shared savings, metering, fixed fees).
+    // Direct sales carry no kWh, so they must never dilute or inflate the average uplift.
+    function _skContractBill(k){ k = k || {}; return Math.max(0, (Number(k.billing_total)||0) - (Number(k.consultancy)||0)); }
     function _skPeriodLabel(p){ if(!p) return ''; var d = new Date(p + 'T00:00:00'); return d.toLocaleDateString('en-GB', { month:'short', year:'numeric' }); }
     function _skMonthKey(id){ var v = (document.getElementById(id)||{}).value; return v ? v + '-01' : null; }
     function _skFlash(id, msg){ var e = document.getElementById(id); if(!e) return; e.textContent = msg; e.style.display = 'block'; setTimeout(function(){ e.style.display = 'none'; }, 2500); }
@@ -4245,7 +4517,8 @@
       var retainedComm = rC + salesRet, newbizComm = nC + salesNB;
       var nbTotal = Number(k.new_business_gbp)||0;
       var retTotal = Math.max(0, (Number(k.billing_total)||0) - nbTotal);
-      var base = Number(comp.base_salary)||0;
+      var own = (_SK.targets && _SK.myRepId) ? _SK.targets[_SK.myRepId] : null;
+      var base = (own && own.base_salary != null && own.base_salary !== '') ? (Number(own.base_salary)||0) : (Number(comp.base_salary)||0);
       return { retained:retTotal, newbiz:nbTotal, retainedComm:retainedComm, newbizComm:newbizComm, commission:retainedComm+newbizComm, base:base, total:retainedComm+newbizComm+base };
     }
     async function salesFetchAll(){
@@ -4359,7 +4632,7 @@
           '<td class="num">' + _skMoney(a.billing_total) + '</td>' +
           '<td class="num">' + _skMoney(a.new_business_gbp) + '</td>' +
           '<td class="num">' + _skNum(a.total_kwh, 0) + '</td>' +
-          '<td class="num">' + _skUplift(a.billing_total, a.total_kwh) + '</td>' +
+          '<td class="num">' + _skUplift(_skContractBill(a), a.total_kwh) + '</td>' +
           '<td class="num">' + pct + '</td>' +
           '<td class="num">' + (a.deals_won || '—') + '</td>' +
           '<td class="num">' + (a.lost_customers || 0) + '</td></tr>';
@@ -4390,8 +4663,9 @@
       {k:'billing_total',label:'Billing Total',fmt:'money',flag:true},
       {k:'ces_direct_total',label:'CES Direct',fmt:'money',flag:true},
       {k:'long_term_total',label:'Long Term',fmt:'money',flag:true},
+      {k:'consultancy',label:'Consultancy / Direct',fmt:'money',flag:false},
       {k:'total_kwh',label:'Total kWh',fmt:'int',flag:true},
-      {k:'__uplift',label:'Avg Uplift (p/kWh)',fmt:'uplift',flag:true},
+      {k:'__uplift',label:'Avg Uplift (p/kWh, contracts)',fmt:'uplift',flag:true},
       {k:'lost_customers',label:'Lost Customers',fmt:'int',flag:false},
       {k:'lost_kwh',label:'Lost kWh',fmt:'int',flag:false},
       {k:'new_business_gbp',label:'New Business £',fmt:'money',flag:true},
@@ -4405,7 +4679,7 @@
     }
     // string-based (timezone-safe) previous-month key — the Date/toISOString version broke MoM flags in BST
     function _mePrevKey(period){ var y=+String(period).slice(0,4), m=+String(period).slice(5,7)-1; if(m<1){ m=12; y-=1; } return y+'-'+(m<10?'0'+m:m)+'-01'; }
-    function _meVal(row,k){ if(!row) return 0; if(k==='__uplift'){ var kw=Number(row.total_kwh)||0; return kw ? (Number(row.billing_total)||0)/kw*100 : 0; } return Number(row[k])||0; }
+    function _meVal(row,k){ if(!row) return 0; if(k==='__uplift'){ var kw=Number(row.total_kwh)||0; return kw ? _skContractBill(row)/kw*100 : 0; } return Number(row[k])||0; }
     function _meFmt(v,fmt){ if(fmt==='money') return _skMoney(v); if(fmt==='uplift') return _skNum(v,2); return _skNum(v,0); }
     function _meRed(c,v,pv){ if(c.flag && pv>0 && v < pv*0.85) return true; if(c.k==='__uplift' && v>0 && v<0.6) return true; return false; }
     function _meShort(n){ return escapeHtml(String(n||'').split(' ')[0].replace(/[^A-Za-z0-9]/g,'')); }
@@ -4426,11 +4700,12 @@
       var effByRep={}, prevByRep={};
       _SK.eff.forEach(function(e){ if(e.period===key) effByRep[e.rep_id]=e; if(e.period===prev) prevByRep[e.rep_id]=e; });
       var tot={}, ptot={}; _ME_COLS.forEach(function(c){ tot[c.k]=0; ptot[c.k]=0; });
-      var totBill=0, totKwh=0, ptotBill=0, ptotKwh=0;
+      var totBill=0, totKwh=0, ptotBill=0, ptotKwh=0, totCon=0, ptotCon=0;
       var thead='<tr><th>Rep</th>'+_ME_COLS.map(function(c){return '<th class="num">'+c.label+'</th>';}).join('')+'</tr>';
       var bodyRows=reps.map(function(r){
         var cur=effByRep[r.id], pr=prevByRep[r.id];
         totBill+=_meVal(cur,'billing_total'); totKwh+=_meVal(cur,'total_kwh'); ptotBill+=_meVal(pr,'billing_total'); ptotKwh+=_meVal(pr,'total_kwh');
+        totCon+=_skContractBill(cur); ptotCon+=_skContractBill(pr);
         var tds=_ME_COLS.map(function(c){
           var v=_meVal(cur,c.k), pv=_meVal(pr,c.k), red=_meRed(c,v,pv);
           if(c.k!=='__uplift'){ tot[c.k]+=v; ptot[c.k]+=pv; }
@@ -4438,7 +4713,7 @@
         }).join('');
         return '<tr><td style="font-weight:600;white-space:nowrap;">'+escapeHtml(r.name)+'</td>'+tds+'</tr>';
       }).join('');
-      var upT=totKwh? totBill/totKwh*100 : 0, upP=ptotKwh? ptotBill/ptotKwh*100 : 0;
+      var upT=totKwh? totCon/totKwh*100 : 0, upP=ptotKwh? ptotCon/ptotKwh*100 : 0;
       var totTds=_ME_COLS.map(function(c){
         var v=c.k==='__uplift'?upT:tot[c.k], pv=c.k==='__uplift'?upP:ptot[c.k];
         return '<td class="num"'+(_meRed(c,v,pv)?' style="color:#b5340f;font-weight:800;background:#fdecea;"':'')+'>'+_meFmt(v,c.fmt)+'</td>';
@@ -4449,7 +4724,7 @@
       var byRep=function(k){ return reps.map(function(r){ return { label:_meShort(r.name), val:_meVal(effByRep[r.id],k) }; }); };
       var months=_skPeriods().slice().reverse();
       var teamByMonth=months.map(function(p){ var s=0; _SK.eff.forEach(function(e){ if(e.period===p) s+=Number(e.billing_total)||0; }); return { label:_skPeriodLabel(p), val:s }; });
-      var teamUpByMonth=months.map(function(p){ var b=0,kw=0; _SK.eff.forEach(function(e){ if(e.period===p){ b+=Number(e.billing_total)||0; kw+=Number(e.total_kwh)||0; } }); return { label:_skPeriodLabel(p), val: kw? b/kw*100 : 0 }; });
+      var teamUpByMonth=months.map(function(p){ var b=0,kw=0; _SK.eff.forEach(function(e){ if(e.period===p){ b+=_skContractBill(e); kw+=Number(e.total_kwh)||0; } }); return { label:_skPeriodLabel(p), val: kw? b/kw*100 : 0 }; });
       var stackSeries=reps.map(function(r){ var b=_meVal(effByRep[r.id],'billing_total'), nb=_meVal(effByRep[r.id],'new_business_gbp'); return { label:_meShort(r.name), retained:Math.max(0,b-nb), newbiz:nb }; });
       var vsSeries=reps.map(function(r){ return { label:_meShort(r.name), a:_meVal(effByRep[r.id],'billing_total'), b:_meVal(prevByRep[r.id],'billing_total') }; });
       function cc(title, svg){ return '<div class="card" style="margin-bottom:14px;"><h4 style="font-size:13px;font-weight:800;margin-bottom:8px;">'+title+'</h4>'+svg+'</div>'; }
@@ -4573,10 +4848,11 @@
 
         // rep rows
         var tot={}, ptot={}; _ME_COLS.forEach(function(c){ tot[c.k]=0; ptot[c.k]=0; });
-        var totBill=0, totKwh=0, ptotBill=0, ptotKwh=0;
+        var totBill=0, totKwh=0, ptotBill=0, ptotKwh=0, totCon=0, ptotCon=0;
         reps.forEach(function(r){
           var cur=effByRep[r.id], pr=prevByRep[r.id];
           totBill+=_meVal(cur,'billing_total'); totKwh+=_meVal(cur,'total_kwh'); ptotBill+=_meVal(pr,'billing_total'); ptotKwh+=_meVal(pr,'total_kwh');
+          totCon+=_skContractBill(cur); ptotCon+=_skContractBill(pr);
           var row=ws.addRow([r.name].concat(_ME_COLS.map(function(c){ return _meVal(cur,c.k); })));
           row.getCell(1).font={bold:true}; row.getCell(1).alignment={horizontal:'left'};
           _ME_COLS.forEach(function(c,ci){
@@ -4589,7 +4865,7 @@
         });
 
         // total / average row
-        var upT=totKwh?totBill/totKwh*100:0, upP=ptotKwh?ptotBill/ptotKwh*100:0;
+        var upT=totKwh?totCon/totKwh*100:0, upP=ptotKwh?ptotCon/ptotKwh*100:0;
         var trow=ws.addRow(['Total / Average'].concat(_ME_COLS.map(function(c){ return c.k==='__uplift'?upT:tot[c.k]; })));
         trow.eachCell(function(cell,col){ cell.font={bold:true}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:TOTBG}}; cell.border={top:{style:'medium',color:{argb:NAVY}}}; cell.alignment={horizontal: col===1?'left':'right'}; });
         _ME_COLS.forEach(function(c,ci){ var cell=trow.getCell(ci+2), v=c.k==='__uplift'?upT:tot[c.k], pv=c.k==='__uplift'?upP:ptot[c.k]; cell.numFmt=fmtOf(c); if(_meRed(c,v,pv)){ cell.font={bold:true,color:{argb:RED}}; } });
@@ -4766,7 +5042,7 @@
         _skCard('Billing this month', _skMoney(k.billing_total)) +
         _skCard('% to target', pct, tgt > 0 ? ('Target ' + _skMoney(tgt)) : 'No target set') +
         _skCard('New business', _skMoney(k.new_business_gbp)) +
-        _skCard('Avg uplift', _skUplift(k.billing_total, k.total_kwh) + ' p/kWh') +
+        _skCard('Avg uplift (contracts)', _skUplift(_skContractBill(k), k.total_kwh) + ' p/kWh', 'excl. consultancy / direct £') +
         (comm ? _skCard('Commission (month)', _skMoney(comm.commission), 'Private to you') : '');
       renderMyTrend();
     }
@@ -4833,7 +5109,7 @@
           '<td class="num">' + _skMoney(k.billing_total) + '</td>' +
           '<td class="num">' + _skMoney(k.new_business_gbp) + '</td>' +
           '<td class="num">' + _skNum(k.total_kwh, 0) + '</td>' +
-          '<td class="num">' + _skUplift(k.billing_total, k.total_kwh) + '</td>' +
+          '<td class="num">' + _skUplift(_skContractBill(k), k.total_kwh) + '</td>' +
           '<td class="num">' + (k.lost_customers || 0) + '</td>' +
           '<td>' + (k.notes ? escapeHtml(k.notes) : '—') + '</td></tr>';
       }).join('');
@@ -5026,14 +5302,24 @@
       if(!comp){ host.innerHTML = '<p class="sk-empty">Your commission settings haven’t been published yet.</p>'; return; }
       k = k || { billing_total:0, new_business_gbp:0 };
       var c = _skCommission(k, comp);
+      var ownTgt = _SK.targets[_SK.myRepId] || {};
+      var baseOwn = (ownTgt.base_salary != null && ownTgt.base_salary !== '') ? Number(ownTgt.base_salary) : null;
       window._skCalcCtx = { comp:comp, baseComm:c.commission };
       host.innerHTML =
         '<p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Based on <b>' + _skPeriodLabel(key) + '</b>. You earn <b>' + _skNum(comp.retained_rate,1) + '%</b> on retained billing and <b>' + _skNum(comp.new_business_rate,1) + '%</b> on new business.</p>' +
         '<div class="sk-calc-grid">' +
           _skCalcCell('Retained billing', _skMoney(c.retained), '→ ' + _skMoney(c.retainedComm) + ' commission') +
           _skCalcCell('New business', _skMoney(c.newbiz), '→ ' + _skMoney(c.newbizComm) + ' commission') +
-          _skCalcCell('Base salary', _skMoney(c.base), 'fixed each month') +
+          _skCalcCell('Base salary', _skMoney(c.base), baseOwn != null ? 'set by you — edit below' : 'CES default — set your own below') +
           '<div class="sk-calc-total"><div class="sk-calc-l">Total earnings</div><div class="sk-calc-v" style="color:var(--navy)">' + _skMoney(c.total) + '</div><div class="sk-calc-s">' + _skMoney(c.commission) + ' commission + base</div></div>' +
+        '</div>' +
+        '<div style="margin:14px 0;padding:12px 14px;border:1.5px dashed var(--border);border-radius:9px;">' +
+          '<label style="font-size:12px;font-weight:800;color:var(--navy);display:block;margin-bottom:6px;">My base salary (£ per month) · private to you, used in this calculator</label>' +
+          '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
+            '<input type="number" step="100" min="0" id="bxBaseSalary" value="' + (baseOwn != null ? baseOwn : (c.base || '')) + '" placeholder="e.g. 2000" style="width:150px;padding:9px 10px;border:1.5px solid var(--border);border-radius:7px;font:inherit;">' +
+            '<button class="btn-secondary" style="width:auto;padding:8px 14px;" onclick="bxSaveBaseSalary()">Save base salary</button>' +
+            '<span id="bxBaseMsg" style="font-size:12px;color:var(--muted);font-weight:700;"></span>' +
+          '</div>' +
         '</div>' +
         '<div class="sk-whatif">' +
           '<h4>What could you earn?</h4>' +
@@ -5043,6 +5329,17 @@
           '<div class="sk-wi-result" id="scOut"></div>' +
         '</div>';
       skScenario();
+    }
+    async function bxSaveBaseSalary(){
+      if(!_SK.myRepId){ safeAlert('Your sales profile isn\u2019t linked yet.', null); return; }
+      var raw = (document.getElementById('bxBaseSalary')||{}).value;
+      var v = parseFloat(raw);
+      var resp = await sb.from('broker_targets').upsert({ rep_id:_SK.myRepId, base_salary:(isNaN(v)?null:v), updated_at:new Date().toISOString() }, { onConflict:'rep_id' });
+      if(resp.error){ safeAlert('Could not save your base salary.', resp.error); return; }
+      logAction('save_base_salary', null, {});
+      await salesFetchAll();
+      brokerRenderMine();
+      var m = document.getElementById('bxBaseMsg'); if(m){ m.textContent='Saved.'; setTimeout(function(){ if(m) m.textContent=''; }, 2500); }
     }
     // Keep the slider and the type-in box in step (slider drag -> number box).
     function skScenarioSlider(which){
