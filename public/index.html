@@ -1483,6 +1483,8 @@
               <div class="form-group" style="margin-top:12px;"><label id="bxLostReasonLbl">If you lost any customers or meters — why?</label><textarea id="bx_lost_reason" rows="2" style="width:100%;padding:10px 12px;border:1px solid var(--border,#d9d9e3);border-radius:8px;font:inherit;resize:vertical;box-sizing:border-box;" placeholder="Reason customers / meters were lost this month"></textarea></div>
               <div class="form-group"><label>Customers of concern</label><textarea id="bx_customers_of_concern" rows="2" style="width:100%;padding:10px 12px;border:1px solid var(--border,#d9d9e3);border-radius:8px;font:inherit;resize:vertical;box-sizing:border-box;" placeholder="Any accounts at risk, and why"></textarea></div>
               <button class="btn-primary" style="width:auto;padding:10px 18px;margin-top:12px;" onclick="bxSaveMine()">Save my figures</button>
+              <button class="btn-secondary" id="bxConfirmBtn" style="width:auto;padding:10px 18px;margin-top:12px;margin-left:8px;border:2px solid var(--navy);color:var(--navy);font-weight:800;" onclick="bxConfirmMonth()">&#10004; Confirm &mdash; this is my total for <span id="bxConfirmMonthLbl">this month</span></button>
+              <div id="bxConfirmState" style="margin-top:10px;font-size:12.5px;font-weight:700;"></div>
               <button class="btn-secondary" style="width:auto;padding:10px 18px;margin-top:12px;margin-left:8px;color:#b5340f;border-color:#e3b3a6;" onclick="bxDeleteMine()">Delete this month</button>
             </div>
 
@@ -2004,9 +2006,19 @@
                 <button class="btn-secondary" style="padding:7px 12px;" onclick="downloadMonthEndReport()">⬇ Download Excel</button>
               </div>
             </div>
-            <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Auto-built once every active rep has submitted that month. <span style="color:#b5340f;font-weight:700;">Red</span> = a month-on-month drop over 15%, or average contract uplift below 0.6p/kWh. When the month completes, the full Excel report + AI analysis is emailed automatically to Adam (next 8am run).</p>
+            <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Auto-built once every active rep has <b>confirmed</b> their figures for that month. <span style="color:#b5340f;font-weight:700;">Red</span> = a month-on-month drop over 15%, or average contract uplift below 0.6p/kWh. When complete, the Excel report + AI analysis is emailed automatically to the recipients below (next 8am run).</p>
             <div id="meReportStatus" style="margin-bottom:10px;"></div>
             <div id="meReportBody" style="overflow-x:auto;"></div>
+          </div>
+          <div class="form-card" style="margin-top:16px;max-width:680px;">
+            <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Month-end report recipients</h3>
+            <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">The automated Excel + AI report is emailed to everyone on this list once all brokers have confirmed. Add as many executives as needed. If the list is empty, it falls back to pricingteam@cesgb.com as a safety net.</p>
+            <div class="success-box" id="mrMsg">Saved.</div>
+            <div id="mrList" style="margin-bottom:12px;"></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <input type="email" id="mrEmail" placeholder="e.g. adam.carter@cesgb.com" style="flex:1;min-width:220px;padding:10px 12px;border:1.5px solid var(--border);border-radius:7px;font:inherit;font-size:13.5px;" onkeydown="if(event.key==='Enter')mrAdd()" />
+              <button class="btn-primary" style="width:auto;padding:10px 16px;" onclick="mrAdd()">Add recipient</button>
+            </div>
           </div>
         </div>
         <!-- SITE ADDRESSES TAB -->
@@ -4371,10 +4383,41 @@
       if (name === 'carbon') loadCarbonConfig();
       if (name === 'customers') refreshDangerZone();
       if (name === 'sales' || name === 'sk-figures' || name === 'sk-board' || name === 'sk-report') loadSalesAdmin();
+      if (name === 'sk-report') mrLoad();
       if (name === 'siteaddr') loadSiteAddrAdmin();
       if (name === 'meters') loadMeters();
       if (name === 'carbon-console') openCarbonConsole();
       var main = document.querySelector('#adminPage .main-area'); if (main) main.scrollTop = 0;
+    }
+    // ── Month-end report recipients (admin) ──
+    async function mrLoad(){
+      var host = document.getElementById('mrList'); if(!host) return;
+      var r = await sb.from('monthend_recipients').select('*').order('created_at');
+      if(r.error){ console.error('mrLoad:', r.error); host.innerHTML = '<p style="font-size:12.5px;color:#b5340f;">Could not load recipients.</p>'; return; }
+      var rows = r.data || [];
+      host.innerHTML = rows.length
+        ? rows.map(function(x){
+            return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--border);border-radius:7px;margin-bottom:6px;background:var(--surface-2);">' +
+              '<span style="font-size:13px;font-weight:700;">' + escapeHtml(x.email) + '</span>' +
+              '<button class="btn-secondary" style="width:auto;padding:4px 10px;font-size:12px;color:#b5340f;border-color:#e3b3a6;" onclick="mrRemove(\'' + x.id + '\')">Remove</button></div>';
+          }).join('')
+        : '<p style="font-size:12.5px;color:var(--muted);">No recipients yet — the report currently falls back to pricingteam@cesgb.com.</p>';
+    }
+    async function mrAdd(){
+      var el = document.getElementById('mrEmail');
+      var em = (el && el.value || '').trim().toLowerCase();
+      if(!em || em.indexOf('@') < 1 || em.indexOf('.') < 0){ safeAlert('Enter a valid email address.', null); return; }
+      var r = await sb.from('monthend_recipients').insert({ email: em });
+      if(r.error){ safeAlert(r.error.code === '23505' ? 'That address is already on the list.' : 'Could not add the recipient.', r.error); return; }
+      el.value = '';
+      logAction('add_monthend_recipient', null, { email: em });
+      mrLoad(); _skFlash('mrMsg', 'Added.');
+    }
+    async function mrRemove(id){
+      var r = await sb.from('monthend_recipients').delete().eq('id', id);
+      if(r.error){ safeAlert('Could not remove the recipient.', r.error); return; }
+      logAction('remove_monthend_recipient', null, {});
+      mrLoad();
     }
     function openCarbonConsole() { ccxOpen(); }
     // ═══ CARBON CONSOLE — native Scope 1–3 admin (ported from carbon-admin.html) ═══
@@ -4812,12 +4855,12 @@
       if(!key){ host.innerHTML=''; if(statusEl) statusEl.innerHTML=''; return; }
       var prev=_mePrevKey(key), mlab=_skPeriodLabel(key);
       var reps=_SK.reps.filter(function(r){ return r.active !== false; });
-      var submitted={}; _SK.kpis.forEach(function(k){ if(k.period===key) submitted[k.rep_id]=1; });
+      var submitted={}; _SK.kpis.forEach(function(k){ if(k.period===key && k.confirmed_at) submitted[k.rep_id]=1; });
       var missing=reps.filter(function(r){ return !submitted[r.id]; });
       if(statusEl){
         statusEl.innerHTML = missing.length
-          ? '<div style="background:#fdf3e7;border-left:3px solid #b5840a;padding:8px 12px;border-radius:6px;font-size:12.5px;"><b>Draft</b> — waiting on: '+missing.map(function(r){return escapeHtml(r.name);}).join(', ')+'. Finalised and emailed once all have submitted.</div>'
-          : '<div style="background:#eef6ee;border-left:3px solid #2f7d4f;padding:8px 12px;border-radius:6px;font-size:12.5px;"><b>Complete</b> — all reps have submitted for '+mlab+'.</div>';
+          ? '<div style="background:#fdf3e7;border-left:3px solid #b5840a;padding:8px 12px;border-radius:6px;font-size:12.5px;"><b>Draft</b> — waiting for final confirmation from: '+missing.map(function(r){return escapeHtml(r.name);}).join(', ')+'. Generated and emailed automatically once every broker has pressed Confirm.</div>'
+          : '<div style="background:#eef6ee;border-left:3px solid #2f7d4f;padding:8px 12px;border-radius:6px;font-size:12.5px;"><b>Complete</b> — every broker has confirmed their final figures for '+mlab+'.</div>';
       }
       var effByRep={}, prevByRep={};
       _SK.eff.forEach(function(e){ if(e.period===key) effByRep[e.rep_id]=e; if(e.period===prev) prevByRep[e.rep_id]=e; });
@@ -4938,7 +4981,7 @@
       try{
         var prev=_mePrevKey(key), mlab=_skPeriodLabel(key), plab=_skPeriodLabel(prev);
         var reps=_SK.reps.filter(function(r){ return r.active !== false; });
-        var submitted={}; _SK.kpis.forEach(function(k){ if(k.period===key) submitted[k.rep_id]=1; });
+        var submitted={}; _SK.kpis.forEach(function(k){ if(k.period===key && k.confirmed_at) submitted[k.rep_id]=1; });
         var missing=reps.filter(function(r){ return !submitted[r.id]; });
         var effByRep={}, prevByRep={};
         _SK.eff.forEach(function(e){ if(e.period===key) effByRep[e.rep_id]=e; if(e.period===prev) prevByRep[e.rep_id]=e; });
@@ -5141,12 +5184,38 @@
       var _lbl = key ? _skPeriodLabel(key) : 'this month';
       var _h = document.getElementById('bxHeroMonthLbl'); if(_h) _h.textContent = _lbl;
       var _e = document.getElementById('bxEntryMonthLbl'); if(_e) _e.textContent = _lbl;
+      var _cl = document.getElementById('bxConfirmMonthLbl'); if(_cl) _cl.textContent = _lbl;
+      bxUpdateConfirmUI(rawK, _lbl);
       bxRenderNotes();
       renderOverviewTarget();
       var _teamPk = key || '__all__';
       var _tl = document.getElementById('bxOvTeamLbl'); if(_tl) _tl.textContent = key ? _skPeriodLabel(key) : 'full year';
       renderTeamChart('bxOvTeamChart', _teamPk);
       renderSalesLeaderboard('bxOvBoard', _teamPk);
+    }
+    function bxUpdateConfirmUI(rawK, lbl){
+      var btn = document.getElementById('bxConfirmBtn'), st = document.getElementById('bxConfirmState');
+      var confirmed = !!(rawK && rawK.confirmed_at);
+      window._bxMonthConfirmed = confirmed;
+      if(btn) btn.style.display = confirmed ? 'none' : '';
+      if(st) st.innerHTML = confirmed
+        ? '<span style="color:#2f7d4f;">&#128274; Confirmed as your final total for ' + lbl + ' on ' + fmtDateUK(rawK.confirmed_at) + ' &mdash; these figures are locked. Contact CES admin if something must change.</span>'
+        : '<span style="color:var(--muted);font-weight:600;">Save your figures, then press Confirm when they are final. Once every broker confirms, the month-end report is generated and emailed to management automatically &mdash; figures cannot be changed after confirming.</span>';
+    }
+    async function bxConfirmMonth(){
+      if(!_SK.myRepId){ safeAlert('Your sales profile isn\u2019t linked yet.', null); return; }
+      var key = _skMonthKey('bxMonth');
+      if(!key){ safeAlert('Pick a month.', null); return; }
+      var lbl = _skPeriodLabel(key);
+      var row = _SK.kpis.filter(function(x){ return x.rep_id === _SK.myRepId && x.period === key; })[0];
+      if(!row){ safeAlert('Save your figures for ' + lbl + ' first, then confirm.', null); return; }
+      if(!confirm('Confirm ' + lbl + ' as your FINAL figures?\n\nAfter confirming you will NOT be able to change them \u2014 only CES admin can. Once every broker has confirmed, the month-end report is generated and emailed to management automatically.')) return;
+      var resp = await sb.from('broker_kpis').update({ confirmed_at: new Date().toISOString() }).eq('rep_id', _SK.myRepId).eq('period', key);
+      if(resp.error){ safeAlert('Could not confirm your figures.', resp.error); return; }
+      logAction('confirm_month', null, { period: key });
+      await salesFetchAll();
+      brokerRenderMine();
+      _skFlash('bxMsg', 'Confirmed \u2014 your ' + lbl + ' figures are now locked.');
     }
     function _skCard(label, val, sub){
       return '<div class="stat-card"><div class="stat-label">' + label + '</div><div class="stat-value">' + val + '</div>' +
@@ -5503,6 +5572,8 @@
       if(!_SK.myRepId){ safeAlert('Your sales profile isn’t linked yet.', null); return; }
       var key = _skMonthKey('bxMonth');
       if(!key){ safeAlert('Pick a month.', null); return; }
+      var _conf = _SK.kpis.filter(function(x){ return x.rep_id === _SK.myRepId && x.period === key && x.confirmed_at; })[0];
+      if(_conf){ safeAlert('You confirmed ' + _skPeriodLabel(key) + ' as final — the figures are locked. Contact CES admin to amend them.', null); return; }
       var rec = _skReadEntry('bx_', _SK.myRepId, key);
       var lrEl = document.getElementById('bx_lost_reason'); rec.lost_reason = (lrEl && lrEl.value.trim()) ? lrEl.value.trim() : null;
       var cocEl = document.getElementById('bx_customers_of_concern'); rec.customers_of_concern = (cocEl && cocEl.value.trim()) ? cocEl.value.trim() : null;
