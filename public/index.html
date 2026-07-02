@@ -2004,7 +2004,7 @@
                 <button class="btn-secondary" style="padding:7px 12px;" onclick="downloadMonthEndReport()">⬇ Download Excel</button>
               </div>
             </div>
-            <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Auto-built once every active rep has submitted that month. <span style="color:#b5340f;font-weight:700;">Red</span> = a month-on-month drop over 15%, or average uplift below 0.6p/kWh. Emailed to management when the month is complete.</p>
+            <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Auto-built once every active rep has submitted that month. <span style="color:#b5340f;font-weight:700;">Red</span> = a month-on-month drop over 15%, or average contract uplift below 0.6p/kWh. When the month completes, the full Excel report + AI analysis is emailed automatically to Adam (next 8am run).</p>
             <div id="meReportStatus" style="margin-bottom:10px;"></div>
             <div id="meReportBody" style="overflow-x:auto;"></div>
           </div>
@@ -4644,7 +4644,8 @@
     }
     async function salesFetchAll(){
       var reps = await sb.from('sales_reps').select('*').order('sort_order');
-      _SK.reps = reps.data || [];
+      // Inactive reps (e.g. Flex Team) are hidden from every leaderboard, chart and editor.
+      _SK.reps = (reps.data || []).filter(function(r){ return r.active !== false; });
       var kp = await sb.from('broker_kpis').select('*');
       _SK.kpis = kp.data || [];
       var sl = await sb.from('broker_sales').select('*');          // full rows: own (rep) or all (admin)
