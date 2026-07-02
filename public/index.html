@@ -1607,7 +1607,10 @@
         <div id="brokerCustomersView" style="display:none;">
           <div class="section-head" style="align-items:center;justify-content:space-between;gap:14px;">
             <h2>Your customers</h2>
-            <button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="bkToggleCustomerForm()">+ Add customer</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn-secondary" style="width:auto;padding:8px 16px;" onclick="bkToggleBulkForm()">&#8679; Bulk import</button>
+              <button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="bkToggleCustomerForm()">+ Add customer</button>
+            </div>
           </div>
           <div class="card" id="bkCustomerForm" style="display:none;margin-bottom:16px;">
             <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Add a new customer</h3>
@@ -1617,6 +1620,18 @@
             <div class="form-group" style="max-width:420px;"><label>Company name</label><input type="text" id="bkNcName" placeholder="Acme Ltd" onkeydown="if(event.key==='Enter')bkAddCustomer()" /></div>
             <button class="btn-primary" style="width:auto;padding:10px 18px;" onclick="bkAddCustomer()">Save customer</button>
             <button class="btn-secondary" style="width:auto;padding:10px 18px;margin-left:8px;" onclick="bkToggleCustomerForm()">Cancel</button>
+          </div>
+          <div class="card" id="bkBulkForm" style="display:none;margin-bottom:16px;">
+            <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Bulk import customers + meters</h3>
+            <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">One spreadsheet, many customers. Each row is one meter with the company name in the first column — repeat the company name for a customer with several meters. New companies are created automatically; existing companies (matched by name) just get their meters added or updated. A row with a company name but no MPAN creates the customer with no meters.</p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+              <button class="btn-secondary" style="width:auto;padding:9px 14px;" onclick="bkBulkTemplate()">&#8681; Download bulk template</button>
+              <label class="btn-primary" style="width:auto;padding:9px 14px;cursor:pointer;display:inline-block;">&#8679; Import completed file
+                <input type="file" id="bkBulkFile" accept=".xlsx,.xls" style="display:none;" onchange="bkBulkImport(event)" />
+              </label>
+              <button class="btn-secondary" style="width:auto;padding:9px 14px;" onclick="bkToggleBulkForm()">Close</button>
+            </div>
+            <div id="bkBulkStatus" style="font-size:12.5px;color:var(--muted);margin-top:10px;"></div>
           </div>
           <div class="report-grid" id="brokerCustomerGrid">
             <div class="empty-state" style="grid-column:1/-1"><p>Loading…</p></div>
@@ -1740,21 +1755,9 @@
           <div class="b2">Admin</div>
         </div>
         <div class="sidebar-nav" id="adminSidebarNav">
-          <div class="sidebar-nav-label">Billing Portal Admin</div>
-          <div class="nav-item active" data-atab="upload" onclick="adminTab('upload')">Upload Validation</div>
-          <div class="nav-item" data-atab="upload-occ" onclick="adminTab('upload-occ')">Upload Occupancy</div>
-          <div class="nav-item" data-atab="reports" onclick="adminTab('reports')">Reports Admin</div>
-          <div class="nav-item" data-atab="customers" onclick="adminTab('customers')">Customers</div>
-          <div class="nav-item" data-atab="siteaddr" onclick="adminTab('siteaddr')">Site Addresses</div>
-          <div class="sidebar-nav-label" style="margin-top:16px;">Broker Admin Portal</div>
-          <div class="nav-item" data-atab="sales" onclick="adminTab('sales')">Commission &amp; Targets</div>
-          <div class="nav-item" data-atab="sk-figures" onclick="adminTab('sk-figures')">Monthly Figures</div>
-          <div class="nav-item" data-atab="sk-board" onclick="adminTab('sk-board')">Team Leaderboard</div>
-          <div class="nav-item" data-atab="sk-report" onclick="adminTab('sk-report')">Month-End Report</div>
-          <div class="nav-item" data-atab="meters" onclick="adminTab('meters')">Meters / MPANs</div>
-          <div class="sidebar-nav-label" style="margin-top:16px;">Carbon Reporting Portal</div>
-          <div class="nav-item" data-atab="carbon" onclick="adminTab('carbon')">Carbon Config</div>
-          <div class="nav-item" data-atab="carbon-console" onclick="adminTab('carbon-console')">Carbon Console</div>
+          <div class="nav-item active" data-asec="billing" onclick="adminSection('billing')">Billing Portal Admin</div>
+          <div class="nav-item" data-asec="broker" onclick="adminSection('broker')">Broker Admin Portal</div>
+          <div class="nav-item" data-asec="carbon" onclick="adminSection('carbon')">Carbon Reporting Portal</div>
         </div>
         <div class="sidebar-foot">
           <button class="signout-btn" onclick="doSignOut()">Sign out</button>
@@ -1781,6 +1784,24 @@
             </div>
             <img class="topbar-ces-logo" src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES" onerror="this.style.display='none'" />
           </div>
+        </div>
+        <div class="admin-tabs" id="adminTabs-billing">
+          <button class="admin-tab active" data-atab="upload" onclick="adminTab('upload')">Upload Validation</button>
+          <button class="admin-tab" data-atab="upload-occ" onclick="adminTab('upload-occ')">Upload Occupancy</button>
+          <button class="admin-tab" data-atab="reports" onclick="adminTab('reports')">Reports Admin</button>
+          <button class="admin-tab" data-atab="customers" onclick="adminTab('customers')">Customers</button>
+          <button class="admin-tab" data-atab="siteaddr" onclick="adminTab('siteaddr')">Site Addresses</button>
+        </div>
+        <div class="admin-tabs" id="adminTabs-broker" style="display:none;">
+          <button class="admin-tab" data-atab="sales" onclick="adminTab('sales')">Commission &amp; Targets</button>
+          <button class="admin-tab" data-atab="sk-figures" onclick="adminTab('sk-figures')">Monthly Figures</button>
+          <button class="admin-tab" data-atab="sk-board" onclick="adminTab('sk-board')">Team Leaderboard</button>
+          <button class="admin-tab" data-atab="sk-report" onclick="adminTab('sk-report')">Month-End Report</button>
+          <button class="admin-tab" data-atab="meters" onclick="adminTab('meters')">Meters / MPANs</button>
+        </div>
+        <div class="admin-tabs" id="adminTabs-carbon" style="display:none;">
+          <button class="admin-tab" data-atab="carbon" onclick="adminTab('carbon')">Carbon Config</button>
+          <button class="admin-tab" data-atab="carbon-console" onclick="adminTab('carbon-console')">Carbon Console</button>
         </div>
         <!-- UPLOAD VALIDATION TAB -->
         <div class="tab-pane active" id="tab-upload">
@@ -2567,6 +2588,7 @@
       ok.classList.add('show');
       document.getElementById('bkNcName').value = '';
       await loadBroker();
+      brokerNav('customers');
     }
     async function bkDeleteCustomer(cidEnc) {
       var cid = decodeURIComponent(cidEnc);
@@ -2810,6 +2832,118 @@
       } catch(e) {
         console.error('bkImport exception:', e);
         status.textContent='Could not read that file — please use the downloaded .xlsx template.';
+      }
+    }
+    // ── Broker: BULK customers + meters import ──
+    function bkToggleBulkForm() {
+      var f = document.getElementById('bkBulkForm');
+      if (!f) return;
+      var show = f.style.display === 'none';
+      f.style.display = show ? '' : 'none';
+      if (show) { var af = document.getElementById('bkCustomerForm'); if (af) af.style.display = 'none'; }
+    }
+    var BK_BULK_COLS = ['Company Name'].concat(BK_TEMPLATE_COLS);
+    function bkBulkTemplate() {
+      if (typeof XLSX === 'undefined') { alert('Spreadsheet library still loading — try again in a second.'); return; }
+      var ex = [
+        ['Acme Ltd','1050002996278','Marble Power','electricity','HH','10','072',120,380280,'',21.48,18.20,'',794.0,6.25,'2026-09-30','Day/Night (2-rate): fill Day + Night, leave Unit blank.'],
+        ['Acme Ltd','1234567890123','Example Supplier','electricity','NHH','11','123','',25000,12.50,'','','',45.0,'','2027-03-31','Second meter, same company — repeat the company name.'],
+        ['Bloggs & Co','9876543210987','Example Supplier','electricity','HH','12','456',200,500000,'',24.10,15.80,9.90,610.0,7.00,'2028-01-31','A new company name on a row creates that customer automatically.'],
+        ['Empty Site Ltd','','','','','','','','','','','','','','','Company name with no MPAN = customer created with no meters.']
+      ];
+      var ws = XLSX.utils.aoa_to_sheet([BK_BULK_COLS].concat(ex));
+      ws['!cols'] = BK_BULK_COLS.map(function(){ return { wch:18 }; });
+      var wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Customers + Meters');
+      XLSX.writeFile(wb, 'ces_bulk_customers_meters_template.xlsx');
+    }
+    async function bkBulkImport(ev) {
+      var status = document.getElementById('bkBulkStatus');
+      var file = ev.target.files && ev.target.files[0];
+      ev.target.value = '';
+      if (!file) return;
+      if (typeof XLSX === 'undefined') { alert('Spreadsheet library still loading — try again in a second.'); return; }
+      status.textContent = 'Reading ' + file.name + '…';
+      try {
+        var buf = await file.arrayBuffer();
+        var wb = XLSX.read(buf, { type:'array' });
+        var rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval:'' });
+        if (!rows.length) { status.textContent = 'No rows found in the sheet.'; return; }
+        function pick(r, keys){ for (var k in r){ var nk = k.toLowerCase().replace(/[^a-z0-9]/g,''); for (var i=0;i<keys.length;i++){ if (nk === keys[i]) return r[k]; } } return ''; }
+        function num(v){ v = ('' + v).trim(); return v === '' ? null : (isNaN(Number(v)) ? null : Number(v)); }
+        // 1. group rows by company name
+        var groups = {}, order = [], noCompany = 0;
+        rows.forEach(function(r){
+          var name = ('' + pick(r, ['companyname','company','customer','customername','client'])).trim();
+          if (!name) { noCompany++; return; }
+          var key = name.toLowerCase();
+          if (!groups[key]) { groups[key] = { name: name, rows: [] }; order.push(key); }
+          groups[key].rows.push(r);
+        });
+        if (!order.length) { status.textContent = 'No valid rows — every row needs a Company Name in the first column.'; return; }
+        // 2. match against existing customers (case-insensitive on company name)
+        status.textContent = 'Checking existing customers…';
+        var existing = await sb.from('customers').select('customer_id, company_name');
+        if (existing.error) { console.error('bkBulk customers:', existing.error); status.textContent = 'Could not read customers: ' + (existing.error.message || 'see console'); return; }
+        var byName = {};
+        (existing.data || []).forEach(function(c){ byName[(c.company_name || '').trim().toLowerCase()] = c.customer_id; });
+        // 3. create the missing ones
+        var created = 0, matchedExisting = 0;
+        for (var i = 0; i < order.length; i++) {
+          var g = groups[order[i]];
+          if (byName[order[i]]) { g.cid = byName[order[i]]; matchedExisting++; continue; }
+          var base = bkSlug(g.name), id = base, lastErr = null, resp;
+          for (var attempt = 0; attempt < 6; attempt++) {
+            resp = await sb.from('customers').insert({ customer_id: id, company_name: g.name });
+            if (!resp.error) { lastErr = null; break; }
+            lastErr = resp.error;
+            var dup = resp.error.code === '23505' || /duplicate|already exists|unique/i.test(resp.error.message || '');
+            if (!dup) break;
+            id = base + '-' + Math.random().toString(36).slice(2, 6);
+          }
+          if (lastErr) { console.error('bkBulk create:', lastErr); status.textContent = 'Could not create "' + g.name + '": ' + (lastErr.message || 'permission denied') + '. Companies after this one were not imported.'; return; }
+          g.cid = id; created++;
+          logAction('add_customer', id, { name: g.name, via: 'broker_bulk' });
+        }
+        // 4. build + upsert every meter row
+        var meters = [], skipped = 0;
+        order.forEach(function(key){
+          var g = groups[key];
+          g.rows.forEach(function(r){
+            var mpan = ('' + pick(r, ['mpan','mpanmpr','mpr'])).trim();
+            if (!mpan) { skipped++; return; }
+            meters.push({
+              customer_id: g.cid, mpan: mpan,
+              supplier: ('' + pick(r,['supplier'])).trim() || null,
+              utility: (('' + pick(r,['utility'])).trim().toLowerCase() === 'gas') ? 'gas' : 'electricity',
+              supply_type: (function(v){ v = ('' + v).trim().toUpperCase(); return (v === 'HH' || v === 'NHH') ? v : null; })(pick(r,['supplytype'])),
+              area_code: ('' + pick(r,['areadnocode','areacode','area','dnocode'])).trim() || null,
+              llfc: ('' + pick(r,['llfc'])).trim() || null,
+              agreed_kva: num(pick(r,['agreedkva','kva'])),
+              est_annual_consumption: num(pick(r,['eackwhyr','eac','eackwh'])),
+              current_unit_rate: num(pick(r,['unitratepkwh','unitrate'])),
+              current_day_rate: num(pick(r,['dayratepkwh','dayrate','day'])),
+              current_night_rate: num(pick(r,['nightratepkwh','nightrate','night'])),
+              current_eveweekend_rate: num(pick(r,['eveningweekendratepkwh','eveweekendratepkwh','eveweekendrate','eveningweekend','eveweekend','weekend'])),
+              current_standing_charge: num(pick(r,['standingchargepday','standingcharge','sc'])),
+              current_capacity_rate: num(pick(r,['capacityratepkvaday','capacityrate','capacity'])),
+              contract_end_date: (function(v){ v = ('' + v).trim(); return /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : null; })(pick(r,['contractendyyyymmdd','contractend','contractenddate'])),
+              notes: ('' + pick(r,['notes'])).trim() || null
+            });
+          });
+        });
+        if (meters.length) {
+          status.textContent = 'Importing ' + meters.length + ' meters…';
+          var mr = await sb.from('meters').upsert(meters, { onConflict: 'customer_id,mpan' });
+          if (mr.error) { console.error('bkBulk meters:', mr.error); status.textContent = 'Customers saved (' + created + ' new) but the meter import failed: ' + (mr.error.message || 'see console'); await loadBroker(); brokerNav('customers'); return; }
+          logAction('import_meters', null, { count: meters.length, via: 'broker_bulk' });
+        }
+        status.textContent = 'Done — ' + created + ' new customer' + (created !== 1 ? 's' : '') + ', ' + matchedExisting + ' matched existing, ' + meters.length + ' meter' + (meters.length !== 1 ? 's' : '') + ' imported' + (skipped ? (', ' + skipped + ' row(s) had no MPAN (customer only)') : '') + (noCompany ? (', ' + noCompany + ' row(s) skipped — no company name') : '') + '.';
+        await loadBroker();
+        brokerNav('customers');
+      } catch (e) {
+        console.error('bkBulk exception:', e);
+        status.textContent = 'Could not read that file — please use the downloaded bulk template.';
       }
     }
     async function doSignOut() {
@@ -4012,30 +4146,46 @@
       await refreshAdminReportTable();
       refreshDangerZone();
     }
-    var ADMIN_TAB_META = {
-      'upload':         ['Billing Portal Admin', 'Upload Validation'],
-      'upload-occ':     ['Billing Portal Admin', 'Upload Occupancy'],
-      'reports':        ['Billing Portal Admin', 'Reports Admin'],
-      'customers':      ['Billing Portal Admin', 'Customers'],
-      'siteaddr':       ['Billing Portal Admin', 'Site Addresses'],
-      'sales':          ['Broker Admin Portal', 'Commission & Targets'],
-      'sk-figures':     ['Broker Admin Portal', 'Monthly Figures'],
-      'sk-board':       ['Broker Admin Portal', 'Team Leaderboard'],
-      'sk-report':      ['Broker Admin Portal', 'Month-End Report'],
-      'meters':         ['Broker Admin Portal', 'Meters / MPANs'],
-      'carbon':         ['Carbon Reporting Portal', 'Carbon Config'],
-      'carbon-console': ['Carbon Reporting Portal', 'Carbon Console']
+    var ADMIN_SECTIONS = {
+      billing: { label: 'Billing Portal Admin',    tabs: ['upload','upload-occ','reports','customers','siteaddr'], def: 'upload' },
+      broker:  { label: 'Broker Admin Portal',     tabs: ['sales','sk-figures','sk-board','sk-report','meters'],   def: 'sales' },
+      carbon:  { label: 'Carbon Reporting Portal', tabs: ['carbon','carbon-console'],                              def: 'carbon' }
     };
+    var ADMIN_TAB_TITLES = {
+      'upload': 'Upload Validation', 'upload-occ': 'Upload Occupancy', 'reports': 'Reports Admin',
+      'customers': 'Customers', 'siteaddr': 'Site Addresses',
+      'sales': 'Commission & Targets', 'sk-figures': 'Monthly Figures', 'sk-board': 'Team Leaderboard',
+      'sk-report': 'Month-End Report', 'meters': 'Meters / MPANs',
+      'carbon': 'Carbon Config', 'carbon-console': 'Carbon Console'
+    };
+    var _adminSecLastTab = { billing: 'upload', broker: 'sales', carbon: 'carbon' };
+    function _adminSecOf(tab) {
+      for (var sName in ADMIN_SECTIONS) { if (ADMIN_SECTIONS[sName].tabs.indexOf(tab) >= 0) return sName; }
+      return 'billing';
+    }
+    // Sidebar click: open a portal section, restoring the tab you were last on.
+    function adminSection(sec) {
+      if (!ADMIN_SECTIONS[sec]) return;
+      adminTab(_adminSecLastTab[sec] || ADMIN_SECTIONS[sec].def);
+    }
     function adminTab(name) {
+      var sec = _adminSecOf(name);
+      _adminSecLastTab[sec] = name;
       document.querySelectorAll('#adminSidebarNav .nav-item').forEach(function(t){
-        t.classList.toggle('active', t.getAttribute('data-atab') === name);
+        t.classList.toggle('active', t.getAttribute('data-asec') === sec);
+      });
+      Object.keys(ADMIN_SECTIONS).forEach(function(sName){
+        var bar = document.getElementById('adminTabs-' + sName);
+        if (bar) bar.style.display = (sName === sec) ? '' : 'none';
+      });
+      document.querySelectorAll('#adminPage .admin-tab').forEach(function(b){
+        b.classList.toggle('active', b.getAttribute('data-atab') === name);
       });
       document.querySelectorAll('#adminPage .tab-pane').forEach(p => p.classList.remove('active'));
       var pane = document.getElementById('tab-' + name);
       if (pane) pane.classList.add('active');
-      var meta = ADMIN_TAB_META[name] || ['Admin', 'Admin Dashboard'];
-      var chip = document.getElementById('adminSectionChip'); if (chip) chip.textContent = meta[0];
-      var h = document.getElementById('adminTitle'); if (h) h.textContent = meta[1];
+      var chip = document.getElementById('adminSectionChip'); if (chip) chip.textContent = ADMIN_SECTIONS[sec].label;
+      var h = document.getElementById('adminTitle'); if (h) h.textContent = ADMIN_TAB_TITLES[name] || 'Admin Dashboard';
       if (name === 'carbon') loadCarbonConfig();
       if (name === 'customers') refreshDangerZone();
       if (name === 'sales' || name === 'sk-figures' || name === 'sk-board' || name === 'sk-report') loadSalesAdmin();
