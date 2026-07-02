@@ -2207,7 +2207,7 @@
             <button class="btn-primary" id="ncAddBtn" onclick="addCustomer()">Add customer</button>
           </div>
           <table class="list">
-            <thead><tr><th>Company</th><th>Customer ID</th><th>Notification email</th><th>Created</th><th></th></tr></thead>
+            <thead><tr><th>Company</th><th>Customer ID</th><th>Notification email</th><th>Created</th><th>Portals</th><th></th></tr></thead>
             <tbody id="custTable"></tbody>
           </table>
           <!-- Hidden danger zone — only revealed via the #danger URL hash -->
@@ -2758,7 +2758,7 @@
       if (!name) { err.textContent = 'Company name is required.'; err.style.display = 'block'; return; }
       var base = bkSlug(name), id = base, resp, lastErr = null;
       for (var attempt = 0; attempt < 6; attempt++) {
-        resp = await sb.from('customers').insert({ customer_id: id, company_name: name });
+        resp = await sb.from('customers').insert({ customer_id: id, company_name: name, portal_scope: ['broker'] });
         if (!resp.error) { lastErr = null; break; }
         lastErr = resp.error;
         var dup = resp.error.code === '23505' || /duplicate|already exists|unique/i.test(resp.error.message || '');
@@ -3088,7 +3088,7 @@
           if (byName[order[i]]) { g.cid = byName[order[i]]; matchedExisting++; continue; }
           var base = bkSlug(g.name), id = base, lastErr = null, resp;
           for (var attempt = 0; attempt < 6; attempt++) {
-            resp = await sb.from('customers').insert({ customer_id: id, company_name: g.name });
+            resp = await sb.from('customers').insert({ customer_id: id, company_name: g.name, portal_scope: ['broker'] });
             if (!resp.error) { lastErr = null; break; }
             lastErr = resp.error;
             var dup = resp.error.code === '23505' || /duplicate|already exists|unique/i.test(resp.error.message || '');
@@ -3856,7 +3856,7 @@
     async function loadSiteAddrAdmin(){
       const sel = document.getElementById('saCustomer'); if (!sel) return;
       if (sel.dataset.loaded !== '1') {
-        const { data } = await sb.from('customers').select('customer_id, company_name').order('company_name');
+        const { data } = await sb.from('customers').select('customer_id, company_name').contains('portal_scope', ['billing']).order('company_name');
         sel.innerHTML = (data || []).map(function(c){ return '<option value="' + escapeHtml(c.customer_id) + '">' + escapeHtml(c.company_name) + '</option>'; }).join('');
         sel.dataset.loaded = '1';
       }
@@ -4448,7 +4448,7 @@
     async function ccxOpen(){
       if (!_ccx.bound) { _ccx.bound = true; _ccxBind(); }
       _ccxChartLib();
-      var r = await sb.from('customers').select('customer_id, company_name').order('company_name');
+      var r = await sb.from('customers').select('customer_id, company_name').contains('portal_scope', ['carbon']).order('company_name');
       var sel = document.getElementById('ccxCustSel');
       if (sel && !r.error) {
         var cur = sel.value;
@@ -6386,27 +6386,42 @@
     }
 
     async function refreshAdminStats() {
-      const { count: cust } = await sb.from('customers').select('*', { count: 'exact', head: true });
+      const { count: cust } = await sb.from('customers').select('*', { count: 'exact', head: true }).contains('portal_scope', ['billing']);
       const { count: rep }  = await sb.from('reports').select('*', { count: 'exact', head: true });
       document.getElementById('adminMeta').textContent = (cust || 0) + ' customers · ' + (rep || 0) + ' reports';
     }
     async function refreshCustomerDropdown() {
-      const { data } = await sb.from('customers').select('*').order('company_name');
+      const { data } = await sb.from('customers').select('*').contains('portal_scope', ['billing']).order('company_name');
       const opts = '<option value="">— select customer —</option>' +
         (data || []).map(c => `<option value="${c.customer_id}">${c.company_name}</option>`).join('');
       document.getElementById('upCustomer').innerHTML = opts;
       document.getElementById('upOccCustomer').innerHTML = opts;
     }
     async function refreshReportFilter() {
-      const { data } = await sb.from('customers').select('*').order('company_name');
+      const { data } = await sb.from('customers').select('*').contains('portal_scope', ['billing']).order('company_name');
       const sel = document.getElementById('reportFilter');
       sel.innerHTML = '<option value="">All customers</option>' +
         (data || []).map(c => `<option value="${c.customer_id}">${c.company_name}</option>`).join('');
       sel.onchange = refreshAdminReportTable;
       document.getElementById('reportTypeFilter').onchange = refreshAdminReportTable;
     }
+    // Toggle which portals a customer appears in (billing / carbon). Broker-portfolio
+    // customers are scoped 'broker' automatically and never show in these lists.
+    async function custScopeToggle(cid, scope, on) {
+      var c = (window._adminCustomers || []).find(function(x){ return x.customer_id === cid; });
+      var cur = (c && c.portal_scope && c.portal_scope.slice()) || ['billing','carbon'];
+      var next = cur.filter(function(x){ return x !== scope; });
+      if (on) next.push(scope);
+      if (!next.length) { safeAlert('A customer must belong to at least one portal.', null); refreshCustTable(); return; }
+      var r = await sb.from('customers').update({ portal_scope: next }).eq('customer_id', cid);
+      if (r.error) { safeAlert('Could not update the portals for this customer.', r.error); refreshCustTable(); return; }
+      if (c) c.portal_scope = next;
+      logAction('set_portal_scope', cid, { scopes: next });
+      // refresh every scoped list so the change shows everywhere immediately
+      refreshCustomerDropdown(); refreshReportFilter(); refreshAdminStats();
+    }
     async function refreshCustTable() {
-      const { data } = await sb.from('customers').select('*').order('created_at', { ascending: false });
+      const { data } = await sb.from('customers').select('*').overlaps('portal_scope', ['billing','carbon']).order('created_at', { ascending: false });
       const tbody = document.getElementById('custTable');
       window._adminCustomers = data || [];
       tbody.innerHTML = (data || []).map(c => `
@@ -6418,6 +6433,10 @@
             <button class="btn-secondary" data-action="save-email" data-id="${escapeHtml(c.customer_id)}" style="margin-left:6px;padding:6px 10px;font-size:12px;">Save</button>
           </td>
           <td class="mono">${new Date(c.created_at).toLocaleDateString('en-GB')}</td>
+          <td style="white-space:nowrap;">
+            <label style="font-size:12px;font-weight:600;margin-right:10px;cursor:pointer;"><input type="checkbox" ${(c.portal_scope||[]).indexOf('billing')>=0?'checked':''} onchange="custScopeToggle('${escapeHtml(c.customer_id)}','billing',this.checked)"> Billing</label>
+            <label style="font-size:12px;font-weight:600;cursor:pointer;"><input type="checkbox" ${(c.portal_scope||[]).indexOf('carbon')>=0?'checked':''} onchange="custScopeToggle('${escapeHtml(c.customer_id)}','carbon',this.checked)"> Carbon</label>
+          </td>
           <td>
             ${c.has_logo
               ? `<button class="btn-secondary" data-action="remove-logo" data-id="${escapeHtml(c.customer_id)}" style="margin-right:6px;">Remove Logo</button>`
@@ -6426,7 +6445,7 @@
             <button class="btn-secondary" data-action="open-portal" data-id="${escapeHtml(c.customer_id)}" style="margin-right:6px;">Open portal</button>
           </td>
         </tr>
-      `).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:32px;">No customers yet.</td></tr>';
+      `).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:32px;">No customers yet.</td></tr>';
     }
     async function refreshAdminReportTable() {
       const custFilter = document.getElementById('reportFilter').value;
@@ -7113,7 +7132,7 @@
 
       // Populate customer dropdown
       try {
-        const { data: custs } = await sb.from('customers').select('customer_id, company_name').order('company_name');
+        const { data: custs } = await sb.from('customers').select('customer_id, company_name').contains('portal_scope', ['carbon']).order('company_name');
         const sel = document.getElementById('carbonCustomerSel');
         sel.innerHTML = '<option value="">Select a customer…</option>' +
           (custs || []).map(function(c) { return '<option value="' + escapeHtml(c.customer_id) + '">' + escapeHtml(c.company_name) + '</option>'; }).join('');
