@@ -1114,11 +1114,15 @@
                data-error-callback="onTurnstileError"
                data-expired-callback="onTurnstileExpired"
                style="margin: 6px 0 16px; display: flex; justify-content: center;"></div>
+          <div id="turnstileHint" style="display:none;font-size:12px;color:#b5340f;margin:-8px 0 14px;text-align:center;line-height:1.5;">The security check hasn't loaded. If nothing appears above, turn off ad or privacy blockers for this site and reload the page.</div>
           <button class="btn-primary" id="loginBtn" onclick="doLogin()" disabled>Sign in</button>
           <p class="form-help" style="margin-top:16px;text-align:center;">
             Forgot your password?
-            <a href="#" onclick="doReset(event)" style="color:var(--navy);text-decoration:underline;font-weight:600;">Reset it.</a>
+            <a href="#" onclick="doReset(event)" style="color:var(--navy);text-decoration:underline;font-weight:600;">Contact us to reset it.</a>
           </p>
+          <div id="resetPanel" style="display:none;margin-top:12px;padding:12px 14px;border:1.5px solid var(--border);border-left:4px solid var(--navy);border-radius:8px;background:#f7f8fc;font-size:12.5px;line-height:1.55;">
+            Email <a href="mailto:info@cesgb.com" style="color:var(--navy);font-weight:700;">info@cesgb.com</a> from your registered work email address and the CES team will send you a new temporary password within one business day.
+          </div>
         </div>
       </div>
     </div>
@@ -1166,11 +1170,14 @@
                 </div>
                 <button class="avatar-dropdown__item" onclick="toggleAccountSettings()">Account settings</button>
                 <div class="avatar-dropdown__form" id="accountSettingsForm" style="display:none;">
+                  <label>Current password</label>
+                  <input type="password" id="currentPassword" autocomplete="current-password" placeholder="Your current password" />
                   <label>New password</label>
                   <input type="password" id="newPassword" autocomplete="new-password" placeholder="At least 8 characters" />
                   <label>Confirm new password</label>
                   <input type="password" id="confirmPassword" autocomplete="new-password" placeholder="Re-enter the new password" />
                   <button class="btn-primary" id="changePwBtn" onclick="doChangePassword()">Change password</button>
+                  <div id="pwChangeMsg" style="display:none;font-size:12px;font-weight:700;margin-top:8px;line-height:1.4;"></div>
                   <div class="form-help">Forgotten your current password? Email <a href="mailto:info@cesgb.com" style="color:var(--navy);text-decoration:underline;font-weight:600;">info@cesgb.com</a>.</div>
                 </div>
                 <div class="avatar-dropdown__divider"></div>
@@ -1314,15 +1321,16 @@
         <div class="dash-section" data-page="league" style="display:none;">
           <div class="section-head">
             <h2>Site League Table</h2>
-            <div class="section-meta">Live performance ranking of your sites by usage and cost. #1 = best (lowest). Totals are summed from your chosen start date to the latest report and update automatically.</div>
+            <div class="section-meta">Live ranking of your sites by usage and cost. #1 = lowest. Totals are summed from your chosen start date to the latest report and update automatically.</div>
           </div>
           <div class="usage-filters" id="leagueFilters">
             <div class="filter-side">
               <div class="filter-block">
                 <label>Utilities</label>
                 <select id="leagueUtil" onchange="renderLeague()">
-                  <option value="all">Electricity + Water</option>
+                  <option value="all">All utilities</option>
                   <option value="electricity">Electricity only</option>
+                  <option value="gas">Gas only</option>
                   <option value="water">Water only</option>
                 </select>
               </div>
@@ -2269,10 +2277,8 @@
   ════════════════════════════════════ -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
-    // ▼▼▼ PASTE YOUR SUPABASE CREDENTIALS HERE ▼▼▼
     const SUPABASE_URL  = 'https://niadffxpxdohglcyagau.supabase.co';
     const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pYWRmZnhweGRvaGdsY3lhZ2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3Mzc3MTksImV4cCI6MjA5NDMxMzcxOX0.x22Zh9O408PGfcPZ6rgu-a4B7WTbyH8iyT_ysr-IfIs';
-    // ▲▲▲ Find both in Supabase → Project Settings → API ▲▲▲
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
       auth: { persistSession: true, autoRefreshToken: true }
     });
@@ -2425,7 +2431,7 @@
     // verifies, so we wipe it after sign-in and reset the widget on failure.
     window._turnstileToken = null;
     function _setLoginEnabled(on){ var b=document.getElementById('loginBtn'); if(b) b.disabled = !on; }
-    window.onTurnstileSuccess = function(token) { window._turnstileToken = token; _setLoginEnabled(true); };
+    window.onTurnstileSuccess = function(token) { window._turnstileToken = token; _setLoginEnabled(true); var _th = document.getElementById('turnstileHint'); if (_th) _th.style.display = 'none'; };
     window.onTurnstileError   = function()      { window._turnstileToken = null; _setLoginEnabled(false); };
     window.onTurnstileExpired = function() {
       window._turnstileToken = null;
@@ -2433,7 +2439,7 @@
       if (window.turnstile && typeof turnstile.reset === 'function') turnstile.reset();
     };
     // Safety net: if the captcha is blocked or slow to load, do not lock the user out forever.
-    setTimeout(function(){ if (!window._turnstileToken) _setLoginEnabled(true); }, 6000);
+    setTimeout(function(){ if (!window._turnstileToken) { _setLoginEnabled(true); var _th = document.getElementById('turnstileHint'); if (_th) _th.style.display = 'block'; } }, 6000);
 
     // ───── ERROR HANDLING + FILE TYPE VALIDATION ─────
     // safeAlert() shows a generic message to the user and logs the real error
@@ -3159,7 +3165,8 @@
     }
     async function doReset(e) {
       e.preventDefault();
-      alert('To reset your password, please email info@cesgb.com.\n\nThe CES team will reply within one business day with a new temporary password.');
+      var p = document.getElementById('resetPanel');
+      if (p) p.style.display = (p.style.display === 'none' || !p.style.display) ? 'block' : 'none';
     }
     // ───── CUSTOMER DASHBOARD ─────
     // XSS-safe escape — replaces &<>"' with HTML entities so user-controlled strings
@@ -3749,7 +3756,7 @@
       if (bv) {
         (bv.electricity || []).forEach(function(s){ add('electricity', s.mpan || s.mpr, s.supplier, s.site || s.address); });
         (bv.gas || []).forEach(function(s){ add('gas', s.mpr || s.mprn || s.mpan, s.supplier, s.site || s.address); });
-        (bv.water || []).forEach(function(s){ add('water', s.spid, s.supplier || 'Water2Business', s.address || s.site); });
+        (bv.water || []).forEach(function(s){ add('water', s.spid, s.supplier, s.address || s.site); });
       }
       const total = groups.electricity.length + groups.gas.length + groups.water.length;
       return { bv: bv, groups: groups, total: total, period: rep ? ((rep.month || '') + ' ' + (rep.year || '')).trim() : '' };
@@ -3779,7 +3786,6 @@
     // Download the Site List as an Excel workbook — built from the LATEST validation report,
     // so it always shows the current supplier per supply and ONLY the supplies billed in the
     // latest month. Auto-updates whenever a newer report (with new/changed supplies) is uploaded.
-    // Water has no supplier in the report data, so water defaults to Water2Business.
     async function downloadSiteListExcel() {
       const btn = document.getElementById('siteListXlsxBtn');
       if (btn) { btn.disabled = true; btn.textContent = 'Preparing…'; }
@@ -3947,9 +3953,11 @@
           var ym = (r.year||0)*100 + (r.month_num||0);
           L.months.push(ym);
           var bv = r.bv_summary || {}; var wm3 = bv.water_m3 || {};
-          var rec = { ym: ym, elec: {}, water: {} };
+          var rec = { ym: ym, elec: {}, gas: {}, water: {} };
           (bv.electricity || []).forEach(function(s){ var id = s.mpan || s.mpr; if(!id) return;
             rec.elec[id] = { kwh: _lgN(s.cur_kwh), cost: _lgN(s.total != null ? s.total : s.cur_cost) }; });
+          (bv.gas || []).forEach(function(s){ var id = s.mpr || s.mprn || s.mpan; if(!id) return;
+            rec.gas[id] = { kwh: _lgN(s.cur_kwh), cost: _lgN(s.total != null ? s.total : s.cur_cost) }; });
           (bv.water || []).forEach(function(s){ var id = s.spid; if(!id) return;
             rec.water[id] = { m3: _lgN(wm3[id]), cost: _lgN(s.total != null ? s.total : s.cur_cost) }; });
           L.records.push(rec);
@@ -3979,22 +3987,25 @@
       for (var i = 0; i < L.records.length; i++) { if (L.records[i].ym === L.latestYm) { latest = L.records[i]; break; } }
       if (latest) {
         Object.keys(latest.elec).forEach(function(id){ liveSites[_lgSite(id)] = true; });
+        Object.keys(latest.gas || {}).forEach(function(id){ liveSites[_lgSite(id)] = true; });
         Object.keys(latest.water).forEach(function(id){ liveSites[_lgSite(id)] = true; });
       }
       // Aggregate live sites over [fromYm, toYm]
       var sites = {};
-      function ensure(name){ if(!sites[name]) sites[name] = { name:name, elecKwh:0, waterM3:0, elecCost:0, waterCost:0, hasElec:false, hasWater:false }; return sites[name]; }
+      function ensure(name){ if(!sites[name]) sites[name] = { name:name, elecKwh:0, gasKwh:0, waterM3:0, elecCost:0, gasCost:0, waterCost:0, hasElec:false, hasGas:false, hasWater:false }; return sites[name]; }
       L.records.forEach(function(r){
         if (r.ym < fromYm || r.ym > toYm) return;
         Object.keys(r.elec).forEach(function(id){ var nm=_lgSite(id); if(!liveSites[nm]) return; var s=ensure(nm); s.elecKwh += r.elec[id].kwh; s.elecCost += r.elec[id].cost; s.hasElec = true; });
+        Object.keys(r.gas || {}).forEach(function(id){ var nm=_lgSite(id); if(!liveSites[nm]) return; var s=ensure(nm); s.gasKwh += r.gas[id].kwh; s.gasCost += r.gas[id].cost; s.hasGas = true; });
         Object.keys(r.water).forEach(function(id){ var nm=_lgSite(id); if(!liveSites[nm]) return; var s=ensure(nm); s.waterM3 += r.water[id].m3; s.waterCost += r.water[id].cost; s.hasWater = true; });
       });
       var rows = Object.keys(sites).map(function(k){ return sites[k]; });
       if (util === 'electricity') rows = rows.filter(function(s){ return s.hasElec; });
+      if (util === 'gas')         rows = rows.filter(function(s){ return s.hasGas; });
       if (util === 'water')       rows = rows.filter(function(s){ return s.hasWater; });
       rows.forEach(function(s){
-        s.totalCost = (util === 'electricity') ? s.elecCost : (util === 'water') ? s.waterCost : (s.elecCost + s.waterCost);
-        s.rankUsage = (util === 'water') ? s.waterM3 : s.elecKwh; // combined & elec rank by kWh; water by m³
+        s.totalCost = (util === 'electricity') ? s.elecCost : (util === 'gas') ? s.gasCost : (util === 'water') ? s.waterCost : (s.elecCost + s.gasCost + s.waterCost);
+        s.rankUsage = (util === 'water') ? s.waterM3 : (util === 'gas') ? s.gasKwh : (util === 'electricity') ? s.elecKwh : (s.elecKwh + s.gasKwh); // energy ranks by kWh (elec+gas combine); water by m³
       });
       var key = (rankBy === 'usage') ? 'rankUsage' : 'totalCost';
       rows.sort(function(a,b){ return a[key] - b[key]; });
@@ -4002,20 +4013,23 @@
       if (util === 'electricity') {
         head = '<tr><th>#</th><th>Site</th><th class="num">Electricity (kWh)</th><th class="num">Electricity cost</th></tr>';
         body = rows.map(function(s,i){ return '<tr><td>'+(i+1)+'</td><td>'+escapeHtml(s.name)+'</td><td class="num">'+_lgNum(s.elecKwh,1)+'</td><td class="num">'+_lgMoney(s.elecCost)+'</td></tr>'; }).join('');
+      } else if (util === 'gas') {
+        head = '<tr><th>#</th><th>Site</th><th class="num">Gas (kWh)</th><th class="num">Gas cost</th></tr>';
+        body = rows.map(function(s,i){ return '<tr><td>'+(i+1)+'</td><td>'+escapeHtml(s.name)+'</td><td class="num">'+_lgNum(s.gasKwh,1)+'</td><td class="num">'+_lgMoney(s.gasCost)+'</td></tr>'; }).join('');
       } else if (util === 'water') {
         head = '<tr><th>#</th><th>Site</th><th class="num">Water (m³)</th><th class="num">Water cost</th></tr>';
         body = rows.map(function(s,i){ return '<tr><td>'+(i+1)+'</td><td>'+escapeHtml(s.name)+'</td><td class="num">'+_lgNum(s.waterM3,1)+'</td><td class="num">'+_lgMoney(s.waterCost)+'</td></tr>'; }).join('');
       } else {
-        head = '<tr><th>#</th><th>Site</th><th class="num">Electricity (kWh)</th><th class="num">Water (m³)</th><th class="num">Electricity £</th><th class="num">Water £</th><th class="num">Total cost</th></tr>';
-        body = rows.map(function(s,i){ return '<tr><td>'+(i+1)+'</td><td>'+escapeHtml(s.name)+'</td><td class="num">'+_lgNum(s.elecKwh,1)+'</td><td class="num">'+_lgNum(s.waterM3,1)+'</td><td class="num">'+_lgMoney(s.elecCost)+'</td><td class="num">'+_lgMoney(s.waterCost)+'</td><td class="num"><strong>'+_lgMoney(s.totalCost)+'</strong></td></tr>'; }).join('');
+        head = '<tr><th>#</th><th>Site</th><th class="num">Electricity (kWh)</th><th class="num">Gas (kWh)</th><th class="num">Water (m³)</th><th class="num">Electricity £</th><th class="num">Gas £</th><th class="num">Water £</th><th class="num">Total cost</th></tr>';
+        body = rows.map(function(s,i){ return '<tr><td>'+(i+1)+'</td><td>'+escapeHtml(s.name)+'</td><td class="num">'+_lgNum(s.elecKwh,1)+'</td><td class="num">'+_lgNum(s.gasKwh,1)+'</td><td class="num">'+_lgNum(s.waterM3,1)+'</td><td class="num">'+_lgMoney(s.elecCost)+'</td><td class="num">'+_lgMoney(s.gasCost)+'</td><td class="num">'+_lgMoney(s.waterCost)+'</td><td class="num"><strong>'+_lgMoney(s.totalCost)+'</strong></td></tr>'; }).join('');
       }
       tbl.innerHTML = '<thead>' + head + '</thead><tbody>' + body + '</tbody>';
       var note = document.getElementById('leagueNote');
       if (note) {
-        var rankLabel = (rankBy === 'usage') ? ((util === 'water') ? 'water usage (m³)' : 'electricity usage (kWh)') : 'total cost';
+        var rankLabel = (rankBy === 'usage') ? ((util === 'water') ? 'water usage (m³)' : (util === 'gas') ? 'gas usage (kWh)' : (util === 'electricity') ? 'electricity usage (kWh)' : 'energy usage (kWh, electricity + gas)') : 'total cost';
         note.innerHTML = 'Ranked by ' + rankLabel + ' · #1 = lowest · ' + rows.length + ' live site' + (rows.length === 1 ? '' : 's') +
           ' · ' + _lgYmLabel(fromYm) + ' → ' + _lgYmLabel(toYm) +
-          (util === 'all' ? ' · usage shown separately — kWh and m³ cannot be combined' : '');
+          (util === 'all' ? ' · water usage shown separately — kWh and m³ cannot be combined' : '');
       }
       var empty = document.getElementById('leagueEmpty'); if (empty) empty.style.display = rows.length ? 'none' : '';
     }
@@ -6887,25 +6901,27 @@
 
     // ───── CHANGE PASSWORD ─────
     async function doChangePassword() {
+      const curPw = (document.getElementById('currentPassword') || {}).value || '';
       const newPw = document.getElementById('newPassword').value;
       const confirmPw = document.getElementById('confirmPassword').value;
-      if (!newPw || newPw.length < 8) {
-        safeAlert('Your new password must be at least 8 characters.');
-        return;
-      }
-      if (newPw !== confirmPw) {
-        safeAlert('The two password entries do not match. Please try again.');
-        return;
-      }
+      const msg = document.getElementById('pwChangeMsg');
+      function pwMsg(text, ok) { if (!msg) return; msg.textContent = text; msg.style.color = ok ? '#2f7d4f' : '#b5340f'; msg.style.display = 'block'; }
+      if (msg) msg.style.display = 'none';
+      if (!curPw) { pwMsg('Enter your current password.'); return; }
+      if (!newPw || newPw.length < 8) { pwMsg('Your new password must be at least 8 characters.'); return; }
+      if (newPw !== confirmPw) { pwMsg('The two new password entries do not match.'); return; }
+      if (newPw === curPw) { pwMsg('Your new password must be different from your current one.'); return; }
       const btn = document.getElementById('changePwBtn');
       btn.disabled = true; btn.textContent = 'Saving…';
       try {
+        const vr = await sb.rpc('verify_current_password', { pw: curPw });
+        if (vr.error) { console.error('verify pw:', vr.error); pwMsg('Could not verify your current password — please try again, or email info@cesgb.com.'); return; }
+        if (vr.data !== true) { pwMsg('Your current password is incorrect.'); return; }
         const { error } = await sb.auth.updateUser({ password: newPw });
-        if (error) { safeAlert('Could not change password. Please contact info@cesgb.com.', error); return; }
-        document.getElementById('newPassword').value = '';
-        document.getElementById('confirmPassword').value = '';
+        if (error) { console.error('change pw:', error); pwMsg('Could not change your password. Please contact info@cesgb.com.'); return; }
+        ['currentPassword','newPassword','confirmPassword'].forEach(function(id){ var el = document.getElementById(id); if (el) el.value = ''; });
         logAction('password_change', null, {});
-        alert('Password changed successfully. You will use this new password the next time you sign in.');
+        pwMsg('Password changed — use the new password next time you sign in.', true);
       } finally {
         btn.disabled = false; btn.textContent = 'Change password';
       }
