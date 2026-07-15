@@ -231,7 +231,7 @@
         </section>
         <!-- SCOPES EXPLANATION -->
         <section class="pageview" id="v-scopesx">
-          <div class="ph"><h1>Scopes explanation</h1><p>What each scope measures under the GHG Protocol. Select a scope to see the detail.</p></div>
+          <div class="ph"><h1>Scopes explanation</h1><p>The three scopes show <b>where</b> an emission happens and your relationship to it — not how harmful it is. In short: Scope 1 is what you emit directly, Scope 2 is the energy you buy, and Scope 3 is your wider value chain. Select a scope for the detail.</p></div>
           <div class="scopex-grid" id="scopexGrid"></div>
           <div class="scopex-detail" id="scopexDetail"></div>
         </section>
@@ -531,24 +531,24 @@ async function loadGrid(){
    (Scope 1 = direct · Scope 2 = purchased energy · Scope 3 = value chain.) */
 const SCOPEX={
  s1:{n:'1',color:'#2f3d7e',title:'Scope 1',tag:'Direct emissions',
-     short:'Greenhouse gases released directly by sources your business owns or controls.',
-     lead:'Scope 1 covers emissions you create directly — anywhere you burn fuel on your own sites or in your own vehicles, plus any refrigerant gases that leak. If you own it or control it and it produces emissions on the spot, it belongs in Scope 1.',
-     measures:['Natural gas and other fuels burned on site — heating, hot water, catering and process use','Fuel used in company-owned or leased vehicles (your fleet)','Fugitive emissions — refrigerant and air-conditioning gas that escapes','On-site generators and any other combustion you own'],
-     examples:['Gas boilers across your sites','A company van running on diesel','Refrigerant top-ups on air-conditioning units'],
-     ces:'For most CES clients Scope 1 is dominated by natural gas for heating and hot water. It is usually the single largest and most controllable source — which is why it is the first place we look for reductions.'},
- s2:{n:'2',color:'#1d9e75',title:'Scope 2',tag:'Indirect — purchased energy',
-     short:'Emissions from the electricity, heat or steam you buy and use.',
-     lead:'Scope 2 covers the emissions created when energy you purchase is generated somewhere else. You do not burn anything yourself, but generating the electricity or steam you consume produces emissions on your behalf.',
-     measures:['Purchased grid electricity','Purchased heat, steam or cooling','Reported two ways: location-based (grid-average factor) and market-based (reflects a green / REGO-backed tariff)'],
-     examples:['Electricity metered at each of your sites','A green tariff that lowers your market-based figure','Purchased steam or district heating'],
-     ces:'We report Scope 2 on both a location-based and a market-based basis. Moving to a certified green (REGO) tariff drives your market-based figure towards zero, while cutting total kWh lowers the location-based figure used for science-based targets.'},
- s3:{n:'3',color:'#e0912b',title:'Scope 3',tag:'Indirect — value chain',
-     short:'Every other indirect emission across your value chain — upstream and downstream.',
-     lead:'Scope 3 is everything else: the emissions that happen because of your business but occur outside your own operations — from the goods and services you buy, through travel and commuting, to what happens to your products after you sell them. It is split into 15 categories and is usually the largest and most complex scope.',
-     measures:['Purchased goods & services and capital goods','Fuel & energy well-to-tank emissions and grid transmission & distribution losses','Transport & distribution, waste, business travel and employee commuting','Downstream use, processing and end-of-life of sold products, leased assets, franchises and investments'],
-     examples:['Food, cleaning and consumables you purchase','Staff business travel and commuting','Waste sent to landfill or recycling'],
-     ces:'CES compiles your Scope 3 from your data and the mass-upload return. Categories 3 (well-to-tank + grid losses) fall automatically as you cut Scope 1 & 2; the rest are driven by procurement, travel and waste choices.',
-     cats:[['1','Purchased goods & services'],['2','Capital goods'],['3','Fuel & energy-related activities'],['4','Upstream transport & distribution'],['5','Waste generated in operations'],['6','Business travel'],['7','Employee commuting'],['8','Upstream leased assets'],['9','Downstream transport & distribution'],['10','Processing of sold products'],['11','Use of sold products'],['12','End-of-life treatment of sold products'],['13','Downstream leased assets'],['14','Franchises'],['15','Investments']]}
+     short:'Emissions released directly from sources your business owns or controls.',
+     lead:'The gases physically released from your own buildings, equipment and vehicles. This is usually the area you have the most direct control over.',
+     measures:['Gas, oil, LPG or biomass burned on site for heating and hot water','Fuel used by company-owned cars, vans and machinery','Refrigerant leaks from air-conditioning, chillers and heat pumps','Fuel used in on-site generators or industrial processes'],
+     examples:['Gas boilers heating your premises','A diesel company van','Refrigerant top-ups on air-conditioning units'],
+     ces:'Natural gas counts here even though you buy it — because it is burned on your premises. Scope 1 is often reduced by improving heating efficiency, switching to lower-carbon heating, electrifying vehicles and maintaining refrigeration equipment. It tends to be small for offices but significant for manufacturers, transport businesses and heated estates.'},
+ s2:{n:'2',color:'#1d9e75',title:'Scope 2',tag:'Purchased energy',
+     short:'Emissions from generating the electricity, heat or steam you buy and use.',
+     lead:'These emissions happen at the power station rather than on your site — but they exist because of the energy your business consumes. Purchased grid electricity is the most common source.',
+     measures:['Grid electricity for lighting, IT, machinery and equipment','Electric heating, cooling and ventilation','Electric-vehicle charging on site','Purchased heat, steam or district cooling'],
+     examples:['Electricity metered at your sites','Air-conditioning and refrigeration','Charging electric vehicles'],
+     ces:'We report Scope 2 two ways: location-based (the average grid mix) and market-based (your chosen tariff). A credible green / REGO-backed tariff can lower the market-based figure — but a tariff simply labelled “green” is not automatically zero-carbon. Cutting total kWh and improving efficiency lowers both.'},
+ s3:{n:'3',color:'#e0912b',title:'Scope 3',tag:'Value chain',
+     short:'All other indirect emissions across your value chain — before and after your operations.',
+     lead:'Everything that happens because of your business but outside your own operations — from the goods and services you buy, through travel and waste, to what happens to products after you sell them. It is split into 15 categories and is often the largest scope.',
+     measures:['Upstream — what you buy and receive: goods & services, capital goods, transport, waste','Travel — business travel and employee commuting','Energy — fuel production and grid losses not already in Scope 1 or 2','Downstream — use, processing and end-of-life of what you sell, plus leased assets, franchises and investments'],
+     examples:['Food, packaging and supplies you buy','Staff business travel and commuting','Waste sent to landfill or recycling'],
+     ces:'A high Scope 3 figure does not mean you are doing badly — it often just reflects the size of your supply chain and what you sell. It is most useful for tracking your own progress over time, rather than comparing against other companies. One company’s Scope 3 can be another’s Scope 1 (for example, a courier’s van fuel).',
+     cats:[['1','Purchased goods & services','making the things you buy'],['2','Capital goods','buildings, machinery and major equipment'],['3','Fuel & energy activities','fuel production and grid losses'],['4','Upstream transport & distribution','deliveries you pay for'],['5','Waste generated in operations','treating your waste'],['6','Business travel','flights, rail, taxis, hotels'],['7','Employee commuting','staff travel to work'],['8','Upstream leased assets','assets you lease and use'],['9','Downstream transport & distribution','moving sold goods you don’t pay to move'],['10','Processing of sold products','further processing by your customers'],['11','Use of sold products','customers using what you sell'],['12','End-of-life of sold products','disposal & recycling afterwards'],['13','Downstream leased assets','assets you own and lease out'],['14','Franchises','franchisee operations'],['15','Investments','financed emissions (mainly finance sector)']]}
 };
 let _scopexActive='s1';
 function renderScopesX(){
@@ -561,7 +561,7 @@ function renderScopesX(){
   const s=SCOPEX[_scopexActive];
   let catsHtml='';
   if(s.cats){catsHtml=`<div class="sx-block" style="grid-column:1/-1"><h4>The 15 Scope 3 categories</h4><div class="sx-cats">`+
-    s.cats.map(c=>`<div class="c"><span class="k">${c[0]}</span><span>${c[1]}</span></div>`).join('')+`</div></div>`;}
+    s.cats.map(c=>`<div class="c"><span class="k">${c[0]}</span><span><b>${c[1]}</b> — ${c[2]}</span></div>`).join('')+`</div></div>`;}
   document.getElementById('scopexDetail').innerHTML=`<div class="card" style="--sc:${s.color}">
     <div class="sx-head"><div class="sx-badge">${s.n}</div><div><h2>${s.title} — ${s.tag}</h2></div></div>
     <div class="sx-lead">${s.lead}</div>
@@ -570,7 +570,9 @@ function renderScopesX(){
       <div class="sx-block"><h4>Typical examples</h4><ul>${s.examples.map(m=>`<li>${m}</li>`).join('')}</ul></div>
       ${catsHtml}
       <div class="sx-block" style="grid-column:1/-1;background:var(--leaf-bg);border-color:#bfe6d8"><h4>What this means for you</h4><p>${s.ces}</p></div>
-    </div></div>`;
+    </div>
+    <div class="note" style="margin-top:14px">All figures are shown in <b>tCO₂e</b> — one number that combines every greenhouse gas — using UK Government (DEFRA/DESNZ) conversion factors.</div>
+    </div>`;
 }
 
 /* NAV */
