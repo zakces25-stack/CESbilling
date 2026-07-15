@@ -142,6 +142,27 @@
       </div>
 
       <div class="card">
+        <h3>Carbon portal display — SBTi</h3>
+        <p class="muted" style="margin:2px 0 14px">Controls the trend graph on this customer's Overview page. Enrolled customers see the SBTi 1.5&nbsp;°C pathway; everyone else sees a trend, projection and a target you set below.</p>
+        <div class="ctrl-row" style="grid-template-columns:1.6fr 1fr;align-items:end;">
+          <div class="ctrl">
+            <label>SBTi status</label>
+            <label style="display:flex;align-items:center;gap:9px;font-weight:600;font-size:14px;padding:10px 12px;border:1.5px solid var(--border);border-radius:9px;background:#fff;cursor:pointer;">
+              <input type="checkbox" id="sbtiEnrolledChk" style="width:16px;height:16px;" />
+              Enrolled in SBTi — show the 1.5&nbsp;°C pathway graph
+            </label>
+          </div>
+          <div class="ctrl"><label>Next-year target (tCO₂e)</label>
+            <input type="number" id="nextYearTargetInp" min="0" step="1" placeholder="e.g. 8200" /></div>
+        </div>
+        <div class="row-btns">
+          <button class="btn btn-leaf" id="saveDisplayBtn">Save display settings</button>
+          <span class="status" id="displayStatus"></span>
+        </div>
+        <div class="callout" style="margin-top:14px">The next-year target is used for the non-SBTi trend graph (a target line alongside the customer's projection). It's optional — leave blank to show trend&nbsp;+&nbsp;projection only.</div>
+      </div>
+
+      <div class="card">
         <h3>Import CES mass-upload file</h3>
         <p class="muted" style="margin:2px 0 12px">Send the blank template to the customer to complete, then import their returned file below.</p>
         <a class="btn btn-primary" href="CES_Carbon_Mass_Upload_Template.xlsx" download style="text-decoration:none;display:inline-block;margin-bottom:14px">⬇ Download blank CES template</a>
@@ -190,6 +211,41 @@
    only. Production would persist to Supabase per selected customer. */
 
 const DEMO_USER='admin@cesgb.com', DEMO_PASS='CarbonAdmin2026!';
+
+/* ── Carbon portal display settings (SBTi enrolment + next-year target) ──
+   Shared with the client portal (carbon.html) via localStorage on the same
+   origin. Keyed by customer id. Production would persist to Supabase instead. */
+const CES_DISPLAY_KEY='cesCarbonSettings';
+function loadDisplaySettings(){
+  try{ return JSON.parse(localStorage.getItem(CES_DISPLAY_KEY)||'{}'); }catch(_){ return {}; }
+}
+function displayFor(cust){
+  const all=loadDisplaySettings();
+  // Default: enrolled (preserves the current SBTi view) with no target set.
+  return Object.assign({ sbtiEnrolled:true, nextYearTarget:null }, all[cust]||{});
+}
+function paintDisplaySettings(){
+  const cust=document.getElementById('custSel').value;
+  const s=displayFor(cust);
+  document.getElementById('sbtiEnrolledChk').checked=!!s.sbtiEnrolled;
+  document.getElementById('nextYearTargetInp').value=(s.nextYearTarget!=null?s.nextYearTarget:'');
+  const st=document.getElementById('displayStatus'); if(st){st.textContent='';}
+}
+function saveDisplaySettings(){
+  const cust=document.getElementById('custSel').value;
+  const all=loadDisplaySettings();
+  const tRaw=document.getElementById('nextYearTargetInp').value;
+  all[cust]={ sbtiEnrolled:document.getElementById('sbtiEnrolledChk').checked,
+              nextYearTarget:(tRaw===''?null:Math.max(0,parseFloat(tRaw)||0)) };
+  try{ localStorage.setItem(CES_DISPLAY_KEY, JSON.stringify(all)); }catch(_){}
+  const st=document.getElementById('displayStatus'); st.className='status ok';
+  st.textContent='✓ Saved for '+(CUST[cust]||cust)+' — the client portal updates on its next load.';
+}
+document.addEventListener('DOMContentLoaded',function(){
+  var sv=document.getElementById('saveDisplayBtn'); if(sv) sv.addEventListener('click',saveDisplaySettings);
+  var cs=document.getElementById('custSel'); if(cs) cs.addEventListener('change',paintDisplaySettings);
+  paintDisplaySettings();
+});
 document.getElementById('loginForm').addEventListener('submit',e=>{
   e.preventDefault();
   const em=document.getElementById('email').value.trim().toLowerCase(), pw=document.getElementById('pass').value;

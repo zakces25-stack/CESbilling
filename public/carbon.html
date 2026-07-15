@@ -109,6 +109,31 @@
     .sbti-stat .v{font-size:20px;font-weight:800;margin-top:4px;letter-spacing:-.3px}
     .sbti-stat .n{font-size:11.5px;color:var(--text-2);margin-top:2px}
     .pill-ok{color:var(--ok)}.pill-bad{color:var(--fail)}
+    /* Scopes explanation page */
+    .scopex-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px}
+    @media(max-width:820px){.scopex-grid{grid-template-columns:1fr}}
+    .scopex-card{position:relative;text-align:left;background:var(--surface);border:1px solid var(--border);border-top:4px solid var(--sc);border-radius:14px;padding:22px 20px;cursor:pointer;transition:transform .15s ease,box-shadow .15s ease;overflow:hidden}
+    .scopex-card:hover{transform:translateY(-3px);box-shadow:0 14px 34px rgba(28,31,42,.12)}
+    .scopex-card.active{box-shadow:0 0 0 2px var(--sc) inset,0 12px 30px rgba(28,31,42,.12)}
+    .scopex-card .num{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:12px;background:var(--sc);color:#fff;font-weight:800;font-size:18px;margin-bottom:14px}
+    .scopex-card h3{font-size:18px;font-weight:800;letter-spacing:-.3px;margin-bottom:6px}
+    .scopex-card .tl{font-size:12.5px;font-weight:700;color:var(--sc);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+    .scopex-card p{font-size:13px;color:var(--text-2);line-height:1.55}
+    .scopex-card .more{margin-top:14px;font-size:12.5px;font-weight:700;color:var(--sc)}
+    .scopex-detail{animation:fade .25s ease both}
+    .scopex-detail .sx-head{display:flex;align-items:center;gap:14px;margin-bottom:6px}
+    .scopex-detail .sx-badge{width:46px;height:46px;border-radius:12px;background:var(--sc);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:19px;flex-shrink:0}
+    .scopex-detail h2{font-size:22px;font-weight:800;letter-spacing:-.4px}
+    .scopex-detail .sx-lead{color:var(--text-2);font-size:14.5px;line-height:1.6;margin:12px 0 20px}
+    .sx-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:820px){.sx-cols{grid-template-columns:1fr}}
+    .sx-block{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+    .sx-block h4{font-size:12.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--sc);margin-bottom:10px}
+    .sx-block ul{margin:0;padding-left:18px}.sx-block li{font-size:13px;color:var(--text-2);line-height:1.7;margin-bottom:3px}
+    .sx-block p{font-size:13px;color:var(--text-2);line-height:1.6}
+    .sx-cats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px 18px;margin-top:4px}@media(max-width:560px){.sx-cats{grid-template-columns:1fr}}
+    .sx-cats .c{display:flex;gap:9px;font-size:12.5px;color:var(--text-2);line-height:1.5;padding:5px 0;border-bottom:1px dashed var(--line)}
+    .sx-cats .c b{color:var(--text);font-weight:700}
+    .sx-cats .c .k{flex-shrink:0;width:22px;height:22px;border-radius:6px;background:var(--s3);color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center}
     /* Carbon Assistant chatbot */
     .ask-btn{position:fixed;bottom:22px;right:22px;z-index:60;background:var(--leaf);color:#fff;border:0;border-radius:30px;padding:13px 20px;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 8px 24px rgba(29,158,117,.35)}
     .ask-btn:hover{background:var(--leaf-dark)}
@@ -178,6 +203,7 @@
     <div class="layout">
       <nav class="nav">
         <button class="nav-item active" data-view="overview"><span class="ic">◔</span><span class="t">Overview</span></button>
+        <button class="nav-item" data-view="scopesx"><span class="ic">❔</span><span class="t">Scopes Explanation</span></button>
         <button class="nav-item" data-view="scopes"><span class="ic">▦</span><span class="t">Scope detail</span></button>
         <button class="nav-item" data-view="grid"><span class="ic">⚡</span><span class="t">Live grid</span></button>
         <button class="nav-item" data-view="factors"><span class="ic">📎</span><span class="t">Factors</span></button>
@@ -191,12 +217,23 @@
             <div class="card"><h3>Monthly emissions by scope</h3><div class="card-sub" id="monTitle">tCO₂e per month</div><div class="chart-box"><canvas id="chMonthly"></canvas></div></div>
             <div class="card"><h3>Scope split</h3><div class="card-sub">Share of gross emissions</div><div class="chart-box sm"><canvas id="chSplit"></canvas></div><div class="fac-note" id="splitNote"></div></div>
           </div>
-          <div class="card" style="margin-top:16px"><h3>Emissions trend &amp; SBTi 1.5 °C pathway</h3><div class="card-sub">Baseline 2022-23 · near-term target −4.2%/yr (SBTi 1.5 °C minimum) · hover any year for values</div><div class="chart-box"><canvas id="chTrend"></canvas></div></div>
-          <div class="card" style="margin-top:16px"><h3>Your SBTi target — what it takes</h3><div class="card-sub" id="sbtiSub">—</div>
+          <div class="card" style="margin-top:16px"><h3 id="trendH">Emissions trend &amp; SBTi 1.5 °C pathway</h3><div class="card-sub" id="trendSub">Baseline 2022-23 · near-term target −4.2%/yr (SBTi 1.5 °C minimum) · hover any year for values</div><div class="chart-box"><canvas id="chTrend"></canvas></div></div>
+          <div class="card" id="sbtiCard" style="margin-top:16px"><h3>Your SBTi target — what it takes</h3><div class="card-sub" id="sbtiSub">—</div>
             <div class="sbti-grid" id="sbtiStats"></div>
             <div class="callout" id="sbtiNarrative"></div>
             <table class="dt" id="sbtiTable" style="margin-top:16px"></table>
           </div>
+          <div class="card" id="outlookCard" style="margin-top:16px;display:none"><h3>Your reduction outlook</h3><div class="card-sub" id="outlookSub">—</div>
+            <div class="sbti-grid" id="outlookStats"></div>
+            <div class="callout" id="outlookNarrative"></div>
+            <table class="dt" id="outlookTable" style="margin-top:16px"></table>
+          </div>
+        </section>
+        <!-- SCOPES EXPLANATION -->
+        <section class="pageview" id="v-scopesx">
+          <div class="ph"><h1>Scopes explanation</h1><p>What each scope measures under the GHG Protocol. Select a scope to see the detail.</p></div>
+          <div class="scopex-grid" id="scopexGrid"></div>
+          <div class="scopex-detail" id="scopexDetail"></div>
         </section>
         <!-- SCOPES -->
         <section class="pageview" id="v-scopes">
@@ -284,6 +321,14 @@ const FAC={
  '25-26':{yr:'2025',elecGen:0.17700,elecTD:0.01853,gas:0.18296}
 };
 const COMPANY={name:'Country Court Care Homes',employees:2407,sites:24,greenPct:0};
+/* Carbon display settings — set by CES in the admin portal, shared via localStorage.
+   Controls whether this customer sees the SBTi pathway or the trend/projection view. */
+const CES_DISPLAY_KEY='cesCarbonSettings', CES_CUST_ID='ccch';
+function carbonSettings(){
+  try{ const all=JSON.parse(localStorage.getItem(CES_DISPLAY_KEY)||'{}');
+    return Object.assign({sbtiEnrolled:true,nextYearTarget:null}, all[CES_CUST_ID]||{}); }
+  catch(_){ return {sbtiEnrolled:true,nextYearTarget:null}; }
+}
 /* SBTi near-term: 1.5 °C-aligned minimum = 4.2% absolute cut per year vs baseline */
 const SBTI_RATE=0.042, SBTI_YEARS=['22-23','23-24','24-25','25-26','26-27','27-28','28-29','29-30'];
 let YEAR=YEARS[YEARS.length-1], activeScope='s1', charts={};  // always default to the latest financial year
@@ -322,7 +367,63 @@ function renderOverview(){
      plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${fmt(c.parsed.y,1)} tCO₂e`}}}});
   makeChart('chSplit','doughnut',{labels:['Scope 1','Scope 2','Scope 3'],datasets:[{data:[T(tot.s1),T(tot.s2),T(tot.s3)],backgroundColor:['#2f3d7e','#1d9e75','#e0912b'],borderWidth:2,borderColor:'#fff'}]},
     {cutout:'62%',plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>{const tt=c.dataset.data.reduce((a,b)=>a+b,0);return `${c.label}: ${fmt(c.parsed,1)} tCO₂e (${fmt(c.parsed/tt*100,1)}%)`;}}}}});
-  renderTrend(); renderSBTi();
+  const S=carbonSettings(), enrolled=!!S.sbtiEnrolled;
+  document.getElementById('sbtiCard').style.display=enrolled?'':'none';
+  document.getElementById('outlookCard').style.display=enrolled?'none':'';
+  if(enrolled){
+    document.getElementById('trendH').textContent='Emissions trend & SBTi 1.5 °C pathway';
+    document.getElementById('trendSub').textContent='Baseline 2022-23 · near-term target −4.2%/yr (SBTi 1.5 °C minimum) · hover any year for values';
+    renderTrend(); renderSBTi();
+  } else {
+    document.getElementById('trendH').textContent='Emissions trend & outlook';
+    document.getElementById('trendSub').textContent='Your history, a projection at your current rate, and CES’s next-year target · hover any year for values';
+    renderTrendAlt(S); renderOutlook(S);
+  }
+}
+
+/* Non-SBTi trend: actual history + projection at current rate + optional CES target */
+function renderTrendAlt(S){
+  const known=YEARS.slice(), nextFY='26-27';
+  const labels=known.map(y=>FYLABEL[y]).concat(FYLABEL[nextFY]);
+  const actual=known.map(y=>T(yearTotals(y).gross)).concat([null]);
+  const g1=T(yearTotals(known[known.length-2]).gross), g2=T(yearTotals(known[known.length-1]).gross);
+  const rate=g1>0?(g2-g1)/g1:0, proj=Math.max(0,g2*(1+rate));
+  const projLine=labels.map(()=>null); projLine[known.length-1]=g2; projLine[known.length]=proj;
+  const ds=[
+    {label:'Actual gross',data:actual,borderColor:'#2f3d7e',backgroundColor:'#2f3d7e',pointRadius:5,tension:.2,spanGaps:true},
+    {label:'Projection (current rate)',data:projLine,borderColor:'#e0912b',borderDash:[6,4],pointRadius:projLine.map((v,i)=>v==null?0:(i===labels.length-1?6:4)),pointBackgroundColor:'#e0912b',tension:.1,spanGaps:true}
+  ];
+  if(S.nextYearTarget!=null){
+    const tgt=labels.map(()=>null); tgt[known.length-1]=g2; tgt[known.length]=S.nextYearTarget;
+    ds.push({label:'CES target',data:tgt,borderColor:'#1d9e75',borderDash:[3,3],pointRadius:tgt.map(v=>v==null?0:6),pointBackgroundColor:'#1d9e75',tension:0,spanGaps:true});
+  }
+  makeChart('chTrend','line',{labels,datasets:ds},
+    {interaction:{mode:'index',intersect:false},
+     plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>c.parsed.y==null?null:`${c.dataset.label}: ${fmt(c.parsed.y,0)} tCO₂e`}}},
+     scales:{y:{beginAtZero:true,title:{display:true,text:'tCO₂e'}}}});
+}
+
+function renderOutlook(S){
+  const known=YEARS.slice(), nextFY='26-27';
+  const cur=T(yearTotals(known[known.length-1]).gross), prev=T(yearTotals(known[known.length-2]).gross);
+  const yoy=prev>0?(cur-prev)/prev*100:0, rate=prev>0?(cur-prev)/prev:0, proj=Math.max(0,cur*(1+rate));
+  const redVsBase=(BASELINE-cur)/BASELINE*100;
+  const hasT=S.nextYearTarget!=null, tgt=hasT?S.nextYearTarget:null, gap=hasT?proj-tgt:null;
+  document.getElementById('outlookSub').textContent=FYLABEL[known[known.length-1]]+' latest · projection to '+FYLABEL[nextFY]+(hasT?' · CES target set':'');
+  let stats=`
+    <div class="sbti-stat"><div class="l">Latest actual</div><div class="v">${fmt(cur)} <small style="font-size:12px;color:var(--muted)">tCO₂e</small></div><div class="n">${FYLABEL[known[known.length-1]]}</div></div>
+    <div class="sbti-stat"><div class="l">Year on year</div><div class="v ${yoy<=0?'pill-ok':'pill-bad'}">${yoy<=0?'−':'+'}${fmt(Math.abs(yoy),1)}%</div><div class="n">vs ${FYLABEL[known[known.length-2]]}</div></div>
+    <div class="sbti-stat"><div class="l">Projected ${FYLABEL[nextFY]}</div><div class="v">${fmt(proj)} <small style="font-size:12px;color:var(--muted)">tCO₂e</small></div><div class="n">at current rate (${rate<=0?'−':'+'}${fmt(Math.abs(rate*100),1)}%/yr)</div></div>`;
+  if(hasT) stats+=`<div class="sbti-stat"><div class="l">CES target ${FYLABEL[nextFY]}</div><div class="v">${fmt(tgt)} <small style="font-size:12px;color:var(--muted)">tCO₂e</small></div><div class="n">${gap<=0?'<span class="pill-ok">projection meets target</span>':'<span class="pill-bad">'+fmt(gap)+' t above target</span>'}</div></div>`;
+  stats+=`<div class="sbti-stat"><div class="l">vs 2022-23 baseline</div><div class="v ${redVsBase>=0?'pill-ok':'pill-bad'}">${redVsBase>=0?fmt(redVsBase,1)+'% below':fmt(-redVsBase,1)+'% above'}</div><div class="n">baseline ${fmt(BASELINE)} t</div></div>`;
+  document.getElementById('outlookStats').innerHTML=stats;
+  document.getElementById('outlookNarrative').innerHTML=
+    `You're not enrolled in an SBTi target, so this view tracks your own trajectory. Between ${FYLABEL[known[known.length-2]]} and ${FYLABEL[known[known.length-1]]} your gross emissions went ${fmt(prev)} → ${fmt(cur)} tCO₂e (<b>${yoy<=0?'down':'up'} ${fmt(Math.abs(yoy),1)}%</b>). Holding that rate projects <b>${fmt(proj)} tCO₂e in ${FYLABEL[nextFY]}</b>.`+
+    (hasT?` CES has set a next-year target of <b>${fmt(tgt)} tCO₂e</b> — ${gap<=0?'your current trajectory already meets it.':'you’d need to find a further <b>'+fmt(gap)+' tCO₂e</b> of cuts to reach it.'}`:` Ask CES about setting a formal reduction target, or enrolling in SBTi for a science-based 1.5&nbsp;°C pathway.`);
+  let rows='';known.forEach((y,i)=>{const ac=T(yearTotals(y).gross);rows+=`<tr><td>${FYLABEL[y]}${i===0?' <span class="ro-tag">baseline</span>':''}</td><td class="r kg">${fmt(ac)}</td></tr>`;});
+  rows+=`<tr><td>${FYLABEL[nextFY]} <span class="ro-tag">projected</span></td><td class="r kg">${fmt(proj)}</td></tr>`;
+  if(hasT) rows+=`<tr style="font-weight:800"><td>${FYLABEL[nextFY]} <span class="ro-tag">CES target</span></td><td class="r kg">${fmt(tgt)}</td></tr>`;
+  document.getElementById('outlookTable').innerHTML=`<tr><th>Financial year</th><th class="r">Gross (tCO₂e)</th></tr>${rows}`;
 }
 
 function renderTrend(){
@@ -425,6 +526,53 @@ async function loadGrid(){
   }catch(err){document.getElementById('giHero').innerHTML='<div class="note">Live grid data unavailable right now. It refreshes on reload.</div>';console.warn(err);}
 }
 
+/* ════════ SCOPES EXPLANATION (clickable) ════════
+   Default GHG-Protocol explanations in CES voice. Edit the text below freely.
+   (Scope 1 = direct · Scope 2 = purchased energy · Scope 3 = value chain.) */
+const SCOPEX={
+ s1:{n:'1',color:'#2f3d7e',title:'Scope 1',tag:'Direct emissions',
+     short:'Greenhouse gases released directly by sources your business owns or controls.',
+     lead:'Scope 1 covers emissions you create directly — anywhere you burn fuel on your own sites or in your own vehicles, plus any refrigerant gases that leak. If you own it or control it and it produces emissions on the spot, it belongs in Scope 1.',
+     measures:['Natural gas and other fuels burned on site — heating, hot water, catering and process use','Fuel used in company-owned or leased vehicles (your fleet)','Fugitive emissions — refrigerant and air-conditioning gas that escapes','On-site generators and any other combustion you own'],
+     examples:['Gas boilers across your sites','A company van running on diesel','Refrigerant top-ups on air-conditioning units'],
+     ces:'For most CES clients Scope 1 is dominated by natural gas for heating and hot water. It is usually the single largest and most controllable source — which is why it is the first place we look for reductions.'},
+ s2:{n:'2',color:'#1d9e75',title:'Scope 2',tag:'Indirect — purchased energy',
+     short:'Emissions from the electricity, heat or steam you buy and use.',
+     lead:'Scope 2 covers the emissions created when energy you purchase is generated somewhere else. You do not burn anything yourself, but generating the electricity or steam you consume produces emissions on your behalf.',
+     measures:['Purchased grid electricity','Purchased heat, steam or cooling','Reported two ways: location-based (grid-average factor) and market-based (reflects a green / REGO-backed tariff)'],
+     examples:['Electricity metered at each of your sites','A green tariff that lowers your market-based figure','Purchased steam or district heating'],
+     ces:'We report Scope 2 on both a location-based and a market-based basis. Moving to a certified green (REGO) tariff drives your market-based figure towards zero, while cutting total kWh lowers the location-based figure used for science-based targets.'},
+ s3:{n:'3',color:'#e0912b',title:'Scope 3',tag:'Indirect — value chain',
+     short:'Every other indirect emission across your value chain — upstream and downstream.',
+     lead:'Scope 3 is everything else: the emissions that happen because of your business but occur outside your own operations — from the goods and services you buy, through travel and commuting, to what happens to your products after you sell them. It is split into 15 categories and is usually the largest and most complex scope.',
+     measures:['Purchased goods & services and capital goods','Fuel & energy well-to-tank emissions and grid transmission & distribution losses','Transport & distribution, waste, business travel and employee commuting','Downstream use, processing and end-of-life of sold products, leased assets, franchises and investments'],
+     examples:['Food, cleaning and consumables you purchase','Staff business travel and commuting','Waste sent to landfill or recycling'],
+     ces:'CES compiles your Scope 3 from your data and the mass-upload return. Categories 3 (well-to-tank + grid losses) fall automatically as you cut Scope 1 & 2; the rest are driven by procurement, travel and waste choices.',
+     cats:[['1','Purchased goods & services'],['2','Capital goods'],['3','Fuel & energy-related activities'],['4','Upstream transport & distribution'],['5','Waste generated in operations'],['6','Business travel'],['7','Employee commuting'],['8','Upstream leased assets'],['9','Downstream transport & distribution'],['10','Processing of sold products'],['11','Use of sold products'],['12','End-of-life treatment of sold products'],['13','Downstream leased assets'],['14','Franchises'],['15','Investments']]}
+};
+let _scopexActive='s1';
+function renderScopesX(){
+  const grid=document.getElementById('scopexGrid'); if(!grid) return;
+  grid.innerHTML=Object.keys(SCOPEX).map(k=>{const s=SCOPEX[k];
+    return `<div class="scopex-card${k===_scopexActive?' active':''}" data-sx="${k}" style="--sc:${s.color}">
+      <div class="num">${s.n}</div><div class="tl">${s.tag}</div><h3>${s.title}</h3>
+      <p>${s.short}</p><div class="more">View detail →</div></div>`;}).join('');
+  grid.querySelectorAll('.scopex-card').forEach(c=>c.addEventListener('click',()=>{_scopexActive=c.dataset.sx;renderScopesX();}));
+  const s=SCOPEX[_scopexActive];
+  let catsHtml='';
+  if(s.cats){catsHtml=`<div class="sx-block" style="grid-column:1/-1"><h4>The 15 Scope 3 categories</h4><div class="sx-cats">`+
+    s.cats.map(c=>`<div class="c"><span class="k">${c[0]}</span><span>${c[1]}</span></div>`).join('')+`</div></div>`;}
+  document.getElementById('scopexDetail').innerHTML=`<div class="card" style="--sc:${s.color}">
+    <div class="sx-head"><div class="sx-badge">${s.n}</div><div><h2>${s.title} — ${s.tag}</h2></div></div>
+    <div class="sx-lead">${s.lead}</div>
+    <div class="sx-cols">
+      <div class="sx-block"><h4>What it measures</h4><ul>${s.measures.map(m=>`<li>${m}</li>`).join('')}</ul></div>
+      <div class="sx-block"><h4>Typical examples</h4><ul>${s.examples.map(m=>`<li>${m}</li>`).join('')}</ul></div>
+      ${catsHtml}
+      <div class="sx-block" style="grid-column:1/-1;background:var(--leaf-bg);border-color:#bfe6d8"><h4>What this means for you</h4><p>${s.ces}</p></div>
+    </div></div>`;
+}
+
 /* NAV */
 document.querySelectorAll('.nav-item').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));b.classList.add('active');
@@ -509,7 +657,7 @@ document.getElementById('askClose').addEventListener('click',()=>askPanel.classL
 document.getElementById('askSend').addEventListener('click',()=>askSubmit(document.getElementById('askInput').value));
 document.getElementById('askInput').addEventListener('keydown',e=>{if(e.key==='Enter')askSubmit(document.getElementById('askInput').value);});
 
-function boot(){document.getElementById('yearSel').value=YEAR;renderOverview();renderScopes();renderFactors();loadGrid();}
+function boot(){document.getElementById('yearSel').value=YEAR;renderOverview();renderScopesX();renderScopes();renderFactors();loadGrid();}
 </script>
 </body>
 </html>
