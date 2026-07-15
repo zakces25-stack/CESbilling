@@ -7625,6 +7625,53 @@
 
     let _usageSites = [];   // [{site_name, site_postcode, key}]
     let _usageRows  = [];   // last fetched dataset
+    let _usageMeterSiteKey = {};  // "<utility>|<normMeter>" -> canonical site key (set in loadUsageReport)
+
+    // ── De-duplication helpers ───────────────────────────────────────────────
+    // The same physical meter can appear under slightly different site strings
+    // month-to-month (postcode present in one report but not the next, extra
+    // spaces, punctuation, casing). The MPAN/MPRN is the ONLY stable identity,
+    // so we group everything on the meter and resolve a single display site.
+
+    // Normalise a meter identifier so "12 3456 7890 123" and "12345678901123"
+    // (whitespace/case variants) collapse to one key.
+    function _normMeter(id){ return String(id == null ? '' : id).replace(/\s+/g, '').toUpperCase(); }
+
+    // Score an address variant. A real postcode is the strongest signal of a
+    // complete address; a longer real name breaks ties. Used to pick the single
+    // best site string to show for a meter.
+    function _siteScore(name, pc){
+      var p = String(pc == null ? '' : pc).trim();
+      var hasPc = p && p !== '—' && p !== '-';
+      var n = String(name == null ? '' : name).trim();
+      var realName = n && n !== '—' && n !== '-';
+      return (hasPc ? 1000 : 0) + (realName ? Math.min(n.length, 200) : 0);
+    }
+
+    // Canonical site key used to group meters into sites. Postcode is the
+    // strongest key; otherwise fall back to a punctuation-stripped name.
+    function _siteKey(name, pc){
+      var p = String(pc == null ? '' : pc).toUpperCase().replace(/\s+/g, '');
+      if (p && p !== '—' && p !== '-') return 'PC:' + p;
+      var n = String(name == null ? '' : name).toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+      return 'NM:' + (n || '?');
+    }
+
+    // Build { "<utility>|<normMeter>" -> {site_name, site_postcode} } picking the
+    // single most-complete address seen for each meter across all supplied rows.
+    function _resolveMeterSites(rows){
+      var best = {};
+      (rows || []).forEach(function(r){
+        var mk = r.utility + '|' + _normMeter(r.meter_id);
+        var sc = _siteScore(r.site_name, r.site_postcode);
+        if (!best[mk] || sc > best[mk].score){
+          best[mk] = { score: sc, site_name: r.site_name, site_postcode: r.site_postcode };
+        }
+      });
+      var out = {};
+      Object.keys(best).forEach(function(k){ out[k] = { site_name: best[k].site_name, site_postcode: best[k].site_postcode }; });
+      return out;
+    }
 
     async function loadCarbonForUsage() {
       // Load global carbon factors (admin-editable). Graceful fallback to defaults.
@@ -7665,7 +7712,7 @@
 
       const { data, error } = await sb
         .from('usage_data')
-        .select('site_name, site_postcode, period_start')
+        .select('site_name, site_postcode, period_start, meter_id, utility')
         .eq('customer_id', currentUser.customerId)
         .order('site_name', { ascending: true });
       if (error) {
@@ -7673,16 +7720,26 @@
         console.error('Usage sites:', error);
         return;
       }
-      // Distinct sites
+      // Resolve one canonical site per meter, then list each real site ONCE.
+      // Grouping on the meter (not the raw address string) stops a single MPAN
+      // whose address text varies month-to-month from appearing as several sites.
+      const meterSites = _resolveMeterSites(data || []);
+      _usageMeterSiteKey = {};
+      Object.keys(meterSites).forEach(function(mk){
+        _usageMeterSiteKey[mk] = _siteKey(meterSites[mk].site_name, meterSites[mk].site_postcode);
+      });
       const seen = new Set();
       const sites = [];
+      Object.keys(meterSites).forEach(function(mk){
+        const s = meterSites[mk];
+        const key = _siteKey(s.site_name, s.site_postcode);
+        if (seen.has(key)) return;
+        seen.add(key);
+        sites.push({ site_name: s.site_name, site_postcode: s.site_postcode, key: key });
+      });
+      sites.sort(function(a, b){ return String(a.site_name).localeCompare(String(b.site_name)); });
       let minDate = null, maxDate = null;
       for (const r of data || []) {
-        const key = r.site_name + '|' + r.site_postcode;
-        if (!seen.has(key)) {
-          seen.add(key);
-          sites.push({ site_name: r.site_name, site_postcode: r.site_postcode, key });
-        }
         if (r.period_start) {
           if (!minDate || r.period_start < minDate) minDate = r.period_start;
           if (!maxDate || r.period_start > maxDate) maxDate = r.period_start;
@@ -7746,8 +7803,14 @@
           .order('period_start', { ascending: true });
         const { data, error } = await q;
         if (error) { console.error('Usage query:', error); showUsageEmpty(); return; }
+        // Match each row to its canonical site via the meter (falling back to a
+        // freshly-computed key if the meter isn't in the cached map yet), so all
+        // of a meter's rows are kept or dropped together.
+        const sel = {}; selectedSiteKeys.forEach(function(k){ sel[k] = 1; });
         const filtered = (data || []).filter(function(r){
-          return selectedSiteKeys.indexOf(r.site_name + '|' + r.site_postcode) !== -1;
+          const mk = r.utility + '|' + _normMeter(r.meter_id);
+          const sk = _usageMeterSiteKey[mk] || _siteKey(r.site_name, r.site_postcode);
+          return !!sel[sk];
         });
         _usageRows = filtered;
         if (filtered.length === 0) { showUsageEmpty(); return; }
@@ -7785,6 +7848,7 @@
 
     function renderUsageKPIs(rows) {
       let totalKwh = 0, totalCO2kg = 0, verifiedKwh = 0;
+      const meterSites = _resolveMeterSites(rows);
       const sites = new Set();
       for (const r of rows) {
         const k = Number(r.total_kwh || 0);
@@ -7798,7 +7862,10 @@
         //   - Only ESTIMATED rows are unverified — those are made-up reads
         const isVerified = r.source !== 'ESTIMATED';
         if (isVerified) verifiedKwh += k;
-        sites.add(r.site_name + '|' + r.site_postcode);
+        // Count distinct real sites via the meter's canonical site, so address
+        // variants of one meter don't inflate the site count.
+        const ms = meterSites[r.utility + '|' + _normMeter(r.meter_id)];
+        sites.add(ms ? _siteKey(ms.site_name, ms.site_postcode) : _siteKey(r.site_name, r.site_postcode));
       }
       const totalCO2t = totalCO2kg / 1000;
       const verifiedPct = totalKwh > 0 ? Math.round((verifiedKwh / totalKwh) * 1000) / 10 : 0;
@@ -7855,19 +7922,23 @@
     }
 
     function renderUsageTable(rows) {
-      // Group by (utility, site_name, site_postcode, meter_id) — one row per meter
-      // pivoted across months. Sectioned by utility with subtotals + grand total.
+      // Group by (utility, meter) — one row per meter pivoted across months.
+      // Grouping on the meter alone (NOT the raw site string) guarantees all of a
+      // meter's HHD lands on a single row even when the site address text drifts
+      // between reports; a single canonical site is shown per meter.
+      const meterSites = _resolveMeterSites(rows);
       const monthKeys = new Set();
       const rowMap = {};
       for (const r of rows) {
         const mk = _periodKey(r);
         monthKeys.add(mk);
-        const rk = r.utility + '|' + r.site_name + '|' + r.site_postcode + '|' + r.meter_id;
+        const rk = r.utility + '|' + _normMeter(r.meter_id);
         if (!rowMap[rk]) {
+          const ms = meterSites[rk] || { site_name: r.site_name, site_postcode: r.site_postcode };
           rowMap[rk] = {
             utility: r.utility,
-            site_name: r.site_name,
-            site_postcode: r.site_postcode,
+            site_name: ms.site_name,
+            site_postcode: ms.site_postcode,
             meter_id: r.meter_id,
             months: {}
           };
@@ -8016,12 +8087,16 @@
       if (!rows.length) { safeAlert('Generate the report first, then download.', null); return; }
       if (typeof ExcelJS === 'undefined' || !ExcelJS.Workbook) { safeAlert('The Excel engine is still loading — please try again in a moment.', null); return; }
 
-      // ---- pivot (same grouping as the on-screen table) ----
+      // ---- pivot (same grouping as the on-screen table: one row per meter) ----
+      var meterSites = _resolveMeterSites(rows);
       var monthSet = {}, rowMap = {};
       rows.forEach(function(r){
         var mk = _periodKey(r); monthSet[mk] = 1;
-        var rk = r.utility + '|' + r.site_name + '|' + r.site_postcode + '|' + r.meter_id;
-        if (!rowMap[rk]) rowMap[rk] = { utility:r.utility, site:r.site_name, post:r.site_postcode, meter:r.meter_id, months:{} };
+        var rk = r.utility + '|' + _normMeter(r.meter_id);
+        if (!rowMap[rk]) {
+          var ms = meterSites[rk] || { site_name:r.site_name, site_postcode:r.site_postcode };
+          rowMap[rk] = { utility:r.utility, site:ms.site_name, post:ms.site_postcode, meter:r.meter_id, months:{} };
+        }
         rowMap[rk].months[mk] = (rowMap[rk].months[mk] || 0) + Number(r.total_kwh || 0);
       });
       var months = Object.keys(monthSet).sort();
@@ -8502,76 +8577,4 @@
   <!-- ═══════════════════════════════════════════════════════════════════════
        EDIT REPORT MODAL — replace HTML / Excel / Invoices for an existing row
   ════════════════════════════════════════════════════════════════════════ -->
-  <!-- Session inactivity modal — warning + expired states share the same shell -->
-  <div class="session-modal" id="sessionModal" hidden>
-    <div class="session-modal__overlay"></div>
-    <div class="session-modal__card" role="dialog" aria-modal="true" aria-labelledby="sessionModalTitle">
-      <div class="session-modal__accent"></div>
-      <div class="session-modal__body">
-        <div class="session-modal__icon session-modal__icon--warn" id="sessionModalIcon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="9"></circle>
-            <polyline points="12 7 12 12 15 14"></polyline>
-          </svg>
-        </div>
-        <h3 class="session-modal__title" id="sessionModalTitle">Still there?</h3>
-        <p class="session-modal__sub" id="sessionModalSub">For your security, you'll be signed out due to inactivity.</p>
-        <div class="session-modal__countdown" id="sessionModalCountdown" aria-live="polite">1:00</div>
-        <div class="session-modal__actions" id="sessionModalActions">
-          <button type="button" class="session-modal__btn-ghost" onclick="sessionUserSignOut()">Sign out</button>
-          <button type="button" class="session-modal__btn-primary" onclick="sessionStayActive()">Stay signed in</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="edit-report-modal" id="editReportModal" style="display:none;">
-    <div class="edit-report-modal__overlay" onclick="closeEditReport()"></div>
-    <div class="edit-report-modal__card">
-      <div class="edit-report-modal__head">
-        <h3 id="editReportTitle">Edit report</h3>
-        <button class="btn-close" onclick="closeEditReport()" aria-label="Close">×</button>
-      </div>
-      <div class="edit-report-modal__body">
-        <p style="font-size:13px;color:var(--muted);margin-bottom:18px;">Upload a new file to replace the existing one. Leave a field empty to keep the current version.</p>
-        <div class="success-box" id="editReportOk">Files updated successfully.</div>
-        <div class="form-group">
-          <label>HTML report</label>
-          <input type="file" id="editHtmlFile" accept=".html,.htm" />
-          <div class="form-help" id="editHtmlCurrent">—</div>
-        </div>
-        <div class="form-group">
-          <label>Excel workbook</label>
-          <input type="file" id="editXlsxFile" accept=".xlsx" />
-          <div class="form-help" id="editXlsxCurrent">—</div>
-        </div>
-        <div class="form-group">
-          <label>Invoice ZIP</label>
-          <input type="file" id="editInvFile" accept=".zip" />
-          <div class="form-help" id="editInvCurrent">—</div>
-        </div>
-        <div style="display:flex;gap:10px;margin-top:18px;">
-          <button class="btn-primary" id="editSubmitBtn" onclick="doEditReport()" style="flex:1;">Save changes</button>
-          <button class="btn-secondary" onclick="closeEditReport()" style="flex:1;">Cancel</button>
-        </div>
-      </div>
-    </div>
-  </div>
-  <!-- ERRORS MODAL — admin marks individual errors resolved per report -->
-  <div id="errorsModal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(20,29,69,0.45);align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;">
-    <div style="background:#fff;border-radius:12px;max-width:720px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border);">
-        <h2 style="font-size:16px;font-weight:800;margin:0;">Errors — <span id="emTitle"></span></h2>
-        <button onclick="closeErrorsModal()" style="background:none;border:none;font-size:24px;cursor:pointer;line-height:1;color:var(--muted);">×</button>
-      </div>
-      <div id="emBody" style="padding:18px 20px;"></div>
-    </div>
-  </div>
-  <footer class="portal-footer">
-    <span>© Commercial Energy Solutions Ltd · Company no. 06257655 · ICO ZB326783</span>
-    <span>
-      <a href="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/CES_Privacy_Policy_with_ICO_Certificate.pdf" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
-    </span>
-  </footer>
-</body>
-</html>
+  <!-- Sess
