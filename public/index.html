@@ -8424,9 +8424,11 @@
         var v = (res.byUtil && res.byUtil[u]) || 0; if (v <= 0) return;
         var card = document.createElement('div');
         card.className = 'stat-card js-util-cost';
+        // Water is not subject to VAT + CCL, so only electricity/gas show that note.
+        var foot = period + (u === 'water' ? '' : ' &middot; incl. VAT + CCL');
         card.innerHTML = '<div class="stat-label">' + labels[u] + ' cost</div>' +
           '<div class="stat-value">' + fmt(v) + '</div>' +
-          '<div class="stat-foot" style="font-size:11px;color:var(--muted);margin-top:4px;font-family:\'Manrope\',sans-serif;">' + period + ' &middot; incl. VAT + CCL</div>';
+          '<div class="stat-foot" style="font-size:11px;color:var(--muted);margin-top:4px;font-family:\'Manrope\',sans-serif;">' + foot + '</div>';
         row.appendChild(card);
       });
     }
