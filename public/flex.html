@@ -6,6 +6,8 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com; frame-src 'self' blob: data: https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; frame-ancestors 'self';" />
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
 /* ═══ Phase 2: edit mode, modals, drawer, cursors ═══ */
 .fx-btn{display:inline-flex;align-items:center;gap:6px;border:1.5px solid #2f3d7e;background:#fff;color:#2f3d7e;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
@@ -1432,7 +1434,56 @@ tr.future-month:hover td { background: #e8effe !important; }
 @media (max-width: 700px) { .orders-cols { grid-template-columns: 1fr; } }
 </style>
 </head>
-<body>
+<body><style>
+/* ═══ Modern skin — same layout & numbers, cleaner surfaces ═══ */
+*{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+body{background:linear-gradient(180deg,#f7f8fb 0%,#eef1f6 100%) fixed}
+::selection{background:#dce8b3}
+*::-webkit-scrollbar{width:9px;height:9px}
+*::-webkit-scrollbar-thumb{background:#c9cedb;border-radius:999px;border:2px solid transparent;background-clip:content-box}
+*::-webkit-scrollbar-thumb:hover{background:#a9b0c2;border:2px solid transparent;background-clip:content-box}
+*::-webkit-scrollbar-track{background:transparent}
+:focus-visible{outline:2px solid #9fbe1c;outline-offset:1px;border-radius:4px}
+
+/* sidebar */
+#sidebar{background:linear-gradient(180deg,#0f1930 0%,#111d3a 55%,#0c1526 100%)}
+#sidebar-header{padding:22px 16px 14px}
+.logo-mark{width:58px!important;height:58px!important;padding:6px!important;border-radius:13px!important;box-shadow:0 4px 14px rgba(0,0,0,.35)!important}
+#sidebar-logo{gap:12px!important}
+#sidebar-logo .brand{font-size:16px;letter-spacing:-.01em}
+.basket-item,.mini-card,.stat-card{transition:all .16s ease}
+
+/* cards & tables */
+.mini-card,.stat-card,.table-wrap,.extra-section{border-radius:13px!important;border-color:#e3e7ee!important;box-shadow:0 1px 2px rgba(22,35,63,.05),0 4px 14px rgba(22,35,63,.05)!important}
+.mini-card:hover{transform:translateY(-2px);box-shadow:0 6px 22px rgba(22,35,63,.13)!important;border-color:#c9d4a3!important}
+table thead th{background:#fbfcfe!important;border-bottom:1.5px solid #e3e7ee!important}
+table tbody tr{transition:background .12s ease}
+table tbody tr:hover{background:#f5f8fc}
+.pct-bar{border-radius:999px!important;overflow:hidden;background:#edf0f5!important}
+.pct-bar-fill{border-radius:999px!important;background:linear-gradient(90deg,#8fb31a,#aac91f)!important}
+.deal-badge{border-radius:999px!important;padding:3px 10px!important}
+.commodity-badge-lg{border-radius:999px!important}
+
+/* tabs */
+.tab-btn,.main-tab-btn{border-radius:8px 8px 0 0}
+.tab-btn:hover,.main-tab-btn:hover{color:#1f2d4d;background:rgba(22,35,63,.045)}
+.tab-btn.active{color:#16233f!important;border-bottom-color:#9fbe1c!important}
+.main-tab-btn.active{color:#16233f!important;border-bottom-color:#9fbe1c!important}
+
+/* headers & type */
+#detail-title{font-family:var(--font-display);letter-spacing:-.02em}
+.extra-section-title{letter-spacing:.01em}
+.stat-card{position:relative;overflow:hidden}
+.stat-card::after{content:'';position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#9fbe1c,#2e7c9e);opacity:.75}
+.sidebar-asof{opacity:.75}
+#search-input{border-radius:9px!important}
+select,input[type="text"],input[type="date"],input[type="month"],input[type="number"]{border-radius:8px}
+button{transition:all .14s ease}
+
+/* summary / totals row pop */
+#summary-row td{background:#f4f7ea!important;font-weight:700}
+</style>
+
 <style>
 #flexLogin{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;
   background:radial-gradient(1100px 560px at 72% -8%,rgba(47,61,126,.35),transparent),linear-gradient(160deg,#0d1330 0%,#1a2350 55%,#0d1330 100%);font-family:inherit}
@@ -1632,8 +1683,9 @@ async function loadFlexData() {
     for (let n = 1; n <= 8; n++) { row['lower_t'+n] = _num(t['lower_t'+n]); row['t'+n+'_achieved'] = t['t'+n+'_achieved']; }
     (byT[t.basket_id] ??= []).push(row);
   }
-  const curveOf = f => ({ months: curves.filter(c => c.commodity === f && c.period_type === 'month')
-      .map(c => ({ period: c.period_label, month: c.month, mid: _num(c.mid), pct_chg: _num(c.pct_chg) })) });
+  const _grp = (f, pt) => curves.filter(c => c.commodity === f && c.period_type === pt)
+      .map(c => ({ period: c.period_label, month: c.month, mid: _num(c.mid), pct_chg: _num(c.pct_chg) }));
+  const curveOf = f => ({ months: _grp(f,'month'), quarters: _grp(f,'quarter'), seasons: _grp(f,'season'), annuals: _grp(f,'annual') });
   const ordersOf = f => orders.filter(o => o.commodity === f)
       .map(o => ({ basket: o.basket_name, period: o.period, volume: _num(o.volume), price: o.price }));
   const seedMeta = (meta.find(m => m.key === 'seed') || {}).value || {};
@@ -3407,51 +3459,80 @@ async function fxCreateBasket(){
   fxCloseModal(); fxScheduleReload();
 }
 
-// curves editor
+// curves editor (months propagate to baskets; quarters/seasons/annuals update the curve lists)
 const _renderCurves = renderCurves;
 renderCurves = function(){
   _renderCurves();
   const el=document.getElementById('main-tab-curves');
-  if(!el || !EDIT || document.getElementById('fxCurveBar')) { if(el&&!EDIT) return; }
-  if(!EDIT) return;
+  if(!el || !EDIT) return;
+  if(document.getElementById('fxCurveBar')) return;
   const bar=document.createElement('div'); bar.id='fxCurveBar'; bar.className='fx-toolbar';
   bar.style.cssText='padding:12px 18px 0';
   bar.innerHTML=`<button class="fx-btn" onclick="fxCurveModal('power')">&#9998; Update power curve</button>
     <button class="fx-btn" onclick="fxCurveModal('gas')">&#9998; Update gas curve</button>
-    <span style="font-size:11px;color:#6b7280">Updates the monthly mids and pushes the new market price into every ${'basket'} of that fuel</span>`;
+    <span style="font-size:11px;color:#6b7280">Monthly mids push the new market price into every basket of that fuel &middot; quarters, seasons &amp; annuals update the display lists</span>`;
   el.insertBefore(bar, el.firstChild);
 };
 function fxCurveModal(fuel){
-  const cur=(DATA.curves[fuel]&&DATA.curves[fuel].months)||[];
-  const rows=cur.map(c=>{
-    const iso=fxParseDate(c.period)||'';
-    return `<tr><td>${escape(c.period)}</td><td><input class="fx-cell" style="width:95px" data-month="${iso}" value="${c.mid!=null?c.mid:''}"></td><td style="color:#6b7280;font-size:11px">${c.pct_chg!=null?(c.pct_chg*100).toFixed(2)+'%':''}</td></tr>`;
-  }).join('');
-  fxModal(`<h3>Update ${fuel} curve (monthly mids, ${fuel==='power'?'£/MWh':'p/th'})</h3>
-  <p style="font-size:12px;color:#4b5563;margin:0 0 8px">Or paste two columns (Month, Mid) to replace the list:</p>
-  <textarea id="fC_paste" style="min-height:60px" placeholder="Aug-26\t111.25"></textarea>
-  <div class="fx-preview" style="margin-top:10px"><table><thead><tr><th>Month</th><th>Mid</th><th>Prev %chg</th></tr></thead><tbody id="fC_rows">${rows}</tbody></table></div>
+  const C = DATA.curves[fuel] || {};
+  const unit = fuel==='power' ? '£/MWh' : 'p/th';
+  const sec = (label, key, pt) => {
+    const rows=(C[key]||[]).map(c=>`<tr><td>${escape(c.period)}</td>
+      <td><input class="fx-cell" style="width:90px" data-pt="${pt}" data-label="${escape(c.period)}" data-month="${c.month||''}" value="${c.mid!=null?c.mid:''}"></td>
+      <td><input class="fx-cell" style="width:70px" data-pct="1" data-pt="${pt}" data-label="${escape(c.period)}" value="${c.pct_chg!=null?(c.pct_chg*100).toFixed(2):''}"></td></tr>`).join('');
+    return `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#4b5563;margin:12px 0 4px">${label}</div>
+      <div class="fx-preview"><table><thead><tr><th>Period</th><th>Mid (${unit})</th><th>% chg</th></tr></thead><tbody>${rows||'<tr><td colspan=3 style="color:#9aa1ad">none</td></tr>'}</tbody></table></div>`;
+  };
+  fxModal(`<h3>Update ${fuel} curve</h3>
+  <p style="font-size:12px;color:#4b5563;margin:0 0 6px">Twice-daily update: overtype the mids (and % chg if you want), or paste Month + Mid (+ % chg) columns below to replace the monthly list. <b>Monthly mids are pushed to every ${fuel} basket's market price.</b></p>
+  <textarea id="fC_paste" style="min-height:52px" placeholder="Aug-26&#9;111.25&#9;-1.66"></textarea>
+  ${sec('Months (propagate)','months','month')}
+  ${sec('Quarters','quarters','quarter')}
+  ${sec('Seasons','seasons','season')}
+  ${sec('Annuals','annuals','annual')}
   <div class="fx-err" id="fxMErr"></div>
   <div class="fx-modal-foot">
     <button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
-    <button class="fx-btn green" onclick="fxApplyCurve('${fuel}')">Apply to all ${fuel} baskets</button>
+    <button class="fx-btn green" onclick="fxApplyCurve('${fuel}')">Apply ${fuel} curve</button>
   </div>`);
   document.getElementById('fC_paste').addEventListener('input', ()=>{
     const lines=document.getElementById('fC_paste').value.split(/\r?\n/).filter(l=>l.trim());
-    const tb=document.getElementById('fC_rows');
     const parsed=[];
-    for(const l of lines){ const c=l.split(/\t|,| {2,}/).map(x=>x.trim()); if(c.length<2) continue;
-      const iso=fxParseDate(c[0]); const v=fxNum(c[1]); if(iso&&v!=null) parsed.push({iso,v,lbl:c[0]}); }
-    if(parsed.length) tb.innerHTML=parsed.map(p=>`<tr><td>${escape(p.lbl)}</td><td><input class="fx-cell" style="width:95px" data-month="${p.iso}" value="${p.v}"></td><td></td></tr>`).join('');
+    for(const l of lines){ const c=l.split(/\t|,| {2,}/).map(x=>x.trim()).filter(x=>x!=='');
+      if(c.length<2) continue;
+      const iso=fxParseDate(c[0]); const v=fxNum(c[1]); if(!iso||v==null) continue;
+      parsed.push({iso,lbl:c[0],v,p:c[2]!==undefined?fxNum(c[2]):null}); }
+    if(!parsed.length) return;
+    const tb=document.querySelector('#fxModal .fx-preview tbody');
+    tb.innerHTML=parsed.map(p=>`<tr><td>${escape(p.lbl)}</td>
+      <td><input class="fx-cell" style="width:90px" data-pt="month" data-label="${escape(p.lbl)}" data-month="${p.iso}" value="${p.v}"></td>
+      <td><input class="fx-cell" style="width:70px" data-pct="1" data-pt="month" data-label="${escape(p.lbl)}" value="${p.p!=null?p.p:''}"></td></tr>`).join('');
   });
 }
 async function fxApplyCurve(fuel){
-  const entries=[...document.querySelectorAll('#fC_rows input')].map(i=>({month:i.dataset.month, mid:fxNum(i.value)}))
-    .filter(e=>e.month && e.mid!=null);
-  if(!entries.length) return fxMErr('No valid rows.');
-  const {data,error}=await FLEX.sb.rpc('flex_apply_curve',{p_commodity:fuel,p_entries:entries});
+  const mids={}, pcts={};
+  document.querySelectorAll('#fxModal input.fx-cell').forEach(i=>{
+    const k=i.dataset.pt+'|'+i.dataset.label+'|'+(i.dataset.month||'');
+    if(i.dataset.pct) pcts[i.dataset.pt+'|'+i.dataset.label]=fxNum(i.value);
+    else mids[k]=fxNum(i.value);
+  });
+  const entries=[], extra=[];
+  for(const k in mids){
+    const [pt,label,month]=k.split('|');
+    const mid=mids[k]; if(mid==null) continue;
+    const pctRaw=pcts[pt+'|'+label];
+    const pct = pctRaw==null? null : +(pctRaw/100).toFixed(6);
+    if(pt==='month'){
+      const iso = month || fxParseDate(label);
+      if(iso) entries.push({month:iso, mid, pct_chg:pct});
+    } else {
+      extra.push({period_type:pt, period_label:label, mid, pct_chg:pct});
+    }
+  }
+  if(!entries.length && !extra.length) return fxMErr('Nothing to apply.');
+  const {data,error}=await FLEX.sb.rpc('flex_apply_curve',{p_commodity:fuel,p_entries:entries,p_extra:extra});
   if(error) return fxMErr(error.message);
-  fxToast(`${fuel} curve applied (${data} months) — market prices updated`);
+  fxToast(`${fuel} curve updated (${data} rows)${entries.length?' — market prices pushed to baskets':''}`);
   fxCloseModal(); fxScheduleReload();
 }
 
