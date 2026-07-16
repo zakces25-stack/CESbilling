@@ -1480,6 +1480,13 @@ table tbody tr:hover{background:#f5f8fc}
 select,input[type="text"],input[type="date"],input[type="month"],input[type="number"]{border-radius:8px}
 button{transition:all .14s ease}
 
+/* home button + clearer close */
+#fxHome{display:inline-flex;align-items:center;gap:7px;color:#cdd6ea;text-decoration:none;font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;opacity:.85;margin:0 0 12px 2px;transition:all .14s}
+#fxHome:hover{color:#fff;opacity:1;transform:translateX(2px)}
+#fxHome .hico{font-size:14px;line-height:1}
+.close-btn{width:auto!important;height:auto!important;background:#fff!important;border:1.5px solid #d3d8e3!important;border-radius:999px!important;padding:7px 16px!important;font-size:12.5px!important;font-weight:700!important;color:#374151!important;display:inline-flex;align-items:center;line-height:1!important;white-space:nowrap;box-shadow:0 1px 3px rgba(22,35,63,.08)}
+.close-btn:hover{border-color:#c2453b!important;color:#c2453b!important;background:#fdf3f2!important}
+
 /* summary / totals row pop */
 #summary-row td{background:#f4f7ea!important;font-weight:700}
 </style>
@@ -1539,6 +1546,7 @@ button{transition:all .14s ease}
 <!-- SIDEBAR -->
 <div id="sidebar">
   <div id="sidebar-header">
+    <a id="fxHome" href="/" title="Back to the CES billing portal home page"><span class="hico">&#8962;</span> Home</a>
     <div id="sidebar-logo">
       <img class="logo-mark" src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES">
       <div class="logo-text">
@@ -2194,7 +2202,6 @@ function rowHasAlert(basket, m) {
 }
 
 function basketHasAlert(basket) {
-  const CUTOFF = '2026-08-01';
   return basket.months.some(m => m.month >= CUTOFF && !!rowHasAlert(basket, m));
 }
 
@@ -3144,6 +3151,13 @@ function fxSetEdit(on){
   rerenderCurrent();
 }
 function fxDecorateHeader(){
+  // clearer close button
+  const cb = document.querySelector('#detail .close-btn');
+  if (cb && !cb.dataset.fx){
+    cb.dataset.fx='1';
+    cb.innerHTML='&#10005;&nbsp; Back to overview';
+    cb.title='Close this basket and return to the overview';
+  }
   // detail header toggle (next to close button)
   const dh = document.querySelector('#detail .close-btn');
   if (dh && !document.getElementById('fxDetailTools')){
@@ -3536,8 +3550,16 @@ async function fxApplyCurve(fuel){
   fxCloseModal(); fxScheduleReload();
 }
 
-// ── LIVE CURSORS (presence + broadcast) ──────────────────────────
+// ── LIVE CURSORS (presence + broadcast; shown only on the SAME view) ──
 let fxCursorCh=null; const fxCursors={};
+function fxViewKey(){
+  if (currentBasket){
+    const sub=document.querySelector('.tab-btn.active');
+    return 'b:'+selectedId+':'+(sub?sub.dataset.tab:'positions');
+  }
+  const mt=document.querySelector('.main-tab-btn.active');
+  return 'm:'+(mt?mt.dataset.mainTab:'portfolio') + (document.getElementById('detail').style.display==='block'?'':':ov');
+}
 function fxViewLabel(){
   if (currentBasket){
     const sub=document.querySelector('.tab-btn.active');
@@ -3546,6 +3568,16 @@ function fxViewLabel(){
   const mt=document.querySelector('.main-tab-btn.active');
   return mt? mt.textContent.trim() : 'Overview';
 }
+function fxCursorApply(c){
+  const mine = fxViewKey();
+  const p = c.last; if(!p) return;
+  if (p.vk === mine){
+    c.el.style.display='block';
+    c.el.style.transform=`translate(${(p.x*innerWidth).toFixed(0)}px, ${(p.y*innerHeight).toFixed(0)}px)`;
+  } else {
+    c.el.style.display='none';
+  }
+}
 function fxStartCursors(){
   const layer=document.getElementById('fxCursors');
   fxCursorCh = FLEX.sb.channel('flex-cursors', { config:{ presence:{ key: FLEX.uid }, broadcast:{ self:false } } });
@@ -3553,13 +3585,13 @@ function fxStartCursors(){
     if(!p || p.id===FLEX.uid) return;
     let c=fxCursors[p.id];
     if(!c){
-      c=document.createElement('div'); c.className='fx-cursor';
-      c.innerHTML=`<svg width="15" height="18" viewBox="0 0 15 18"><path d="M1 1 L14 8.5 L8 10 L5.5 17 Z" fill="${p.c}" stroke="#fff" stroke-width="1.2"/></svg><div class="tag" style="background:${p.c}">${p.u}<small></small></div>`;
-      layer.appendChild(c); fxCursors[p.id]={el:c,t:0}; c=fxCursors[p.id];
+      const el=document.createElement('div'); el.className='fx-cursor'; el.style.display='none';
+      el.innerHTML=`<svg width="15" height="18" viewBox="0 0 15 18"><path d="M1 1 L14 8.5 L8 10 L5.5 17 Z" fill="${p.c}" stroke="#fff" stroke-width="1.2"/></svg><div class="tag" style="background:${p.c}">${p.u}<small></small></div>`;
+      layer.appendChild(el); fxCursors[p.id]={el, t:0, last:null}; c=fxCursors[p.id];
     }
-    c.t=Date.now();
+    c.t=Date.now(); c.last=p;
     c.el.querySelector('small').textContent = p.v||'';
-    c.el.style.transform=`translate(${(p.x*innerWidth).toFixed(0)}px, ${(p.y*innerHeight).toFixed(0)}px)`;
+    fxCursorApply(c);
   });
   fxCursorCh.on('presence',{event:'leave'},({key})=>{
     if(fxCursors[key]){ fxCursors[key].el.remove(); delete fxCursors[key]; }
@@ -3571,12 +3603,17 @@ function fxStartCursors(){
   document.addEventListener('mousemove', e=>{
     const now=Date.now(); if(now-last<90 || !fxCursorCh) return; last=now;
     fxCursorCh.send({type:'broadcast', event:'cur', payload:{
-      id:FLEX.uid, u:FLEX.user, c:FLEX.color, v:fxViewLabel(),
+      id:FLEX.uid, u:FLEX.user, c:FLEX.color, v:fxViewLabel(), vk:fxViewKey(),
       x:+(e.clientX/innerWidth).toFixed(4), y:+(e.clientY/innerHeight).toFixed(4) }});
   });
-  setInterval(()=>{ const now=Date.now();
-    for(const k in fxCursors){ if(now-fxCursors[k].t>12000){ fxCursors[k].el.remove(); delete fxCursors[k]; } }
-  }, 4000);
+  setInterval(()=>{
+    const now=Date.now();
+    for(const k in fxCursors){
+      const c=fxCursors[k];
+      if(now-c.t>12000){ c.el.remove(); delete fxCursors[k]; }
+      else fxCursorApply(c);   // re-evaluate same-view visibility as people navigate
+    }
+  }, 1000);
 }
 
 // ── LIVE EDIT LOG DRAWER ─────────────────────────────────────────
