@@ -6,6 +6,62 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com; frame-src 'self' blob: data: https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; frame-ancestors 'self';" />
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+<style>
+/* ═══ Phase 2: edit mode, modals, drawer, cursors ═══ */
+.fx-btn{display:inline-flex;align-items:center;gap:6px;border:1.5px solid #2f3d7e;background:#fff;color:#2f3d7e;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
+.fx-btn:hover{background:#2f3d7e;color:#fff}
+.fx-btn.on{background:#2f3d7e;color:#fff}
+.fx-btn.danger{border-color:#c2453b;color:#c2453b}
+.fx-btn.danger:hover{background:#c2453b;color:#fff}
+.fx-btn.green{border-color:#1d9e75;color:#0f6e56}
+.fx-btn.green:hover{background:#1d9e75;color:#fff}
+.fx-toolbar{display:flex;gap:8px;align-items:center;margin:0 0 10px 0;flex-wrap:wrap}
+td.fx-editable{cursor:pointer;outline:1.5px dashed #aac91f;outline-offset:-2px;position:relative}
+td.fx-editable:hover{background:#f4f8e4}
+input.fx-cell{width:74px;box-sizing:border-box;border:1.5px solid #2f3d7e;border-radius:5px;padding:3px 5px;font-size:12px;font-family:inherit;text-align:right}
+td.fx-actions{white-space:nowrap}
+.fx-icon{border:0;background:transparent;cursor:pointer;font-size:14px;padding:2px 5px;border-radius:5px}
+.fx-icon:hover{background:#e8eaf6}
+/* modal */
+#fxModalWrap{position:fixed;inset:0;z-index:99000;background:rgba(13,19,48,.55);display:none;align-items:center;justify-content:center;padding:20px}
+#fxModal{background:#fff;border-radius:14px;max-width:720px;width:100%;max-height:88vh;overflow:auto;padding:22px 24px;box-shadow:0 30px 70px rgba(3,8,26,.5);font-family:inherit}
+#fxModal h3{margin:0 0 14px;font-size:16px;color:#141a3c}
+.fx-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px 14px}
+.fx-field label{display:block;font-size:10.5px;font-weight:700;color:#4b5563;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
+.fx-field input,.fx-field select,#fxModal textarea{width:100%;box-sizing:border-box;border:1.5px solid #d8dbe4;border-radius:7px;padding:8px 9px;font-size:13px;font-family:inherit}
+.fx-field input:focus,.fx-field select:focus,#fxModal textarea:focus{outline:none;border-color:#2f3d7e}
+#fxModal textarea{font-family:ui-monospace,monospace;font-size:12px;min-height:130px;white-space:pre}
+.fx-modal-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}
+.fx-err{display:none;background:rgba(139,32,21,.08);color:#8b2015;border:1px solid rgba(139,32,21,.25);padding:8px 10px;border-radius:7px;font-size:12px;margin-top:10px}
+.fx-preview{max-height:240px;overflow:auto;border:1px solid #e5e7eb;border-radius:8px;margin-top:10px}
+.fx-preview table{width:100%;border-collapse:collapse;font-size:11.5px}
+.fx-preview th,.fx-preview td{padding:4px 7px;border-bottom:1px solid #f0f1f4;text-align:left;white-space:nowrap}
+.fx-preview th{background:#f7f8fb;font-size:10px;text-transform:uppercase;color:#6b7280;position:sticky;top:0}
+.fx-preview td.bad{background:#fbe9e7;color:#8b2015;font-weight:700}
+/* audit drawer */
+#fxDrawer{position:fixed;top:0;right:-380px;width:360px;height:100vh;background:#fff;z-index:98000;box-shadow:-12px 0 34px rgba(3,8,26,.25);transition:right .25s ease;display:flex;flex-direction:column;font-family:inherit}
+#fxDrawer.open{right:0}
+#fxDrawer .hd{padding:14px 16px;background:#141a3c;color:#fff;font-weight:700;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+#fxDrawer .hd button{background:transparent;border:0;color:#fff;font-size:16px;cursor:pointer}
+#fxDrawer .bd{flex:1;overflow-y:auto;padding:8px 0}
+.fx-log-row{padding:8px 16px;border-bottom:1px solid #f0f1f4;font-size:12px;line-height:1.45}
+.fx-log-row .meta{display:flex;gap:7px;align-items:center;color:#6b7280;font-size:10.5px;margin-bottom:2px}
+.fx-log-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.fx-log-row .who{font-weight:700;color:#141a3c}
+.fx-log-new{animation:fxflash 1.6s ease}
+@keyframes fxflash{0%{background:#f4f8e4}100%{background:transparent}}
+/* cursors */
+#fxCursors{position:fixed;inset:0;pointer-events:none;z-index:97000;overflow:hidden}
+.fx-cursor{position:absolute;transition:transform .09s linear;will-change:transform}
+.fx-cursor svg{display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))}
+.fx-cursor .tag{margin:2px 0 0 12px;padding:2px 8px;border-radius:999px;color:#fff;font-size:10.5px;font-weight:700;white-space:nowrap;font-family:inherit;box-shadow:0 2px 6px rgba(0,0,0,.25)}
+.fx-cursor .tag small{display:block;font-weight:500;font-size:9px;opacity:.85}
+/* toolbar chips row in detail header */
+#fxDetailTools{display:inline-flex;gap:8px;margin-left:12px;vertical-align:middle}
+.sidebar-asof{cursor:default}
+#fxLogBtn{position:relative}
+#fxLogBtn .bdg{position:absolute;top:-7px;right:-7px;background:#c2453b;color:#fff;border-radius:999px;font-size:9.5px;font-weight:800;padding:1px 5px;display:none}
+</style>
 
 <script>
 /* Chart.js v4.4.3 — embedded inline */
@@ -1377,38 +1433,35 @@ tr.future-month:hover td { background: #e8effe !important; }
 </style>
 </head>
 <body>
-<!-- ═══ FLEX PORTAL AUTH OVERLAY ═══ -->
 <style>
 #flexLogin{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;
   background:radial-gradient(1100px 560px at 72% -8%,rgba(47,61,126,.35),transparent),linear-gradient(160deg,#0d1330 0%,#1a2350 55%,#0d1330 100%);font-family:inherit}
-#flexLogin .fl-card{width:100%;max-width:400px;background:#fff;border-radius:18px;box-shadow:0 26px 64px rgba(3,8,26,.45);padding:34px 32px}
-#flexLogin h1{font-size:21px;margin:0 0 4px;color:#141a3c}
-#flexLogin .fl-sub{color:#6b7280;font-size:13px;margin-bottom:20px}
+#flexLogin .fl-card{width:100%;max-width:400px;background:#fff;border-radius:18px;box-shadow:0 26px 64px rgba(3,8,26,.45);padding:30px 32px 34px}
+#flexLogin .fl-logo{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+#flexLogin .fl-logo img{height:44px;width:auto}
+#flexLogin h1{font-size:20px;margin:0;color:#141a3c}
+#flexLogin .fl-sub{color:#6b7280;font-size:12.5px}
 #flexLogin label{display:block;font-size:12px;font-weight:700;color:#374151;margin:12px 0 5px;text-transform:uppercase;letter-spacing:.4px}
 #flexLogin input{width:100%;box-sizing:border-box;border:1.5px solid #d8dbe4;border-radius:9px;padding:11px 12px;font-size:14px;font-family:inherit}
 #flexLogin input:focus{outline:none;border-color:#2f3d7e}
 #flexBtn{width:100%;background:#2f3d7e;color:#fff;border:0;border-radius:9px;padding:12px;font-weight:700;font-size:14px;cursor:pointer;margin-top:16px;font-family:inherit}
-#flexBtn:hover{background:#232e63}
-#flexBtn:disabled{opacity:.55;cursor:wait}
+#flexBtn:hover{background:#232e63} #flexBtn:disabled{opacity:.55;cursor:wait}
 #flexErr{display:none;background:rgba(139,32,21,.08);color:#8b2015;border:1px solid rgba(139,32,21,.25);padding:9px 11px;border-radius:8px;font-size:12.5px;margin-top:12px}
-#flexChip{position:fixed;right:14px;bottom:14px;z-index:9000;display:none;align-items:center;gap:10px;background:#141a3c;color:#fff;
-  border-radius:999px;padding:8px 9px 8px 16px;font-size:12px;box-shadow:0 8px 24px rgba(3,8,26,.35);font-family:inherit}
+#flexChip{position:fixed;right:14px;bottom:14px;z-index:96000;display:none;align-items:center;gap:10px;background:#141a3c;color:#fff;border-radius:999px;padding:8px 9px 8px 16px;font-size:12px;box-shadow:0 8px 24px rgba(3,8,26,.35);font-family:inherit}
 #flexChip button{background:rgba(255,255,255,.14);border:0;color:#fff;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
 #flexChip button:hover{background:rgba(255,255,255,.28)}
-#flexToast{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:9500;display:none;align-items:center;gap:12px;
-  background:#1d9e75;color:#fff;border-radius:12px;padding:11px 16px;font-size:13px;font-weight:600;box-shadow:0 10px 28px rgba(3,26,20,.4);font-family:inherit}
-#flexToast button{background:#fff;color:#0f6e56;border:0;border-radius:8px;padding:6px 14px;font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit}
 .fl-turnstile{margin-top:16px;min-height:66px}
 </style>
 <div id="flexLogin">
   <div class="fl-card">
-    <h1>CES Flex Portal</h1>
-    <div class="fl-sub">Live FDB — flex team sign in</div>
+    <div class="fl-logo"><img src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES" onerror="this.style.display='none'">
+      <div><h1>CES Flex Portal</h1><div class="fl-sub">Live FDB &middot; flex team sign in</div></div>
+    </div>
     <div id="flexLoginForm">
       <label>Username</label>
       <input type="text" id="flexUser" placeholder="Username" autocomplete="username" />
       <label>Password</label>
-      <input type="password" id="flexPass" placeholder="••••••••" autocomplete="current-password" />
+      <input type="password" id="flexPass" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" autocomplete="current-password" />
       <div class="fl-turnstile"><div class="cf-turnstile" data-sitekey="0x4AAAAAADVk1PbXl4rZN4aL" data-callback="_flexTsOk" data-expired-callback="_flexTsExp"></div></div>
       <button id="flexBtn" onclick="flexLogin()">Sign in</button>
       <div id="flexErr"></div>
@@ -1421,21 +1474,28 @@ tr.future-month:hover td { background: #e8effe !important; }
     </div>
   </div>
 </div>
-<div id="flexChip"><span id="flexChipUser"></span><button onclick="flexReload()" title="Re-fetch latest data">Refresh</button><button onclick="FLEX.sb.auth.signOut().then(()=>location.reload())">Sign out</button></div>
-<div id="flexToast"><span>FDB updated by a team member</span><button onclick="flexReload()">Reload now</button></div>
+<div id="flexChip">
+  <span id="flexChipUser"></span>
+  <button id="fxLogBtn" onclick="fxToggleDrawer()" title="Live edit log">&#128203; Log<span class="bdg"></span></button>
+  <button onclick="flexReload()" title="Re-fetch latest data">Refresh</button>
+  <button onclick="FLEX.sb.auth.signOut().then(()=>location.reload())">Sign out</button>
+</div>
+<div id="fxModalWrap" onclick="if(event.target===this)fxCloseModal()"><div id="fxModal"></div></div>
+<div id="fxDrawer"><div class="hd"><span>&#128203; Live edit log</span><button onclick="fxToggleDrawer()">&#10005;</button></div><div class="bd" id="fxLogBody"></div></div>
+<div id="fxCursors"></div>
 
 
 <!-- SIDEBAR -->
 <div id="sidebar">
   <div id="sidebar-header">
     <div id="sidebar-logo">
-      <img class="logo-mark" src="605618eb-b7fb-423f-b2fb-3ca3a3d8cda8" alt="CES">
+      <img class="logo-mark" src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES">
       <div class="logo-text">
         <div class="brand">Flex Dashboard</div>
         <div class="sub">Energy Trading</div>
       </div>
     </div>
-    <div class="sidebar-asof">As of: 16 Jul 2026</div>
+    <div class="sidebar-asof" id="fx-asof">Live</div>
   </div>
 
   <div id="sidebar-controls">
@@ -1516,7 +1576,7 @@ tr.future-month:hover td { background: #e8effe !important; }
 
 <script>
 // ── DATA ─────────────────────────────────────────────────────────
-// ── LIVE DATA — loaded from Supabase (flex_* tables + flex_positions engine view) ──
+// ── LIVE DATA — Supabase flex_* tables + flex_positions engine view ──
 let DATA = null;
 const FLEX = (() => {
   const URL = 'https://niadffxpxdohglcyagau.supabase.co';
@@ -1524,9 +1584,7 @@ const FLEX = (() => {
   const sb = supabase.createClient(URL, ANON, { auth: { persistSession: true, storageKey: 'ces-flex-auth', autoRefreshToken: true } });
   return { sb };
 })();
-
 function _num(x) { return (x === null || x === undefined || x === '') ? null : +x; }
-
 async function _fetchAll(table, cols, orderCols) {
   const out = [];
   for (let from = 0; ; from += 1000) {
@@ -1539,23 +1597,21 @@ async function _fetchAll(table, cols, orderCols) {
   }
   return out;
 }
-
 async function loadFlexData() {
   const [baskets, months, trades, targets, curves, orders, contacts, deadlines, admin, meta] = await Promise.all([
     _fetchAll('flex_baskets', 'id,name,commodity,unit_vol,unit_price,is_ces,sort_order', ['sort_order']),
     _fetchAll('flex_positions', 'basket_id,month,days,season,baseload_vol,secured_vol,secured_wap,baseload_vol_total,secured_vol_total,secured_pct,secured_cost,open_vol,open_vol_total,open_pct,market_price,residual_cost,mtm_cost,mtm_price', ['basket_id', 'month']),
     _fetchAll('flex_trades', 'id,basket_id,trade_ref,trade_date,counterparty,start_date,end_date,volume,product,strike,deal_type,cost', ['basket_id', 'id']),
-    _fetchAll('flex_targets', 'basket_id,month,lower_t1,t1_achieved,lower_t2,t2_achieved,lower_t3,t3_achieved,lower_t4,t4_achieved,lower_t5,t5_achieved,upper_alert', ['basket_id', 'month']),
-    _fetchAll('flex_curves', 'id,commodity,period_type,period_label,mid,pct_chg', ['id']),
+    _fetchAll('flex_targets', 'basket_id,month,lower_t1,t1_achieved,lower_t2,t2_achieved,lower_t3,t3_achieved,lower_t4,t4_achieved,lower_t5,t5_achieved,lower_t6,t6_achieved,lower_t7,t7_achieved,lower_t8,t8_achieved,upper_alert', ['basket_id', 'month']),
+    _fetchAll('flex_curves', 'id,commodity,period_type,period_label,month,mid,pct_chg', ['id']),
     _fetchAll('flex_firm_orders', 'id,commodity,basket_name,period,volume,price', ['id']),
     _fetchAll('flex_contacts', 'id,supplier,note,details', ['id']),
     _fetchAll('flex_sefe_deadlines', 'id,period,last_trading,deadline', ['id']),
     _fetchAll('flex_admin_schedule', 'id,group_name,basket,ced,supplier,months', ['id']),
     _fetchAll('flex_meta', 'key,value', ['key'])
   ]);
-
-  const byBasketM = {}, byBasketT = {}, byBasketG = {};
-  for (const m of months) (byBasketM[m.basket_id] ??= []).push({
+  const byM = {}, byT = {}, byG = {};
+  for (const m of months) (byM[m.basket_id] ??= []).push({
     month: m.month, days: m.days, season: m.season,
     baseload_vol: _num(m.baseload_vol), secured_vol: _num(m.secured_vol) ?? 0,
     secured_wap: _num(m.secured_wap),
@@ -1566,34 +1622,28 @@ async function loadFlexData() {
     residual_cost: _num(m.residual_cost) ?? 0, mtm_cost: _num(m.mtm_cost) ?? 0,
     mtm_price: _num(m.mtm_price)
   });
-  for (const t of trades) (byBasketG[t.basket_id] ??= []).push({
-    date: t.trade_date, ref: t.trade_ref, counterparty: t.counterparty,
+  for (const t of trades) (byG[t.basket_id] ??= []).push({
+    db_id: t.id, date: t.trade_date, ref: t.trade_ref, counterparty: t.counterparty,
     start: t.start_date, end: t.end_date, volume: _num(t.volume),
     product: t.product, strike: _num(t.strike), deal_type: t.deal_type, cost: _num(t.cost)
   });
-  for (const t of targets) (byBasketT[t.basket_id] ??= []).push({
-    month: t.month,
-    lower_t1: _num(t.lower_t1), t1_achieved: t.t1_achieved,
-    lower_t2: _num(t.lower_t2), t2_achieved: t.t2_achieved,
-    lower_t3: _num(t.lower_t3), t3_achieved: t.t3_achieved,
-    lower_t4: _num(t.lower_t4), t4_achieved: t.t4_achieved,
-    lower_t5: _num(t.lower_t5), t5_achieved: t.t5_achieved,
-    upper_alert: _num(t.upper_alert)
-  });
-
+  for (const t of targets) {
+    const row = { month: t.month, upper_alert: _num(t.upper_alert) };
+    for (let n = 1; n <= 8; n++) { row['lower_t'+n] = _num(t['lower_t'+n]); row['t'+n+'_achieved'] = t['t'+n+'_achieved']; }
+    (byT[t.basket_id] ??= []).push(row);
+  }
   const curveOf = f => ({ months: curves.filter(c => c.commodity === f && c.period_type === 'month')
-      .map(c => ({ period: c.period_label, mid: _num(c.mid), pct_chg: _num(c.pct_chg) })) });
+      .map(c => ({ period: c.period_label, month: c.month, mid: _num(c.mid), pct_chg: _num(c.pct_chg) })) });
   const ordersOf = f => orders.filter(o => o.commodity === f)
       .map(o => ({ basket: o.basket_name, period: o.period, volume: _num(o.volume), price: o.price }));
   const seedMeta = (meta.find(m => m.key === 'seed') || {}).value || {};
-
   DATA = {
     generated: new Date().toISOString().slice(0, 10),
     baskets: baskets.map(b => ({
       id: b.id, name: b.name, commodity: b.commodity, unit_vol: b.unit_vol,
-      unit_price: b.unit_price, is_ces: !!b.is_ces,
-      months: byBasketM[b.id] || [], targets: byBasketT[b.id] || [],
-      trades: byBasketG[b.id] || [], seasons: []
+      unit_price: b.unit_price, is_ces: !!b.is_ces, sort_order: b.sort_order,
+      months: byM[b.id] || [], targets: byT[b.id] || [],
+      trades: byG[b.id] || [], seasons: []
     })),
     curves: { gas: curveOf('gas'), power: curveOf('power') },
     admin: { month_labels: seedMeta.admin_month_labels || [], rows: admin.map(r => ({
@@ -1603,6 +1653,8 @@ async function loadFlexData() {
     firm_orders: { power: ordersOf('power'), gas: ordersOf('gas') }
   };
   BASKETS = DATA.baskets;
+  const el = document.getElementById('fx-asof');
+  if (el) el.textContent = 'Live · ' + new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
 }
 
 
@@ -2948,11 +3000,557 @@ function renderOrders() {
     </div>`;
 }
 
-// ── BOOT: auth gate → load live data → render → realtime ────────
+// ═════════════════ PHASE 2 — EDITING + LIVE COLLABORATION ═════════════════
+let EDIT = false;
+FLEX.user = ''; FLEX.uid = ''; FLEX.color = '#2f6de0';
+const FX_COLORS = ['#e05252','#2f9e6e','#2f6de0','#c77b16','#8a4fd3','#d33f8d','#12a5a5','#7a7f2a'];
+function fxHash(s){let h=0;for(const c of s)h=(h*31+c.charCodeAt(0))>>>0;return h;}
+function fxColorFor(id){return FX_COLORS[fxHash(id||'x')%FX_COLORS.length];}
+function fxToast(msg, ok=true){
+  let t=document.getElementById('fxMiniToast');
+  if(!t){t=document.createElement('div');t.id='fxMiniToast';
+    t.style.cssText='position:fixed;bottom:64px;left:50%;transform:translateX(-50%);z-index:99500;padding:9px 16px;border-radius:10px;color:#fff;font-size:12.5px;font-weight:600;box-shadow:0 8px 22px rgba(0,0,0,.3);font-family:inherit;transition:opacity .3s';
+    document.body.appendChild(t);}
+  t.style.background = ok ? '#1d9e75' : '#c2453b';
+  t.textContent = msg; t.style.opacity='1'; t.style.display='block';
+  clearTimeout(t._h); t._h=setTimeout(()=>{t.style.opacity='0';},2400);
+}
+const fxNum = v => { const n=parseFloat(String(v).replace(/[£,%\s]/g,'').replace(/,/g,'')); return isNaN(n)?null:n; };
+function fxParseDate(s){
+  s=String(s||'').trim(); if(!s) return null;
+  let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return s.slice(0,10);
+  m=s.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{2,4})$/);
+  if(m){let y=+m[3]; if(y<100)y+=2000; return `${y}-${String(+m[2]).padStart(2,'0')}-${String(+m[1]).padStart(2,'0')}`;}
+  m=s.match(/^(\d{1,2})[- ]([A-Za-z]{3})[- ](\d{2,4})$/);
+  if(m){const mo='janfebmaraprmayjunjulaugsepoctnovdec'.indexOf(m[2].toLowerCase())/3+1;
+    let y=+m[3]; if(y<100)y+=2000; return `${y}-${String(mo).padStart(2,'0')}-${String(+m[1]).padStart(2,'0')}`;}
+  m=s.match(/^([A-Za-z]{3})-(\d{2,4})$/);
+  if(m){const mo='janfebmaraprmayjunjulaugsepoctnovdec'.indexOf(m[1].toLowerCase())/3+1;
+    let y=+m[2]; if(y<100)y+=2000; return `${y}-${String(mo).padStart(2,'0')}-01`;}
+  const d=new Date(s); return isNaN(d)?null:d.toISOString().slice(0,10);
+}
+function fxMonthEnd(iso){const d=new Date(iso+'T00:00:00Z');return new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0)).toISOString().slice(0,10);}
+function fxDaysIn(iso){const d=new Date(iso+'T00:00:00Z');return new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0)).getUTCDate();}
+function fxSeason(iso){const d=new Date(iso+'T00:00:00Z');const m=d.getUTCMonth()+1;let y=d.getUTCFullYear()%100;
+  if(m>=4&&m<=9)return `Summer-${y}`; if(m<=3)y-=1; return `Winter-${y}`;}
+
+// ── write helpers ────────────────────────────────────────────────
+let fxDirty=false, fxHold=false, fxReloadTimer=null;
+function fxHolding(){ return fxHold || document.querySelector('#fxModalWrap[style*="flex"]') || document.activeElement && (document.activeElement.classList.contains('fx-cell') || document.activeElement.closest('#fxModal')); }
+function fxScheduleReload(){
+  clearTimeout(fxReloadTimer);
+  fxReloadTimer=setTimeout(async ()=>{
+    if(fxHolding()){ fxDirty=true; return; }
+    fxDirty=false;
+    await loadFlexData();
+    rerenderCurrent();
+  }, 850);
+}
+async function fxWrite(promise, okMsg){
+  const { error } = await promise;
+  if (error){ console.error(error); fxToast(error.message || 'Save failed', false); return false; }
+  if (okMsg) fxToast(okMsg);
+  fxScheduleReload();
+  return true;
+}
+
+// ── state-preserving re-render ───────────────────────────────────
+function rerenderCurrent(){
+  renderSidebar();
+  const detailOpen = selectedId && BASKETS.find(b=>b.id===selectedId);
+  if (detailOpen){
+    const b = BASKETS.find(x=>x.id===selectedId);
+    currentBasket = b;
+    destroyCharts();
+    document.getElementById('detail-title').textContent = b.name;
+    renderDetailStats(b); renderPositions(b); renderTrades(b);
+    renderSeasons(b); renderTargets(b); renderGraphs(b);
+  } else if (selectedId){ // basket deleted remotely
+    selectedId=null; currentBasket=null;
+    document.getElementById('overview').style.display='block';
+    document.getElementById('detail').style.display='none';
+    renderOverview();
+  } else {
+    renderOverview();
+  }
+  ['curves','admin','contacts','orders'].forEach(t=>{
+    const el=document.getElementById('main-tab-'+t);
+    if(!el) return;
+    delete el.dataset.rendered; 
+    if(el.classList.contains('active')){
+      el.innerHTML='';
+      ({curves:renderCurves,admin:renderAdmin,contacts:renderContacts,orders:renderOrders})[t]();
+    } else { el.innerHTML=''; }
+  });
+  fxDecorateHeader();
+}
+
+// ── EDIT MODE toggle + header decoration ─────────────────────────
+function fxSetEdit(on){
+  EDIT = on;
+  document.querySelectorAll('.fx-edit-toggle').forEach(b=>{b.classList.toggle('on',on);b.innerHTML=on?'&#9998; Editing on':'&#9998; Edit';});
+  rerenderCurrent();
+}
+function fxDecorateHeader(){
+  // detail header toggle (next to close button)
+  const dh = document.querySelector('#detail .close-btn');
+  if (dh && !document.getElementById('fxDetailTools')){
+    const sp=document.createElement('span'); sp.id='fxDetailTools';
+    sp.innerHTML = `<button class="fx-btn fx-edit-toggle${EDIT?' on':''}" onclick="fxSetEdit(!EDIT)">&#9998; ${EDIT?'Editing on':'Edit'}</button>`;
+    dh.parentNode.insertBefore(sp, dh);
+  }
+  // overview toolbar (new basket)
+  const ov = document.getElementById('overview');
+  if (ov && !document.getElementById('fxOvTools')){
+    const bar=document.createElement('div'); bar.id='fxOvTools'; bar.className='fx-toolbar';
+    bar.style.cssText='padding:10px 0 0 0';
+    bar.innerHTML = `<button class="fx-btn fx-edit-toggle${EDIT?' on':''}" onclick="fxSetEdit(!EDIT)">&#9998; ${EDIT?'Editing on':'Edit'}</button>
+      <button class="fx-btn green" onclick="fxNewBasketModal()" title="Create a new basket">+ New basket</button>`;
+    ov.insertBefore(bar, ov.firstChild);
+  }
+}
+
+// ── DECORATORS: wrap prototype renderers with edit affordances ────
+const _renderTrades = renderTrades;
+renderTrades = function(basket){
+  _renderTrades(basket);
+  const el = document.getElementById('tab-trades');
+  if (!EDIT || !el) return;
+  const bar=document.createElement('div'); bar.className='fx-toolbar';
+  bar.innerHTML = `<button class="fx-btn green" onclick="fxTradeModal()">+ Add trade</button>
+    <button class="fx-btn" onclick="fxBulkTradesModal()">&#8687; Bulk add (paste)</button>`;
+  el.insertBefore(bar, el.firstChild);
+  const trades = getFilteredTrades(basket);
+  const tbody = el.querySelector('tbody'); if(!tbody) return;
+  el.querySelector('thead tr') && el.querySelector('thead tr').insertAdjacentHTML('beforeend','<th></th>');
+  [...tbody.rows].forEach((tr,i)=>{
+    const t = trades[i]; if(!t) return;
+    const td=document.createElement('td'); td.className='fx-actions';
+    td.innerHTML=`<button class="fx-icon" title="Edit trade" onclick="fxTradeModal(${t.db_id})">&#9998;</button><button class="fx-icon" title="Delete trade" onclick="fxDeleteTrade(${t.db_id})">&#128465;</button>`;
+    tr.appendChild(td);
+  });
+};
+
+const _renderPositionsTable = renderPositionsTable;
+renderPositionsTable = function(rows, basket){
+  _renderPositionsTable(rows, basket);
+  if (!EDIT) return;
+  const tbody = document.querySelector('#pos-table-container tbody'); if(!tbody) return;
+  [...tbody.rows].forEach((tr,i)=>{
+    const m = rows[i]; if(!m) return; // totals row is in tfoot or after? guard by count
+    if (i>=rows.length) return;
+    fxMakeCellEditable(tr.cells[2], m.baseload_vol, v=>fxUpdMonth(basket, m, 'baseload_vol', v));
+    fxMakeCellEditable(tr.cells[8], m.market_price, v=>fxUpdMonth(basket, m, 'market_price', v));
+  });
+};
+
+const _renderTargets = renderTargets;
+renderTargets = function(basket){
+  _renderTargets(basket);
+  const el=document.getElementById('tab-targets');
+  if (!EDIT || !el) return;
+  const bar=document.createElement('div'); bar.className='fx-toolbar';
+  bar.innerHTML=`<button class="fx-btn green" onclick="fxAddTargetMonths()">+ Add target rows for future months</button>
+    <span style="font-size:11px;color:#6b7280">Click a target to edit &middot; click the tick/circle to toggle achieved</span>`;
+  el.insertBefore(bar, el.firstChild);
+  const targets = basket.targets||[]; const numT = basket.commodity==='gas'?8:5;
+  const tbody = el.querySelector('tbody'); if(!tbody) return;
+  [...tbody.rows].forEach((tr,i)=>{
+    const t=targets[i]; if(!t) return;
+    for(let n=1;n<=numT;n++){
+      const cell = tr.cells[1+n]; if(!cell) continue;
+      fxTargetCell(cell, basket, t, n);
+    }
+    const ua = tr.cells[2+numT];
+    if (ua) fxMakeCellEditable(ua, t.upper_alert, v=>fxUpdTarget(basket, t, {upper_alert:v}));
+  });
+};
+
+function fxTargetCell(cell, basket, t, n){
+  cell.classList.add('fx-editable');
+  cell.title='Click to edit price — double-click to toggle achieved';
+  cell.onclick = e => {
+    if (cell.querySelector('input')) return;
+    const cur = t['lower_t'+n];
+    fxCellInput(cell, cur, async v=>{
+      const patch={}; patch['lower_t'+n]=v;
+      if (v==null) patch['t'+n+'_achieved']=null;
+      await fxUpdTarget(basket, t, patch);
+    });
+  };
+  cell.ondblclick = e => {
+    e.preventDefault(); e.stopPropagation();
+    if (t['lower_t'+n]==null) return;
+    const patch={}; patch['t'+n+'_achieved'] = (t['t'+n+'_achieved']==='Yes')?null:'Yes';
+    fxUpdTarget(basket, t, patch);
+  };
+}
+
+function fxMakeCellEditable(cell, current, save){
+  if(!cell) return;
+  cell.classList.add('fx-editable'); cell.title='Click to edit';
+  cell.onclick = () => { if(!cell.querySelector('input')) fxCellInput(cell, current, save); };
+}
+function fxCellInput(cell, current, save){
+  const old = cell.innerHTML;
+  cell.innerHTML = `<input class="fx-cell" value="${current!=null?current:''}">`;
+  const inp = cell.querySelector('input'); inp.focus(); inp.select();
+  let done=false;
+  const commit = async () => {
+    if(done) return; done=true;
+    const raw = inp.value.trim();
+    const v = raw==='' ? null : fxNum(raw);
+    if (raw!=='' && v==null){ fxToast('Not a number', false); cell.innerHTML=old; return; }
+    if (v === (current!=null?current:null)){ cell.innerHTML=old; if(fxDirty) fxScheduleReload(); return; }
+    cell.innerHTML = '&#8987;';
+    await save(v);
+  };
+  inp.addEventListener('keydown', e=>{
+    if(e.key==='Enter') commit();
+    if(e.key==='Escape'){ done=true; cell.innerHTML=old; if(fxDirty) fxScheduleReload(); }
+  });
+  inp.addEventListener('blur', commit);
+}
+
+async function fxUpdMonth(basket, m, field, v){
+  await fxWrite(FLEX.sb.from('flex_basket_months')
+    .update({[field]: v, updated_by: FLEX.user})
+    .eq('basket_id', basket.id).eq('month', m.month), 'Saved');
+}
+async function fxUpdTarget(basket, t, patch){
+  patch.updated_by = FLEX.user;
+  await fxWrite(FLEX.sb.from('flex_targets').update(patch)
+    .eq('basket_id', basket.id).eq('month', t.month), 'Saved');
+}
+async function fxDeleteTrade(dbId){
+  const t = (currentBasket.trades||[]).find(x=>x.db_id===dbId);
+  if (!t) return;
+  if (!confirm(`Delete trade "${t.ref||''}" (${t.volume} @ ${t.strike})? This recalculates the basket.`)) return;
+  await fxWrite(FLEX.sb.from('flex_trades').delete().eq('id', dbId), 'Trade deleted');
+}
+async function fxAddTargetMonths(){
+  const b=currentBasket; if(!b) return;
+  const have=new Set((b.targets||[]).map(t=>t.month));
+  const rows=b.months.filter(m=>m.month>=CUTOFF && !have.has(m.month))
+    .map(m=>({basket_id:b.id, month:m.month, updated_by:FLEX.user}));
+  if(!rows.length){ fxToast('All future months already have target rows'); return; }
+  await fxWrite(FLEX.sb.from('flex_targets').insert(rows), rows.length+' target rows added');
+}
+
+// ── MODALS ───────────────────────────────────────────────────────
+function fxModal(html){
+  const w=document.getElementById('fxModalWrap');
+  document.getElementById('fxModal').innerHTML=html;
+  w.style.display='flex';
+}
+function fxCloseModal(){
+  document.getElementById('fxModalWrap').style.display='none';
+  document.getElementById('fxModal').innerHTML='';
+  if (fxDirty) fxScheduleReload();
+}
+function fxMErr(msg){const e=document.getElementById('fxMErr'); e.textContent=msg; e.style.display='block';}
+
+// trade add/edit
+function fxTradeModal(dbId){
+  const b=currentBasket; if(!b) return;
+  const t = dbId ? (b.trades||[]).find(x=>x.db_id===dbId) : null;
+  const vu=b.unit_vol, pu=b.unit_price;
+  fxModal(`<h3>${t?'Edit':'Add'} trade — ${escape(b.name)}</h3>
+  <div class="fx-grid">
+    <div class="fx-field"><label>Date completed</label><input id="fT_date" type="date" value="${t?t.date:TODAY}"></div>
+    <div class="fx-field" style="grid-column:span 2"><label>Trade reference</label><input id="fT_ref" value="${t?escape(t.ref||''):''}" placeholder="e.g. Sum-27 Buy #1 (${escape(b.name.split(' ')[0])})"></div>
+    <div class="fx-field"><label>Counterparty</label><input id="fT_cp" value="${t?escape(t.counterparty||''):''}"></div>
+    <div class="fx-field"><label>Start month</label><input id="fT_start" type="month" value="${t?t.start.slice(0,7):''}"></div>
+    <div class="fx-field"><label>End month</label><input id="fT_end" type="month" value="${t?t.end.slice(0,7):''}"></div>
+    <div class="fx-field"><label>Deal type</label><select id="fT_deal"><option${t&&t.deal_type==='Sell'?'':' selected'}>Buy</option><option${t&&t.deal_type==='Sell'?' selected':''}>Sell</option></select></div>
+    <div class="fx-field"><label>Volume (${vu})</label><input id="fT_vol" type="number" step="any" value="${t?Math.abs(t.volume):''}"></div>
+    <div class="fx-field"><label>Strike (${pu})</label><input id="fT_strike" type="number" step="any" value="${t?t.strike:''}"></div>
+    <div class="fx-field"><label>Product</label><input id="fT_prod" value="${t?escape(t.product||'Baseload'):'Baseload'}"></div>
+  </div>
+  <div class="fx-err" id="fxMErr"></div>
+  <div class="fx-modal-foot">
+    <button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
+    <button class="fx-btn green" onclick="fxSaveTrade(${dbId||'null'})">${t?'Save changes':'Add trade'}</button>
+  </div>`);
+}
+async function fxSaveTrade(dbId){
+  const g=id=>document.getElementById(id).value.trim();
+  const start=g('fT_start'), end=g('fT_end');
+  const vol=fxNum(g('fT_vol')), strike=fxNum(g('fT_strike'));
+  const deal=g('fT_deal');
+  if(!g('fT_date')||!start||!end) return fxMErr('Date, start month and end month are required.');
+  if(vol==null||vol<=0) return fxMErr('Volume must be a positive number (Sell is applied automatically).');
+  if(strike==null) return fxMErr('Strike is required.');
+  const startD=start+'-01', endD=fxMonthEnd(end+'-01');
+  if(endD<startD) return fxMErr('End month is before start month.');
+  const row={ basket_id: currentBasket.id, trade_date: g('fT_date'), trade_ref: g('fT_ref')||null,
+    counterparty: g('fT_cp')||null, start_date: startD, end_date: endD,
+    volume: deal==='Sell'?-Math.abs(vol):Math.abs(vol), product: g('fT_prod')||'Baseload',
+    strike: strike, deal_type: deal, updated_by: FLEX.user };
+  const q = dbId ? FLEX.sb.from('flex_trades').update(row).eq('id', dbId)
+                 : FLEX.sb.from('flex_trades').insert(row);
+  if (await fxWrite(q, dbId?'Trade updated':'Trade added — positions recalculating')) fxCloseModal();
+}
+
+// bulk trades (paste from FDB annex or simple grid)
+function fxBulkTradesModal(){
+  const b=currentBasket; if(!b) return;
+  fxModal(`<h3>Bulk add trades — ${escape(b.name)}</h3>
+  <p style="font-size:12.5px;color:#4b5563;margin:0 0 8px">Paste rows copied straight from the FDB trade annex (Ref | Date | Commodity | Counterparty | Start | End | Volume | Product | Strike | Buy/Sell)
+  or a simple grid (Date | Ref | Counterparty | Start | End | Volume | Product | Strike | Buy/Sell). Sells may use negative volume or the word Sell.</p>
+  <textarea id="fB_paste" placeholder="Paste rows from Excel here..."></textarea>
+  <div id="fB_prev"></div>
+  <div class="fx-err" id="fxMErr"></div>
+  <div class="fx-modal-foot">
+    <button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
+    <button class="fx-btn" onclick="fxBulkPreview()">Preview</button>
+    <button class="fx-btn green" id="fB_commit" style="display:none" onclick="fxBulkCommit()">Add all</button>
+  </div>`);
+  document.getElementById('fB_paste').focus();
+}
+let fxBulkRows=[];
+function fxBulkParse(){
+  const txt=document.getElementById('fB_paste').value;
+  const lines=txt.split(/\r?\n/).map(l=>l.replace(/ /g,' ')).filter(l=>l.trim());
+  const out=[];
+  for(const line of lines){
+    let c=line.split('\t'); if(c.length===1) c=line.split(/ {2,}|;/);
+    c=c.map(x=>x.trim());
+    if(/^trade reference$/i.test(c[0]||'')) continue; // header row
+    let r=null;
+    const looksDate=s=>!!fxParseDate(s);
+    if(c.length>=10 && looksDate(c[1])){        // annex without Column1
+      r={ref:c[0],date:c[1],cp:c[3],start:c[4],end:c[5],vol:c[6],prod:c[7],strike:c[8],deal:c[9]};
+    } else if(c.length>=11 && looksDate(c[2])){ // annex with Column1
+      r={ref:c[0],date:c[2],cp:c[4],start:c[5],end:c[6],vol:c[7],prod:c[8],strike:c[9],deal:c[10]};
+    } else if(c.length>=9){                      // simple
+      r={date:c[0],ref:c[1],cp:c[2],start:c[3],end:c[4],vol:c[5],prod:c[6],strike:c[7],deal:c[8]};
+    } else continue;
+    const vol=fxNum(r.vol);
+    const deal=/sell/i.test(r.deal||'')||(vol!=null&&vol<0)?'Sell':'Buy';
+    const sd=fxParseDate(r.start), ed0=fxParseDate(r.end);
+    out.push({ trade_ref:r.ref||null, trade_date:fxParseDate(r.date), counterparty:r.cp||null,
+      start_date:sd, end_date: ed0 ? (ed0.endsWith('-01')&&r.end.match(/^[A-Za-z]{3}-\d{2}$/)?fxMonthEnd(ed0):ed0) : null,
+      volume: vol==null?null:(deal==='Sell'?-Math.abs(vol):Math.abs(vol)),
+      product:r.prod||'Baseload', strike:fxNum(r.strike), deal_type:deal });
+  }
+  return out;
+}
+function fxBulkPreview(){
+  fxBulkRows=fxBulkParse();
+  if(!fxBulkRows.length) return fxMErr('Nothing parseable found — check the paste.');
+  document.getElementById('fxMErr').style.display='none';
+  let bad=0;
+  const rows=fxBulkRows.map(r=>{
+    const b1=!r.trade_date, b2=!r.start_date||!r.end_date, b3=r.volume==null, b4=r.strike==null;
+    if(b1||b2||b3||b4) bad++;
+    return `<tr><td${b1?' class="bad"':''}>${r.trade_date||'??'}</td><td>${escape(r.trade_ref||'')}</td><td>${escape(r.counterparty||'')}</td>
+      <td${b2?' class="bad"':''}>${r.start_date||'??'} → ${r.end_date||'??'}</td>
+      <td${b3?' class="bad"':''}>${r.volume!=null?r.volume:'??'}</td><td>${escape(r.product||'')}</td>
+      <td${b4?' class="bad"':''}>${r.strike!=null?r.strike:'??'}</td><td>${r.deal_type}</td></tr>`;
+  }).join('');
+  document.getElementById('fB_prev').innerHTML=`<div class="fx-preview"><table>
+    <thead><tr><th>Date</th><th>Ref</th><th>Counterparty</th><th>Period</th><th>Vol</th><th>Product</th><th>Strike</th><th>Type</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>
+    <div style="font-size:12px;margin-top:6px;color:${bad?'#8b2015':'#0f6e56'};font-weight:600">${fxBulkRows.length} rows parsed${bad?` — ${bad} with problems (fix the paste and re-preview)`:' — all valid'}</div>`;
+  document.getElementById('fB_commit').style.display = bad? 'none':'inline-flex';
+}
+async function fxBulkCommit(){
+  const rows=fxBulkRows.map(r=>({...r, basket_id: currentBasket.id, updated_by: FLEX.user}));
+  if (await fxWrite(FLEX.sb.from('flex_trades').insert(rows), rows.length+' trades added — recalculated')) fxCloseModal();
+}
+
+// new basket
+function fxNewBasketModal(){
+  fxModal(`<h3>New basket</h3>
+  <div class="fx-grid">
+    <div class="fx-field" style="grid-column:span 2"><label>Basket name</label><input id="fN_name" placeholder="e.g. Orchard Hotels - Power (SEFE)"></div>
+    <div class="fx-field"><label>Commodity</label><select id="fN_comm"><option value="power">Power</option><option value="gas">Gas</option></select></div>
+    <div class="fx-field"><label>CES basket?</label><select id="fN_ces"><option value="false">No</option><option value="true">Yes</option></select></div>
+  </div>
+  <p style="font-size:12.5px;color:#4b5563;margin:12px 0 6px">Paste the month grid — 2 to 5 columns: <b>Month</b> (e.g. Apr-27 or 01/04/2027), <b>Baseload</b>, optional <b>Market price</b>, optional <b>Days</b>, optional <b>Season</b>. Days and season are worked out automatically if not given.</p>
+  <textarea id="fN_paste" placeholder="Apr-27\t0.45\nMay-27\t0.44"></textarea>
+  <div id="fN_prev"></div>
+  <div class="fx-err" id="fxMErr"></div>
+  <div class="fx-modal-foot">
+    <button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
+    <button class="fx-btn green" onclick="fxCreateBasket()">Create basket</button>
+  </div>`);
+}
+async function fxCreateBasket(){
+  const name=document.getElementById('fN_name').value.trim();
+  const comm=document.getElementById('fN_comm').value;
+  const isCes=document.getElementById('fN_ces').value==='true';
+  if(!name) return fxMErr('Basket name is required.');
+  const id=name.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+  if(BASKETS.find(b=>b.id===id)) return fxMErr('A basket with this name already exists.');
+  const lines=document.getElementById('fN_paste').value.split(/\r?\n/).filter(l=>l.trim());
+  const months=[];
+  for(const line of lines){
+    const c=line.split(/\t|,| {2,}/).map(x=>x.trim()).filter(x=>x!=='');
+    if(c.length<2) continue;
+    const mIso=fxParseDate(c[0]); if(!mIso) return fxMErr('Bad month: '+c[0]);
+    const m=mIso.slice(0,8)+'01';
+    months.push({ basket_id:id, month:m, days: c[3]?parseInt(c[3]):fxDaysIn(m),
+      season: c[4]||fxSeason(m), baseload_vol: fxNum(c[1]),
+      market_price: c[2]!==undefined? fxNum(c[2]) : null, updated_by: FLEX.user });
+  }
+  if(!months.length) return fxMErr('No month rows parsed.');
+  const bk={ id, name, commodity:comm, unit_vol: comm==='power'?'MW':'th/d',
+    unit_price: comm==='power'?'£/MWh':'p/th', is_ces:isCes,
+    sort_order: (Math.max(0,...BASKETS.map(b=>b.sort_order??0))+1), updated_by: FLEX.user };
+  const r1=await FLEX.sb.from('flex_baskets').insert(bk);
+  if(r1.error) return fxMErr(r1.error.message);
+  const r2=await FLEX.sb.from('flex_basket_months').insert(months);
+  if(r2.error) return fxMErr('Basket created but months failed: '+r2.error.message);
+  fxToast('Basket created with '+months.length+' months');
+  fxCloseModal(); fxScheduleReload();
+}
+
+// curves editor
+const _renderCurves = renderCurves;
+renderCurves = function(){
+  _renderCurves();
+  const el=document.getElementById('main-tab-curves');
+  if(!el || !EDIT || document.getElementById('fxCurveBar')) { if(el&&!EDIT) return; }
+  if(!EDIT) return;
+  const bar=document.createElement('div'); bar.id='fxCurveBar'; bar.className='fx-toolbar';
+  bar.style.cssText='padding:12px 18px 0';
+  bar.innerHTML=`<button class="fx-btn" onclick="fxCurveModal('power')">&#9998; Update power curve</button>
+    <button class="fx-btn" onclick="fxCurveModal('gas')">&#9998; Update gas curve</button>
+    <span style="font-size:11px;color:#6b7280">Updates the monthly mids and pushes the new market price into every ${'basket'} of that fuel</span>`;
+  el.insertBefore(bar, el.firstChild);
+};
+function fxCurveModal(fuel){
+  const cur=(DATA.curves[fuel]&&DATA.curves[fuel].months)||[];
+  const rows=cur.map(c=>{
+    const iso=fxParseDate(c.period)||'';
+    return `<tr><td>${escape(c.period)}</td><td><input class="fx-cell" style="width:95px" data-month="${iso}" value="${c.mid!=null?c.mid:''}"></td><td style="color:#6b7280;font-size:11px">${c.pct_chg!=null?(c.pct_chg*100).toFixed(2)+'%':''}</td></tr>`;
+  }).join('');
+  fxModal(`<h3>Update ${fuel} curve (monthly mids, ${fuel==='power'?'£/MWh':'p/th'})</h3>
+  <p style="font-size:12px;color:#4b5563;margin:0 0 8px">Or paste two columns (Month, Mid) to replace the list:</p>
+  <textarea id="fC_paste" style="min-height:60px" placeholder="Aug-26\t111.25"></textarea>
+  <div class="fx-preview" style="margin-top:10px"><table><thead><tr><th>Month</th><th>Mid</th><th>Prev %chg</th></tr></thead><tbody id="fC_rows">${rows}</tbody></table></div>
+  <div class="fx-err" id="fxMErr"></div>
+  <div class="fx-modal-foot">
+    <button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
+    <button class="fx-btn green" onclick="fxApplyCurve('${fuel}')">Apply to all ${fuel} baskets</button>
+  </div>`);
+  document.getElementById('fC_paste').addEventListener('input', ()=>{
+    const lines=document.getElementById('fC_paste').value.split(/\r?\n/).filter(l=>l.trim());
+    const tb=document.getElementById('fC_rows');
+    const parsed=[];
+    for(const l of lines){ const c=l.split(/\t|,| {2,}/).map(x=>x.trim()); if(c.length<2) continue;
+      const iso=fxParseDate(c[0]); const v=fxNum(c[1]); if(iso&&v!=null) parsed.push({iso,v,lbl:c[0]}); }
+    if(parsed.length) tb.innerHTML=parsed.map(p=>`<tr><td>${escape(p.lbl)}</td><td><input class="fx-cell" style="width:95px" data-month="${p.iso}" value="${p.v}"></td><td></td></tr>`).join('');
+  });
+}
+async function fxApplyCurve(fuel){
+  const entries=[...document.querySelectorAll('#fC_rows input')].map(i=>({month:i.dataset.month, mid:fxNum(i.value)}))
+    .filter(e=>e.month && e.mid!=null);
+  if(!entries.length) return fxMErr('No valid rows.');
+  const {data,error}=await FLEX.sb.rpc('flex_apply_curve',{p_commodity:fuel,p_entries:entries});
+  if(error) return fxMErr(error.message);
+  fxToast(`${fuel} curve applied (${data} months) — market prices updated`);
+  fxCloseModal(); fxScheduleReload();
+}
+
+// ── LIVE CURSORS (presence + broadcast) ──────────────────────────
+let fxCursorCh=null; const fxCursors={};
+function fxViewLabel(){
+  if (currentBasket){
+    const sub=document.querySelector('.tab-btn.active');
+    return currentBasket.name + (sub? ' · '+sub.textContent.trim():'');
+  }
+  const mt=document.querySelector('.main-tab-btn.active');
+  return mt? mt.textContent.trim() : 'Overview';
+}
+function fxStartCursors(){
+  const layer=document.getElementById('fxCursors');
+  fxCursorCh = FLEX.sb.channel('flex-cursors', { config:{ presence:{ key: FLEX.uid }, broadcast:{ self:false } } });
+  fxCursorCh.on('broadcast', {event:'cur'}, ({payload:p})=>{
+    if(!p || p.id===FLEX.uid) return;
+    let c=fxCursors[p.id];
+    if(!c){
+      c=document.createElement('div'); c.className='fx-cursor';
+      c.innerHTML=`<svg width="15" height="18" viewBox="0 0 15 18"><path d="M1 1 L14 8.5 L8 10 L5.5 17 Z" fill="${p.c}" stroke="#fff" stroke-width="1.2"/></svg><div class="tag" style="background:${p.c}">${p.u}<small></small></div>`;
+      layer.appendChild(c); fxCursors[p.id]={el:c,t:0}; c=fxCursors[p.id];
+    }
+    c.t=Date.now();
+    c.el.querySelector('small').textContent = p.v||'';
+    c.el.style.transform=`translate(${(p.x*innerWidth).toFixed(0)}px, ${(p.y*innerHeight).toFixed(0)}px)`;
+  });
+  fxCursorCh.on('presence',{event:'leave'},({key})=>{
+    if(fxCursors[key]){ fxCursors[key].el.remove(); delete fxCursors[key]; }
+  });
+  fxCursorCh.subscribe(async st=>{
+    if(st==='SUBSCRIBED') await fxCursorCh.track({u:FLEX.user, c:FLEX.color, on:Date.now()});
+  });
+  let last=0;
+  document.addEventListener('mousemove', e=>{
+    const now=Date.now(); if(now-last<90 || !fxCursorCh) return; last=now;
+    fxCursorCh.send({type:'broadcast', event:'cur', payload:{
+      id:FLEX.uid, u:FLEX.user, c:FLEX.color, v:fxViewLabel(),
+      x:+(e.clientX/innerWidth).toFixed(4), y:+(e.clientY/innerHeight).toFixed(4) }});
+  });
+  setInterval(()=>{ const now=Date.now();
+    for(const k in fxCursors){ if(now-fxCursors[k].t>12000){ fxCursors[k].el.remove(); delete fxCursors[k]; } }
+  }, 4000);
+}
+
+// ── LIVE EDIT LOG DRAWER ─────────────────────────────────────────
+let fxLogUnseen=0, fxLogLoaded=false;
+function fxToggleDrawer(){
+  const d=document.getElementById('fxDrawer');
+  d.classList.toggle('open');
+  if(d.classList.contains('open')){
+    fxLogUnseen=0; fxLogBadge();
+    if(!fxLogLoaded) fxLoadLog();
+  }
+}
+function fxLogBadge(){
+  const b=document.querySelector('#fxLogBtn .bdg');
+  if(!b) return;
+  b.style.display = fxLogUnseen>0?'block':'none';
+  b.textContent = fxLogUnseen>9?'9+':fxLogUnseen;
+}
+function fxLogRowHtml(r, fresh){
+  const t=new Date(r.at);
+  const hh=t.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+  const dd=t.toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
+  const col=fxColorFor(r.user_id||r.username||'x');
+  return `<div class="fx-log-row${fresh?' fx-log-new':''}"><div class="meta"><span class="fx-log-dot" style="background:${col}"></span><span class="who">${escape(r.username||'?')}</span><span>${dd} ${hh}</span></div>${escape(r.summary||'')}</div>`;
+}
+async function fxLoadLog(){
+  const {data,error}=await FLEX.sb.from('flex_audit')
+    .select('id,at,user_id,username,summary,op,table_name').order('id',{ascending:false}).limit(80);
+  if(error){ fxToast('Could not load edit log', false); return; }
+  fxLogLoaded=true;
+  document.getElementById('fxLogBody').innerHTML = data.length
+    ? data.map(r=>fxLogRowHtml(r,false)).join('')
+    : '<div class="fx-log-row" style="color:#6b7280">No edits yet — changes made by the team will appear here live.</div>';
+}
+function fxLogPush(r){
+  const bd=document.getElementById('fxLogBody');
+  if(fxLogLoaded && bd) bd.insertAdjacentHTML('afterbegin', fxLogRowHtml(r,true));
+  if(!document.getElementById('fxDrawer').classList.contains('open')){ fxLogUnseen++; fxLogBadge(); }
+}
+
+// ── REALTIME DATA (auto-apply, edit-aware) ───────────────────────
+function fxStartRealtime(){
+  const ch = FLEX.sb.channel('flex-data');
+  ['flex_trades','flex_basket_months','flex_targets','flex_curves','flex_firm_orders','flex_baskets']
+    .forEach(t=> ch.on('postgres_changes',{event:'*',schema:'public',table:t}, ()=> fxScheduleReload()));
+  ch.on('postgres_changes',{event:'INSERT',schema:'public',table:'flex_audit'}, p=> fxLogPush(p.new));
+  ch.subscribe();
+  // release deferred reloads when editors close
+  document.addEventListener('focusout', ()=>{ if(fxDirty) setTimeout(()=>{ if(fxDirty && !fxHolding()) fxScheduleReload(); }, 400); });
+}
+
+// ── BOOT ─────────────────────────────────────────────────────────
 window._flexTsToken = null;
 window._flexTsOk = t => { window._flexTsToken = t; };
 window._flexTsExp = () => { window._flexTsToken = null; };
-
 async function flexLogin() {
   const err = document.getElementById('flexErr'); err.style.display = 'none';
   let u = document.getElementById('flexUser').value.trim();
@@ -2970,62 +3568,34 @@ async function flexLogin() {
 }
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && document.getElementById('flexLogin').style.display !== 'none'
-      && document.getElementById('flexLoginForm').style.display !== 'none') flexLogin();
+      && document.getElementById('flexLoginForm').style.display !== 'none'
+      && e.target && (e.target.id === 'flexUser' || e.target.id === 'flexPass')) flexLogin();
 });
-
-function _flexClearRendered() {
-  ['main-tab-curves','main-tab-admin','main-tab-contacts','main-tab-orders'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) { delete el.dataset.rendered; el.innerHTML = ''; }
-  });
-}
-
-async function flexReload() {
-  document.getElementById('flexToast').style.display = 'none';
-  await loadFlexData();
-  _flexClearRendered();
-  renderSidebar();
-  renderOverview();
-}
-
-function _flexRealtime() {
-  let t = null;
-  const ping = () => { clearTimeout(t); t = setTimeout(() =>
-    { document.getElementById('flexToast').style.display = 'flex'; }, 700); };
-  const ch = FLEX.sb.channel('flex-live');
-  ['flex_trades','flex_basket_months','flex_targets','flex_curves','flex_firm_orders','flex_baskets']
-    .forEach(tb => ch.on('postgres_changes', { event: '*', schema: 'public', table: tb }, ping));
-  ch.subscribe();
-}
-
+async function flexReload() { await loadFlexData(); rerenderCurrent(); fxToast('Refreshed'); }
 async function flexStart() {
-  try {
-    await loadFlexData();
-  } catch (e) {
-    console.error(e);
+  try { await loadFlexData(); }
+  catch (e) { console.error(e);
     document.getElementById('flexLoginForm').style.display = 'none';
-    document.getElementById('flexNoAccess').style.display = 'block';
-    return;
-  }
+    document.getElementById('flexNoAccess').style.display = 'block'; return; }
   if (!BASKETS || BASKETS.length === 0) {
     document.getElementById('flexLoginForm').style.display = 'none';
-    document.getElementById('flexNoAccess').style.display = 'block';
-    return;
-  }
+    document.getElementById('flexNoAccess').style.display = 'block'; return; }
   document.getElementById('flexLogin').style.display = 'none';
   const { data: { session } } = await FLEX.sb.auth.getSession();
+  FLEX.uid = session && session.user ? session.user.id : 'anon';
+  FLEX.user = ((session && session.user && session.user.email) || 'user').replace('@portal.cesgb.com','');
+  FLEX.color = fxColorFor(FLEX.uid);
   const chip = document.getElementById('flexChip');
-  document.getElementById('flexChipUser').textContent = (session && session.user && session.user.email || '').replace('@portal.cesgb.com','');
+  document.getElementById('flexChipUser').innerHTML = '<span class="fx-log-dot" style="background:'+FLEX.color+';margin-right:6px"></span>' + escape(FLEX.user);
   chip.style.display = 'flex';
-  renderSidebar();
-  renderOverview();
-  _flexRealtime();
+  renderSidebar(); renderOverview(); fxDecorateHeader();
+  fxStartRealtime(); fxStartCursors();
 }
-
 (async () => {
-  const { data: { session } } = await FLEX.sb.auth.getSession();
+  const { data: { session } } = await FLEEX_SAFE();
   if (session) flexStart();
 })();
+async function FLEEX_SAFE(){ try { return await FLEX.sb.auth.getSession(); } catch(e){ return {data:{session:null}}; } }
 </script>
 
 
