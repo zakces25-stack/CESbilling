@@ -1098,6 +1098,7 @@
             <button type="button" class="session-banner__close" aria-label="Dismiss" onclick="dismissSessionBanner()">&times;</button>
           </div>
           <div class="error-box" id="loginErr"></div>
+          <form id="loginFormMain" autocomplete="on" onsubmit="doLogin(); return false;">
           <div class="form-group">
             <label>Username</label>
             <input type="text" id="loginEmail" placeholder="Username" autocomplete="username" />
@@ -1115,7 +1116,8 @@
                data-expired-callback="onTurnstileExpired"
                style="margin: 6px 0 16px; display: flex; justify-content: center;"></div>
           <div id="turnstileHint" style="display:none;font-size:12px;color:#b5340f;margin:-8px 0 14px;text-align:center;line-height:1.5;">The security check hasn't loaded. If nothing appears above, turn off ad or privacy blockers for this site and reload the page.</div>
-          <button class="btn-primary" id="loginBtn" onclick="doLogin()" disabled>Sign in</button>
+          <button class="btn-primary" id="loginBtn" type="submit" disabled>Sign in</button>
+          </form>
           <p class="form-help" style="margin-top:16px;text-align:center;">
             Forgot your password?
             <a href="#" onclick="doReset(event)" style="color:var(--navy);text-decoration:underline;font-weight:600;">Contact us to reset it.</a>
