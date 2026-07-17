@@ -3514,36 +3514,66 @@ function fxIsoMonth(v){
   }
   return null;
 }
+function fxMarexExtract(buf){
+  const wb = XLSX.read(buf, {type:'array', cellDates:true});
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  if (ws['!ref']){                       // normalise range to A1 so indices are absolute
+    const r = XLSX.utils.decode_range(ws['!ref']);
+    r.s.r = 0; r.s.c = 0;
+    ws['!ref'] = XLSX.utils.encode_range(r);
+  }
+  const aoa = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
+  const split = aoa.findIndex(row => (row||[]).some(c => /power forward curve/i.test(String(c||''))));
+  if (split < 0) return null;
+  const parseBlock = rows => {
+    let h = -1, cols = [];
+    for (let i = 0; i < rows.length; i++){
+      const idx = [];
+      (rows[i]||[]).forEach((c, ci) => { if (String(c||'').trim().toLowerCase() === 'period') idx.push(ci); });
+      if (idx.length >= 2){ h = i; cols = idx; break; }
+    }
+    if (h < 0) return null;
+    const groups = cols.map(ci => ({ ci, rows: [] }));
+    for (let k = h + 1; k < rows.length; k++){
+      const r = rows[k] || [];
+      if ((r||[]).some(c => /forward curve/i.test(String(c||'')))) break;
+      for (const g of groups){
+        const p = r[g.ci], v = r[g.ci + 1];
+        if (p !== null && p !== undefined && String(p).trim() !== '' && typeof v === 'number')
+          g.rows.push({ p, mid: +v.toFixed(4) });
+      }
+    }
+    const out = {months:[], quarters:[], seasons:[], annuals:[]};
+    for (const g of groups){
+      for (const {p, mid} of g.rows){
+        const iso = fxIsoMonth(p);
+        const s = String(p).trim();
+        if (iso) out.months.push({month: iso, mid});
+        else if (/^q[1-4]/i.test(s)) out.quarters.push({label: fxNormQ(s), mid});
+        else if (/annual/i.test(s)) out.annuals.push({label: s, mid});
+        else out.seasons.push({label: s, mid});
+      }
+    }
+    return out;
+  };
+  const gas = parseBlock(aoa.slice(0, split));
+  const power = parseBlock(aoa.slice(split));
+  if (!gas || !power) return null;
+  return {gas, power};
+}
 let fxMarex=null;
 async function fxParseMarex(file){
   if(!/\.xlsx?$/i.test(file.name)) return fxToast('Not an Excel file', false);
   if(typeof XLSX === 'undefined') return fxToast('Spreadsheet reader not loaded — check connection and reload', false);
-  let aoa;
+  let res;
   try{
-    const buf=await file.arrayBuffer();
-    const wb=XLSX.read(buf,{type:'array',cellDates:true});
-    const ws=wb.Sheets[wb.SheetNames[0]];
-    aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null});
+    const buf = await file.arrayBuffer();
+    res = fxMarexExtract(new Uint8Array(buf));
   }catch(e){ console.error(e); return fxToast('Could not read that file', false); }
-  const split=aoa.findIndex(r=>r && /power forward curve/i.test(String(r[1]||'')));
-  if(split<0) return fxToast('This does not look like the Marex UK Forward Curve file (no "UK Power Forward Curve" section found)', false);
-  const parseBlock = rows => {
-    const h=rows.findIndex(r=>String((r&&r[1])||'').trim().toLowerCase()==='period');
-    if(h<0) return null;
-    const out={months:[],quarters:[],seasons:[],annuals:[]};
-    for(let k=h+1;k<rows.length;k++){
-      const r=rows[k]||[];
-      const iso=fxIsoMonth(r[1]);
-      if(iso && typeof r[2]==='number') out.months.push({month:iso, mid:+r[2].toFixed(4)});
-      if(r[4]!=null && String(r[4]).trim() && typeof r[5]==='number') out.quarters.push({label:fxNormQ(r[4]), mid:+r[5].toFixed(4)});
-      if(r[7]!=null && String(r[7]).trim() && typeof r[8]==='number') out.seasons.push({label:String(r[7]).trim(), mid:+r[8].toFixed(4)});
-      if(r[10]!=null && String(r[10]).trim() && typeof r[11]==='number') out.annuals.push({label:String(r[10]).trim(), mid:+r[11].toFixed(4)});
-    }
-    return out;
-  };
-  const gas=parseBlock(aoa.slice(0,split)), power=parseBlock(aoa.slice(split));
-  if(!gas || !power || (!gas.months.length && !power.months.length))
-    return fxToast('File read, but no curve rows found — has the layout changed?', false);
+  if(!res) return fxToast('This does not look like the Marex UK Forward Curve file (no "UK Power Forward Curve" section found)', false);
+  const {gas, power} = res;
+  if(!gas.months.length && !power.months.length)
+    return fxToast('File read, but no monthly curve rows found — has the layout changed?', false);
   fxMarex={gas, power, fname:file.name};
   const sec=(title,unit,blk)=>{
     const tbl=(label,rows,isM)=>rows.length?`<div style="font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#4b5563;margin:8px 0 3px">${label}</div>
