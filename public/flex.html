@@ -1484,6 +1484,15 @@ th.fx-gA{background:#3a4667!important}
 th.fx-gB{background:#2e5d4b!important}
 th.fx-gs,td.fx-gs{border-left:3px solid #cfd6e4!important}
 td.fx-gB{background:#f7fbf4}
+/* pronounced basket alerts */
+.mini-card.has-alert{background:#fbe9e7!important;border:1.5px solid #c2453b!important;box-shadow:0 2px 10px rgba(194,69,59,.25)!important}
+.mini-card.has-alert:hover{box-shadow:0 6px 22px rgba(194,69,59,.35)!important;border-color:#a93a31!important}
+.mini-card.has-alert .mini-card-name{color:#8b2015}
+.mini-card.has-alert .mini-progress{background:rgba(194,69,59,.18)!important}
+.mini-card.has-alert .mini-progress-fill{background:#c2453b!important}
+.mini-card.has-alert .mini-card-pct{color:#8b2015}
+@keyframes fxAlertPulse{50%{opacity:.45}}
+.mini-card.has-alert .mini-card-name span{animation:fxAlertPulse 1.6s ease-in-out infinite;display:inline-block}
 .fx-arch-card{background:#fff;border:1px solid #e3e7ee;border-radius:12px;padding:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}
 table tbody tr{transition:background .12s ease}
 table tbody tr:hover{background:#f5f8fc}
@@ -3227,6 +3236,7 @@ function fxScheduleReload(){
     fxDirty=false;
     await loadFlexData();
     rerenderCurrent();
+    fxCheckAlerts();
   }, 850);
 }
 async function fxWrite(promise, okMsg){
@@ -3854,6 +3864,41 @@ function fxLogPush(r){
   const bd=document.getElementById('fxLogBody');
   if(fxLogLoaded && bd) bd.insertAdjacentHTML('afterbegin', fxLogRowHtml(r,true));
   if(!document.getElementById('fxDrawer').classList.contains('open')){ fxLogUnseen++; fxLogBadge(); }
+}
+
+// ── ALERT NOTIFICATIONS ──────────────────────────────────────────
+function fxAlertBaskets(){
+  try { return (BASKETS||[]).filter(b=>basketHasAlert(b)).map(b=>({id:b.id, name:b.name})); }
+  catch(e){ return []; }
+}
+function fxNotifyDesktop(title, body){
+  if (!('Notification' in window) || Notification.permission!=='granted') return false;
+  try {
+    const n=new Notification(title,{ body, tag:'fx-alerts', renotify:true,
+      icon:'https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png' });
+    n.onclick=()=>{ try{ window.focus(); }catch(e){} n.close(); };
+    return true;
+  } catch(e){ return false; }
+}
+function fxCheckAlerts(initial){
+  const cur=fxAlertBaskets();
+  const key='fx-alerts-seen-'+FLEX.uid;
+  let seen=[];
+  try { seen=JSON.parse(localStorage.getItem(key)||'[]'); } catch(e){}
+  const fresh = initial ? cur : cur.filter(a=>!seen.includes(a.id));
+  try { localStorage.setItem(key, JSON.stringify(cur.map(a=>a.id))); } catch(e){}
+  if(!fresh.length) return;
+  const names=fresh.map(a=>a.name);
+  const shown=names.slice(0,6).join('\n')+(names.length>6?`\n…and ${names.length-6} more`:'');
+  fxNotifyDesktop(initial?`CES Flex — ${names.length} basket${names.length>1?'s':''} on alert`:'CES Flex — price alert hit', shown);
+  fxToast((initial?'Alerts active: ':'Alert hit: ')+names.slice(0,3).join(', ')+(names.length>3?` +${names.length-3} more`:''), false);
+}
+function fxAskNotifyPermission(){
+  if (!('Notification' in window) || Notification.permission!=='default') return;
+  document.addEventListener('click', function once(){
+    document.removeEventListener('click', once);
+    try { Notification.requestPermission(); } catch(e){}
+  });
 }
 
 // ── REALTIME DATA (auto-apply, edit-aware) ───────────────────────
@@ -4505,7 +4550,7 @@ document.addEventListener('keydown', e => {
       && document.getElementById('flexLoginForm').style.display !== 'none'
       && e.target && (e.target.id === 'flexUser' || e.target.id === 'flexPass')) flexLogin();
 });
-async function flexReload() { await loadFlexData(); rerenderCurrent(); fxToast('Refreshed'); }
+async function flexReload() { await loadFlexData(); rerenderCurrent(); fxCheckAlerts(); fxToast('Refreshed'); }
 async function flexStart() {
   try { await loadFlexData(); }
   catch (e) { console.error(e);
@@ -4528,6 +4573,8 @@ async function flexStart() {
   chip.style.display = 'flex';
   renderSidebar(); renderOverview(); fxDecorateHeader();
   fxStartRealtime(); fxStartCursors();
+  fxAskNotifyPermission();
+  setTimeout(()=>fxCheckAlerts(true), 900);
 }
 function fxShowLoading(msg){
   const f=document.getElementById('flexLoginForm'), l=document.getElementById('flexLoading');
