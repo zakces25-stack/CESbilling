@@ -1458,7 +1458,7 @@ body{background:linear-gradient(180deg,#f7f8fb 0%,#eef1f6 100%) fixed}
 /* cards & tables */
 .mini-card,.stat-card,.table-wrap,.extra-section{border-radius:13px!important;border-color:#e3e7ee!important;box-shadow:0 1px 2px rgba(22,35,63,.05),0 4px 14px rgba(22,35,63,.05)!important}
 .mini-card:hover{transform:translateY(-2px);box-shadow:0 6px 22px rgba(22,35,63,.13)!important;border-color:#c9d4a3!important}
-table:not(.extra-table) thead th{background:#fbfcfe!important;border-bottom:1.5px solid #e3e7ee!important}
+table:not(.extra-table):not(.fx-htable) thead th{background:#fbfcfe!important;border-bottom:1.5px solid #e3e7ee!important}
 .extra-table th{background:var(--navy-700)!important;color:#fff!important}
 #summary-row{display:none!important}
 table.fx-hide-cost th:nth-child(9),table.fx-hide-cost td:nth-child(9){display:none}
@@ -1470,10 +1470,20 @@ tr.fx-row-current td{background:#fdf3cf!important}
 .fx-note-card .nm{font-size:10.5px;color:#6b7280;white-space:nowrap}
 .fx-note-card .nb{font-size:12.5px;color:#374151;white-space:pre-wrap;line-height:1.5}
 .fx-note-card .nbk{display:inline-block;background:#e8eaf6;color:#2f3d7e;border-radius:999px;font-size:10px;font-weight:700;padding:2px 9px;margin-right:8px}
-.fx-htable{width:100%;border-collapse:collapse;font-size:12px}
-.fx-htable th{background:var(--navy-700);color:#fff;padding:6px 9px;font-weight:600;white-space:nowrap;text-align:center;font-size:11px}
-.fx-htable td{padding:6px 9px;border-bottom:1px solid #ede9df;text-align:center;font-family:var(--font-mono);font-size:11.5px;white-space:nowrap}
-.fx-htable td.lbl{font-family:var(--font-body);font-weight:700;text-align:left;color:#374151}
+.fx-htable{border-collapse:separate;border-spacing:0;font-size:12px;table-layout:fixed}
+.fx-htable th,.fx-htable td{width:76px;min-width:76px;max-width:110px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border:1px solid #e3e7ee;border-left:none}
+.fx-htable th:first-child,.fx-htable td:first-child{border-left:1px solid #e3e7ee;width:74px;min-width:74px}
+.fx-htable thead th{background:#eef1f6!important;color:#1f2d4d!important;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;padding:6px 8px;border-bottom:1.5px solid #d5dae6}
+.fx-htable tbody td{background:#fff;padding:7px 8px;font-family:var(--font-mono);font-size:12px;font-weight:600;color:#16233f}
+.fx-htable th.rowlbl,.fx-htable td.rowlbl{background:#f7f8fb!important;font-family:var(--font-body);font-weight:800;color:#4b5563!important;font-size:10px;text-transform:uppercase;letter-spacing:.4px;text-align:left;padding-left:10px}
+.fx-htable tr:first-child th:first-child{border-top-left-radius:8px}
+.fx-htable tr:first-child th:last-child{border-top-right-radius:8px}
+th.fx-mhA{background:#3a4667!important;border-left:3px solid #fff!important}
+th.fx-mhB{background:#2e5d4b!important;border-left:3px solid #fff!important}
+th.fx-gA{background:#3a4667!important}
+th.fx-gB{background:#2e5d4b!important}
+th.fx-gs,td.fx-gs{border-left:3px solid #cfd6e4!important}
+td.fx-gB{background:#f7fbf4}
 .fx-arch-card{background:#fff;border:1px solid #e3e7ee;border-radius:12px;padding:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}
 table tbody tr{transition:background .12s ease}
 table tbody tr:hover{background:#f5f8fc}
@@ -3279,8 +3289,8 @@ function fxDecorateHeader(){
     const sp=document.createElement('span'); sp.id='fxDetailTools';
     sp.innerHTML = `<button class="fx-btn fx-edit-toggle${EDIT?' on':''}" onclick="fxSetEdit(!EDIT)">&#9998; ${EDIT?'Editing on':'Edit'}</button>
       <button class="fx-btn" onclick="fxExportBasket()" title="Styled Excel export of this basket">&#11015; Export</button>
-      <button class="fx-btn" onclick="fxTemplateBasket()" title="Prefilled import template for this basket">&#10515; Template</button>
-      <button class="fx-btn" onclick="fxImportBasket()" title="Import a filled template (trades + baseload)">&#10514; Import</button>
+      <button class="fx-btn" onclick="fxTemplateBasket()" title="Baseload template for this basket — months prefilled">&#10515; Template</button>
+      <button class="fx-btn" onclick="fxImportBasket()" title="Import the filled baseload template">&#10514; Import</button>
       <button class="fx-btn fx-edit-only" onclick="fxRenameModal()" title="Rename this basket everywhere">&#9998; Rename</button>
       <button class="fx-btn danger fx-edit-only" onclick="fxArchiveBasket()" title="Move to the Archive tab">&#128451; Archive</button>`;
     dh.parentNode.insertBefore(sp, dh);
@@ -4008,8 +4018,9 @@ renderAdmin = function(){
   };
   const tr=rows.map(r=>{
     let tds=`<td class="lbl" style="text-align:left">${escape(r.group||'')}</td><td class="lbl">${escape(r.basket||'')}</td><td>${escape(r.ced||'')}</td><td>${escape(r.supplier||'')}</td>`;
-    for(const mo of [prevM,curM]) for(const f of ['da_trade','cog','pos_report'])
-      tds+=`<td class="fx-adm" data-row="${r.id}" data-month="${mo}" data-field="${f}">${escape(cell(r.id,mo,f))||'<span style="color:#c8cdd8">—</span>'}</td>`;
+    [[prevM,'fx-gA'],[curM,'fx-gB']].forEach(([mo,g])=>['da_trade','cog','pos_report'].forEach((f,fi)=>{
+      tds+=`<td class="fx-adm ${g}${fi===0?' fx-gs':''}" data-row="${r.id}" data-month="${mo}" data-field="${f}">${escape(cell(r.id,mo,f))||'<span style="color:#c8cdd8">—</span>'}</td>`;
+    }));
     if(EDIT) tds+=`<td class="fx-actions"><button class="fx-icon" title="Edit row" onclick="fxAdminRowModal(${r.id})">&#9998;</button><button class="fx-icon" title="Delete row" onclick="fxAdminRowDelete(${r.id})">&#128465;</button></td>`;
     return `<tr>${tds}</tr>`;
   }).join('');
@@ -4019,8 +4030,8 @@ renderAdmin = function(){
       <div class="extra-section-title">Admin — trade &amp; reporting schedule</div>
       <table class="extra-table" style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr><th rowspan="2" style="text-align:left">Group</th><th rowspan="2">Basket</th><th rowspan="2">CED</th><th rowspan="2">Supplier</th>
-          <th colspan="3">${lbl(prevM)}</th><th colspan="3">${lbl(curM)}</th>${EDIT?'<th rowspan="2"></th>':''}</tr>
-        <tr><th>DA trade</th><th>COG</th><th>Pos report</th><th>DA trade</th><th>COG</th><th>Pos report</th></tr></thead>
+          <th colspan="3" class="fx-mhA">${lbl(prevM)}</th><th colspan="3" class="fx-mhB">${lbl(curM)} &middot; current</th>${EDIT?'<th rowspan="2"></th>':''}</tr>
+        <tr><th class="fx-gA fx-gs">DA trade</th><th class="fx-gA">COG</th><th class="fx-gA">Pos report</th><th class="fx-gB fx-gs">DA trade</th><th class="fx-gB">COG</th><th class="fx-gB">Pos report</th></tr></thead>
         <tbody>${tr || `<tr><td colspan="11" style="padding:14px;color:#6b7280">No admin rows yet.</td></tr>`}</tbody>
       </table>
     </div></div>`;
@@ -4067,39 +4078,27 @@ async function fxAdminRowDelete(id){
   await fxWrite(FLEX.sb.from('flex_admin_schedule').delete().eq('id',id),'Admin row deleted');
 }
 
-// ── CONTACTS (editable) ──────────────────────────────────────────
+// ── CONTACTS: original layout, edit buttons only ─────────────────
 renderContacts = function(){
   const el=document.getElementById('main-tab-contacts'); if(!el) return;
   if(el.dataset.rendered) return; el.dataset.rendered='1';
   const CT=DATA.contacts;
-  const cards=CT.suppliers.map((s,i)=>`<div class="extra-section" style="margin-bottom:12px">
-      <div class="extra-section-title" style="display:flex;justify-content:space-between;align-items:center">${escape(s.supplier)}
-        ${EDIT?`<span><button class="fx-icon" onclick="fxContactModal(${i})">&#9998;</button><button class="fx-icon" onclick="fxContactDelete(${i})">&#128465;</button></span>`:''}</div>
-      ${s.note?`<p style="font-size:12px;color:#4b5563;margin:6px 0">${escape(s.note)}</p>`:''}
-      ${(s.details||[]).map(d=>`<div style="font-size:12.5px;padding:3px 0;font-family:var(--font-mono)">${escape(d)}</div>`).join('')}
-    </div>`).join('');
-  const dl=CT.sefe_deadlines.map((d,i)=>`<tr>
-      <td class="fx-dl fx-editable-maybe" data-i="${i}" data-f="period">${escape(d.period||'')}</td>
-      <td class="fx-dl" data-i="${i}" data-f="last_trading">${escape(d.last_trading||'')}</td>
-      <td class="fx-dl" data-i="${i}" data-f="deadline">${escape(d.deadline||'')}</td>
-      ${EDIT?`<td class="fx-actions"><button class="fx-icon" onclick="fxDeadlineDelete(${i})">&#128465;</button></td>`:''}</tr>`).join('');
+  const cards=CT.suppliers.map((s,i)=>{
+    const details=(s.details||[]).map(d=>{
+      const icon=d.includes('@')?'&#9993;':'&#9742;';
+      return `<div class="contact-detail">${icon} ${escape(d)}</div>`;
+    }).join('');
+    const note=s.note?`<div class="contact-card-note">${escape(s.note)}</div>`:'';
+    const tools=EDIT?`<span style="float:right;white-space:nowrap"><button class="fx-icon" title="Edit" onclick="fxContactModal(${i})">&#9998;</button><button class="fx-icon" title="Delete" onclick="fxContactDelete(${i})">&#128465;</button></span>`:'';
+    return `<div class="contact-card"><div class="contact-card-name">${tools}${escape(s.supplier)}</div>${note}${details}</div>`;
+  }).join('');
   el.innerHTML=`<div class="extra-tab-inner">
-    ${EDIT?`<div class="fx-toolbar"><button class="fx-btn green" onclick="fxContactModal()">+ Add supplier</button><button class="fx-btn" onclick="fxDeadlineAdd()">+ Add SEFE deadline</button></div>`:''}
-    <div class="contacts-cols" style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px">
-      <div>${cards}</div>
-      <div class="extra-section"><div class="extra-section-title">SEFE trade deadlines</div>
-        <table class="extra-table" style="width:100%"><thead><tr><th>Period</th><th>Last trading</th><th>Deadline</th>${EDIT?'<th></th>':''}</tr></thead>
-        <tbody>${dl}</tbody></table></div>
-    </div></div>`;
-  if(EDIT) el.querySelectorAll('td.fx-dl').forEach(td=>{
-    td.classList.add('fx-editable');
-    td.onclick=()=>{ if(td.querySelector('input'))return;
-      const d=DATA.contacts.sefe_deadlines[+td.dataset.i];
-      fxCellInputText(td, d[td.dataset.f], async v=>{
-        await fxWrite(FLEX.sb.from('flex_sefe_deadlines').update({[td.dataset.f]:v}).eq('id', d.id), 'Saved');
-      });
-    };
-  });
+      ${EDIT?`<div class="fx-toolbar"><button class="fx-btn green" onclick="fxContactModal()">+ Add supplier</button></div>`:''}
+      <div class="extra-section">
+        <div class="extra-section-title">Trade Desk Contacts</div>
+        <div class="contacts-grid">${cards}</div>
+      </div>
+    </div>`;
 };
 function fxContactModal(i){
   const s=i!=null?DATA.contacts.suppliers[i]:null;
@@ -4124,14 +4123,6 @@ async function fxContactDelete(i){
   const s=DATA.contacts.suppliers[i];
   if(!confirm(`Delete contact card "${s.supplier}"?`)) return;
   await fxWrite(FLEX.sb.from('flex_contacts').delete().eq('id', s.id),'Contact deleted');
-}
-async function fxDeadlineAdd(){
-  await fxWrite(FLEX.sb.from('flex_sefe_deadlines').insert({period:'New period',last_trading:'',deadline:'4pm'}),'Deadline row added');
-}
-async function fxDeadlineDelete(i){
-  const d=DATA.contacts.sefe_deadlines[i];
-  if(!confirm('Delete this deadline row?')) return;
-  await fxWrite(FLEX.sb.from('flex_sefe_deadlines').delete().eq('id', d.id),'Deadline deleted');
 }
 
 // ── FIRM ORDERS (editable) ───────────────────────────────────────
@@ -4313,28 +4304,17 @@ async function fxTemplateBasket(){
   const b=currentBasket; if(!b) return;
   if(typeof ExcelJS==='undefined') return fxToast('Excel engine not loaded — reload the page', false);
   const wb=new ExcelJS.Workbook();
-  const NAVY='FF1F2D4D';
-  const style=ws=>{ ws.getRow(1).eachCell(c=>{ c.fill={type:'pattern',pattern:'solid',fgColor:{argb:NAVY}};
-    c.font={color:{argb:'FFFFFFFF'},bold:true,size:10}; }); };
-  const cp=(b.trades&&b.trades.length)?(b.trades[b.trades.length-1].counterparty||''):'';
-  const tws=wb.addWorksheet('Trades');
-  tws.columns=[{header:'Trade Reference',width:30},{header:'Date Completed',width:14},{header:'Commodity',width:11},
-    {header:'Counter Party',width:16},{header:'Trade Start Date',width:15},{header:'Trade End Date',width:15},
-    {header:'Volume',width:10},{header:'Traded Product',width:14},{header:'Strike Price',width:12},{header:'Deal Type',width:10}];
-  for(let i=0;i<15;i++) tws.addRow(['', '', b.commodity==='power'?'Power':'Gas', cp, '', '', '', 'Baseload', '', 'Buy']);
-  style(tws);
-  const bws=wb.addWorksheet('Baseload');
-  bws.columns=[{header:'Month',width:12},{header:`Baseload (${b.unit_vol})`,width:16}];
-  for(const m of b.months) bws.addRow([fmtMonth(m.month), m.baseload_vol]);
-  style(bws);
-  const rws=wb.addWorksheet('ReadMe');
-  rws.addRow([`${b.name} — import template`]); rws.addRow([]);
-  rws.addRow(['Trades sheet: one row per trade. Dates dd/mm/yyyy. Sells: negative volume or Deal Type Sell.']);
-  rws.addRow(['Baseload sheet: change the values, leave months as they are. Blank = no change.']);
-  rws.addRow(['Then use Import on the basket to load this file.']);
+  const ws=wb.addWorksheet('Baseload',{views:[{state:'frozen',ySplit:1}]});
+  ws.columns=[{header:'Month',width:12},{header:`Baseload (${b.unit_vol})`,width:18}];
+  ws.getRow(1).eachCell(c=>{ c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF1F2D4D'}};
+    c.font={color:{argb:'FFFFFFFF'},bold:true,size:10}; });
+  for(const m of b.months){
+    const r=ws.addRow([fmtMonth(m.month), m.baseload_vol]);
+    r.getCell(2).numFmt = b.commodity==='power' ? '0.0000' : '0.00';
+  }
   const buf=await wb.xlsx.writeBuffer();
-  fxDownloadBlob(buf, `${b.name} — Import Template.xlsx`);
-  fxToast('Template downloaded');
+  fxDownloadBlob(buf, `${b.name} — Baseload Template.xlsx`);
+  fxToast('Baseload template downloaded');
 }
 function fxImportBasket(){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.xls';
@@ -4346,62 +4326,37 @@ async function fxImportParse(file){
   let wb;
   try{ wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true}); }
   catch(e){ return fxToast('Could not read that file', false); }
-  const out={trades:[], baseload:[]};
-  if(wb.Sheets['Trades']){
-    const rows=XLSX.utils.sheet_to_json(wb.Sheets['Trades'],{header:1,raw:true,defval:null}).slice(1);
-    for(const r of rows){
-      if(!r || r.every(x=>x==null||x==='')) continue;
-      const vol=fxNum(r[6]); const strike=fxNum(r[8]);
-      const sd=r[4] instanceof Date?fxIsoMonth(r[4])&&r[4].toISOString().slice(0,10):fxParseDate(r[4]);
-      const ed=r[5] instanceof Date?r[5].toISOString().slice(0,10):fxParseDate(r[5]);
-      const dd=r[1] instanceof Date?r[1].toISOString().slice(0,10):fxParseDate(r[1]);
-      if(vol==null&&strike==null&&!sd) continue;
-      const deal=/sell/i.test(String(r[9]||''))||(vol!=null&&vol<0)?'Sell':'Buy';
-      out.trades.push({trade_ref:r[0]?String(r[0]):null, trade_date:dd, counterparty:r[3]?String(r[3]):null,
-        start_date:sd, end_date:ed, volume:vol==null?null:(deal==='Sell'?-Math.abs(vol):Math.abs(vol)),
-        product:r[7]?String(r[7]):'Baseload', strike, deal_type:deal});
-    }
+  const ws=wb.Sheets['Baseload']||wb.Sheets[wb.SheetNames[0]];
+  if(!ws) return fxToast('No sheet found', false);
+  const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null}).slice(1);
+  const known={}; b.months.forEach(m=>{ known[fmtMonth(m.month)]=m; known[m.month]=m; });
+  const changes=[];
+  for(const r of rows){
+    if(!r||r[0]==null) continue;
+    const key=r[0] instanceof Date? (r[0].getFullYear()+'-'+String(r[0].getMonth()+1).padStart(2,'0')+'-01') : String(r[0]).trim();
+    const m=known[key]||(fxParseDate(key)?known[fxParseDate(key).slice(0,8)+'01']:null);
+    const v=fxNum(r[1]);
+    if(m&&v!=null&&v!==m.baseload_vol) changes.push({month:m.month, from:m.baseload_vol, v});
   }
-  if(wb.Sheets['Baseload']){
-    const rows=XLSX.utils.sheet_to_json(wb.Sheets['Baseload'],{header:1,raw:true,defval:null}).slice(1);
-    const known={}; b.months.forEach(m=>{ known[fmtMonth(m.month)]=m; known[m.month]=m; });
-    for(const r of rows){
-      if(!r||r[0]==null) continue;
-      const key=r[0] instanceof Date? (r[0].getFullYear()+'-'+String(r[0].getMonth()+1).padStart(2,'0')+'-01') : String(r[0]).trim();
-      const m=known[key]||known[fxParseDate(key)?fxParseDate(key).slice(0,8)+'01':''];
-      const v=fxNum(r[1]);
-      if(m&&v!=null&&v!==m.baseload_vol) out.baseload.push({month:m.month, v});
-    }
-  }
-  if(!out.trades.length&&!out.baseload.length) return fxToast('Nothing importable found (need Trades and/or Baseload sheets)', false);
-  const badT=out.trades.filter(t=>!t.trade_date||!t.start_date||!t.end_date||t.volume==null||t.strike==null).length;
-  fxModal(`<h3>Import — ${escape(b.name)}</h3>
-  <p style="font-size:12.5px;color:#4b5563">${out.trades.length} trades${badT?` (<b style="color:#8b2015">${badT} incomplete — they will be skipped</b>)`:''} · ${out.baseload.length} baseload changes</p>
-  ${out.trades.length?`<div class="fx-preview"><table><thead><tr><th>Date</th><th>Ref</th><th>Period</th><th>Vol</th><th>Strike</th><th>Type</th></tr></thead><tbody>
-    ${out.trades.map(t=>`<tr><td>${t.trade_date||'??'}</td><td>${escape(t.trade_ref||'')}</td><td>${t.start_date||'?'} → ${t.end_date||'?'}</td><td>${t.volume!=null?t.volume:'??'}</td><td>${t.strike!=null?t.strike:'??'}</td><td>${t.deal_type}</td></tr>`).join('')}</tbody></table></div>`:''}
-  ${out.baseload.length?`<div class="fx-preview" style="margin-top:8px"><table><thead><tr><th>Month</th><th>New baseload</th></tr></thead><tbody>
-    ${out.baseload.map(r=>`<tr><td>${fmtMonth(r.month)}</td><td>${r.v}</td></tr>`).join('')}</tbody></table></div>`:''}
+  if(!changes.length) return fxToast('No baseload changes found in that file', false);
+  window._fxImport={baseload:changes};
+  fxModal(`<h3>Baseload import — ${escape(b.name)}</h3>
+  <p style="font-size:12.5px;color:#4b5563">${changes.length} months will be updated. Positions recalculate automatically.</p>
+  <div class="fx-preview"><table><thead><tr><th>Month</th><th>Current</th><th>New</th></tr></thead><tbody>
+    ${changes.map(r=>`<tr><td>${fmtMonth(r.month)}</td><td>${r.from!=null?r.from:'—'}</td><td><b>${r.v}</b></td></tr>`).join('')}</tbody></table></div>
   <div class="fx-err" id="fxMErr"></div>
   <div class="fx-modal-foot"><button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
-  <button class="fx-btn green" onclick="fxImportCommit()">Import all</button></div>`);
-  window._fxImport=out;
+  <button class="fx-btn green" onclick="fxImportCommit()">Update ${changes.length} months</button></div>`);
 }
 async function fxImportCommit(){
   const b=currentBasket, out=window._fxImport; if(!out) return;
-  const trades=out.trades.filter(t=>t.trade_date&&t.start_date&&t.end_date&&t.volume!=null&&t.strike!=null)
-    .map(t=>({...t, basket_id:b.id, updated_by:FLEX.user}));
-  if(trades.length){
-    const {error}=await FLEX.sb.from('flex_trades').insert(trades);
-    if(error) return fxMErr(error.message);
-  }
   for(const r of out.baseload){
     const {error}=await FLEX.sb.from('flex_basket_months').update({baseload_vol:r.v, updated_by:FLEX.user}).eq('basket_id',b.id).eq('month',r.month);
     if(error) return fxMErr(error.message);
   }
-  fxToast(`Imported ${trades.length} trades · ${out.baseload.length} baseload updates`);
+  fxToast(out.baseload.length+' baseloads updated');
   window._fxImport=null; fxCloseModal(); fxScheduleReload();
 }
-
 // ── CURVES: horizontal layout (replaces vertical tables) ─────────
 renderCurves = function(){
   const el=document.getElementById('main-tab-curves'); if(!el) return;
@@ -4409,9 +4364,9 @@ renderCurves = function(){
   const C=DATA.curves;
   const hrow=(label,rows,isM)=>{
     if(!rows||!rows.length) return '';
-    return `<div style="margin-top:12px"><div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#4b5563;margin-bottom:4px">${label}</div>
-    <div style="overflow-x:auto"><table class="fx-htable"><thead><tr><th style="text-align:left">Period</th>${rows.map(r=>`<th>${escape(isM?fmtMonth(r.month||r.period):r.period)}</th>`).join('')}</tr></thead>
-    <tbody><tr><td class="lbl">Mid</td>${rows.map(r=>`<td>${r.mid!=null?r.mid.toFixed(2):'—'}</td>`).join('')}</tr></tbody></table></div></div>`;
+    return `<div style="margin-top:14px;overflow-x:auto">
+    <table class="fx-htable"><thead><tr><th class="rowlbl">${label}</th>${rows.map(r=>`<th>${escape(isM?fmtMonth(r.month||r.period):r.period)}</th>`).join('')}</tr></thead>
+    <tbody><tr><td class="rowlbl">Mid</td>${rows.map(r=>`<td>${r.mid!=null?r.mid.toFixed(2):'—'}</td>`).join('')}</tr></tbody></table></div>`;
   };
   const section=(title,unit,d)=>`<div class="extra-section" style="margin-bottom:16px">
       <div class="extra-section-title">${title} (${unit})</div>
