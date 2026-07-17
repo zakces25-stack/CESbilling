@@ -158,7 +158,32 @@
 </head>
 <body>
   <!-- LOGIN -->
-  <div id="login">
+  <style>
+/* ── login extras: live grid, compliance chips, swaying trees ── */
+.login-body{flex-direction:column;gap:16px}
+#cbLive{display:none;align-items:center;gap:18px;max-width:600px;width:100%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(8px);border-radius:14px;padding:12px 18px;color:#eaf3ee;position:relative;z-index:2;flex-wrap:wrap}
+#cbLive .dot{width:9px;height:9px;border-radius:50%;background:#22c55e;box-shadow:0 0 10px rgba(34,197,94,.9);animation:cbPulse 2.2s ease-in-out infinite}
+@keyframes cbPulse{50%{opacity:.45}}
+#cbLive .cap{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;color:rgba(234,243,238,.75)}
+#cbLive .num{font-size:26px;font-weight:800;line-height:1}
+#cbLive .num small{font-size:11px;font-weight:600;color:rgba(234,243,238,.7);margin-left:4px}
+#cbBand{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;border-radius:999px;padding:4px 11px;color:#fff}
+#cbMix{display:flex;gap:14px;flex:1;min-width:220px;justify-content:flex-end;flex-wrap:wrap}
+#cbMix .f{min-width:52px}
+#cbMix .fl{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:rgba(234,243,238,.7);display:flex;justify-content:space-between;gap:6px}
+#cbMix .fb{height:4px;border-radius:999px;background:rgba(255,255,255,.16);margin-top:3px;overflow:hidden}
+#cbMix .fb i{display:block;height:100%;border-radius:999px;background:#9fbe1c}
+#cbChips{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;position:relative;z-index:2;max-width:640px}
+.cb-chip{display:inline-flex;align-items:center;gap:8px;background:rgba(6,38,28,.5);border:1px solid rgba(255,255,255,.14);border-radius:999px;padding:7px 14px;color:#dfeee7;font-size:11.5px;font-weight:600;backdrop-filter:blur(6px)}
+.cb-chip b{color:#aac91f;font-weight:800}
+.cb-trees{position:absolute;left:0;right:0;bottom:-6px;height:150px;pointer-events:none;z-index:1}
+.cb-trees svg{width:100%;height:100%;display:block}
+.cb-t{transform-box:fill-box;transform-origin:50% 100%;animation:cbSway var(--dur,5s) ease-in-out infinite alternate}
+@keyframes cbSway{from{transform:rotate(calc(var(--sway,1.4deg) * -1))}to{transform:rotate(var(--sway,1.4deg))}}
+@media (prefers-reduced-motion: reduce){.cb-t{animation:none}}
+@media (max-width:640px){#cbLive{display:none!important}.cb-trees{height:90px}}
+</style>
+<div id="login">
     <div class="topbar">
       <img class="tb-logo" src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES" onerror="this.style.display='none'">
       <span class="tb-title">CES Carbon Portal</span>
@@ -168,8 +193,15 @@
     <div class="login-bg" aria-hidden="true">
       <span class="glow" style="width:440px;height:440px;top:-90px;right:-70px;background:rgba(147,196,58,.28)"></span>
       <span class="glow" style="width:560px;height:560px;bottom:-160px;left:-120px;background:rgba(29,158,117,.40)"></span>
+      <div class="cb-trees" aria-hidden="true"><svg viewBox="0 0 1440 150" preserveAspectRatio="xMidYMax slice"><g class="cb-t" style="--dur:6.6s;animation-delay:-1.0s" transform="translate(-20,150)" fill="rgba(4,32,23,0.35)"><rect x="19.5" y="-32.4" width="6" height="32.4" rx="2"/><ellipse cx="22.5" cy="-44.64" rx="23.400000000000002" ry="30.24"/></g><g class="cb-t" style="--dur:4.9s;animation-delay:-0.1s" transform="translate(66,150)" fill="rgba(4,32,23,0.47)"><rect x="15.5" y="-17.4" width="5" height="17.4" rx="2"/><path d="M2.88,-16.240000000000002 Q18.0,-72.5 33.120000000000005,-16.240000000000002 Z"/></g><g class="cb-t" style="--dur:5.1s;animation-delay:-0.2s" transform="translate(120,150)" fill="rgba(4,32,23,0.36)"><path d="M0,0 L17.5,-57 L35,0 Z M4.2,-21.66 L17.5,-67.25999999999999 L30.8,-21.66 Z" /></g><g class="cb-t" style="--dur:6.3s;animation-delay:-0.3s" transform="translate(199,150)" fill="rgba(4,32,23,0.4)"><rect x="14.0" y="-24.75" width="6" height="24.75" rx="2"/><ellipse cx="17.0" cy="-34.1" rx="17.68" ry="23.099999999999998"/></g><g class="cb-t" style="--dur:6.6s;animation-delay:-1.4s" transform="translate(291,150)" fill="rgba(4,32,23,0.44)"><rect x="25.0" y="-26.7" width="5" height="26.7" rx="2"/><path d="M4.4,-24.92 Q27.5,-111.25 50.6,-24.92 Z"/></g><g class="cb-t" style="--dur:5.5s;animation-delay:-0.3s" transform="translate(357,150)" fill="rgba(4,32,23,0.45)"><path d="M0,0 L16.5,-54 L33,0 Z M3.96,-20.52 L16.5,-63.72 L29.04,-20.52 Z" /></g><g class="cb-t" style="--dur:5.5s;animation-delay:-1.4s" transform="translate(443,150)" fill="rgba(4,32,23,0.52)"><rect x="15.5" y="-26.55" width="6" height="26.55" rx="2"/><ellipse cx="18.5" cy="-36.58" rx="19.240000000000002" ry="24.779999999999998"/></g><g class="cb-t" style="--dur:5.5s;animation-delay:-0.5s" transform="translate(501,150)" fill="rgba(4,32,23,0.37)"><rect x="25.0" y="-26.7" width="5" height="26.7" rx="2"/><path d="M4.4,-24.92 Q27.5,-111.25 50.6,-24.92 Z"/></g><g class="cb-t" style="--dur:4.0s;animation-delay:-0.5s" transform="translate(557,150)" fill="rgba(4,32,23,0.52)"><path d="M0,0 L27.5,-88 L55,0 Z M6.6,-33.44 L27.5,-103.83999999999999 L48.4,-33.44 Z" /></g><g class="cb-t" style="--dur:4.7s;animation-delay:-1.5s" transform="translate(636,150)" fill="rgba(4,32,23,0.46)"><rect x="28.5" y="-45.45" width="6" height="45.45" rx="2"/><ellipse cx="31.5" cy="-62.62" rx="32.76" ry="42.42"/></g><g class="cb-t" style="--dur:6.2s;animation-delay:-1.7s" transform="translate(707,150)" fill="rgba(4,32,23,0.4)"><rect x="18.5" y="-20.099999999999998" width="5" height="20.099999999999998" rx="2"/><path d="M3.36,-18.76 Q21.0,-83.75 38.64,-18.76 Z"/></g><g class="cb-t" style="--dur:5.4s;animation-delay:-2.2s" transform="translate(795,150)" fill="rgba(4,32,23,0.53)"><path d="M0,0 L22.0,-71 L44,0 Z M5.279999999999999,-26.98 L22.0,-83.78 L38.72,-26.98 Z" /></g><g class="cb-t" style="--dur:6.7s;animation-delay:-0.3s" transform="translate(865,150)" fill="rgba(4,32,23,0.45)"><rect x="25.0" y="-40.5" width="6" height="40.5" rx="2"/><ellipse cx="28.0" cy="-55.8" rx="29.12" ry="37.8"/></g><g class="cb-t" style="--dur:6.6s;animation-delay:-1.1s" transform="translate(938,150)" fill="rgba(4,32,23,0.59)"><rect x="16.5" y="-18.3" width="5" height="18.3" rx="2"/><path d="M3.04,-17.080000000000002 Q19.0,-76.25 34.96,-17.080000000000002 Z"/></g><g class="cb-t" style="--dur:5.5s;animation-delay:-2.0s" transform="translate(994,150)" fill="rgba(4,32,23,0.55)"><path d="M0,0 L31.0,-100 L62,0 Z M7.4399999999999995,-38.0 L31.0,-118.0 L54.56,-38.0 Z" /></g><g class="cb-t" style="--dur:4.9s;animation-delay:-1.2s" transform="translate(1067,150)" fill="rgba(4,32,23,0.55)"><rect x="27.0" y="-43.2" width="6" height="43.2" rx="2"/><ellipse cx="30.0" cy="-59.519999999999996" rx="31.200000000000003" ry="40.32"/></g><g class="cb-t" style="--dur:4.1s;animation-delay:-0.7s" transform="translate(1123,150)" fill="rgba(4,32,23,0.52)"><rect x="30.0" y="-31.5" width="5" height="31.5" rx="2"/><path d="M5.2,-29.400000000000002 Q32.5,-131.25 59.800000000000004,-29.400000000000002 Z"/></g><g class="cb-t" style="--dur:6.0s;animation-delay:-0.8s" transform="translate(1179,150)" fill="rgba(4,32,23,0.49)"><path d="M0,0 L17.0,-55 L34,0 Z M4.08,-20.9 L17.0,-64.89999999999999 L29.92,-20.9 Z" /></g><g class="cb-t" style="--dur:5.1s;animation-delay:-1.8s" transform="translate(1274,150)" fill="rgba(4,32,23,0.57)"><rect x="29.0" y="-46.800000000000004" width="6" height="46.800000000000004" rx="2"/><ellipse cx="32.0" cy="-64.48" rx="33.28" ry="43.68"/></g><g class="cb-t" style="--dur:6.6s;animation-delay:-0.9s" transform="translate(1348,150)" fill="rgba(4,32,23,0.5)"><rect x="14.0" y="-15.899999999999999" width="5" height="15.899999999999999" rx="2"/><path d="M2.64,-14.840000000000002 Q16.5,-66.25 30.360000000000003,-14.840000000000002 Z"/></g><g class="cb-t" style="--dur:4.5s;animation-delay:-0.7s" transform="translate(1431,150)" fill="rgba(4,32,23,0.53)"><path d="M0,0 L17.0,-55 L34,0 Z M4.08,-20.9 L17.0,-64.89999999999999 L29.92,-20.9 Z" /></g></svg></div>
     </div>
     <div class="login-body">
+      <div id="cbLive">
+        <span class="dot"></span>
+        <div><div class="cap">UK grid now</div><div class="num" id="cbNum">–<small>gCO&#8322;/kWh</small></div></div>
+        <span id="cbBand" style="background:#6b7280">loading</span>
+        <div id="cbMix"></div>
+      </div>
       <div class="login-card">
         <div class="brand-sub">Carbon · Net Zero &amp; SBTi Portal</div>
         <h1>Sign in</h1><p class="sub">Your Scope 1, 2 &amp; 3 carbon report.</p>
@@ -179,6 +211,11 @@
           <button type="submit" id="loginBtn">Sign in</button>
           <div class="login-err" id="loginErr">Incorrect email or password.</div>
         </form>
+      </div>
+      <div id="cbChips">
+        <span class="cb-chip">&#9200; ESOS Phase 4 &middot; <b id="cbEsos">–</b> days to the 5 Dec 2027 compliance deadline</span>
+        <span class="cb-chip">&#128202; SECR &middot; due with your annual accounts filing</span>
+        <span class="cb-chip">&#127919; SBTi &middot; validation typically 6&ndash;12 months &mdash; start early</span>
       </div>
     </div>
   </div>
@@ -659,6 +696,43 @@ document.getElementById('askSend').addEventListener('click',()=>askSubmit(docume
 document.getElementById('askInput').addEventListener('keydown',e=>{if(e.key==='Enter')askSubmit(document.getElementById('askInput').value);});
 
 function boot(){document.getElementById('yearSel').value=YEAR;renderOverview();renderScopesX();renderScopes();renderFactors();loadGrid();}
+</script>
+<script>
+/* Login extras: live UK grid intensity + wind-driven tree sway + ESOS countdown */
+(function(){
+  var API='https://api.carbonintensity.org.uk';
+  var BANDS={'very low':'#1d9e75','low':'#7fa017','moderate':'#e08a1e','high':'#c2453b','very high':'#8b2015'};
+  function esos(){
+    var d=Math.ceil((new Date('2027-12-05T23:59:59Z')-new Date())/864e5);
+    var el=document.getElementById('cbEsos'); if(el) el.textContent=d.toLocaleString('en-GB');
+  }
+  function refresh(){
+    var login=document.getElementById('login');
+    if(!login || login.style.display==='none') return;
+    fetch(API+'/intensity').then(function(r){return r.json()}).then(function(j){
+      var d=j.data&&j.data[0]&&j.data[0].intensity; if(!d) return;
+      var v=d.actual!=null?d.actual:d.forecast;
+      document.getElementById('cbNum').innerHTML=v+'<small>gCO&#8322;/kWh</small>';
+      var b=document.getElementById('cbBand');
+      b.textContent=d.index; b.style.background=BANDS[d.index]||'#6b7280';
+      document.getElementById('cbLive').style.display='flex';
+    }).catch(function(){});
+    fetch(API+'/generation').then(function(r){return r.json()}).then(function(j){
+      var mix=(j.data&&j.data.generationmix)||[];
+      var keep={wind:1,solar:1,nuclear:1,gas:1,imports:1,hydro:1};
+      var top=mix.filter(function(m){return keep[m.fuel]}).sort(function(a,b){return b.perc-a.perc}).slice(0,5);
+      document.getElementById('cbMix').innerHTML=top.map(function(m){
+        return '<div class="f"><div class="fl"><span>'+m.fuel+'</span><span>'+Math.round(m.perc)+'%</span></div><div class="fb"><i style="width:'+Math.min(100,m.perc*1.6)+'%"></i></div></div>';
+      }).join('');
+      var wind=(mix.find(function(m){return m.fuel==='wind'})||{}).perc||0;
+      var amp=Math.min(4, 0.8 + wind*0.055);
+      document.querySelectorAll('.cb-t').forEach(function(t){t.style.setProperty('--sway', amp.toFixed(2)+'deg')});
+    }).catch(function(){});
+  }
+  esos(); refresh();
+  setInterval(refresh, 5*60*1000);
+  setInterval(esos, 6*60*60*1000);
+})();
 </script>
 </body>
 </html>
