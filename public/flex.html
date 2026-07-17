@@ -1496,6 +1496,12 @@ button{transition:all .14s ease}
 .fl-spin{width:34px;height:34px;border-radius:50%;border:3.5px solid #e3e7ee;border-top-color:#9fbe1c;margin:4px auto 0;animation:flspin .8s linear infinite}
 @keyframes flspin{to{transform:rotate(360deg)}}
 
+/* draggable session chip */
+.fx-grip{cursor:grab;user-select:none;opacity:.55;font-size:14px;line-height:1;padding-right:2px;letter-spacing:-1px}
+#flexChip:hover .fx-grip{opacity:.9}
+#flexChip.fx-dragging{cursor:grabbing;opacity:.92;box-shadow:0 14px 34px rgba(3,8,26,.5)}
+#flexChip.fx-dragging *{pointer-events:none}
+
 /* summary / totals row pop */
 #summary-row td{background:#f4f7ea!important;font-weight:700}
 </style>
@@ -1602,6 +1608,7 @@ button{transition:all .14s ease}
   </div>
 </div>
 <div id="flexChip">
+  <span class="fx-grip" title="Drag to move this bar">&#10495;</span>
   <span id="flexChipUser"></span>
   <button id="fxLogBtn" onclick="fxToggleDrawer()" title="Live edit log">&#128203; Log<span class="bdg"></span></button>
   <button onclick="flexReload()" title="Re-fetch latest data">Refresh</button>
@@ -3917,6 +3924,54 @@ function _flDesk(){
   if (clock) clock.textContent = 'UK ' + get('hour') + ':' + get('minute') + ':' + get('second');
 }
 setInterval(_flDesk, 1000); _flDesk();
+function fxInitChipDrag(){
+  const chip = document.getElementById('flexChip');
+  if (!chip) return;
+  const KEY = 'ces-flex-chip-pos';
+  function clamp(l, t){
+    const r = chip.getBoundingClientRect();
+    return [Math.min(Math.max(6, l), innerWidth - r.width - 6),
+            Math.min(Math.max(6, t), innerHeight - r.height - 6)];
+  }
+  function apply(l, t){
+    const [cl, ct] = clamp(l, t);
+    chip.style.left = cl + 'px'; chip.style.top = ct + 'px';
+    chip.style.right = 'auto'; chip.style.bottom = 'auto';
+  }
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (saved && typeof saved.l === 'number') setTimeout(() => apply(saved.l, saved.t), 60);
+  } catch(e){}
+  let sx, sy, ox, oy, moved = false, active = false;
+  chip.addEventListener('pointerdown', e => {
+    if (e.target.tagName === 'BUTTON' && !e.target.classList.contains('fx-grip')) return;
+    active = true; moved = false;
+    const r = chip.getBoundingClientRect();
+    sx = e.clientX; sy = e.clientY; ox = r.left; oy = r.top;
+    chip.setPointerCapture(e.pointerId);
+  });
+  chip.addEventListener('pointermove', e => {
+    if (!active) return;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (!moved && Math.hypot(dx, dy) < 5) return;
+    if (!moved){ moved = true; chip.classList.add('fx-dragging'); }
+    apply(ox + dx, oy + dy);
+  });
+  chip.addEventListener('pointerup', e => {
+    if (!active) return;
+    active = false;
+    if (moved){
+      chip.classList.remove('fx-dragging');
+      const r = chip.getBoundingClientRect();
+      try { localStorage.setItem(KEY, JSON.stringify({ l: r.left, t: r.top })); } catch(e2){}
+    }
+  });
+  addEventListener('resize', () => {
+    const r = chip.getBoundingClientRect();
+    if (chip.style.left) apply(r.left, r.top);
+  });
+}
+fxInitChipDrag();
 (async () => {
   const { data: { session } } = await FLEEX_SAFE();
   if (session) { fxShowLoading('Loading the live FDB…'); flexStart(); }
