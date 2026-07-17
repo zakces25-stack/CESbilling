@@ -1510,7 +1510,8 @@ button{transition:all .14s ease}
 #flexLogin .fl-sub{color:#6b7280;font-size:12.5px}
 #flexLogin label{display:block;font-size:12px;font-weight:700;color:#374151;margin:12px 0 5px;text-transform:uppercase;letter-spacing:.4px}
 #flexLogin input{width:100%;box-sizing:border-box;border:1.5px solid #d8dbe4;border-radius:9px;padding:11px 12px;font-size:14px;font-family:inherit}
-#flexLogin input:focus{outline:none;border-color:#2f3d7e}
+#flexLogin input{transition:border-color .16s ease,box-shadow .16s ease}
+#flexLogin input:focus{outline:none;border-color:#9fbe1c;box-shadow:0 0 0 3px rgba(159,190,28,.18)}
 #flexBtn{width:100%;background:#2f3d7e;color:#fff;border:0;border-radius:9px;padding:12px;font-weight:700;font-size:14px;cursor:pointer;margin-top:16px;font-family:inherit}
 #flexBtn:hover{background:#232e63} #flexBtn:disabled{opacity:.55;cursor:wait}
 #flexErr{display:none;background:rgba(139,32,21,.08);color:#8b2015;border:1px solid rgba(139,32,21,.25);padding:9px 11px;border-radius:8px;font-size:12.5px;margin-top:12px}
@@ -1518,8 +1519,43 @@ button{transition:all .14s ease}
 #flexChip button{background:rgba(255,255,255,.14);border:0;color:#fff;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
 #flexChip button:hover{background:rgba(255,255,255,.28)}
 .fl-turnstile{margin-top:16px;min-height:66px}
+#flexBtn{transition:background .15s ease,transform .1s ease,box-shadow .15s ease}
+#flexBtn:hover{box-shadow:0 6px 18px rgba(47,61,126,.45)}
+#flexBtn:active{transform:translateY(1px) scale(.995)}
+.fl-shake{animation:flshake .45s ease}
+@keyframes flshake{10%,90%{transform:translateX(-2px)}20%,80%{transform:translateX(4px)}30%,50%,70%{transform:translateX(-7px)}40%,60%{transform:translateX(7px)}}
+.fl-bg{position:absolute;inset:0;overflow:hidden;z-index:0;pointer-events:none}
+.fl-bg svg{width:100%;height:100%;display:block}
+.fl-curve{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.fl-flow{stroke-dasharray:5 11;animation:flflow 30s linear infinite}
+@keyframes flflow{to{stroke-dashoffset:-1600}}
+#flexLogin .fl-card{position:relative;z-index:2}
+.fl-top{position:absolute;top:20px;right:26px;display:flex;gap:12px;align-items:center;z-index:2}
+.fl-clock{font-family:'IBM Plex Mono',ui-monospace,monospace;color:#cdd6ea;font-size:13px;letter-spacing:.6px}
+.fl-desk{display:inline-flex;gap:8px;align-items:center;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.13);border-radius:999px;padding:5px 13px;color:#cdd6ea;font-size:11.5px;font-weight:600}
+.fl-desk .d{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 9px rgba(34,197,94,.85)}
 </style>
 <div id="flexLogin">
+  <div class="fl-bg" aria-hidden="true">
+    <svg viewBox="0 0 1440 760" preserveAspectRatio="xMidYMid slice">
+      <g stroke="rgba(255,255,255,.045)" stroke-width="1">
+        <line x1="0" y1="120" x2="1440" y2="120"/><line x1="0" y1="240" x2="1440" y2="240"/>
+        <line x1="0" y1="360" x2="1440" y2="360"/><line x1="0" y1="480" x2="1440" y2="480"/>
+        <line x1="0" y1="600" x2="1440" y2="600"/>
+        <line x1="200" y1="0" x2="200" y2="760"/><line x1="440" y1="0" x2="440" y2="760"/>
+        <line x1="680" y1="0" x2="680" y2="760"/><line x1="920" y1="0" x2="920" y2="760"/>
+        <line x1="1160" y1="0" x2="1160" y2="760"/><line x1="1400" y1="0" x2="1400" y2="760"/>
+      </g>
+      <path class="fl-curve" stroke="#9fbe1c" opacity=".15" d="M-40,330 L60,318 130,342 210,300 280,314 360,278 430,292 510,256 580,270 660,240 730,254 810,222 880,238 960,208 1030,224 1110,196 1180,212 1260,186 1330,200 1480,178"/>
+      <path class="fl-curve fl-flow" stroke="#9fbe1c" opacity=".38" d="M-40,330 L60,318 130,342 210,300 280,314 360,278 430,292 510,256 580,270 660,240 730,254 810,222 880,238 960,208 1030,224 1110,196 1180,212 1260,186 1330,200 1480,178"/>
+      <path class="fl-curve" stroke="#4aa3c9" opacity=".13" d="M-40,470 L70,482 150,452 230,468 310,432 390,450 470,414 550,430 630,398 710,416 790,382 870,400 950,368 1030,386 1110,354 1190,372 1270,342 1350,358 1480,332"/>
+      <path class="fl-curve fl-flow" stroke="#4aa3c9" opacity=".3" style="animation-duration:38s" d="M-40,470 L70,482 150,452 230,468 310,432 390,450 470,414 550,430 630,398 710,416 790,382 870,400 950,368 1030,386 1110,354 1190,372 1270,342 1350,358 1480,332"/>
+    </svg>
+  </div>
+  <div class="fl-top">
+    <div class="fl-clock" id="flClock">UK --:--:--</div>
+    <div class="fl-desk"><span class="d" id="flDeskDot"></span><span id="flDeskTxt">SEFE desk</span></div>
+  </div>
   <div class="fl-card">
     <div class="fl-logo"><img src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES" onerror="this.style.display='none'">
       <div><h1>CES Flex Portal</h1><div class="fl-sub">Live FDB &middot; flex team sign in</div></div>
@@ -1536,6 +1572,7 @@ button{transition:all .14s ease}
     <div id="flexLoading" style="display:none;text-align:center;padding:10px 0 4px">
       <div class="fl-spin"></div>
       <div id="flexLoadTxt" style="font-size:13px;color:#374151;font-weight:600;margin-top:12px">Signing you in&hellip;</div>
+      <div id="flexLoadSub" style="font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:10.5px;color:#6b7280;margin-top:7px;min-height:14px"></div>
     </div>
     <div id="flexNoAccess" style="display:none;font-size:13.5px;color:#374151;line-height:1.55">
       You're signed in, but this account doesn't have Flex team access.<br><br>
@@ -1667,6 +1704,7 @@ async function _fetchAll(table, cols, orderCols) {
     out.push(...data);
     if (data.length < 1000) break;
   }
+  if (window._fxTick) window._fxTick(table, out.length);
   return out;
 }
 async function loadFlexData() {
@@ -3804,6 +3842,8 @@ async function flexLogin() {
     btn.disabled = false; btn.textContent = 'Sign in';
     if (window.turnstile && turnstile.reset) { turnstile.reset(); window._flexTsToken = null; }
     err.textContent = 'Sign-in failed — check your details and try again.'; err.style.display = 'block';
+    const card = document.querySelector('#flexLogin .fl-card');
+    if (card){ card.classList.remove('fl-shake'); void card.offsetWidth; card.classList.add('fl-shake'); }
     return;
   }
   fxShowLoading('Signed in — loading the live FDB…');
@@ -3840,7 +3880,36 @@ function fxShowLoading(msg){
   const f=document.getElementById('flexLoginForm'), l=document.getElementById('flexLoading');
   if(f) f.style.display='none';
   if(l){ l.style.display='block'; document.getElementById('flexLoadTxt').textContent=msg; }
+  window._fxParts = [];
 }
+const _fxTickNames = { flex_baskets:'baskets', flex_positions:'positions', flex_trades:'trades', flex_targets:'targets' };
+window._fxTick = (t, n) => {
+  if (!(t in _fxTickNames)) return;
+  const el = document.getElementById('flexLoadSub');
+  if (!el || document.getElementById('flexLoading').style.display === 'none') return;
+  (window._fxParts = window._fxParts || []).push(n.toLocaleString('en-GB') + ' ' + _fxTickNames[t]);
+  el.textContent = window._fxParts.join(' · ');
+};
+function _flDesk(){
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone:'Europe/London', weekday:'short',
+    hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false }).formatToParts(now);
+  const get = k => (parts.find(p => p.type === k) || {}).value || '';
+  const clock = document.getElementById('flClock');
+  if (clock) clock.textContent = 'UK ' + get('hour') + ':' + get('minute') + ':' + get('second');
+  const dow = get('weekday'), hm = +(get('hour') + get('minute'));
+  const dot = document.getElementById('flDeskDot'), txt = document.getElementById('flDeskTxt');
+  if (!dot || !txt) return;
+  const weekend = dow === 'Sat' || dow === 'Sun';
+  if (!weekend && hm >= 800 && hm < 1700){
+    txt.textContent = 'SEFE desk open · trades by 17:00';
+    dot.style.background = '#22c55e'; dot.style.boxShadow = '0 0 9px rgba(34,197,94,.85)';
+  } else {
+    txt.textContent = weekend ? 'SEFE desk closed · reopens Monday 08:00' : (hm < 800 ? 'SEFE desk opens 08:00' : 'SEFE desk closed · reopens 08:00');
+    dot.style.background = '#94a3b8'; dot.style.boxShadow = 'none';
+  }
+}
+setInterval(_flDesk, 1000); _flDesk();
 (async () => {
   const { data: { session } } = await FLEEX_SAFE();
   if (session) { fxShowLoading('Loading the live FDB…'); flexStart(); }
