@@ -1488,6 +1488,14 @@ button{transition:all .14s ease}
 .close-btn{width:auto!important;height:auto!important;background:#fff!important;border:1.5px solid #d3d8e3!important;border-radius:999px!important;padding:7px 16px!important;font-size:12.5px!important;font-weight:700!important;color:#374151!important;display:inline-flex;align-items:center;line-height:1!important;white-space:nowrap;box-shadow:0 1px 3px rgba(22,35,63,.08)}
 .close-btn:hover{border-color:#c2453b!important;color:#c2453b!important;background:#fdf3f2!important}
 
+/* login extras + overview spacing */
+.overview-header{margin-top:18px}
+#fxOvTools{margin:14px 0 4px}
+.fl-back{display:block;text-align:center;margin-top:18px;font-size:12px;color:#6b7280;text-decoration:none;font-weight:700}
+.fl-back:hover{color:#2f3d7e}
+.fl-spin{width:34px;height:34px;border-radius:50%;border:3.5px solid #e3e7ee;border-top-color:#9fbe1c;margin:4px auto 0;animation:flspin .8s linear infinite}
+@keyframes flspin{to{transform:rotate(360deg)}}
+
 /* summary / totals row pop */
 #summary-row td{background:#f4f7ea!important;font-weight:700}
 </style>
@@ -1525,12 +1533,17 @@ button{transition:all .14s ease}
       <button id="flexBtn" onclick="flexLogin()">Sign in</button>
       <div id="flexErr"></div>
     </div>
+    <div id="flexLoading" style="display:none;text-align:center;padding:10px 0 4px">
+      <div class="fl-spin"></div>
+      <div id="flexLoadTxt" style="font-size:13px;color:#374151;font-weight:600;margin-top:12px">Signing you in&hellip;</div>
+    </div>
     <div id="flexNoAccess" style="display:none;font-size:13.5px;color:#374151;line-height:1.55">
       You're signed in, but this account doesn't have Flex team access.<br><br>
       Ask an admin to enable the <b>flex</b> role on your portal profile, then
       <a href="#" onclick="location.reload();return false">reload</a>.
       <br><br><a href="#" onclick="FLEX.sb.auth.signOut().then(()=>location.reload());return false">Sign out</a>
     </div>
+    <a class="fl-back" href="/">&larr; Back to the CES billing portal</a>
   </div>
 </div>
 <div id="flexChip">
@@ -1547,7 +1560,6 @@ button{transition:all .14s ease}
 <!-- SIDEBAR -->
 <div id="sidebar">
   <div id="sidebar-header">
-    <a id="fxHome" href="/" title="Back to the CES billing portal home page"><span class="hico">&#8962;</span> Home</a>
     <div id="sidebar-logo">
       <img class="logo-mark" src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES">
       <div class="logo-text">
@@ -3168,7 +3180,7 @@ function fxDecorateHeader(){
     dh.parentNode.insertBefore(sp, dh);
   }
   // overview toolbar (new basket)
-  const ov = document.getElementById('overview');
+  const ov = document.getElementById('main-tab-portfolio');
   if (ov && !document.getElementById('fxOvTools')){
     const bar=document.createElement('div'); bar.id='fxOvTools'; bar.className='fx-toolbar';
     bar.style.cssText='padding:10px 0 0 0';
@@ -3788,9 +3800,13 @@ async function flexLogin() {
   if (!tok) { err.textContent = 'Please complete the human-verification check.'; err.style.display = 'block'; return; }
   const btn = document.getElementById('flexBtn'); btn.disabled = true; btn.textContent = 'Signing in…';
   const { error } = await FLEX.sb.auth.signInWithPassword({ email: u, password: p, options: { captchaToken: tok } });
-  btn.disabled = false; btn.textContent = 'Sign in';
-  if (window.turnstile && turnstile.reset) { turnstile.reset(); window._flexTsToken = null; }
-  if (error) { err.textContent = 'Sign-in failed — check your details and try again.'; err.style.display = 'block'; return; }
+  if (error) {
+    btn.disabled = false; btn.textContent = 'Sign in';
+    if (window.turnstile && turnstile.reset) { turnstile.reset(); window._flexTsToken = null; }
+    err.textContent = 'Sign-in failed — check your details and try again.'; err.style.display = 'block';
+    return;
+  }
+  fxShowLoading('Signed in — loading the live FDB…');
   flexStart();
 }
 document.addEventListener('keydown', e => {
@@ -3803,9 +3819,11 @@ async function flexStart() {
   try { await loadFlexData(); }
   catch (e) { console.error(e);
     document.getElementById('flexLoginForm').style.display = 'none';
+    document.getElementById('flexLoading').style.display = 'none';
     document.getElementById('flexNoAccess').style.display = 'block'; return; }
   if (!BASKETS || BASKETS.length === 0) {
     document.getElementById('flexLoginForm').style.display = 'none';
+    document.getElementById('flexLoading').style.display = 'none';
     document.getElementById('flexNoAccess').style.display = 'block'; return; }
   document.getElementById('flexLogin').style.display = 'none';
   const { data: { session } } = await FLEX.sb.auth.getSession();
@@ -3818,9 +3836,14 @@ async function flexStart() {
   renderSidebar(); renderOverview(); fxDecorateHeader();
   fxStartRealtime(); fxStartCursors();
 }
+function fxShowLoading(msg){
+  const f=document.getElementById('flexLoginForm'), l=document.getElementById('flexLoading');
+  if(f) f.style.display='none';
+  if(l){ l.style.display='block'; document.getElementById('flexLoadTxt').textContent=msg; }
+}
 (async () => {
   const { data: { session } } = await FLEEX_SAFE();
-  if (session) flexStart();
+  if (session) { fxShowLoading('Loading the live FDB…'); flexStart(); }
 })();
 async function FLEEX_SAFE(){ try { return await FLEX.sb.auth.getSession(); } catch(e){ return {data:{session:null}}; } }
 </script>

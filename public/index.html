@@ -2535,9 +2535,9 @@
         window._turnstileToken = null; _setLoginEnabled(false);
         return;
       }
-      btn.textContent = 'Sign in';
       const { data, error } = resp;
       if (error) {
+        btn.textContent = 'Sign in';
         const m = (error.message || '').toLowerCase();
         if (m.includes('captcha'))                   err.textContent = 'Human-verification expired - complete the check above and try again.';
         else if (m.includes('email not confirmed'))  err.textContent = 'This account is not confirmed yet. Please contact CES.';
@@ -2548,6 +2548,7 @@
         window._turnstileToken = null; _setLoginEnabled(false);
         return;
       }
+      btn.textContent = 'Loading your portal…';
       await loadProfileAndRoute(data.user);
     }
     async function loadProfileAndRoute(user) {
