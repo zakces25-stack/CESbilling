@@ -3365,7 +3365,7 @@ renderPositionsTable = function(rows, basket){
     const mktCell = tr.cells[8];
     if (mktCell && m.mkt_source){
       mktCell.title = 'Live from market curves — ' + m.mkt_source + (m.mkt_source==='stated'?' (no curve period covers this month yet)':' price');
-      if (m.mkt_source !== 'month') mktCell.innerHTML += `<sup style="font-size:8px;color:#8a92a6;margin-left:2px">${m.mkt_source==='quarter'?'Q':m.mkt_source==='season'?'S':'·'}</sup>`;
+      if (m.mkt_source !== 'month') mktCell.innerHTML += `<sup style="font-size:8px;color:#8a92a6;margin-left:2px">${m.mkt_source==='season'?'S':'·'}</sup>`;
     }
     if (EDIT) fxMakeCellEditable(tr.cells[2], m.baseload_vol, v=>fxUpdMonth(basket, m, 'baseload_vol', v));
   });
@@ -3378,7 +3378,7 @@ renderPositions = function(basket){
   const bar=document.createElement('div'); bar.className='fx-toolbar'; bar.style.marginTop='10px';
   bar.innerHTML=`<button class="fx-btn" onclick="fxExtendModal()">&#8628; Extend months</button>
     <button class="fx-btn" onclick="fxBulkBaseloadModal()">&#8687; Bulk baseload update</button>
-    <span style="font-size:11px;color:#6b7280">Mkt price is always live from Market Curves (month &rarr; quarter &rarr; season) and cannot be edited here</span>`;
+    <span style="font-size:11px;color:#6b7280">Mkt price is always live from Market Curves (month &rarr; season) and cannot be edited here</span>`;
   el.appendChild(bar);
 };
 
