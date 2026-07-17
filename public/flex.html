@@ -1893,7 +1893,7 @@ function futureMths(basket) {
 }
 
 function calcSecuredPct(basket) {
-  const fm = futureMths(basket);
+  const fm = basket.months;  // entire position: historic + current + future
   const totalBase = fm.reduce((s,m) => s + (m.baseload_vol_total || 0), 0);
   const totalSec  = fm.reduce((s,m) => s + (m.secured_vol_total || 0), 0);
   if (totalBase === 0) return 0;
@@ -2377,7 +2377,7 @@ function renderPositionsTable(rows, basket) {
     const uaCell = `<td class="td-center">${ua != null ? ua : '—'}</td>`;
 
     const nowM = new Date().toISOString().slice(0,8)+'01';
-    const rowCls = m.month === nowM ? 'fx-row-current' : ((m.secured_pct||0) >= 0.9999 ? 'fx-row-hedged' : (isFuture ? 'future-month' : ''));
+    const rowCls = m.month === nowM ? 'fx-row-current' : ((m.secured_pct||0) >= 0.995 ? 'fx-row-hedged' : (isFuture ? 'future-month' : ''));
     return `<tr${rowCls ? ` class="${rowCls}"` : ''}${alertTitle} style="${m.month === nowM ? '' : alertStyle}">
       <td>${fmtMonth(m.month)}</td>
       <td>${escape(m.season||'')}</td>
@@ -3295,6 +3295,15 @@ function fxDecorateHeader(){
       <button class="fx-btn danger fx-edit-only" onclick="fxArchiveBasket()" title="Move to the Archive tab">&#128451; Archive</button>`;
     dh.parentNode.insertBefore(sp, dh);
   }
+  // global edit toggle on the main tab bar (usable from Curves/Admin/Contacts/etc.)
+  const bar0 = document.querySelector('.main-tab-bar');
+  if (bar0 && !document.getElementById('fxBarEdit')){
+    const s=document.createElement('span'); s.id='fxBarEdit';
+    s.style.cssText='margin-left:auto;display:inline-flex;align-items:center';
+    s.innerHTML=`<button class="fx-btn fx-edit-toggle${EDIT?' on':''}" onclick="fxSetEdit(!EDIT)">&#9998; ${EDIT?'Editing on':'Edit'}</button>`;
+    bar0.style.display='flex'; bar0.style.alignItems='center';
+    bar0.appendChild(s);
+  }
   // overview toolbar (new basket)
   const ov = document.getElementById('main-tab-portfolio');
   if (ov && !document.getElementById('fxOvTools')){
@@ -4021,23 +4030,22 @@ renderAdmin = function(){
     [[prevM,'fx-gA'],[curM,'fx-gB']].forEach(([mo,g])=>['da_trade','cog','pos_report'].forEach((f,fi)=>{
       tds+=`<td class="fx-adm ${g}${fi===0?' fx-gs':''}" data-row="${r.id}" data-month="${mo}" data-field="${f}">${escape(cell(r.id,mo,f))||'<span style="color:#c8cdd8">—</span>'}</td>`;
     }));
-    if(EDIT) tds+=`<td class="fx-actions"><button class="fx-icon" title="Edit row" onclick="fxAdminRowModal(${r.id})">&#9998;</button><button class="fx-icon" title="Delete row" onclick="fxAdminRowDelete(${r.id})">&#128465;</button></td>`;
+    tds+=`<td class="fx-actions"><button class="fx-icon" title="Edit row" onclick="fxAdminRowModal(${r.id})">&#9998;</button><button class="fx-icon" title="Delete row" onclick="fxAdminRowDelete(${r.id})">&#128465;</button></td>`;
     return `<tr>${tds}</tr>`;
   }).join('');
   el.innerHTML=`<div class="extra-tab-inner">
-    ${EDIT?`<div class="fx-toolbar"><button class="fx-btn green" onclick="fxAdminRowModal()">+ Add row</button><span style="font-size:11px;color:#6b7280">Click any month cell to type an exact date (e.g. 09/07/26)</span></div>`:''}
+    <div class="fx-toolbar"><button class="fx-btn green" onclick="fxAdminRowModal()">+ Add row</button><span style="font-size:11px;color:#6b7280">Click any month cell to type an exact date (e.g. 09/07/26) — every change is recorded in the edit log</span></div>
     <div class="extra-section" style="overflow-x:auto">
       <div class="extra-section-title">Admin — trade &amp; reporting schedule</div>
       <table class="extra-table" style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr><th rowspan="2" style="text-align:left">Group</th><th rowspan="2">Basket</th><th rowspan="2">CED</th><th rowspan="2">Supplier</th>
-          <th colspan="3" class="fx-mhA">${lbl(prevM)}</th><th colspan="3" class="fx-mhB">${lbl(curM)} &middot; current</th>${EDIT?'<th rowspan="2"></th>':''}</tr>
+          <th colspan="3" class="fx-mhA">${lbl(prevM)}</th><th colspan="3" class="fx-mhB">${lbl(curM)} &middot; current</th><th rowspan="2"></th></tr>
         <tr><th class="fx-gA fx-gs">DA trade</th><th class="fx-gA">COG</th><th class="fx-gA">Pos report</th><th class="fx-gB fx-gs">DA trade</th><th class="fx-gB">COG</th><th class="fx-gB">Pos report</th></tr></thead>
         <tbody>${tr || `<tr><td colspan="11" style="padding:14px;color:#6b7280">No admin rows yet.</td></tr>`}</tbody>
       </table>
     </div></div>`;
   el.querySelectorAll('td.fx-adm').forEach(td=>{
-    td.style.cursor=EDIT?'pointer':'default';
-    if(!EDIT) return;
+    td.style.cursor='pointer';
     td.classList.add('fx-editable');
     td.onclick=()=>{ if(td.querySelector('input')) return;
       const cur=(DATA.adminCells||[]).find(x=>x.row_id===+td.dataset.row && x.month===td.dataset.month);
@@ -4282,7 +4290,7 @@ async function fxExportBasket(){
       m.market_price!=null?+m.market_price.toFixed(2):null, m.mtm_cost!=null?+m.mtm_cost.toFixed(2):null ]);
     let fill=null;
     if(m.month===nowM) fill=YELLOW;
-    else if((m.secured_pct||0)>=0.9999) fill=GREEN;
+    else if((m.secured_pct||0)>=0.995) fill=GREEN;
     row.eachCell({includeEmpty:true},c=>{
       if(fill) c.fill={type:'pattern',pattern:'solid',fgColor:{argb:fill}};
       c.border={bottom:{style:'hair',color:{argb:'FFE0E3EC'}}};
