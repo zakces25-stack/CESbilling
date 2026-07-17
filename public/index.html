@@ -136,9 +136,30 @@
       padding: 52px; position: relative; overflow: hidden;
     }
     .login-left::before { content: ''; position: absolute; top: -100px; right: -100px;
-      width: 420px; height: 420px; border-radius: 50%; background: rgba(147,196,58,0.10); }
+      width: 420px; height: 420px; border-radius: 50%; background: rgba(147,196,58,0.10);
+      animation: lbubA 26s ease-in-out infinite alternate; will-change: transform; }
     .login-left::after { content: ''; position: absolute; bottom: -100px; left: -80px;
-      width: 320px; height: 320px; border-radius: 50%; background: rgba(255,255,255,0.05); }
+      width: 320px; height: 320px; border-radius: 50%; background: rgba(255,255,255,0.05);
+      animation: lbubB 34s ease-in-out infinite alternate; will-change: transform; }
+    .hero-bubble { position: absolute; top: 52%; left: 58%; width: 170px; height: 170px;
+      border-radius: 50%; background: rgba(147,196,58,0.07); pointer-events: none;
+      animation: lbubC 22s ease-in-out infinite alternate; will-change: transform; }
+    @keyframes lbubA { 0% { transform: translate(0,0) scale(1); } 50% { transform: translate(-70px,45px) scale(1.07); } 100% { transform: translate(35px,90px) scale(0.95); } }
+    @keyframes lbubB { 0% { transform: translate(0,0) scale(1); } 50% { transform: translate(55px,-50px) scale(1.1); } 100% { transform: translate(-35px,-80px) scale(0.93); } }
+    @keyframes lbubC { 0% { transform: translate(0,0); } 50% { transform: translate(-45px,-60px) scale(1.15); } 100% { transform: translate(50px,35px) scale(0.9); } }
+    @media (prefers-reduced-motion: reduce) { .login-left::before, .login-left::after, .hero-bubble, .lh-track { animation: none !important; } }
+    .lh-suppliers { flex: 1 1 auto; min-width: 140px; align-self: stretch; display: flex; flex-direction: column;
+      justify-content: center; gap: 5px; margin: 10px 26px; padding: 0 16px; overflow: hidden;
+      border-left: 1.5px solid #dfe3ec; border-right: 1.5px solid #dfe3ec; }
+    .lh-cap { font-size: 9.5px; font-weight: 800; letter-spacing: .9px; text-transform: uppercase; color: #8a92a6; text-align: center; white-space: nowrap; }
+    .lh-marquee { overflow: hidden;
+      -webkit-mask-image: linear-gradient(90deg, transparent, #000 46px, #000 calc(100% - 46px), transparent);
+      mask-image: linear-gradient(90deg, transparent, #000 46px, #000 calc(100% - 46px), transparent); }
+    .lh-track { display: flex; align-items: center; gap: 46px; width: max-content; animation: lhmarq 80s linear infinite; }
+    .lh-suppliers:hover .lh-track { animation-play-state: paused; }
+    @keyframes lhmarq { to { transform: translateX(-50%); } }
+    .lh-track img { width: auto; display: block; }
+    @media (max-width: 1100px) { .lh-suppliers { display: none; } }
     .hero { position: relative; z-index: 1; max-width: 380px; width: 100%; }
     .hero-accent { width: 40px; height: 3px; background: var(--lime); border-radius: 2px; margin-bottom: 22px; }
     .hero h1 { font-size: 36px; font-weight: 800; color: #fff; line-height: 1.15; letter-spacing: -0.8px; margin-bottom: 18px; }
@@ -1074,10 +1095,15 @@
           Flex&nbsp;Portal
         </a>
       </div>
+      <div class="lh-suppliers" aria-hidden="true">
+        <div class="lh-cap">Suppliers we work with</div>
+        <div class="lh-marquee"><div class="lh-track"><img src="/supplier-logos/Water2Business.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/bg.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/bgl.png" alt="" style="height:22px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/brookgreen.png" alt="" style="height:18px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/castlewater.png" alt="" style="height:34px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/corona.png" alt="" style="height:22px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/crown.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/drax.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/ecotricity.png" alt="" style="height:34px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/edf.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/eonnext.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/goodenergy.png" alt="" style="height:34px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/marblepower.png" alt="" style="height:22px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/npower.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/pe.png" alt="" style="height:34px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/regent.png" alt="" style="height:22px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/scottishpower.png" alt="" style="height:18px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/sefe.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/shellenergy.png" alt="" style="height:22px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/smartestenergy.png" alt="" style="height:18px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/sse.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/tem.png" alt="" style="height:34px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/totalenergies.png" alt="" style="height:34px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/ugp.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/utilita.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/waterplus.png" alt="" style="height:18px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/wave.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/yuenergy.webp" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/Water2Business.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/bg.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/bgl.png" alt="" style="height:22px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/brookgreen.png" alt="" style="height:18px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/castlewater.png" alt="" style="height:34px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/corona.png" alt="" style="height:22px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/crown.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/drax.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/ecotricity.png" alt="" style="height:34px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/edf.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/eonnext.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/goodenergy.png" alt="" style="height:34px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/marblepower.png" alt="" style="height:22px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/npower.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/pe.png" alt="" style="height:34px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/regent.png" alt="" style="height:22px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/scottishpower.png" alt="" style="height:18px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/sefe.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/shellenergy.png" alt="" style="height:22px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/smartestenergy.png" alt="" style="height:18px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/sse.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/tem.png" alt="" style="height:34px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/totalenergies.png" alt="" style="height:34px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/ugp.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/utilita.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/waterplus.png" alt="" style="height:18px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/wave.png" alt="" style="height:26px" loading="lazy" onerror="this.remove()"><img src="/supplier-logos/yuenergy.webp" alt="" style="height:26px" loading="lazy" onerror="this.remove()"></div></div>
+      </div>
       <img class="login-header-logo" src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES" onerror="this.style.display='none'" />
     </div>
     <div class="login-panels">
       <div class="login-left">
+        <span class="hero-bubble" aria-hidden="true"></span>
         <div class="hero">
           <div class="hero-accent"></div>
           <h1>Your bills,<br><span>validated.</span></h1>
