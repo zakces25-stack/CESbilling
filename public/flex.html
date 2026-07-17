@@ -1533,9 +1533,28 @@ button{transition:all .14s ease}
 .fl-top{position:absolute;top:20px;right:26px;display:flex;gap:12px;align-items:center;z-index:2}
 .fl-clock{font-family:'IBM Plex Mono',ui-monospace,monospace;color:#cdd6ea;font-size:13px;letter-spacing:.6px}
 .fl-desk{display:inline-flex;gap:8px;align-items:center;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.13);border-radius:999px;padding:5px 13px;color:#cdd6ea;font-size:11.5px;font-weight:600}
-.fl-desk .d{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 9px rgba(34,197,94,.85)}
+.fl-top{top:auto;bottom:20px;right:26px}
+.fl-banner{position:absolute;top:0;left:0;right:0;z-index:2;background:rgba(255,255,255,.94);backdrop-filter:blur(6px);display:flex;align-items:center;gap:18px;padding:0 0 0 26px;height:58px;box-shadow:0 6px 24px rgba(3,8,26,.28)}
+.fl-banner-cap{flex-shrink:0;font-size:10.5px;font-weight:800;letter-spacing:.9px;text-transform:uppercase;color:#3a4667;max-width:190px;line-height:1.35}
+.fl-marquee{flex:1;overflow:hidden;height:100%;position:relative;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 60px,#000 calc(100% - 60px),transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 60px,#000 calc(100% - 60px),transparent)}
+.fl-track{display:flex;align-items:center;gap:64px;height:100%;width:max-content;padding:0 32px;animation:flmarq 36s linear infinite}
+.fl-banner:hover .fl-track{animation-play-state:paused}
+@keyframes flmarq{to{transform:translateX(-25%)}}
+.fl-lg{display:inline-flex;align-items:center;height:100%}
+.fl-lg img{height:26px;width:auto;display:block}
+.fl-lg img[src*="totalenergies"]{height:44px}
+.fl-lg img[src*="brookgreen"]{height:21px}
+.fl-lg i{display:none;font-style:normal;font-weight:800;font-size:14px;color:#1f2d4d;letter-spacing:.3px;white-space:nowrap}
+.fl-lg.txt i{display:inline}
+
 </style>
 <div id="flexLogin">
+  <div class="fl-banner" aria-hidden="true">
+    <div class="fl-banner-cap">Suppliers we procure flexible energy with</div>
+    <div class="fl-marquee"><div class="fl-track"><span class="fl-lg"><img src="/flex-logos/sefe.png" alt="SEFE" onerror="this.parentNode.classList.add('txt');this.remove()"><i>SEFE</i></span><span class="fl-lg"><img src="/flex-logos/brookgreen.png" alt="brook green supply" onerror="this.parentNode.classList.add('txt');this.remove()"><i>brook green supply</i></span><span class="fl-lg"><img src="/flex-logos/totalenergies.png" alt="TotalEnergies" onerror="this.parentNode.classList.add('txt');this.remove()"><i>TotalEnergies</i></span><span class="fl-lg"><img src="/flex-logos/sefe.png" alt="SEFE" onerror="this.parentNode.classList.add('txt');this.remove()"><i>SEFE</i></span><span class="fl-lg"><img src="/flex-logos/brookgreen.png" alt="brook green supply" onerror="this.parentNode.classList.add('txt');this.remove()"><i>brook green supply</i></span><span class="fl-lg"><img src="/flex-logos/totalenergies.png" alt="TotalEnergies" onerror="this.parentNode.classList.add('txt');this.remove()"><i>TotalEnergies</i></span><span class="fl-lg"><img src="/flex-logos/sefe.png" alt="SEFE" onerror="this.parentNode.classList.add('txt');this.remove()"><i>SEFE</i></span><span class="fl-lg"><img src="/flex-logos/brookgreen.png" alt="brook green supply" onerror="this.parentNode.classList.add('txt');this.remove()"><i>brook green supply</i></span><span class="fl-lg"><img src="/flex-logos/totalenergies.png" alt="TotalEnergies" onerror="this.parentNode.classList.add('txt');this.remove()"><i>TotalEnergies</i></span><span class="fl-lg"><img src="/flex-logos/sefe.png" alt="SEFE" onerror="this.parentNode.classList.add('txt');this.remove()"><i>SEFE</i></span><span class="fl-lg"><img src="/flex-logos/brookgreen.png" alt="brook green supply" onerror="this.parentNode.classList.add('txt');this.remove()"><i>brook green supply</i></span><span class="fl-lg"><img src="/flex-logos/totalenergies.png" alt="TotalEnergies" onerror="this.parentNode.classList.add('txt');this.remove()"><i>TotalEnergies</i></span></div></div>
+  </div>
   <div class="fl-bg" aria-hidden="true">
     <svg viewBox="0 0 1440 760" preserveAspectRatio="xMidYMid slice">
       <g stroke="rgba(255,255,255,.045)" stroke-width="1">
@@ -1554,7 +1573,6 @@ button{transition:all .14s ease}
   </div>
   <div class="fl-top">
     <div class="fl-clock" id="flClock">UK --:--:--</div>
-    <div class="fl-desk"><span class="d" id="flDeskDot"></span><span id="flDeskTxt">SEFE desk</span></div>
   </div>
   <div class="fl-card">
     <div class="fl-logo"><img src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES" onerror="this.style.display='none'">
@@ -3897,17 +3915,6 @@ function _flDesk(){
   const get = k => (parts.find(p => p.type === k) || {}).value || '';
   const clock = document.getElementById('flClock');
   if (clock) clock.textContent = 'UK ' + get('hour') + ':' + get('minute') + ':' + get('second');
-  const dow = get('weekday'), hm = +(get('hour') + get('minute'));
-  const dot = document.getElementById('flDeskDot'), txt = document.getElementById('flDeskTxt');
-  if (!dot || !txt) return;
-  const weekend = dow === 'Sat' || dow === 'Sun';
-  if (!weekend && hm >= 800 && hm < 1700){
-    txt.textContent = 'SEFE desk open · trades by 17:00';
-    dot.style.background = '#22c55e'; dot.style.boxShadow = '0 0 9px rgba(34,197,94,.85)';
-  } else {
-    txt.textContent = weekend ? 'SEFE desk closed · reopens Monday 08:00' : (hm < 800 ? 'SEFE desk opens 08:00' : 'SEFE desk closed · reopens 08:00');
-    dot.style.background = '#94a3b8'; dot.style.boxShadow = 'none';
-  }
 }
 setInterval(_flDesk, 1000); _flDesk();
 (async () => {
