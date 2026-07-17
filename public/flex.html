@@ -6,6 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com; frame-src 'self' blob: data: https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; frame-ancestors 'self';" />
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -1662,7 +1663,7 @@ async function loadFlexData() {
     _fetchAll('flex_positions', 'basket_id,month,days,season,baseload_vol,secured_vol,secured_wap,baseload_vol_total,secured_vol_total,secured_pct,secured_cost,open_vol,open_vol_total,open_pct,market_price,residual_cost,mtm_cost,mtm_price', ['basket_id', 'month']),
     _fetchAll('flex_trades', 'id,basket_id,trade_ref,trade_date,counterparty,start_date,end_date,volume,product,strike,deal_type,cost', ['basket_id', 'id']),
     _fetchAll('flex_targets', 'basket_id,month,lower_t1,t1_achieved,lower_t2,t2_achieved,lower_t3,t3_achieved,lower_t4,t4_achieved,lower_t5,t5_achieved,lower_t6,t6_achieved,lower_t7,t7_achieved,lower_t8,t8_achieved,upper_alert', ['basket_id', 'month']),
-    _fetchAll('flex_curves', 'id,commodity,period_type,period_label,month,mid,pct_chg', ['id']),
+    _fetchAll('flex_curves', 'id,commodity,period_type,period_label,month,mid,pct_chg,updated_at', ['id']),
     _fetchAll('flex_firm_orders', 'id,commodity,basket_name,period,volume,price', ['id']),
     _fetchAll('flex_contacts', 'id,supplier,note,details', ['id']),
     _fetchAll('flex_sefe_deadlines', 'id,period,last_trading,deadline', ['id']),
@@ -1691,8 +1692,11 @@ async function loadFlexData() {
     for (let n = 1; n <= 8; n++) { row['lower_t'+n] = _num(t['lower_t'+n]); row['t'+n+'_achieved'] = t['t'+n+'_achieved']; }
     (byT[t.basket_id] ??= []).push(row);
   }
-  const _grp = (f, pt) => curves.filter(c => c.commodity === f && c.period_type === pt)
+  const _nowM = new Date().toISOString().slice(0,8)+'01';
+  const _grp = (f, pt) => curves.filter(c => c.commodity === f && c.period_type === pt && (pt !== 'month' || !c.month || c.month >= _nowM))
       .map(c => ({ period: c.period_label, month: c.month, mid: _num(c.mid), pct_chg: _num(c.pct_chg) }));
+  const _cu = curves.map(c=>c.updated_at).filter(Boolean).sort().pop();
+  const _cuTxt = _cu ? new Date(_cu).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : null;
   const curveOf = f => ({ months: _grp(f,'month'), quarters: _grp(f,'quarter'), seasons: _grp(f,'season'), annuals: _grp(f,'annual') });
   const ordersOf = f => orders.filter(o => o.commodity === f)
       .map(o => ({ basket: o.basket_name, period: o.period, volume: _num(o.volume), price: o.price }));
@@ -1705,7 +1709,7 @@ async function loadFlexData() {
       months: byM[b.id] || [], targets: byT[b.id] || [],
       trades: byG[b.id] || [], seasons: []
     })),
-    curves: { gas: curveOf('gas'), power: curveOf('power') },
+    curves: { gas: curveOf('gas'), power: curveOf('power'), last_updated: _cuTxt },
     admin: { month_labels: seedMeta.admin_month_labels || [], rows: admin.map(r => ({
       group: r.group_name, basket: r.basket, ced: r.ced, supplier: r.supplier, months: r.months || [] })) },
     contacts: { suppliers: contacts.map(c => ({ supplier: c.supplier, note: c.note, details: c.details || [] })),
@@ -2902,11 +2906,9 @@ function renderCurves() {
     groups.forEach(g => {
       if (!g.rows.length) return;
       html += `<div class="extra-section-title" style="font-size:12px;margin-top:10px;border:none;padding:0;color:#1f2d4d;">${g.label}</div>`;
-      html += `<table class="extra-table"><thead><tr><th>Period</th><th>Mid-Point (${unit})</th><th>% Chg</th></tr></thead><tbody>`;
+      html += `<table class="extra-table"><thead><tr><th>Period</th><th>Mid-Point (${unit})</th></tr></thead><tbody>`;
       g.rows.forEach(r => {
-        const pct = r.pct_chg != null ? (r.pct_chg * 100).toFixed(2) + '%' : '—';
-        const cls = r.pct_chg > 0 ? 'pct-up' : r.pct_chg < 0 ? 'pct-down' : '';
-        html += `<tr><td>${r.period}</td><td class="td-num">${r.mid != null ? r.mid.toFixed(2) : '—'}</td><td class="td-num ${cls}">${pct}</td></tr>`;
+        html += `<tr><td>${r.period}</td><td class="td-num">${r.mid != null ? r.mid.toFixed(2) : '—'}</td></tr>`;
       });
       html += `</tbody></table>`;
     });
@@ -2925,7 +2927,7 @@ function renderCurves() {
           ${curveTable(C.power, '£/MWh')}
         </div>
       </div>
-      <p style="font-size:11px;color:var(--grey-400);text-align:right;margin:0;">Indicative forward curve data as at last Excel update.</p>
+      <p style="font-size:11px;color:var(--grey-400);text-align:right;margin:0;">Marex indicative forward curve — last updated ${DATA.curves.last_updated || '—'}.</p>
     </div>`;
 }
 
@@ -3473,33 +3475,122 @@ async function fxCreateBasket(){
   fxCloseModal(); fxScheduleReload();
 }
 
-// curves editor (months propagate to baskets; quarters/seasons/annuals update the curve lists)
+// curves: Marex drag-and-drop + manual editor (months propagate to baskets)
 const _renderCurves = renderCurves;
 renderCurves = function(){
   _renderCurves();
   const el=document.getElementById('main-tab-curves');
-  if(!el || !EDIT) return;
-  if(document.getElementById('fxCurveBar')) return;
-  const bar=document.createElement('div'); bar.id='fxCurveBar'; bar.className='fx-toolbar';
+  if(!el || document.getElementById('fxCurveBar')) return;
+  const bar=document.createElement('div'); bar.id='fxCurveBar';
   bar.style.cssText='padding:12px 18px 0';
-  bar.innerHTML=`<button class="fx-btn" onclick="fxCurveModal('power')">&#9998; Update power curve</button>
-    <button class="fx-btn" onclick="fxCurveModal('gas')">&#9998; Update gas curve</button>
-    <span style="font-size:11px;color:#6b7280">Monthly mids push the new market price into every basket of that fuel &middot; quarters, seasons &amp; annuals update the display lists</span>`;
+  bar.innerHTML=`
+    <div id="fxDrop" style="border:2px dashed #aac91f;border-radius:13px;background:#fbfdf3;padding:16px 18px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:all .15s">
+      <div style="font-size:26px">&#128229;</div>
+      <div style="flex:1">
+        <div style="font-weight:800;font-size:13.5px;color:#141a3c">Drop the Marex &ldquo;UK Forward Curve&rdquo; file here</div>
+        <div style="font-size:11.5px;color:#6b7280">10:30 / 14:30 email attachment (.xlsx) &mdash; months, quarters, seasons &amp; annuals for gas and power are read automatically. Monthly mids are pushed into every basket&rsquo;s market price. Or click to browse.</div>
+      </div>
+      <div class="fx-toolbar" style="margin:0">
+        <button class="fx-btn" onclick="event.stopPropagation();fxCurveModal('power')">&#9998; Power (manual)</button>
+        <button class="fx-btn" onclick="event.stopPropagation();fxCurveModal('gas')">&#9998; Gas (manual)</button>
+      </div>
+      <input type="file" id="fxDropInput" accept=".xlsx,.xls" style="display:none">
+    </div>`;
   el.insertBefore(bar, el.firstChild);
+  const dz=document.getElementById('fxDrop'), inp=document.getElementById('fxDropInput');
+  dz.addEventListener('click', ()=>inp.click());
+  inp.addEventListener('change', ()=>{ if(inp.files[0]) fxParseMarex(inp.files[0]); inp.value=''; });
+  ;['dragover','dragenter'].forEach(ev=>dz.addEventListener(ev, e=>{e.preventDefault();dz.style.background='#f0f6d8';dz.style.borderColor='#7fa017';}));
+  ;['dragleave','drop'].forEach(ev=>dz.addEventListener(ev, e=>{e.preventDefault();dz.style.background='#fbfdf3';dz.style.borderColor='#aac91f';}));
+  dz.addEventListener('drop', e=>{ const f=e.dataTransfer.files && e.dataTransfer.files[0]; if(f) fxParseMarex(f); });
 };
+
+const fxNormQ = s => String(s).trim().replace(/^Q([1-4])(\d{2})$/, 'Q$1-$2');
+function fxIsoMonth(v){
+  if (v instanceof Date && !isNaN(v)) return `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,'0')}-01`;
+  if (typeof v === 'number' && v > 20000){
+    const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-01`;
+  }
+  return null;
+}
+let fxMarex=null;
+async function fxParseMarex(file){
+  if(!/\.xlsx?$/i.test(file.name)) return fxToast('Not an Excel file', false);
+  if(typeof XLSX === 'undefined') return fxToast('Spreadsheet reader not loaded — check connection and reload', false);
+  let aoa;
+  try{
+    const buf=await file.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array',cellDates:true});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null});
+  }catch(e){ console.error(e); return fxToast('Could not read that file', false); }
+  const split=aoa.findIndex(r=>r && /power forward curve/i.test(String(r[1]||'')));
+  if(split<0) return fxToast('This does not look like the Marex UK Forward Curve file (no "UK Power Forward Curve" section found)', false);
+  const parseBlock = rows => {
+    const h=rows.findIndex(r=>String((r&&r[1])||'').trim().toLowerCase()==='period');
+    if(h<0) return null;
+    const out={months:[],quarters:[],seasons:[],annuals:[]};
+    for(let k=h+1;k<rows.length;k++){
+      const r=rows[k]||[];
+      const iso=fxIsoMonth(r[1]);
+      if(iso && typeof r[2]==='number') out.months.push({month:iso, mid:+r[2].toFixed(4)});
+      if(r[4]!=null && String(r[4]).trim() && typeof r[5]==='number') out.quarters.push({label:fxNormQ(r[4]), mid:+r[5].toFixed(4)});
+      if(r[7]!=null && String(r[7]).trim() && typeof r[8]==='number') out.seasons.push({label:String(r[7]).trim(), mid:+r[8].toFixed(4)});
+      if(r[10]!=null && String(r[10]).trim() && typeof r[11]==='number') out.annuals.push({label:String(r[10]).trim(), mid:+r[11].toFixed(4)});
+    }
+    return out;
+  };
+  const gas=parseBlock(aoa.slice(0,split)), power=parseBlock(aoa.slice(split));
+  if(!gas || !power || (!gas.months.length && !power.months.length))
+    return fxToast('File read, but no curve rows found — has the layout changed?', false);
+  fxMarex={gas, power, fname:file.name};
+  const sec=(title,unit,blk)=>{
+    const tbl=(label,rows,isM)=>rows.length?`<div style="font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#4b5563;margin:8px 0 3px">${label}</div>
+      <div class="fx-preview"><table><thead><tr><th>Period</th><th>Mid (${unit})</th></tr></thead><tbody>
+      ${rows.map(r=>`<tr><td>${escape(isM?fmtMonth(r.month):r.label)}</td><td>${r.mid.toFixed(2)}</td></tr>`).join('')}</tbody></table></div>`:'';
+    return `<div style="flex:1;min-width:250px"><div style="font-weight:800;font-size:13px;color:#141a3c;margin-bottom:2px">${title}</div>
+      ${tbl('Months (pushed to baskets)',blk.months,true)}${tbl('Quarters',blk.quarters)}${tbl('Seasons',blk.seasons)}${tbl('Annuals',blk.annuals)}</div>`;
+  };
+  fxModal(`<h3>Marex curve update &mdash; ${escape(file.name)}</h3>
+  <p style="font-size:12px;color:#4b5563;margin:0 0 10px">Check the numbers, then apply. Monthly mids update the <b>market price on every basket</b>; quarters, seasons and annuals update the curve lists. New months (as the window rolls forward) are added automatically.</p>
+  <div style="display:flex;gap:16px;flex-wrap:wrap">${sec('NBP Gas (p/th)','p/th',gas)}${sec('UK Power (£/MWh)','£/MWh',power)}</div>
+  <div class="fx-err" id="fxMErr"></div>
+  <div class="fx-modal-foot">
+    <button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
+    <button class="fx-btn green" onclick="fxMarexApply()">Apply both curves</button>
+  </div>`);
+}
+async function fxMarexApply(){
+  if(!fxMarex) return;
+  const btns=document.querySelectorAll('#fxModal .fx-btn'); btns.forEach(b=>b.disabled=true);
+  const toExtra=blk=>[
+    ...blk.quarters.map(q=>({period_type:'quarter',period_label:q.label,mid:q.mid})),
+    ...blk.seasons.map(s=>({period_type:'season',period_label:s.label,mid:s.mid})),
+    ...blk.annuals.map(a=>({period_type:'annual',period_label:a.label,mid:a.mid}))];
+  for(const fuel of ['gas','power']){
+    const blk=fxMarex[fuel];
+    const {error}=await FLEX.sb.rpc('flex_apply_curve',{p_commodity:fuel,
+      p_entries: blk.months.map(m=>({month:m.month, mid:m.mid})), p_extra: toExtra(blk)});
+    if(error){ btns.forEach(b=>b.disabled=false); return fxMErr(fuel+': '+error.message); }
+  }
+  fxToast('Marex curves applied — market prices updated on all baskets');
+  fxMarex=null; fxCloseModal(); fxScheduleReload();
+}
+
+// manual editor (no % column)
 function fxCurveModal(fuel){
   const C = DATA.curves[fuel] || {};
   const unit = fuel==='power' ? '£/MWh' : 'p/th';
   const sec = (label, key, pt) => {
     const rows=(C[key]||[]).map(c=>`<tr><td>${escape(c.period)}</td>
-      <td><input class="fx-cell" style="width:90px" data-pt="${pt}" data-label="${escape(c.period)}" data-month="${c.month||''}" value="${c.mid!=null?c.mid:''}"></td>
-      <td><input class="fx-cell" style="width:70px" data-pct="1" data-pt="${pt}" data-label="${escape(c.period)}" value="${c.pct_chg!=null?(c.pct_chg*100).toFixed(2):''}"></td></tr>`).join('');
+      <td><input class="fx-cell" style="width:95px" data-pt="${pt}" data-label="${escape(c.period)}" data-month="${c.month||''}" value="${c.mid!=null?c.mid:''}"></td></tr>`).join('');
     return `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#4b5563;margin:12px 0 4px">${label}</div>
-      <div class="fx-preview"><table><thead><tr><th>Period</th><th>Mid (${unit})</th><th>% chg</th></tr></thead><tbody>${rows||'<tr><td colspan=3 style="color:#9aa1ad">none</td></tr>'}</tbody></table></div>`;
+      <div class="fx-preview"><table><thead><tr><th>Period</th><th>Mid (${unit})</th></tr></thead><tbody>${rows||'<tr><td colspan=2 style="color:#9aa1ad">none</td></tr>'}</tbody></table></div>`;
   };
-  fxModal(`<h3>Update ${fuel} curve</h3>
-  <p style="font-size:12px;color:#4b5563;margin:0 0 6px">Twice-daily update: overtype the mids (and % chg if you want), or paste Month + Mid (+ % chg) columns below to replace the monthly list. <b>Monthly mids are pushed to every ${fuel} basket's market price.</b></p>
-  <textarea id="fC_paste" style="min-height:52px" placeholder="Aug-26&#9;111.25&#9;-1.66"></textarea>
+  fxModal(`<h3>Update ${fuel} curve (manual)</h3>
+  <p style="font-size:12px;color:#4b5563;margin:0 0 6px">Overtype the mids, or paste Month + Mid columns to replace the monthly list. <b>Monthly mids are pushed to every ${fuel} basket's market price.</b></p>
+  <textarea id="fC_paste" style="min-height:52px" placeholder="Aug-26&#9;111.25"></textarea>
   ${sec('Months (propagate)','months','month')}
   ${sec('Quarters','quarters','quarter')}
   ${sec('Seasons','seasons','season')}
@@ -3515,38 +3606,26 @@ function fxCurveModal(fuel){
     for(const l of lines){ const c=l.split(/\t|,| {2,}/).map(x=>x.trim()).filter(x=>x!=='');
       if(c.length<2) continue;
       const iso=fxParseDate(c[0]); const v=fxNum(c[1]); if(!iso||v==null) continue;
-      parsed.push({iso,lbl:c[0],v,p:c[2]!==undefined?fxNum(c[2]):null}); }
+      parsed.push({iso,lbl:c[0],v}); }
     if(!parsed.length) return;
     const tb=document.querySelector('#fxModal .fx-preview tbody');
     tb.innerHTML=parsed.map(p=>`<tr><td>${escape(p.lbl)}</td>
-      <td><input class="fx-cell" style="width:90px" data-pt="month" data-label="${escape(p.lbl)}" data-month="${p.iso}" value="${p.v}"></td>
-      <td><input class="fx-cell" style="width:70px" data-pct="1" data-pt="month" data-label="${escape(p.lbl)}" value="${p.p!=null?p.p:''}"></td></tr>`).join('');
+      <td><input class="fx-cell" style="width:95px" data-pt="month" data-label="${escape(p.lbl)}" data-month="${p.iso}" value="${p.v}"></td></tr>`).join('');
   });
 }
 async function fxApplyCurve(fuel){
-  const mids={}, pcts={};
-  document.querySelectorAll('#fxModal input.fx-cell').forEach(i=>{
-    const k=i.dataset.pt+'|'+i.dataset.label+'|'+(i.dataset.month||'');
-    if(i.dataset.pct) pcts[i.dataset.pt+'|'+i.dataset.label]=fxNum(i.value);
-    else mids[k]=fxNum(i.value);
-  });
   const entries=[], extra=[];
-  for(const k in mids){
-    const [pt,label,month]=k.split('|');
-    const mid=mids[k]; if(mid==null) continue;
-    const pctRaw=pcts[pt+'|'+label];
-    const pct = pctRaw==null? null : +(pctRaw/100).toFixed(6);
-    if(pt==='month'){
-      const iso = month || fxParseDate(label);
-      if(iso) entries.push({month:iso, mid, pct_chg:pct});
-    } else {
-      extra.push({period_type:pt, period_label:label, mid, pct_chg:pct});
-    }
-  }
+  document.querySelectorAll('#fxModal input.fx-cell').forEach(i=>{
+    const mid=fxNum(i.value); if(mid==null) return;
+    if(i.dataset.pt==='month'){
+      const iso=i.dataset.month || fxParseDate(i.dataset.label);
+      if(iso) entries.push({month:iso, mid});
+    } else extra.push({period_type:i.dataset.pt, period_label:i.dataset.label, mid});
+  });
   if(!entries.length && !extra.length) return fxMErr('Nothing to apply.');
   const {data,error}=await FLEX.sb.rpc('flex_apply_curve',{p_commodity:fuel,p_entries:entries,p_extra:extra});
   if(error) return fxMErr(error.message);
-  fxToast(`${fuel} curve updated (${data} rows)${entries.length?' — market prices pushed to baskets':''}`);
+  fxToast(`${fuel} curve updated (${data} rows)`);
   fxCloseModal(); fxScheduleReload();
 }
 
