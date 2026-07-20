@@ -1431,6 +1431,9 @@
         <div id="brokerSalesView">
           <div class="section-head" style="align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;">
             <h2>Sales performance</h2>
+            <label style="display:flex;align-items:center;gap:10px;font-size:13px;color:var(--navy);font-weight:800;">Financial year
+              <select id="bxFY" onchange="bxSetFY()" style="width:auto;font-weight:800;font-size:14px;padding:9px 14px;border:2px solid var(--navy);border-radius:8px;color:var(--navy);background:#fff;cursor:pointer;"></select>
+            </label>
             <label style="display:flex;align-items:center;gap:10px;font-size:13px;color:var(--navy);font-weight:800;">Viewing month
               <select id="bxMonth" onchange="brokerRenderMine()" style="width:auto;font-weight:800;font-size:14px;padding:9px 14px;border:2px solid var(--navy);border-radius:8px;color:var(--navy);background:#fff;cursor:pointer;"></select>
             </label>
@@ -1442,7 +1445,7 @@
             <button class="admin-tab" id="bxTabBtn-team" onclick="bxTab('team')">Team leaderboard</button>
             <button class="admin-tab" id="bxTabBtn-monthly" onclick="bxTab('monthly')">Monthly figures</button>
             <button class="admin-tab" id="bxTabBtn-targets" onclick="bxTab('targets')">My Targets</button>
-            <button class="admin-tab" id="bxTabBtn-salary" onclick="bxTab('salary')">Salary calculator</button>
+            <button class="admin-tab" id="bxTabBtn-salary" onclick="bxTab('salary')" style="display:none;">Salary calculator</button>
             <button class="admin-tab" id="bxTabBtn-notes" onclick="bxTab('notes')">New business reminders</button>
           </div>
 
@@ -4705,9 +4708,7 @@
       ['nb_prospecting_kwh', 'New business · Prospecting (kWh)'],
       ['lost_customers', 'Lost customers'],
       ['lost_meters', 'Lost meters'],
-      ['lost_kwh', 'Lost kWh'],
-      ['deals_won', 'Deals won'],
-      ['quotes_sent', 'Quotes sent']
+      ['lost_kwh', 'Lost kWh']
     ];
     function _skMoney(n){ return '£' + (Number(n)||0).toLocaleString('en-GB', { maximumFractionDigits:0 }); }
     function _skNum(n, dp){ return (Number(n)||0).toLocaleString('en-GB', { minimumFractionDigits:dp||0, maximumFractionDigits:dp||0 }); }
@@ -4792,10 +4793,19 @@
     function _skEffRow(repId, period){ return _SK.eff.filter(function(k){ return k.rep_id === repId && k.period === period; })[0] || null; }
     function _skPeriods(){ var s = {}; _SK.eff.forEach(function(k){ s[k.period] = 1; }); return Object.keys(s).sort().reverse(); }
     function _skDefaultMonth(){ var p = _skPeriods(); return p.length ? p[0].slice(0,7) : new Date().toISOString().slice(0,7); }
+    function _skCurrentFyStart(){ var d=new Date(); return (d.getMonth()>=6) ? d.getFullYear() : d.getFullYear()-1; }
+    function _fyStartOf(period){ var y=+String(period).slice(0,4), m=+String(period).slice(5,7); return m>=7 ? y : y-1; }
+    function _fyLabel(fy){ var b=String((fy+1)%100); if(b.length<2)b='0'+b; return 'FY ' + fy + '/' + b; }
+    function _fyMonths(fy){ var out=[]; for(var i=6;i<18;i++){ var y=fy+Math.floor(i/12), mm=(i%12)+1; out.push(y+'-'+(mm<10?'0'+mm:mm)+'-01'); } return out; }
+    function _skFy(){ return (_SK.fy!=null)?_SK.fy:_skCurrentFyStart(); }
+    function _skFyList(){ var set={}; _SK.eff.forEach(function(k){ set[_fyStartOf(k.period)]=1; }); set[_skCurrentFyStart()]=1; return Object.keys(set).map(Number).sort(function(a,b){return b-a;}); }
+    function bxFillFY(){ var s=document.getElementById('bxFY'); if(!s) return; if(_SK.fy==null)_SK.fy=_skCurrentFyStart(); s.innerHTML=_skFyList().map(function(fy){ return '<option value="'+fy+'">'+_fyLabel(fy)+'</option>'; }).join(''); s.value=_SK.fy; }
+    function bxSetFY(){ var s=document.getElementById('bxFY'); if(s) _SK.fy=parseInt(s.value,10); bxFillMonthSelect('bxMonth'); bxFillMonthSelect('bxNotesMonth'); _skFillPeriodSelect('bxTeamPeriod', true, brokerRenderTeam); brokerRenderMine(); brokerRenderTeam(); }
     function _skFillPeriodSelect(selId, includeAll, onchange){
       var sel = document.getElementById(selId); if(!sel) return;
-      var opts = _skPeriods().map(function(p){ return '<option value="' + p + '">' + _skPeriodLabel(p) + '</option>'; });
-      if(includeAll) opts.unshift('<option value="__all__">Full year (cumulative)</option>');
+      var _fyset={}; _fyMonths(_skFy()).forEach(function(p){ _fyset[p]=1; });
+      var opts = _skPeriods().filter(function(p){ return _fyset[p]; }).map(function(p){ return '<option value="' + p + '">' + _skPeriodLabel(p) + '</option>'; });
+      if(includeAll) opts.unshift('<option value="__all__">Full FY (cumulative)</option>');
       sel.innerHTML = opts.join('');
       sel.onchange = onchange;
     }
@@ -4822,8 +4832,10 @@
     function _skAggregate(periodKey){
       var out = {};
       _SK.reps.forEach(function(r){ out[r.id] = { rep_id:r.id, _n:0 }; _SK_FIELDS.forEach(function(f){ out[r.id][f[0]] = 0; }); });
+      var _fyset={}; _fyMonths(_skFy()).forEach(function(p){ _fyset[p]=1; });
       _SK.eff.forEach(function(k){
-        if(periodKey !== '__all__' && k.period !== periodKey) return;
+        if(periodKey === '__all__'){ if(!_fyset[k.period]) return; }
+        else if(k.period !== periodKey) return;
         var o = out[k.rep_id]; if(!o) return;
         _SK_FIELDS.forEach(function(f){ o[f[0]] += Number(k[f[0]]) || 0; });
         o._n++;
@@ -4838,7 +4850,7 @@
       var rows = _SK.reps.map(function(r){ return { rep:r, a:agg[r.id] }; })
         .filter(function(x){ return x.a._n > 0 || x.a.billing_total > 0; })
         .sort(function(a,b){ return b.a.billing_total - a.a.billing_total; });
-      var th = '<tr><th>#</th><th>Rep</th><th class="num">Billing</th><th class="num">New biz</th><th class="num">Total kWh</th><th class="num">Uplift p/kWh</th><th class="num">% target</th><th class="num">Won</th><th class="num">Lost custs</th></tr>';
+      var th = '<tr><th>#</th><th>Rep</th><th class="num">Billing</th><th class="num">New biz</th><th class="num">Total kWh</th><th class="num">Avg commission p/kWh</th><th class="num">Lost custs</th></tr>';
       var body = rows.map(function(x, i){
         var a = x.a, r = x.rep;
         var tgt = (Number(r.monthly_target)||0) * (cumulative ? 12 : 1);
@@ -4849,8 +4861,6 @@
           '<td class="num">' + _skMoney(a.new_business_gbp) + '</td>' +
           '<td class="num">' + _skNum(a.total_kwh, 0) + '</td>' +
           '<td class="num">' + _skUplift(_skContractBill(a), a.total_kwh) + '</td>' +
-          '<td class="num">' + pct + '</td>' +
-          '<td class="num">' + (a.deals_won || '—') + '</td>' +
           '<td class="num">' + (a.lost_customers || 0) + '</td></tr>';
       }).join('');
       host.innerHTML = rows.length ? ('<table class="sk-table">' + th + body + '</table>') : '<p class="sk-empty">No figures for this period yet.</p>';
@@ -4881,7 +4891,7 @@
       {k:'long_term_total',label:'Long Term',fmt:'money',flag:true},
       {k:'consultancy',label:'Consultancy / Direct',fmt:'money',flag:false},
       {k:'total_kwh',label:'Total kWh',fmt:'int',flag:true},
-      {k:'__uplift',label:'Avg Uplift (p/kWh, contracts)',fmt:'uplift',flag:true},
+      {k:'__uplift',label:'Avg commission (p/kWh, contracts)',fmt:'uplift',flag:true},
       {k:'lost_customers',label:'Lost Customers',fmt:'int',flag:false},
       {k:'lost_kwh',label:'Lost kWh',fmt:'int',flag:false},
       {k:'new_business_gbp',label:'New Business £',fmt:'money',flag:true},
@@ -5196,6 +5206,7 @@
       await salesFetchAll();
       (function(){ var me = _SK.reps.filter(function(r){ return r.id === _SK.myRepId; })[0]; if(me && me.name){ currentUser.name = me.name; var _bn=document.getElementById('brokerName'); if(_bn) _bn.textContent=me.name; var _an=document.getElementById('avatarMenuName'); if(_an) _an.textContent=me.name; var _as=document.getElementById('avatarMenuSub'); if(_as) _as.textContent='Signed in as broker'; } })();
       var ef = document.getElementById('bxEntryFields'); if(ef) ef.innerHTML = _skEntryFieldsHtml('bx_', true);
+      if(_SK.fy==null)_SK.fy=_skCurrentFyStart(); bxFillFY();
       bxFillMonthSelect('bxMonth');
       var mIn = document.getElementById('bxMonth'); if(mIn && !mIn.value) mIn.value = _skDefaultMonth();
       bxFillMonthSelect('bxNotesMonth');
@@ -5814,9 +5825,8 @@
       if(sel){ var cur = sel.value; sel.innerHTML = '<option value="__all__">All customers</option>' + names.map(function(nm){ return '<option value="' + escapeHtml(nm) + '">' + escapeHtml(nm) + '</option>'; }).join(''); if(cur) sel.value = cur; }
     }
     function bxMonthOptionsHtml(){
-      var months = {}; _skPeriods().forEach(function(p){ months[p.slice(0,7)] = 1; });
-      months[new Date().toISOString().slice(0,7)] = 1;
-      return Object.keys(months).sort().reverse().map(function(m){ return '<option value="' + m + '">' + _skPeriodLabel(m + '-01') + '</option>'; }).join('');
+      var cur = new Date().toISOString().slice(0,7);
+      return _fyMonths(_skFy()).map(function(p){ return p.slice(0,7); }).filter(function(m){ return m <= cur; }).sort().reverse().map(function(m){ return '<option value="' + m + '">' + _skPeriodLabel(m + '-01') + '</option>'; }).join('');
     }
     function bxFillMonthSelect(id){ var sel = document.getElementById(id); if(!sel) return; var cur = sel.value; sel.innerHTML = bxMonthOptionsHtml(); if(cur) sel.value = cur; }
     function bxRenderNotes(){  // now renders the New business reminders list
