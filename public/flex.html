@@ -1057,6 +1057,10 @@ body {
 .mini-card.has-alert.advisory .mini-card-pct { color:#5b21b6!important; }
 .mini-card.has-alert.advisory .mini-progress { background:rgba(124,58,237,.18)!important; }
 .mini-card.has-alert.advisory .mini-progress-fill { background:var(--advisory-500)!important; }
+#fxPrevCurve > summary::-webkit-details-marker{display:none}
+#fxPrevCurve > summary::marker{content:""}
+#fxPrevCurve > summary:hover{filter:brightness(.98)}
+#fxPrevCurve[open] .fxPrevCaret{transform:rotate(180deg)}
 
 .mini-card.has-alert:hover {
   border-color: var(--negative-700);
@@ -4489,8 +4493,13 @@ renderCurves = function(){
     ${section('NBP Gas Forward Curve','p/th',C.gas)}
     ${section('UK Power Forward Curve','£/MWh',C.power)}
     <p style="font-size:11px;color:var(--grey-400);text-align:right;margin:0;">Marex indicative forward curve — last updated ${C.last_updated || '—'}. Basket market prices pull live: month first, then season.</p>
-    <details id="fxPrevCurve" ontoggle="if(this.open)fxRenderPrevCurve()" style="margin-top:20px;border-top:1px solid var(--border,#e6e1d6);padding-top:12px;">
-      <summary style="cursor:pointer;font-weight:800;font-size:13.5px;color:var(--navy,#2f3d7e);">Previous market curve data <span style="font-weight:600;color:#6b7280;font-size:12px;">— historic settled months, rolls forward automatically</span></summary>
+    <details id="fxPrevCurve" ontoggle="if(this.open)fxRenderPrevCurve()" style="margin-top:24px;">
+      <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:12px;padding:15px 18px;border:2px solid var(--navy,#2f3d7e);border-radius:12px;background:linear-gradient(90deg,#eef1fb,#f6f8fe);color:var(--navy,#2f3d7e);font-weight:800;font-size:15px;user-select:none;box-shadow:0 2px 10px rgba(47,61,126,.10);">
+        <span style="font-size:20px;line-height:1;">&#128201;</span>
+        <span>Previous market curve data</span>
+        <span style="font-weight:600;color:#5a6488;font-size:12.5px;">&mdash; historic settled months (rolls forward automatically)</span>
+        <span class="fxPrevChevron" style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:#fff;background:var(--navy,#2f3d7e);padding:5px 12px;border-radius:999px;white-space:nowrap;">View <span class="fxPrevCaret" style="transition:transform .15s;">&#9662;</span></span>
+      </summary>
       <div id="fxPrevCurveBody"></div>
     </details>
   </div>`;
@@ -4519,6 +4528,7 @@ renderCurves = function(){
   dz.addEventListener('drop', e=>{ const f=e.dataTransfer.files && e.dataTransfer.files[0]; if(f) fxParseMarex(f); });
 };
 // ── Previous (historic) market curve data — months before today, rolls automatically ──
+function fxQLabel(q){ if(!q) return '\u2014'; var m=/^Q(\d)(\d{2})$/.exec(String(q)); return m ? ('Q'+m[1]+'-'+m[2]) : q; }
 async function fxRenderPrevCurve(){
   const body=document.getElementById('fxPrevCurveBody'); if(!body || body.dataset.loaded) return;
   body.dataset.loaded='1';
@@ -4532,7 +4542,7 @@ async function fxRenderPrevCurve(){
   const months=Object.keys(byM).sort().reverse();
   if(!months.length){ body.innerHTML='<div style="padding:10px 2px;color:#6b7280;font-size:12px;">No historic months yet.</div>'; return; }
   const rows=months.map(k=>{ const m=byM[k];
-    return `<tr><td>${fmtMonth(k)}</td><td>${m.quarter||'—'}</td><td>${m.season||'—'}</td>`
+    return `<tr><td>${fmtMonth(k)}</td><td>${fxQLabel(m.quarter)}</td><td>${m.season||'—'}</td>`
       +`<td class="td-right">${m.power!=null?(+m.power).toFixed(2):'—'}</td>`
       +`<td class="td-right">${m.gas!=null?(+m.gas).toFixed(2):'—'}</td></tr>`; }).join('');
   body.innerHTML=`<div style="font-size:11px;color:#6b7280;margin:6px 0 8px;">${months.length} historic months · newest first · Power £/MWh, Gas p/th</div>`
