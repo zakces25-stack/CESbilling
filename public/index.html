@@ -5534,7 +5534,8 @@
       var rep = _SK.reps.filter(function(r){ return r.id === _SK.myRepId; })[0];
       if(!rep){ if(heroHost) heroHost.innerHTML = ''; if(gridHost) gridHost.innerHTML = ''; return; }
       var comp = _SK.compByRep[_SK.myRepId];
-      var hist = _SK.eff.filter(function(x){ return x.rep_id === _SK.myRepId; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
+      var _mdFy={}; _fyMonths(_skFy()).forEach(function(p){ _mdFy[p]=1; });
+      var hist = _SK.eff.filter(function(x){ return x.rep_id === _SK.myRepId && _mdFy[x.period]; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
       k = k || { billing_total:0, total_kwh:0, new_business_gbp:0 };
       var tgt = Number(rep.monthly_target) || 0;
       var rank = _skRankInMonth(key);
@@ -5546,14 +5547,14 @@
         var proj = commYTD / mWith * 12;
         heroHost.innerHTML =
           _skCard('Commission this month', _skMoney(cc.commission), '+ base ' + _skMoney(cc.base) + ' = ' + _skMoney(cc.total)) +
-          _skCard('Earned this year', _skMoney(commYTD), 'commission so far') +
+          _skCard('Earned this FY', _skMoney(commYTD), 'commission so far') +
           _skCard('On pace for (full year)', _skMoney(proj), 'your monthly average × 12 — moves as the year fills in') +
           _skCard('Your rank', rank, 'team billing · ' + _skPeriodLabel(key));
       } else {
         var ytdBill = hist.reduce(function(a,h){ return a + (Number(h.billing_total)||0); }, 0);
         heroHost.innerHTML =
           _skCard('Billing this month', _skMoney(k.billing_total)) +
-          _skCard('Billing this year', _skMoney(ytdBill), 'so far') +
+          _skCard('Billing this FY', _skMoney(ytdBill), 'so far') +
           _skCard('New business', _skMoney(k.new_business_gbp)) +
           _skCard('Your rank', rank, _skPeriodLabel(key));
       }
@@ -5565,7 +5566,7 @@
         var commSeries = hist.map(function(h){ return { label:_skPeriodLabel(h.period), val:_skCommission(h, comp).commission }; });
         panels.push(_skChartPanel('💰 Commission each month', _skColBars(commSeries, { color:'#2f7d4f', money:true })));
         var run = 0; var cumSeries = commSeries.map(function(s){ run += s.val; return { label:s.label, val:run }; });
-        panels.push(_skChartPanel('📈 Commission banked this year', _skArea(cumSeries, '#2f7d4f')));
+        panels.push(_skChartPanel('📈 Commission banked this FY', _skArea(cumSeries, '#2f7d4f')));
       }
       panels.push(_skChartPanel('🎯 Billing vs target', _skLineTarget(hist.map(function(h){ return { label:_skPeriodLabel(h.period), val:Number(h.billing_total)||0, target:tgt }; }))));
       panels.push(_skChartPanel('🌱 New business vs retained', _skStackBars(hist.map(function(h){ return { label:_skPeriodLabel(h.period), retained:Math.max(0,(Number(h.billing_total)||0)-(Number(h.new_business_gbp)||0)), newbiz:Number(h.new_business_gbp)||0 }; }))));
@@ -6022,7 +6023,8 @@
       var host = document.getElementById('bxGoalsBody'); if(!host) return;
       var rep = _SK.reps.filter(function(r){ return r.id === _SK.myRepId; })[0];
       if(!rep){ host.innerHTML = '<p class="sk-empty">Your targets appear once your profile is linked.</p>'; return; }
-      var hist = _SK.eff.filter(function(k){ return k.rep_id === _SK.myRepId; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
+      var _bgFy={}; _fyMonths(_skFy()).forEach(function(p){ _bgFy[p]=1; });
+      var hist = _SK.eff.filter(function(k){ return k.rep_id === _SK.myRepId && _bgFy[k.period]; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
       var last = hist.length ? hist[hist.length-1] : null;
       var lastBill = last ? (Number(last.billing_total)||0) : 0;
       var lastLbl = last ? _skPeriodLabel(last.period) : '—';
@@ -6212,7 +6214,8 @@
     function renderTargetsCards(){
       var host = document.getElementById('bxTgtCards'); if(!host) return;
       var t = _bxTgtVals();
-      var ytd = _SK.eff.filter(function(k){ return k.rep_id === _SK.myRepId; }).reduce(function(a,k){ return a + (Number(k.billing_total)||0); }, 0);
+      var _tcFy2={}; _fyMonths(_skFy()).forEach(function(p){ _tcFy2[p]=1; });
+      var ytd = _SK.eff.filter(function(k){ return k.rep_id === _SK.myRepId && _tcFy2[k.period]; }).reduce(function(a,k){ return a + (Number(k.billing_total)||0); }, 0);
       function card(l,v,s){ return '<div class="stat-card"><div class="stat-label">'+l+'</div><div class="stat-value">'+v+'</div><div class="stat-foot" style="font-size:11px;color:var(--muted);margin-top:4px;">'+s+'</div></div>'; }
       host.innerHTML =
         card('CES monthly target', t.cesM>0?_skMoney(t.cesM):'—', 'set by CES') +
