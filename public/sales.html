@@ -6,7 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' blob: https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' data: blob: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com; frame-src 'self' blob: data: https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self';" />
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
-  <title>CES Billing Portal</title>
+  <title>CES Sales Portal</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
@@ -1075,42 +1075,15 @@
     <div class="login-header">
       <div style="display:flex;align-items:center;gap:20px;">
         <div class="login-header-title">
-          <span class="lht-main">CES Billing Portal</span>
+          <span class="lht-main">CES Sales Portal</span>
         </div>
-        <!-- Carbon portal gateway → served at /carbon -->
-        <a href="/carbon" title="Open the CES Carbon reporting portal"
-           style="display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:9px;background:#e1f5ee;border:1px solid #1d9e75;color:#0f6e56;font-weight:700;font-size:13px;text-decoration:none;white-space:nowrap;transition:background .15s ease,color .15s ease;"
-           onmouseover="this.style.background='#1d9e75';this.style.color='#fff';"
-           onmouseout="this.style.background='#e1f5ee';this.style.color='#0f6e56';">
-          <span style="width:9px;height:9px;border-radius:50%;background:currentColor;display:inline-block;"></span>
-          Carbon&nbsp;portal
+        <!-- Back to the main billing portal -->
+        <a href="/" title="Return to the CES billing portal"
+           style="display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:9px;background:#eef1fb;border:1px solid #2f3d7e;color:#232e63;font-weight:700;font-size:13px;text-decoration:none;white-space:nowrap;transition:background .15s ease,color .15s ease;"
+           onmouseover="this.style.background='#2f3d7e';this.style.color='#fff';"
+           onmouseout="this.style.background='#eef1fb';this.style.color='#232e63';">
+          <span aria-hidden="true">&larr;</span>&nbsp;Billing&nbsp;portal
         </a>
-        <!-- Internal portals dropdown → Flex + Sales (served at /flex and /sales) -->
-        <style>
-          details.internal-portals > summary::-webkit-details-marker{display:none}
-          details.internal-portals > summary::marker{content:""}
-          details.internal-portals[open] > summary{background:#2f3d7e;color:#fff}
-        </style>
-        <details class="internal-portals" style="position:relative;">
-          <summary title="CES internal portals"
-            style="list-style:none;display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:9px;background:#e8eaf6;border:1px solid #2f3d7e;color:#232e63;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;user-select:none;">
-            <span style="width:9px;height:9px;border-radius:50%;background:currentColor;display:inline-block;"></span>
-            Internal&nbsp;portals
-            <span aria-hidden="true" style="font-size:10px;margin-left:1px;">&#9662;</span>
-          </summary>
-          <div style="position:absolute;top:calc(100% + 6px);left:0;z-index:60;background:#fff;border:1px solid #d7dbe8;border-radius:10px;box-shadow:0 10px 30px rgba(20,29,69,0.18);padding:6px;min-width:172px;">
-            <a href="/flex" title="Open the CES Flex trading portal (FDB)"
-               style="display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:7px;color:#232e63;font-weight:700;font-size:13px;text-decoration:none;white-space:nowrap;"
-               onmouseover="this.style.background='#eef1fb';" onmouseout="this.style.background='transparent';">
-              <span style="width:8px;height:8px;border-radius:50%;background:#2f3d7e;display:inline-block;"></span>Flex&nbsp;portal
-            </a>
-            <a href="/sales" title="Open the CES Sales performance portal"
-               style="display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:7px;color:#232e63;font-weight:700;font-size:13px;text-decoration:none;white-space:nowrap;"
-               onmouseover="this.style.background='#eef1fb';" onmouseout="this.style.background='transparent';">
-              <span style="width:8px;height:8px;border-radius:50%;background:#1d9e75;display:inline-block;"></span>Sales&nbsp;portal
-            </a>
-          </div>
-        </details>
       </div>
       <div class="lh-suppliers" aria-hidden="true">
         <div class="lh-cap">Suppliers we have direct agreements with:</div>
@@ -1123,23 +1096,23 @@
         <span class="hero-bubble" aria-hidden="true"></span>
         <div class="hero">
           <div class="hero-accent"></div>
-          <h1>Your bills,<br><span>validated.</span></h1>
-          <p>Monthly bill validation reports and occupancy analysis for every site. View, audit, and download — anytime.</p>
+          <h1>Your numbers,<br><span>in real time.</span></h1>
+          <p>Track your billing, new business and uplift against target — and see exactly where you sit on the team leaderboard, every day.</p>
           <ul class="feature-list">
-            <li><span class="fdot"></span>Rate, arithmetic, and consumption verification</li>
-            <li><span class="fdot"></span>Carbon reporting done for you — ESOS and SECR ready</li>
-            <li><span class="fdot"></span>Rank every site in a live league table</li>
-            <li><span class="fdot"></span>Compare any two periods side by side</li>
-            <li><span class="fdot"></span>Every invoice in one place — download anytime</li>
-            <li><span class="fdot"></span>BillWise AI agent — ready to help with any query, 24/7</li>
+            <li><span class="fdot"></span>Your live dashboard — billing, kWh and uplift vs target</li>
+            <li><span class="fdot"></span>Team leaderboard — see how the floor is ranking</li>
+            <li><span class="fdot"></span>Log your monthly figures and confirm in one click</li>
+            <li><span class="fdot"></span>Private salary &amp; commission calculator</li>
+            <li><span class="fdot"></span>Projects, customers and follow-up reminders</li>
+            <li><span class="fdot"></span>Month-end report emailed automatically once all confirm</li>
           </ul>
         </div>
         <div class="login-footer">© Commercial Energy Solutions — cesgb.com</div>
       </div>
       <div class="login-right">
         <div class="login-box">
-          <h2>Welcome back</h2>
-          <p class="sub">Sign in to view your validation reports.</p>
+          <h2>Sales team sign-in</h2>
+          <p class="sub">Track your performance, targets and the team leaderboard.</p>
           <div class="session-banner" id="sessionBanner" role="status" aria-live="polite">
             <span class="session-banner__dot"></span>
             <div class="session-banner__text">
@@ -1437,6 +1410,7 @@
           <div class="nav-item" id="bkNavCust" onclick="brokerNav('customers')">My Customers</div>
         </div>
         <div class="sidebar-foot">
+          <a href="/" class="signout-btn" style="display:block;text-align:center;text-decoration:none;background:#eef1fb;color:#232e63;border:1px solid #c7cde8;margin-bottom:8px;">&larr; Billing portal</a>
           <button class="signout-btn" onclick="doSignOut()">Sign out</button>
         </div>
       </aside>
@@ -2618,12 +2592,21 @@
         role:       profile.role || 'customer',
         hasLogo:    !!profile.customers?.has_logo
       };
-      showPage(currentUser.isAdmin ? 'adminPage' : (currentUser.isBroker ? 'brokerPage' : 'dashPage'));
+      // ── Sales portal is broker-only ──
+      if (!currentUser.isBroker) {
+        await sb.auth.signOut();
+        currentUser = null;
+        var _e = document.getElementById('loginErr');
+        if (_e) { _e.innerHTML = 'This isn\'t a sales account. Please sign in at the <a href="/" style="color:var(--navy);font-weight:700;text-decoration:underline;">billing portal</a>.'; _e.style.display = 'block'; }
+        var _b = document.getElementById('loginBtn'); if (_b) { _b.disabled = false; _b.textContent = 'Sign in'; }
+        if (window.turnstile && typeof turnstile.reset === 'function') turnstile.reset();
+        window._turnstileToken = null;
+        return;
+      }
+      showPage('brokerPage');
       setupIdleTimeout();
-      logAction('login', null, { is_admin: currentUser.isAdmin, role: currentUser.role });
-      if (currentUser.isAdmin) loadAdmin();
-      else if (currentUser.isBroker) loadBroker();
-      else loadDash();
+      logAction('login', null, { role: currentUser.role, portal: 'sales' });
+      loadBroker();
     }
 
     // ───── BROKER PORTAL ─────
@@ -8640,7 +8623,25 @@
   <!-- ═══════════════════════════════════════════════════════════════════════
        EDIT REPORT MODAL — replace HTML / Excel / Invoices for an existing row
   ════════════════════════════════════════════════════════════════════════ -->
-  <!-- (tail truncated in an earlier sync fault; original session/modal markup to be restored from repo history) -->
+  <!-- ═══════════════════════════════════
+       SESSION INACTIVITY MODAL
+  ════════════════════════════════════ -->
+  <div id="sessionModal" class="session-modal" hidden>
+    <div class="session-modal__overlay"></div>
+    <div class="session-modal__card" role="dialog" aria-modal="true" aria-labelledby="sessionModalTitle">
+      <div class="session-modal__accent"></div>
+      <div class="session-modal__body">
+        <div id="sessionModalIcon" class="session-modal__icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        </div>
+        <h3 id="sessionModalTitle" class="session-modal__title">Still there?</h3>
+        <p id="sessionModalSub" class="session-modal__sub">For your security, you'll be signed out due to inactivity.</p>
+        <div id="sessionModalCountdown" class="session-modal__countdown">5:00</div>
+        <div id="sessionModalActions" class="session-modal__actions"></div>
+      </div>
+    </div>
+  </div>
+
 <script>
 /* Marquee speed sync — constant 40px/s, matches the flex portal banner */
 (function(){
