@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co https://api.carbonintensity.org.uk https://challenges.cloudflare.com https://api.open-meteo.com; object-src 'none'; base-uri 'self'; frame-ancestors 'self';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co https://api.carbonintensity.org.uk https://challenges.cloudflare.com https://api.open-meteo.com; frame-src 'self' https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; frame-ancestors 'self';" />
   <title>CES Carbon — Client Portal</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <meta name="theme-color" content="#2f3d7e">
@@ -11,6 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
@@ -241,6 +242,7 @@
         <form id="loginForm" autocomplete="on" novalidate>
           <div class="fld"><label>Email</label><input type="email" id="email" name="email" autocomplete="username" placeholder="you@company.com" /></div>
           <div class="fld"><label>Password</label><input type="password" id="pass" name="password" autocomplete="current-password" placeholder="••••••••" /></div>
+          <div class="cf-turnstile" data-sitekey="0x4AAAAAADVk1PbXl4rZN4aL" data-theme="light" data-callback="_cbTsOk" data-expired-callback="_cbTsExp" data-error-callback="_cbTsExp" style="margin:2px 0 14px;"></div>
           <button type="submit" id="loginBtn">Sign in</button>
           <div class="login-err" id="loginErr">Incorrect email or password.</div>
         </form>
@@ -350,15 +352,22 @@
 
 const DEMO_USER='carbon@cesgb.com', DEMO_PASS='CarbonDemo2026!';
 const ADMIN_USER='admin@cesgb.com', ADMIN_PASS='CarbonAdmin2026!';
+// Cloudflare Turnstile — the widget calls these; token must be present to sign in.
+window._cbTsTok=null;
+window._cbTsOk=function(t){ window._cbTsTok=t; };
+window._cbTsExp=function(){ window._cbTsTok=null; };
 document.getElementById('loginForm').addEventListener('submit',e=>{
   e.preventDefault();
+  const le=document.getElementById('loginErr');
+  if(!window._cbTsTok){ le.textContent='Please complete the security check below.'; le.style.display='block'; return; }
   const em=document.getElementById('email').value.trim().toLowerCase(), pw=document.getElementById('pass').value;
   if(em===DEMO_USER&&pw===DEMO_PASS){document.getElementById('login').style.display='none';document.getElementById('app').style.display='block';boot();}
   else if(em===ADMIN_USER&&pw===ADMIN_PASS){ // admin signs in here too — hand off to the admin console
     try{sessionStorage.setItem('cesCarbonAdmin','1');}catch(_){}
     location.href='carbon-admin.html';
   }
-  else document.getElementById('loginErr').style.display='block';
+  else { le.textContent='Incorrect email or password.'; le.style.display='block';
+    if(window.turnstile&&turnstile.reset){turnstile.reset();} window._cbTsTok=null; }
 });
 document.getElementById('logoutBtn').addEventListener('click',()=>location.reload());
 
@@ -813,11 +822,6 @@ function boot(){document.getElementById('yearSel').value=YEAR;renderOverview();r
     }
     var amp=Math.max(1.6, Math.min(6, 1.2 + (windKmh||0)*0.12));
     document.querySelectorAll('.cb-t').forEach(function(t){ t.style.setProperty('--sway', amp.toFixed(2)+'deg'); });
-    var chip=el('div','cb-wx-chip',null,login);
-    chip.innerHTML=(isDay?'&#9728;':'&#127769;')+' London: '+wxLabel(code)
-      +(tempC!=null?' &middot; '+Math.round(tempC)+'&deg;C':'')
-      +(windKmh!=null?' &middot; wind '+Math.round(windKmh)+' km/h':'');
-    if(!isDay&&rain) chip.firstChild&&(chip.innerHTML='&#127783;'+chip.innerHTML.slice(9));
   }
   window.cbSetWeather=cbSetWeather; /* manual test: cbSetWeather(95,0,30,14) */
   function weather(){
