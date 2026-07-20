@@ -1061,6 +1061,8 @@ body {
 #fxPrevCurve > summary::marker{content:""}
 #fxPrevCurve > summary:hover{filter:brightness(.98)}
 #fxPrevCurve[open] .fxPrevCaret{transform:rotate(180deg)}
+.fxCgBtn{border:0;background:#fff;color:#2f3d7e;font-family:inherit;font-size:12px;font-weight:700;padding:5px 12px;cursor:pointer;}
+.fxCgBtn.on{background:#2f3d7e;color:#fff;}
 
 .mini-card.has-alert:hover {
   border-color: var(--negative-700);
@@ -4490,6 +4492,21 @@ renderCurves = function(){
       <div class="extra-section-title">${title} (${unit})</div>
       ${hrow('Months',d.months,true)}${hrow('Quarters',d.quarters)}${hrow('Seasons',d.seasons)}${hrow('Annuals',d.annuals)}</div>`;
   el.innerHTML=`<div class="extra-tab-inner" id="fxCurvesInner">
+    <div id="fxCurveGraphCard" style="border:1px solid var(--border,#e6e1d6);border-radius:12px;padding:14px 16px;margin-bottom:18px;background:#fff;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+        <div style="font-weight:800;font-size:14px;color:var(--navy,#2f3d7e);">&#128200; Market price curve <span style="font-weight:600;color:#6b7280;font-size:12px;">&mdash; live &middot; Power &pound;/MWh &amp; Gas p/th</span></div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span id="fxCgGran" style="display:inline-flex;border:1px solid #d7dbe8;border-radius:8px;overflow:hidden;">
+            <button type="button" data-g="month" onclick="fxCgSet('month')" class="fxCgBtn">Month</button>
+            <button type="button" data-g="quarter" onclick="fxCgSet('quarter')" class="fxCgBtn">Quarter</button>
+            <button type="button" data-g="season" onclick="fxCgSet('season')" class="fxCgBtn">Season</button>
+          </span>
+          <label style="font-size:12px;color:#4b5563;">From <input type="month" id="fxCgFrom" min="2021-10" onchange="fxRenderCurveGraph()" style="font:inherit;padding:4px 6px;border:1px solid #d7dbe8;border-radius:6px;"></label>
+          <label style="font-size:12px;color:#4b5563;">To <input type="month" id="fxCgTo" min="2021-10" onchange="fxRenderCurveGraph()" style="font:inherit;padding:4px 6px;border:1px solid #d7dbe8;border-radius:6px;"></label>
+        </div>
+      </div>
+      <div style="position:relative;height:340px;"><canvas id="fxCurveGraph"></canvas></div>
+    </div>
     ${section('NBP Gas Forward Curve','p/th',C.gas)}
     ${section('UK Power Forward Curve','£/MWh',C.power)}
     <p style="font-size:11px;color:var(--grey-400);text-align:right;margin:0;">Marex indicative forward curve — last updated ${C.last_updated || '—'}. Basket market prices pull live: month first, then season.</p>
@@ -4520,6 +4537,12 @@ renderCurves = function(){
     </div>`;
   const inner=document.getElementById('fxCurvesInner');
   inner.insertBefore(bar, inner.firstChild);
+  (function(){ var fEl=document.getElementById('fxCgFrom'), tEl=document.getElementById('fxCgTo'), now=new Date();
+    if(fEl && !fEl.value) fEl.value=new Date(now.getFullYear()-1, now.getMonth(),1).toISOString().slice(0,7);
+    if(tEl && !tEl.value) tEl.value=new Date(now.getFullYear()+2, now.getMonth(),1).toISOString().slice(0,7);
+    document.querySelectorAll('#fxCgGran .fxCgBtn').forEach(function(b){ b.classList.toggle('on', b.dataset.g===_fxCgGran); });
+    fxRenderCurveGraph();
+  })();
   const dz=document.getElementById('fxDrop'), inp=document.getElementById('fxDropInput');
   dz.addEventListener('click', ()=>inp.click());
   inp.addEventListener('change', ()=>{ if(inp.files[0]) fxParseMarex(inp.files[0]); inp.value=''; });
@@ -4529,6 +4552,43 @@ renderCurves = function(){
 };
 // ── Previous (historic) market curve data — months before today, rolls automatically ──
 function fxQLabel(q){ if(!q) return '\u2014'; var m=/^Q(\d)(\d{2})$/.exec(String(q)); return m ? ('Q'+m[1]+'-'+m[2]) : q; }
+let _fxCurveHist=null, _fxCurveChart=null, _fxCgGran='month';
+async function fxLoadCurveHist(){
+  if(_fxCurveHist) return _fxCurveHist;
+  const { data, error } = await FLEX.sb.from('flex_curve_history').select('commodity,month,quarter,season,mid').order('month',{ascending:true});
+  _fxCurveHist = error ? [] : (data||[]);
+  return _fxCurveHist;
+}
+function fxCgSet(g){ _fxCgGran=g; document.querySelectorAll('#fxCgGran .fxCgBtn').forEach(function(b){ b.classList.toggle('on', b.dataset.g===g); }); fxRenderCurveGraph(); }
+async function fxRenderCurveGraph(){
+  const cv=document.getElementById('fxCurveGraph'); if(!cv || typeof Chart==='undefined') return;
+  const rows=await fxLoadCurveHist();
+  const fEl=document.getElementById('fxCgFrom'), tEl=document.getElementById('fxCgTo');
+  const from=(fEl&&fEl.value)? fEl.value+'-01' : '2021-10-01';
+  const to=(tEl&&tEl.value)? tEl.value+'-01' : '2099-12-01';
+  const inr=rows.filter(function(r){ var m=String(r.month).slice(0,10); return m>=from && m<=to; });
+  function keyOf(r){ if(_fxCgGran==='quarter') return fxQLabel(r.quarter); if(_fxCgGran==='season') return r.season||null; return String(r.month).slice(0,7); }
+  const order=[], seen={}, agg={};
+  inr.forEach(function(r){ var k=keyOf(r); if(!k) return; if(!seen[k]){ seen[k]=1; order.push(k); agg[k]={power:{s:0,n:0},gas:{s:0,n:0}}; } var c=agg[k][r.commodity]; if(c && r.mid!=null){ c.s+=Number(r.mid); c.n++; } });
+  const powerData=order.map(function(k){ var c=agg[k].power; return c.n? Math.round(c.s/c.n*100)/100 : null; });
+  const gasData=order.map(function(k){ var c=agg[k].gas; return c.n? Math.round(c.s/c.n*100)/100 : null; });
+  const labels=(_fxCgGran==='month')? order.map(function(k){ return fmtMonth(k+'-01'); }) : order;
+  if(_fxCurveChart){ try{ _fxCurveChart.destroy(); }catch(e){} }
+  _fxCurveChart = new Chart(cv, { type:'line',
+    data:{ labels:labels, datasets:[
+      { label:'Power (\u00a3/MWh)', data:powerData, yAxisID:'y', borderColor:'#2f3d7e', backgroundColor:'#2f3d7e', borderWidth:2, pointRadius:(_fxCgGran==='month'?0:2), tension:0.15, spanGaps:true },
+      { label:'Gas (p/th)', data:gasData, yAxisID:'y1', borderColor:'#c9821e', backgroundColor:'#c9821e', borderWidth:2, pointRadius:(_fxCgGran==='month'?0:2), tension:0.15, spanGaps:true }
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+      plugins:{ legend:{position:'top',labels:{font:{size:11}}} },
+      scales:{
+        x:{ ticks:{ font:{size:10}, maxRotation:45, autoSkip:true, maxTicksLimit:(_fxCgGran==='month'?18:24) }, grid:{color:'rgba(66,67,120,0.08)'} },
+        y:{ position:'left', title:{display:true,text:'Power \u00a3/MWh',font:{size:11}}, grid:{color:'rgba(66,67,120,0.08)'} },
+        y1:{ position:'right', title:{display:true,text:'Gas p/th',font:{size:11}}, grid:{drawOnChartArea:false} }
+      }
+    }
+  });
+}
 async function fxRenderPrevCurve(){
   const body=document.getElementById('fxPrevCurveBody'); if(!body || body.dataset.loaded) return;
   body.dataset.loaded='1';
