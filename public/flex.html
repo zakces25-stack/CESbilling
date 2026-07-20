@@ -717,6 +717,8 @@ td.fx-actions{white-space:nowrap}
   --white: #ffffff;
   --positive-500: #2f9e44;
   --negative-500: #c2453b;
+  --advisory-500: #7c3aed;
+  --advisory-100: #ede9fe;
   --warning-500: #e08a1e;
   --info-500: #2e7c9e;
   --data-electricity: #2e7c9e;
@@ -1046,6 +1048,10 @@ body {
   border: 1.5px solid var(--negative-500);
   border-left: 4px solid var(--negative-500);
 }
+.basket-card.has-alert.advisory { background: rgba(124,58,237,0.16); border-color: var(--advisory-500); border-left-color: var(--advisory-500); }
+.basket-card.has-alert.advisory:hover { background: rgba(124,58,237,0.24); }
+.basket-card.has-alert.advisory.active { background: rgba(124,58,237,0.24); border-left-color: var(--advisory-500); }
+.mini-card.has-alert.advisory { background: var(--advisory-100); border-color: var(--advisory-500); border-left-color: var(--advisory-500); }
 
 .mini-card.has-alert:hover {
   border-color: var(--negative-700);
@@ -1727,6 +1733,7 @@ button{transition:all .14s ease}
         <div class="detail-title-block">
           <div class="detail-title" id="detail-title"></div>
           <span id="detail-badge" class="commodity-badge-lg"></span>
+          <button id="detail-epsp-toggle" class="fx-edit-only" style="display:none;margin-left:8px;padding:4px 10px;border-radius:999px;border:1.5px solid currentColor;background:transparent;font-weight:700;font-size:11px;cursor:pointer;" onclick="fxToggleEpsp()" title="Switch Authorised (red alerts) / Advisory (purple alerts)"></button>
         </div>
         <button class="close-btn" id="close-btn" title="Back to overview">✕</button>
       </div>
@@ -1777,7 +1784,7 @@ async function _fetchAll(table, cols, orderCols) {
 }
 async function loadFlexData() {
   const [baskets, months, trades, targets, curves, orders, contacts, deadlines, admin, meta, notes, adminCells] = await Promise.all([
-    _fetchAll('flex_baskets', 'id,name,commodity,unit_vol,unit_price,is_ces,sort_order,archived,target_labels', ['sort_order']),
+    _fetchAll('flex_baskets', 'id,name,commodity,unit_vol,unit_price,is_ces,sort_order,archived,target_labels,epsp', ['sort_order']),
     _fetchAll('flex_positions', 'basket_id,month,days,season,baseload_vol,secured_vol,secured_wap,baseload_vol_total,secured_vol_total,secured_pct,secured_cost,open_vol,open_vol_total,open_pct,market_price,mkt_source,residual_cost,mtm_cost,mtm_price', ['basket_id', 'month']),
     _fetchAll('flex_trades', 'id,basket_id,trade_ref,trade_date,counterparty,start_date,end_date,volume,product,strike,deal_type,cost', ['basket_id', 'id']),
     _fetchAll('flex_targets', 'basket_id,month,lower_t1,t1_achieved,lower_t2,t2_achieved,lower_t3,t3_achieved,lower_t4,t4_achieved,lower_t5,t5_achieved,lower_t6,t6_achieved,lower_t7,t7_achieved,lower_t8,t8_achieved,upper_alert', ['basket_id', 'month']),
@@ -1824,7 +1831,7 @@ async function loadFlexData() {
   const mkB = b => ({
       id: b.id, name: b.name, commodity: b.commodity, unit_vol: b.unit_vol,
       unit_price: b.unit_price, is_ces: !!b.is_ces, sort_order: b.sort_order,
-      archived: !!b.archived, target_labels: b.target_labels || null,
+      archived: !!b.archived, target_labels: b.target_labels || null, epsp: !!b.epsp,
       months: byM[b.id] || [], targets: byT[b.id] || [],
       trades: byG[b.id] || [], seasons: []
     });
@@ -1949,9 +1956,9 @@ function renderSidebar() {
       nextTargLine = `<div class="basket-next-target">Next target: ${fmtMonth(nt.month)}</div>`;
     }
     const hasAlert = basketHasAlert(b);
-    return `<div class="basket-card${isActive ? ' active' : ''}${hasAlert ? ' has-alert' : ''}" data-id="${escape(b.id)}" onclick="selectBasket('${escape(b.id)}')">
+    return `<div class="basket-card${isActive ? ' active' : ''}${hasAlert ? ' has-alert' + (b.epsp ? '' : ' advisory') : ''}" data-id="${escape(b.id)}" onclick="selectBasket('${escape(b.id)}')">
       <div class="basket-card-top">
-        <div class="basket-card-name">${escape(b.name)}${hasAlert ? ' <span style="font-size:10px;color:var(--negative-500);" title="Price alert">&#9888;</span>' : ''}</div>
+        <div class="basket-card-name">${escape(b.name)}${hasAlert ? ' <span style="font-size:10px;color:' + (b.epsp ? 'var(--negative-500)' : 'var(--advisory-500)') + ';" title="Price alert">&#9888;</span>' : ''}</div>
         <span class="commodity-badge ${b.commodity}">${b.commodity === 'power' ? 'Power' : 'Gas'}</span>
       </div>
       <div class="progress-bar-wrap">
@@ -1975,9 +1982,9 @@ function miniCardHtml(b) {
   const isPower = b.commodity === 'power';
   const vol = isPower ? calcAvgBaseMW(b) : calcTotalBaseVol(b);
   const hasAlert = basketHasAlert(b);
-  return `<div class="mini-card${hasAlert ? ' has-alert' : ''}" onclick="selectBasket('${escape(b.id)}')">
+  return `<div class="mini-card${hasAlert ? ' has-alert' + (b.epsp ? '' : ' advisory') : ''}" onclick="selectBasket('${escape(b.id)}')">
     <div class="mini-card-top">
-      <div class="mini-card-name">${escape(b.name)}${hasAlert ? ' <span style="color:var(--negative-500);" title="Price alert active">&#9888;</span>' : ''}</div>
+      <div class="mini-card-name">${escape(b.name)}${hasAlert ? ' <span style="color:' + (b.epsp ? 'var(--negative-500)' : 'var(--advisory-500)') + ';" title="Price alert active">&#9888;</span>' : ''}</div>
       <span class="commodity-badge ${b.commodity}">${b.commodity === 'power' ? 'Power' : 'Gas'}</span>
     </div>
     <div class="mini-card-pct">${(pct*100).toFixed(0)}%</div>
@@ -2299,6 +2306,7 @@ function renderDetailStatsFromRows(rows, basket) {
 }
 
 function renderDetailStats(basket) {
+  { const _et=document.getElementById('detail-epsp-toggle'); if(_et){ _et.textContent = basket.epsp ? '\u25CF Authorised' : '\u25CF Advisory'; _et.style.color = basket.epsp ? 'var(--negative-500)' : 'var(--advisory-500)'; } }
   // Show stats for ALL months (unfiltered) on initial load
   renderDetailStatsFromRows(basket.months, basket);
 }
@@ -2364,7 +2372,9 @@ function renderPositionsTable(rows, basket) {
 
   const tableRows = rows.map(m => {
     const alert = currentBasket ? rowHasAlert(currentBasket, m) : false;
-    const alertStyle = alert ? 'background:var(--negative-100);border-left:4px solid var(--negative-500);box-shadow:inset 0 0 0 1px var(--negative-500);' : '';
+    const _aC = (currentBasket && currentBasket.epsp) ? 'var(--negative-500)' : 'var(--advisory-500)';
+    const _aB = (currentBasket && currentBasket.epsp) ? 'var(--negative-100)' : 'var(--advisory-100)';
+    const alertStyle = alert ? `background:${_aB};border-left:4px solid ${_aC};box-shadow:inset 0 0 0 1px ${_aC};` : '';
     const alertTitle = alert ? ` title="${alert.label}"` : '';
     const pct = m.secured_pct || 0;
     const mtmClass = m.mtm_cost > 0 ? 'mtm-positive' : m.mtm_cost < 0 ? 'mtm-negative' : 'mtm-zero';
@@ -3414,6 +3424,14 @@ async function fxUpdMonth(basket, m, field, v){
   await fxWrite(FLEX.sb.from('flex_basket_months')
     .update({[field]: v, updated_by: FLEX.user})
     .eq('basket_id', basket.id).eq('month', m.month), 'Saved');
+}
+async function fxToggleEpsp(){
+  const b = currentBasket; if(!b) return;
+  const nv = !b.epsp;
+  b.epsp = nv;
+  const _et=document.getElementById('detail-epsp-toggle'); if(_et){ _et.textContent = nv ? '\u25CF Authorised' : '\u25CF Advisory'; _et.style.color = nv ? 'var(--negative-500)' : 'var(--advisory-500)'; }
+  rerenderCurrent();
+  await fxWrite(FLEX.sb.from('flex_baskets').update({ epsp: nv, updated_by: FLEX.user }).eq('id', b.id), nv ? 'Set to Authorised' : 'Set to Advisory');
 }
 async function fxUpdTarget(basket, t, patch){
   patch.updated_by = FLEX.user;
