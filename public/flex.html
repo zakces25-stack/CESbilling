@@ -1063,6 +1063,7 @@ body {
 #fxPrevCurve[open] .fxPrevCaret{transform:rotate(180deg)}
 .fxCgBtn{border:0;background:#fff;color:#2f3d7e;font-family:inherit;font-size:12px;font-weight:700;padding:5px 12px;cursor:pointer;}
 .fxCgBtn.on{background:#2f3d7e;color:#fff;}
+.fxCgSel{font-family:inherit;font-size:12px;color:#2f3d7e;font-weight:600;padding:5px 8px;border:1px solid #d7dbe8;border-radius:8px;background:#fff;cursor:pointer;}
 
 .mini-card.has-alert:hover {
   border-color: var(--negative-700);
@@ -4491,18 +4492,25 @@ renderCurves = function(){
   const section=(title,unit,d)=>`<div class="extra-section" style="margin-bottom:16px">
       <div class="extra-section-title">${title} (${unit})</div>
       ${hrow('Months',d.months,true)}${hrow('Quarters',d.quarters)}${hrow('Seasons',d.seasons)}${hrow('Annuals',d.annuals)}</div>`;
+  const _fxMoOpts=[['01','Jan'],['02','Feb'],['03','Mar'],['04','Apr'],['05','May'],['06','Jun'],['07','Jul'],['08','Aug'],['09','Sep'],['10','Oct'],['11','Nov'],['12','Dec']].map(function(m){return '<option value="'+m[0]+'">'+m[1]+'</option>';}).join('');
+  let _fxYrOpts=''; for(let _y=2021;_y<=2032;_y++) _fxYrOpts+='<option value="'+_y+'">'+_y+'</option>';
   el.innerHTML=`<div class="extra-tab-inner" id="fxCurvesInner">
     <div id="fxCurveGraphCard" style="border:1px solid var(--border,#e6e1d6);border-radius:12px;padding:14px 16px;margin-bottom:18px;background:#fff;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
         <div style="font-weight:800;font-size:14px;color:var(--navy,#2f3d7e);">&#128200; Market price curve <span style="font-weight:600;color:#6b7280;font-size:12px;">&mdash; live &middot; Power &pound;/MWh &amp; Gas p/th</span></div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <select id="fxCgCommodity" onchange="fxRenderCurveGraph()" class="fxCgSel"><option value="both">Power &amp; Gas</option><option value="power">Power only</option><option value="gas">Gas only</option></select>
           <span id="fxCgGran" style="display:inline-flex;border:1px solid #d7dbe8;border-radius:8px;overflow:hidden;">
             <button type="button" data-g="month" onclick="fxCgSet('month')" class="fxCgBtn">Month</button>
             <button type="button" data-g="quarter" onclick="fxCgSet('quarter')" class="fxCgBtn">Quarter</button>
             <button type="button" data-g="season" onclick="fxCgSet('season')" class="fxCgBtn">Season</button>
           </span>
-          <label style="font-size:12px;color:#4b5563;">From <input type="month" id="fxCgFrom" min="2021-10" onchange="fxRenderCurveGraph()" style="font:inherit;padding:4px 6px;border:1px solid #d7dbe8;border-radius:6px;"></label>
-          <label style="font-size:12px;color:#4b5563;">To <input type="month" id="fxCgTo" min="2021-10" onchange="fxRenderCurveGraph()" style="font:inherit;padding:4px 6px;border:1px solid #d7dbe8;border-radius:6px;"></label>
+          <span style="font-size:12px;color:#4b5563;font-weight:700;">From</span>
+          <select id="fxCgFromM" onchange="fxRenderCurveGraph()" class="fxCgSel">${_fxMoOpts}</select>
+          <select id="fxCgFromY" onchange="fxRenderCurveGraph()" class="fxCgSel">${_fxYrOpts}</select>
+          <span style="font-size:12px;color:#4b5563;font-weight:700;">To</span>
+          <select id="fxCgToM" onchange="fxRenderCurveGraph()" class="fxCgSel">${_fxMoOpts}</select>
+          <select id="fxCgToY" onchange="fxRenderCurveGraph()" class="fxCgSel">${_fxYrOpts}</select>
         </div>
       </div>
       <div style="position:relative;height:340px;"><canvas id="fxCurveGraph"></canvas></div>
@@ -4537,9 +4545,11 @@ renderCurves = function(){
     </div>`;
   const inner=document.getElementById('fxCurvesInner');
   inner.insertBefore(bar, inner.firstChild);
-  (function(){ var fEl=document.getElementById('fxCgFrom'), tEl=document.getElementById('fxCgTo'), now=new Date();
-    if(fEl && !fEl.value) fEl.value=new Date(now.getFullYear()-1, now.getMonth(),1).toISOString().slice(0,7);
-    if(tEl && !tEl.value) tEl.value=new Date(now.getFullYear()+2, now.getMonth(),1).toISOString().slice(0,7);
+  (function(){ var now=new Date(), f=new Date(now.getFullYear()-1,now.getMonth(),1), t=new Date(now.getFullYear()+2,now.getMonth(),1);
+    function pad(n){return (n<10?'0':'')+n;}
+    var fm=document.getElementById('fxCgFromM'), fy=document.getElementById('fxCgFromY'), tm=document.getElementById('fxCgToM'), ty=document.getElementById('fxCgToY');
+    if(fm) fm.value=pad(f.getMonth()+1); if(fy) fy.value=String(Math.min(2032,Math.max(2021,f.getFullYear())));
+    if(tm) tm.value=pad(t.getMonth()+1); if(ty) ty.value=String(Math.min(2032,Math.max(2021,t.getFullYear())));
     document.querySelectorAll('#fxCgGran .fxCgBtn').forEach(function(b){ b.classList.toggle('on', b.dataset.g===_fxCgGran); });
     fxRenderCurveGraph();
   })();
@@ -4563,9 +4573,10 @@ function fxCgSet(g){ _fxCgGran=g; document.querySelectorAll('#fxCgGran .fxCgBtn'
 async function fxRenderCurveGraph(){
   const cv=document.getElementById('fxCurveGraph'); if(!cv || typeof Chart==='undefined') return;
   const rows=await fxLoadCurveHist();
-  const fEl=document.getElementById('fxCgFrom'), tEl=document.getElementById('fxCgTo');
-  const from=(fEl&&fEl.value)? fEl.value+'-01' : '2021-10-01';
-  const to=(tEl&&tEl.value)? tEl.value+'-01' : '2099-12-01';
+  const fm=document.getElementById('fxCgFromM'), fy=document.getElementById('fxCgFromY'), tm=document.getElementById('fxCgToM'), ty=document.getElementById('fxCgToY');
+  const from=(fy&&fm&&fy.value&&fm.value)? (fy.value+'-'+fm.value+'-01') : '2021-10-01';
+  const to=(ty&&tm&&ty.value&&tm.value)? (ty.value+'-'+tm.value+'-01') : '2099-12-01';
+  const commSel=(document.getElementById('fxCgCommodity')||{}).value || 'both';
   const inr=rows.filter(function(r){ var m=String(r.month).slice(0,10); return m>=from && m<=to; });
   function keyOf(r){ if(_fxCgGran==='quarter') return fxQLabel(r.quarter); if(_fxCgGran==='season') return r.season||null; return String(r.month).slice(0,7); }
   const order=[], seen={}, agg={};
@@ -4573,21 +4584,23 @@ async function fxRenderCurveGraph(){
   const powerData=order.map(function(k){ var c=agg[k].power; return c.n? Math.round(c.s/c.n*100)/100 : null; });
   const gasData=order.map(function(k){ var c=agg[k].gas; return c.n? Math.round(c.s/c.n*100)/100 : null; });
   const labels=(_fxCgGran==='month')? order.map(function(k){ return fmtMonth(k+'-01'); }) : order;
+  const base={ borderWidth:2, pointRadius:(_fxCgGran==='month'?0:2), tension:0.15, spanGaps:true };
+  const dP=Object.assign({label:'Power (£/MWh)',data:powerData,borderColor:'#2f3d7e',backgroundColor:'#2f3d7e'},base);
+  const dG=Object.assign({label:'Gas (p/th)',data:gasData,borderColor:'#c9821e',backgroundColor:'#c9821e'},base);
+  const showP=(commSel==='both'||commSel==='power'), showG=(commSel==='both'||commSel==='gas');
+  const datasets=[]; const scales={ x:{ ticks:{font:{size:10},maxRotation:45,autoSkip:true,maxTicksLimit:(_fxCgGran==='month'?18:24)}, grid:{color:'rgba(66,67,120,0.08)'} } };
+  if(showP && showG){ dP.yAxisID='y'; dG.yAxisID='y1'; datasets.push(dP,dG);
+    scales.y={position:'left',title:{display:true,text:'Power £/MWh',font:{size:11}},grid:{color:'rgba(66,67,120,0.08)'}};
+    scales.y1={position:'right',title:{display:true,text:'Gas p/th',font:{size:11}},grid:{drawOnChartArea:false}};
+  } else if(showP){ dP.yAxisID='y'; datasets.push(dP);
+    scales.y={position:'left',title:{display:true,text:'Power £/MWh',font:{size:11}},grid:{color:'rgba(66,67,120,0.08)'}};
+  } else { dG.yAxisID='y'; datasets.push(dG);
+    scales.y={position:'left',title:{display:true,text:'Gas p/th',font:{size:11}},grid:{color:'rgba(66,67,120,0.08)'}};
+  }
   if(_fxCurveChart){ try{ _fxCurveChart.destroy(); }catch(e){} }
-  _fxCurveChart = new Chart(cv, { type:'line',
-    data:{ labels:labels, datasets:[
-      { label:'Power (\u00a3/MWh)', data:powerData, yAxisID:'y', borderColor:'#2f3d7e', backgroundColor:'#2f3d7e', borderWidth:2, pointRadius:(_fxCgGran==='month'?0:2), tension:0.15, spanGaps:true },
-      { label:'Gas (p/th)', data:gasData, yAxisID:'y1', borderColor:'#c9821e', backgroundColor:'#c9821e', borderWidth:2, pointRadius:(_fxCgGran==='month'?0:2), tension:0.15, spanGaps:true }
-    ]},
+  _fxCurveChart = new Chart(cv, { type:'line', data:{labels:labels,datasets:datasets},
     options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
-      plugins:{ legend:{position:'top',labels:{font:{size:11}}} },
-      scales:{
-        x:{ ticks:{ font:{size:10}, maxRotation:45, autoSkip:true, maxTicksLimit:(_fxCgGran==='month'?18:24) }, grid:{color:'rgba(66,67,120,0.08)'} },
-        y:{ position:'left', title:{display:true,text:'Power \u00a3/MWh',font:{size:11}}, grid:{color:'rgba(66,67,120,0.08)'} },
-        y1:{ position:'right', title:{display:true,text:'Gas p/th',font:{size:11}}, grid:{drawOnChartArea:false} }
-      }
-    }
-  });
+      plugins:{ legend:{position:'top',labels:{font:{size:11}}} }, scales:scales } });
 }
 async function fxRenderPrevCurve(){
   const body=document.getElementById('fxPrevCurveBody'); if(!body || body.dataset.loaded) return;
