@@ -6249,16 +6249,19 @@
       var host = document.getElementById('bxTgtChart'); if(!host) return;
       var t = _bxTgtVals();
       var tgt = t.selfM>0 ? t.selfM : t.cesM;
-      var hist = _SK.eff.filter(function(k){ return k.rep_id === _SK.myRepId; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
+      var _tcFy={}; _fyMonths(_skFy()).forEach(function(p){ _tcFy[p]=1; });
+      var hist = _SK.eff.filter(function(k){ return k.rep_id === _SK.myRepId && _tcFy[k.period]; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
       var series = hist.map(function(k){ return { label:_skPeriodLabel(k.period), val:Number(k.billing_total)||0 }; });
       host.innerHTML = _skTargetBars(series, tgt);
       var lbl = document.getElementById('bxTgtHitLbl');
       if(lbl){ if(tgt>0){ var hit = series.filter(function(s){ return s.val>=tgt; }).length; lbl.innerHTML = '<b>'+hit+' of '+series.length+'</b> month'+(series.length===1?'':'s')+' hit your '+(t.selfM>0?'own':'CES')+' monthly target of <b>'+_skMoney(tgt)+'</b> — green = hit, amber = missed.'; } else { lbl.textContent = 'Set a monthly target to see which months you hit it.'; } }
       var req = document.getElementById('bxTgtRequired');
       if(req){
-        var _yr = new Date().getFullYear(), _ml = 12 - new Date().getMonth();
-        var ytdY = hist.filter(function(k){ return String(k.period).slice(0,4) == String(_yr); }).reduce(function(a,k){ return a + (Number(k.billing_total)||0); }, 0);
-        function _reqLine(tot, who){ if(tot<=0) return '<div style="margin-bottom:6px;color:var(--muted);">No '+who+' yearly target set.</div>'; var need = Math.max(0, tot - ytdY) / (_ml||1); return '<div style="margin-bottom:6px;font-size:13px;">To hit your <b>'+who+'</b> yearly target of <b>'+_skMoney(tot)+'</b>, bill <b style="color:var(--navy);">'+_skMoney(need)+'</b>/month for the remaining <b>'+_ml+'</b> month'+(_ml===1?'':'s')+' of '+_yr+'.</div>'; }
+        var _fyLbl2 = _fyLabel(_skFy());
+        var _nowKey2 = new Date().toISOString().slice(0,7)+'-01';
+        var _ml = _fyMonths(_skFy()).filter(function(p){ return p >= _nowKey2; }).length;
+        var ytdY = hist.reduce(function(a,k){ return a + (Number(k.billing_total)||0); }, 0);
+        function _reqLine(tot, who){ if(tot<=0) return '<div style="margin-bottom:6px;color:var(--muted);">No '+who+' yearly target set.</div>'; if(_ml<=0) return '<div style="margin-bottom:6px;font-size:13px;">'+_fyLbl2+' is complete for your <b>'+who+'</b> target of <b>'+_skMoney(tot)+'</b>.</div>'; var need = Math.max(0, tot - ytdY) / _ml; return '<div style="margin-bottom:6px;font-size:13px;">To hit your <b>'+who+'</b> '+_fyLbl2+' target of <b>'+_skMoney(tot)+'</b>, bill <b style="color:var(--navy);">'+_skMoney(need)+'</b>/month for the remaining <b>'+_ml+'</b> month'+(_ml===1?'':'s')+'.</div>'; }
         req.innerHTML = _reqLine(t.cesY, 'CES') + _reqLine(t.selfY, 'own');
       }
       var prog = document.getElementById('bxTgtProgress');
@@ -6375,15 +6378,18 @@
       var rep = _SK.reps.filter(function(r){ return r.id === _SK.myRepId; })[0];
       if(!rep){ host.textContent = 'Your annual target appears once your profile is linked.'; return; }
       var cesY = (Number(rep.monthly_target)||0) * 12;
-      var yr = new Date().getFullYear(), monthsLeft = 12 - new Date().getMonth();
-      var ytd = _SK.eff.filter(function(k){ return k.rep_id === _SK.myRepId && String(k.period).slice(0,4) == String(yr); }).reduce(function(a,k){ return a + (Number(k.billing_total)||0); }, 0);
+      var _fy = _skFy(), fyLbl = _fyLabel(_fy);
+      var _fyset = {}; _fyMonths(_fy).forEach(function(p){ _fyset[p]=1; });
+      var _nowKey = new Date().toISOString().slice(0,7)+'-01';
+      var monthsLeft = _fyMonths(_fy).filter(function(p){ return p >= _nowKey; }).length;
+      var ytd = _SK.eff.filter(function(k){ return k.rep_id === _SK.myRepId && _fyset[k.period]; }).reduce(function(a,k){ return a + (Number(k.billing_total)||0); }, 0);
       if(cesY <= 0){ host.innerHTML = 'No CES annual target set yet — ask CES to set your monthly target.'; return; }
-      var mL = monthsLeft + ' month' + (monthsLeft===1?'':'s');
+      var mL = monthsLeft===0 ? 'the year complete' : (monthsLeft + ' month' + (monthsLeft===1?'':'s') + ' left');
       var gap = cesY - ytd;
       if(gap > 0){
-        host.innerHTML = 'You are <span style="color:#b5340f;">'+_skMoney(gap)+'</span> away from your CES annual target of <b>'+_skMoney(cesY)+'</b>, with <b>'+mL+'</b> left to go. <span style="font-weight:600;color:var(--muted);font-size:13px;">('+_skMoney(ytd)+' billed in '+yr+' · '+Math.round(ytd/cesY*100)+'%)</span>';
+        host.innerHTML = 'You are <span style="color:#b5340f;">'+_skMoney(gap)+'</span> away from your '+fyLbl+' target of <b>'+_skMoney(cesY)+'</b>, with <b>'+mL+'</b>. <span style="font-weight:600;color:var(--muted);font-size:13px;">('+_skMoney(ytd)+' billed in '+fyLbl+' · '+Math.round(ytd/cesY*100)+'%)</span>';
       } else {
-        host.innerHTML = '🎉 You’ve <span style="color:#2f7d4f;">hit your CES annual target</span> of <b>'+_skMoney(cesY)+'</b> — <b>'+_skMoney(-gap)+' over</b>, with <b>'+mL+'</b> still to go.';
+        host.innerHTML = '🎉 You’ve <span style="color:#2f7d4f;">hit your '+fyLbl+' target</span> of <b>'+_skMoney(cesY)+'</b> — <b>'+_skMoney(-gap)+' over</b>'+(monthsLeft>0?', with <b>'+mL+'</b>':'')+'.';
       }
     }
     // ── Broker: itemised new-business detail (per month) ──

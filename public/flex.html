@@ -1048,10 +1048,15 @@ body {
   border: 1.5px solid var(--negative-500);
   border-left: 4px solid var(--negative-500);
 }
-.basket-card.has-alert.advisory { background: rgba(124,58,237,0.16); border-color: var(--advisory-500); border-left-color: var(--advisory-500); }
-.basket-card.has-alert.advisory:hover { background: rgba(124,58,237,0.24); }
-.basket-card.has-alert.advisory.active { background: rgba(124,58,237,0.24); border-left-color: var(--advisory-500); }
-.mini-card.has-alert.advisory { background: var(--advisory-100); border-color: var(--advisory-500); border-left-color: var(--advisory-500); }
+.basket-card.has-alert.advisory { background: rgba(124,58,237,0.16)!important; border-color: var(--advisory-500)!important; border-left-color: var(--advisory-500)!important; }
+.basket-card.has-alert.advisory:hover { background: rgba(124,58,237,0.24)!important; }
+.basket-card.has-alert.advisory.active { background: rgba(124,58,237,0.24)!important; border-left-color: var(--advisory-500)!important; }
+.mini-card.has-alert.advisory { background:#f1ebff!important; border:1.5px solid var(--advisory-500)!important; box-shadow:0 2px 10px rgba(124,58,237,.25)!important; }
+.mini-card.has-alert.advisory:hover { box-shadow:0 6px 22px rgba(124,58,237,.35)!important; border-color:#6d28d9!important; }
+.mini-card.has-alert.advisory .mini-card-name { color:#5b21b6!important; }
+.mini-card.has-alert.advisory .mini-card-pct { color:#5b21b6!important; }
+.mini-card.has-alert.advisory .mini-progress { background:rgba(124,58,237,.18)!important; }
+.mini-card.has-alert.advisory .mini-progress-fill { background:var(--advisory-500)!important; }
 
 .mini-card.has-alert:hover {
   border-color: var(--negative-700);
