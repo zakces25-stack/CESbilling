@@ -4383,6 +4383,20 @@ async function fxTemplateBasket(){
     const r=ws.addRow([fmtMonth(m.month), m.baseload_vol]);
     r.getCell(2).numFmt = b.commodity==='power' ? '0.0000' : '0.00';
   }
+  // Targets sheet — edit tier prices + upper alert, re-import to apply
+  const _numT = b.commodity==='gas'?8:5;
+  const tws=wb.addWorksheet('Targets',{views:[{state:'frozen',ySplit:1}]});
+  const tcols=[{header:'Month',width:12}];
+  for(let i=1;i<=_numT;i++) tcols.push({header:((b.target_labels&&b.target_labels[i-1])||('T'+i)),width:12});
+  tcols.push({header:'Upper Alert',width:12});
+  tws.columns=tcols;
+  tws.getRow(1).eachCell(c=>{ c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF1F2D4D'}}; c.font={color:{argb:'FFFFFFFF'},bold:true,size:10}; });
+  for(const t of (b.targets||[])){
+    const row=[fmtMonth(t.month)];
+    for(let i=1;i<=_numT;i++) row.push(t['lower_t'+i]!=null? t['lower_t'+i] : null);
+    row.push(t.upper_alert!=null? t.upper_alert : null);
+    tws.addRow(row);
+  }
   const buf=await wb.xlsx.writeBuffer();
   fxDownloadBlob(buf, `${b.name} — Baseload Template.xlsx`);
   fxToast('Baseload template downloaded');
@@ -4409,23 +4423,47 @@ async function fxImportParse(file){
     const v=fxNum(r[1]);
     if(m&&v!=null&&v!==m.baseload_vol) changes.push({month:m.month, from:m.baseload_vol, v});
   }
-  if(!changes.length) return fxToast('No baseload changes found in that file', false);
-  window._fxImport={baseload:changes};
-  fxModal(`<h3>Baseload import — ${escape(b.name)}</h3>
-  <p style="font-size:12.5px;color:#4b5563">${changes.length} months will be updated. Positions recalculate automatically.</p>
+  // optional Targets sheet
+  const tchanges=[];
+  const tws=wb.Sheets['Targets'];
+  if(tws){
+    const numT=b.commodity==='gas'?8:5;
+    const trows=XLSX.utils.sheet_to_json(tws,{header:1,raw:true,defval:null}).slice(1);
+    for(const r of trows){
+      if(!r||r[0]==null) continue;
+      const key=r[0] instanceof Date? (r[0].getFullYear()+'-'+String(r[0].getMonth()+1).padStart(2,'0')+'-01') : String(r[0]).trim();
+      const m=known[key]||(fxParseDate(key)?known[fxParseDate(key).slice(0,8)+'01']:null);
+      if(!m) continue;
+      const t=(b.targets||[]).find(x=>x.month===m.month);
+      const patch={}; let any=false;
+      for(let i=1;i<=numT;i++){ const nv=fxNum(r[i]); const cur=t?(t['lower_t'+i]!=null?t['lower_t'+i]:null):null; if((nv!=null?nv:null)!==cur){ patch['lower_t'+i]=nv; any=true; } }
+      const uaNew=fxNum(r[numT+1]); const uaCur=t?(t.upper_alert!=null?t.upper_alert:null):null; if((uaNew!=null?uaNew:null)!==uaCur){ patch.upper_alert=uaNew; any=true; }
+      if(any) tchanges.push({month:m.month, patch});
+    }
+  }
+  if(!changes.length && !tchanges.length) return fxToast('No changes found in that file', false);
+  window._fxImport={baseload:changes, targets:tchanges};
+  const _blHtml = changes.length ? `<p style="font-size:12.5px;color:#4b5563">${changes.length} baseload month(s) will be updated.</p>
   <div class="fx-preview"><table><thead><tr><th>Month</th><th>Current</th><th>New</th></tr></thead><tbody>
-    ${changes.map(r=>`<tr><td>${fmtMonth(r.month)}</td><td>${r.from!=null?r.from:'—'}</td><td><b>${r.v}</b></td></tr>`).join('')}</tbody></table></div>
+    ${changes.map(r=>`<tr><td>${fmtMonth(r.month)}</td><td>${r.from!=null?r.from:'—'}</td><td><b>${r.v}</b></td></tr>`).join('')}</tbody></table></div>` : '';
+  const _tgHtml = tchanges.length ? `<p style="font-size:12.5px;color:#4b5563;margin-top:8px">${tchanges.length} target month(s) will be updated (tier prices / upper alert).</p>` : '';
+  fxModal(`<h3>Import — ${escape(b.name)}</h3>${_blHtml}${_tgHtml}
   <div class="fx-err" id="fxMErr"></div>
   <div class="fx-modal-foot"><button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
-  <button class="fx-btn green" onclick="fxImportCommit()">Update ${changes.length} months</button></div>`);
+  <button class="fx-btn green" onclick="fxImportCommit()">Apply changes</button></div>`);
 }
 async function fxImportCommit(){
   const b=currentBasket, out=window._fxImport; if(!out) return;
-  for(const r of out.baseload){
+  for(const r of (out.baseload||[])){
     const {error}=await FLEX.sb.from('flex_basket_months').update({baseload_vol:r.v, updated_by:FLEX.user}).eq('basket_id',b.id).eq('month',r.month);
     if(error) return fxMErr(error.message);
   }
-  fxToast(out.baseload.length+' baseloads updated');
+  for(const r of (out.targets||[])){
+    const rec=Object.assign({basket_id:b.id, month:r.month, updated_by:FLEX.user}, r.patch);
+    const {error}=await FLEX.sb.from('flex_targets').upsert(rec, {onConflict:'basket_id,month'});
+    if(error) return fxMErr(error.message);
+  }
+  fxToast((out.baseload||[]).length+' baseload · '+(out.targets||[]).length+' target month(s) updated');
   window._fxImport=null; fxCloseModal(); fxScheduleReload();
 }
 // ── CURVES: horizontal layout (replaces vertical tables) ─────────
@@ -4472,10 +4510,38 @@ renderCurves = function(){
   dz.addEventListener('drop', e=>{ const f=e.dataTransfer.files && e.dataTransfer.files[0]; if(f) fxParseMarex(f); });
 };
 
+// ── TARGETS: staged batch editing (edit many, Apply once) ────────
+let FX_TBUF = {}, FX_TBUF_ORIG = {}, FX_TBUF_BID = null;
+function fxStageTarget(basket, t, patch){
+  FX_TBUF_ORIG[t.month] = FX_TBUF_ORIG[t.month] || {};
+  for(const k in patch){ if(!(k in FX_TBUF_ORIG[t.month])) FX_TBUF_ORIG[t.month][k] = (k in t) ? t[k] : null; }
+  Object.assign(t, patch);
+  FX_TBUF[t.month] = Object.assign(FX_TBUF[t.month] || {}, patch);
+  renderTargets(basket);
+}
+async function fxApplyTargets(basket){
+  const months = Object.keys(FX_TBUF); if(!months.length) return;
+  let ok = true, done = 0;
+  for(const mo of months){
+    const patch = Object.assign({}, FX_TBUF[mo], { updated_by: FLEX.user });
+    const { error } = await FLEX.sb.from('flex_targets').update(patch).eq('basket_id', basket.id).eq('month', mo);
+    if(error){ ok = false; fxToast(error.message || 'Save failed', false); break; }
+    done++;
+  }
+  FX_TBUF = {}; FX_TBUF_ORIG = {};
+  if(ok) fxToast('Applied ' + done + ' month' + (done>1?'s':''));
+  fxScheduleReload();
+}
+function fxDiscardTargets(basket){
+  for(const mo in FX_TBUF_ORIG){ const t = (basket.targets||[]).find(x=>x.month===mo); if(t) Object.assign(t, FX_TBUF_ORIG[mo]); }
+  FX_TBUF = {}; FX_TBUF_ORIG = {};
+  renderTargets(basket); fxToast('Changes discarded');
+}
 // ── TARGETS v2: working tick, editable tier labels, notes ────────
 renderTargets = function(basket){
   _renderTargets(basket);
   const el=document.getElementById('tab-targets'); if(!el) return;
+  if(FX_TBUF_BID!==basket.id){ FX_TBUF={}; FX_TBUF_ORIG={}; FX_TBUF_BID=basket.id; }
   const numT = basket.commodity==='gas'?8:5;
   // tier label headers (custom names + click-to-rename in edit mode)
   const ths=el.querySelectorAll('thead th');
@@ -4497,8 +4563,10 @@ renderTargets = function(basket){
   // toolbar + per-cell editing with explicit tick buttons
   if(EDIT){
     const bar=document.createElement('div'); bar.className='fx-toolbar';
+    const _pend=Object.keys(FX_TBUF).length;
     bar.innerHTML=`<button class="fx-btn green" onclick="fxAddTargetMonths()">+ Add target rows for future months</button>
-      <span style="font-size:11px;color:#6b7280">Click a price to edit &middot; click the circle/tick to mark achieved</span>`;
+      <span style="font-size:11px;color:#6b7280">Click a price to edit &middot; click the circle/tick to mark achieved &middot; changes stage until you Apply</span>`
+      + (_pend? ` <button class="fx-btn" style="background:var(--green-500);color:var(--navy-900);font-weight:800" onclick="fxApplyTargets(currentBasket)">&#10003; Apply ${_pend} change${_pend>1?'s':''}</button> <button class="fx-btn danger" onclick="fxDiscardTargets(currentBasket)">Discard</button>` : '');
     el.insertBefore(bar, el.firstChild);
     const targets=basket.targets||[];
     const tbody=el.querySelector('tbody');
@@ -4513,18 +4581,18 @@ renderTargets = function(basket){
           e.stopPropagation();
           fxCellInput(cell, price, async v=>{
             const patch={}; patch['lower_t'+n]=v; if(v==null) patch['t'+n+'_achieved']=null;
-            await fxUpdTarget(basket, t, patch);
+            fxStageTarget(basket, t, patch);
           });
         };
         cell.querySelector('.fx-tick').onclick=async (e)=>{
           e.stopPropagation();
           if(price==null){ fxToast('Set a price first', false); return; }
           const patch={}; patch['t'+n+'_achieved']=ach?null:'Yes';
-          await fxUpdTarget(basket, t, patch);
+          fxStageTarget(basket, t, patch);
         };
       }
       const ua=tr.cells[2+numT];
-      if(ua) fxMakeCellEditable(ua, t.upper_alert, v=>fxUpdTarget(basket, t, {upper_alert:v}));
+      if(ua) fxMakeCellEditable(ua, t.upper_alert, v=>fxStageTarget(basket, t, {upper_alert:v}));
     });
   }
   // targets notes (always visible)
