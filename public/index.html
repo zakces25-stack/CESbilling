@@ -2618,11 +2618,21 @@
         role:       profile.role || 'customer',
         hasLogo:    !!profile.customers?.has_logo
       };
-      showPage(currentUser.isAdmin ? 'adminPage' : (currentUser.isBroker ? 'brokerPage' : 'dashPage'));
+      // Brokers belong in the Sales portal (billcesgb.com/sales), not the billing portal.
+      if (currentUser.isBroker) {
+        await sb.auth.signOut();
+        currentUser = null;
+        var _be = document.getElementById('loginErr');
+        if (_be) { _be.innerHTML = 'Sales team — please sign in at the <a href="/sales" style="color:var(--navy);font-weight:700;text-decoration:underline;">Sales portal</a>.'; _be.style.display = 'block'; }
+        var _bb = document.getElementById('loginBtn'); if (_bb) { _bb.disabled = false; _bb.textContent = 'Sign in'; }
+        if (window.turnstile && typeof turnstile.reset === 'function') turnstile.reset();
+        window._turnstileToken = null;
+        return;
+      }
+      showPage(currentUser.isAdmin ? 'adminPage' : 'dashPage');
       setupIdleTimeout();
       logAction('login', null, { is_admin: currentUser.isAdmin, role: currentUser.role });
       if (currentUser.isAdmin) loadAdmin();
-      else if (currentUser.isBroker) loadBroker();
       else loadDash();
     }
 
