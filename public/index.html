@@ -8637,10 +8637,71 @@
     </span>
   </div>
 
-  <!-- ═══════════════════════════════════════════════════════════════════════
-       EDIT REPORT MODAL — replace HTML / Excel / Invoices for an existing row
-  ════════════════════════════════════════════════════════════════════════ -->
-  <!-- (tail truncated in an earlier sync fault; original session/modal markup to be restored from repo history) -->
+  <div class="session-modal" id="sessionModal" hidden>
+    <div class="session-modal__overlay"></div>
+    <div class="session-modal__card" role="dialog" aria-modal="true" aria-labelledby="sessionModalTitle">
+      <div class="session-modal__accent"></div>
+      <div class="session-modal__body">
+        <div class="session-modal__icon session-modal__icon--warn" id="sessionModalIcon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"></circle>
+            <polyline points="12 7 12 12 15 14"></polyline>
+          </svg>
+        </div>
+        <h3 class="session-modal__title" id="sessionModalTitle">Still there?</h3>
+        <p class="session-modal__sub" id="sessionModalSub">For your security, you'll be signed out due to inactivity.</p>
+        <div class="session-modal__countdown" id="sessionModalCountdown" aria-live="polite">1:00</div>
+        <div class="session-modal__actions" id="sessionModalActions">
+          <button type="button" class="session-modal__btn-ghost" onclick="sessionUserSignOut()">Sign out</button>
+          <button type="button" class="session-modal__btn-primary" onclick="sessionStayActive()">Stay signed in</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="edit-report-modal" id="editReportModal" style="display:none;">
+    <div class="edit-report-modal__overlay" onclick="closeEditReport()"></div>
+    <div class="edit-report-modal__card">
+      <div class="edit-report-modal__head">
+        <h3 id="editReportTitle">Edit report</h3>
+        <button class="btn-close" onclick="closeEditReport()" aria-label="Close">×</button>
+      </div>
+      <div class="edit-report-modal__body">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:18px;">Upload a new file to replace the existing one. Leave a field empty to keep the current version.</p>
+        <div class="success-box" id="editReportOk">Files updated successfully.</div>
+        <div class="form-group">
+          <label>HTML report</label>
+          <input type="file" id="editHtmlFile" accept=".html,.htm" />
+          <div class="form-help" id="editHtmlCurrent">—</div>
+        </div>
+        <div class="form-group">
+          <label>Excel workbook</label>
+          <input type="file" id="editXlsxFile" accept=".xlsx" />
+          <div class="form-help" id="editXlsxCurrent">—</div>
+        </div>
+        <div class="form-group">
+          <label>Invoice ZIP</label>
+          <input type="file" id="editInvFile" accept=".zip" />
+          <div class="form-help" id="editInvCurrent">—</div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:18px;">
+          <button class="btn-primary" id="editSubmitBtn" onclick="doEditReport()" style="flex:1;">Save changes</button>
+          <button class="btn-secondary" onclick="closeEditReport()" style="flex:1;">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- ERRORS MODAL — admin marks individual errors resolved per report -->
+  <div id="errorsModal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(20,29,69,0.45);align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;">
+    <div style="background:#fff;border-radius:12px;max-width:720px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border);">
+        <h2 style="font-size:16px;font-weight:800;margin:0;">Errors — <span id="emTitle"></span></h2>
+        <button onclick="closeErrorsModal()" style="background:none;border:none;font-size:24px;cursor:pointer;line-height:1;color:var(--muted);">×</button>
+      </div>
+      <div id="emBody" style="padding:18px 20px;"></div>
+    </div>
+  </div>
+
 <script>
 /* Marquee speed sync — constant 40px/s, matches the flex portal banner */
 (function(){
