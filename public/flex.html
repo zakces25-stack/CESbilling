@@ -1057,6 +1057,18 @@ body {
 .mini-card.has-alert.advisory .mini-card-pct { color:#5b21b6!important; }
 .mini-card.has-alert.advisory .mini-progress { background:rgba(124,58,237,.18)!important; }
 .mini-card.has-alert.advisory .mini-progress-fill { background:var(--advisory-500)!important; }
+/* ── Target designations: wrapped headers, hit cells & whole-row alerts (kind-aware) ── */
+#tab-targets thead th{ white-space:normal!important; overflow-wrap:anywhere; word-break:break-word; max-width:120px; vertical-align:bottom; line-height:1.2; }
+#tab-targets thead th .fx-th-lbl{ white-space:normal; overflow-wrap:anywhere; word-break:break-word; }
+.fx-kindbtn{ display:inline-block; margin-top:4px; padding:1px 7px; border-radius:999px; border:1.5px solid currentColor; background:transparent; font-size:9.5px; font-weight:800; letter-spacing:.3px; cursor:pointer; line-height:1.4; text-transform:uppercase; white-space:nowrap; }
+.fx-kindbtn.auth{ color:var(--negative-500); }
+.fx-kindbtn.adv{ color:var(--advisory-500); }
+#tab-targets td.fx-hit-auth{ background:rgba(194,69,59,.20)!important; color:#8b2015!important; font-weight:800; font-family:var(--font-mono); }
+#tab-targets td.fx-hit-adv{ background:rgba(124,58,237,.18)!important; color:#5b21b6!important; font-weight:800; font-family:var(--font-mono); }
+tr.fx-alert-auth td{ background:rgba(194,69,59,.15)!important; }
+tr.fx-alert-adv td{ background:rgba(124,58,237,.13)!important; }
+tr.fx-alert-auth td:first-child{ border-left:4px solid var(--negative-500); font-weight:700; }
+tr.fx-alert-adv td:first-child{ border-left:4px solid var(--advisory-500); font-weight:700; }
 #fxPrevCurve > summary::-webkit-details-marker{display:none}
 #fxPrevCurve > summary::marker{content:""}
 #fxPrevCurve > summary:hover{filter:brightness(.98)}
@@ -1745,7 +1757,7 @@ button{transition:all .14s ease}
         <div class="detail-title-block">
           <div class="detail-title" id="detail-title"></div>
           <span id="detail-badge" class="commodity-badge-lg"></span>
-          <button id="detail-epsp-toggle" class="fx-edit-only" style="display:none;margin-left:8px;padding:4px 10px;border-radius:999px;border:1.5px solid currentColor;background:transparent;font-weight:700;font-size:11px;cursor:pointer;" onclick="fxToggleEpsp()" title="Switch Authorised (red alerts) / Advisory (purple alerts)"></button>
+          <!-- basket-level Authorised/Advisory toggle removed; designations are now per target tier -->
         </div>
         <button class="close-btn" id="close-btn" title="Back to overview">✕</button>
       </div>
@@ -1796,7 +1808,7 @@ async function _fetchAll(table, cols, orderCols) {
 }
 async function loadFlexData() {
   const [baskets, months, trades, targets, curves, orders, contacts, deadlines, admin, meta, notes, adminCells] = await Promise.all([
-    _fetchAll('flex_baskets', 'id,name,commodity,unit_vol,unit_price,is_ces,sort_order,archived,target_labels,epsp', ['sort_order']),
+    _fetchAll('flex_baskets', 'id,name,commodity,unit_vol,unit_price,is_ces,sort_order,archived,target_labels,epsp,target_kinds,target_count', ['sort_order']),
     _fetchAll('flex_positions', 'basket_id,month,days,season,baseload_vol,secured_vol,secured_wap,baseload_vol_total,secured_vol_total,secured_pct,secured_cost,open_vol,open_vol_total,open_pct,market_price,mkt_source,residual_cost,mtm_cost,mtm_price', ['basket_id', 'month']),
     _fetchAll('flex_trades', 'id,basket_id,trade_ref,trade_date,counterparty,start_date,end_date,volume,product,strike,deal_type,cost', ['basket_id', 'id']),
     _fetchAll('flex_targets', 'basket_id,month,lower_t1,t1_achieved,lower_t2,t2_achieved,lower_t3,t3_achieved,lower_t4,t4_achieved,lower_t5,t5_achieved,lower_t6,t6_achieved,lower_t7,t7_achieved,lower_t8,t8_achieved,upper_alert', ['basket_id', 'month']),
@@ -1843,7 +1855,7 @@ async function loadFlexData() {
   const mkB = b => ({
       id: b.id, name: b.name, commodity: b.commodity, unit_vol: b.unit_vol,
       unit_price: b.unit_price, is_ces: !!b.is_ces, sort_order: b.sort_order,
-      archived: !!b.archived, target_labels: b.target_labels || null, epsp: !!b.epsp,
+      archived: !!b.archived, target_labels: b.target_labels || null, epsp: !!b.epsp, target_kinds: b.target_kinds || null, target_count: (b.target_count != null ? b.target_count : null),
       months: byM[b.id] || [], targets: byT[b.id] || [],
       trades: byG[b.id] || [], seasons: []
     });
@@ -1967,10 +1979,10 @@ function renderSidebar() {
     if (nt) {
       nextTargLine = `<div class="basket-next-target">Next target: ${fmtMonth(nt.month)}</div>`;
     }
-    const hasAlert = basketHasAlert(b);
-    return `<div class="basket-card${isActive ? ' active' : ''}${hasAlert ? ' has-alert' + (b.epsp ? '' : ' advisory') : ''}" data-id="${escape(b.id)}" onclick="selectBasket('${escape(b.id)}')">
+    const aKind = basketAlertKind(b); const hasAlert = !!aKind;
+    return `<div class="basket-card${isActive ? ' active' : ''}${hasAlert ? ' has-alert' + (aKind === 'advisory' ? ' advisory' : '') : ''}" data-id="${escape(b.id)}" onclick="selectBasket('${escape(b.id)}')">
       <div class="basket-card-top">
-        <div class="basket-card-name">${escape(b.name)}${hasAlert ? ' <span style="font-size:10px;color:' + (b.epsp ? 'var(--negative-500)' : 'var(--advisory-500)') + ';" title="Price alert">&#9888;</span>' : ''}</div>
+        <div class="basket-card-name">${escape(b.name)}${hasAlert ? ' <span style="font-size:10px;color:' + (aKind === 'advisory' ? 'var(--advisory-500)' : 'var(--negative-500)') + ';" title="Price alert">&#9888;</span>' : ''}</div>
         <span class="commodity-badge ${b.commodity}">${b.commodity === 'power' ? 'Power' : 'Gas'}</span>
       </div>
       <div class="progress-bar-wrap">
@@ -1993,10 +2005,10 @@ function miniCardHtml(b) {
   const pct = calcSecuredPct(b);
   const isPower = b.commodity === 'power';
   const vol = isPower ? calcAvgBaseMW(b) : calcTotalBaseVol(b);
-  const hasAlert = basketHasAlert(b);
-  return `<div class="mini-card${hasAlert ? ' has-alert' + (b.epsp ? '' : ' advisory') : ''}" onclick="selectBasket('${escape(b.id)}')">
+  const aKind = basketAlertKind(b); const hasAlert = !!aKind;
+  return `<div class="mini-card${hasAlert ? ' has-alert' + (aKind === 'advisory' ? ' advisory' : '') : ''}" onclick="selectBasket('${escape(b.id)}')">
     <div class="mini-card-top">
-      <div class="mini-card-name">${escape(b.name)}${hasAlert ? ' <span style="color:' + (b.epsp ? 'var(--negative-500)' : 'var(--advisory-500)') + ';" title="Price alert active">&#9888;</span>' : ''}</div>
+      <div class="mini-card-name">${escape(b.name)}${hasAlert ? ' <span style="color:' + (aKind === 'advisory' ? 'var(--advisory-500)' : 'var(--negative-500)') + ';" title="Price alert active">&#9888;</span>' : ''}</div>
       <span class="commodity-badge ${b.commodity}">${b.commodity === 'power' ? 'Power' : 'Gas'}</span>
     </div>
     <div class="mini-card-pct">${(pct*100).toFixed(0)}%</div>
@@ -2211,7 +2223,7 @@ function getNextTargetForMonth(basket, monthStr) {
   if (!basket.targets) return null;
   const t = basket.targets.find(x => x.month === monthStr);
   if (!t) return null;
-  const numT = basket.commodity === 'gas' ? 8 : 5;
+  const numT = fxTierCount(basket);
   for (let i = 1; i <= numT; i++) {
     const price = t[`lower_t${i}`];
     const achieved = t[`t${i}_achieved`];
@@ -2318,20 +2330,32 @@ function renderDetailStatsFromRows(rows, basket) {
 }
 
 function renderDetailStats(basket) {
-  { const _et=document.getElementById('detail-epsp-toggle'); if(_et){ _et.textContent = basket.epsp ? '\u25CF Authorised' : '\u25CF Advisory'; _et.style.color = basket.epsp ? 'var(--negative-500)' : 'var(--advisory-500)'; } }
+  // (per-basket Authorised/Advisory toggle removed \u2014 designations are now per target tier)
   // Show stats for ALL months (unfiltered) on initial load
   renderDetailStatsFromRows(basket.months, basket);
 }
 
 // ── POSITIONS TABLE RENDERER ─────────────────────────────────────
 // ── ALERT HELPERS ───────────────────────────────────────────────
+// Number of visible target tiers for a basket (per-basket override, else commodity default)
+function fxTierCount(basket) {
+  const n = basket && basket.target_count;
+  if (n != null && n >= 1 && n <= 8) return n;
+  return (basket && basket.commodity === 'gas') ? 8 : 5;
+}
+// Designation of a target tier: 'advisory' (purple) or 'authorised' (red, default)
+function fxTargetKind(basket, i) {
+  const k = basket && basket.target_kinds;
+  return (k && k[i - 1] === 'advisory') ? 'advisory' : 'authorised';
+}
+
 function getNextUnachievedTarget(basket, monthStr) {
   const t = (basket.targets || []).find(t => t.month === monthStr);
   if (!t) return null;
-  const levels = ['t1','t2','t3','t4','t5','t6','t7','t8'];
-  for (const k of levels) {
-    const price = t['lower_' + k];
-    const done  = t[k + '_achieved'];
+  const n = fxTierCount(basket);
+  for (let i = 1; i <= n; i++) {
+    const price = t['lower_t' + i];
+    const done  = t['t' + i + '_achieved'];
     if (price != null && done !== 'Yes') return { price };
   }
   return null;
@@ -2342,19 +2366,49 @@ function getUpperAlert(basket, monthStr) {
   return (t && t.upper_alert != null) ? t.upper_alert : null;
 }
 
-function rowHasAlert(basket, m) {
+// Full alert info for a month row, split by target designation.
+// A target is "hit" when the market has reached it (market below an unachieved buy target).
+// An authorised hit => red and takes priority; an advisory hit, or an upper-alert breach,
+// (upper alerts always behave as advisory) => purple only when no authorised target is hit.
+function fxRowAlert(basket, m) {
   const mp = m.market_price;
-  if (!mp) return false;
-  const nt = getNextUnachievedTarget(basket, m.month);
-  if (nt && mp < nt.price) return { type: 'below', label: 'Market below next target (' + mp.toFixed(2) + ' < ' + nt.price.toFixed(2) + ')' };
-  const ua = getUpperAlert(basket, m.month);
-  if (ua != null && mp > ua) return { type: 'above', label: 'Market above upper alert (' + mp.toFixed(2) + ' > ' + ua.toFixed(2) + ')' };
-  return false;
+  if (!mp) return null;
+  const t = (basket.targets || []).find(x => x.month === m.month);
+  const n = fxTierCount(basket);
+  let belowAny = false, belowAuth = false, hitPrice = null;
+  if (t) {
+    for (let i = 1; i <= n; i++) {
+      const price = t['lower_t' + i], done = t['t' + i + '_achieved'];
+      if (price != null && done !== 'Yes' && mp < price) {
+        belowAny = true;
+        if (hitPrice == null || price < hitPrice) hitPrice = price;
+        if (fxTargetKind(basket, i) === 'authorised') belowAuth = true;
+      }
+    }
+  }
+  const ua = (t && t.upper_alert != null) ? t.upper_alert : null;
+  const above = (ua != null && mp > ua);
+  if (!belowAny && !above) return null;
+  const kind = belowAuth ? 'authorised' : 'advisory';
+  const label = belowAny
+    ? ('Market ' + mp.toFixed(2) + ' below target ' + hitPrice.toFixed(2))
+    : ('Market ' + mp.toFixed(2) + ' above upper alert ' + ua.toFixed(2));
+  return { kind: kind, below: belowAny, above: above, label: label };
 }
+// Back-compat wrapper: returns a truthy alert object, or false
+function rowHasAlert(basket, m) { return fxRowAlert(basket, m) || false; }
 
-function basketHasAlert(basket) {
-  return basket.months.some(m => m.month >= CUTOFF && !!rowHasAlert(basket, m));
+// Overall alert designation for a basket across future months: 'authorised' | 'advisory' | null
+function basketAlertKind(basket) {
+  let adv = false;
+  for (const m of basket.months) {
+    if (m.month < CUTOFF) continue;
+    const a = fxRowAlert(basket, m);
+    if (a) { if (a.kind === 'authorised') return 'authorised'; adv = true; }
+  }
+  return adv ? 'advisory' : null;
 }
+function basketHasAlert(basket) { return basketAlertKind(basket) != null; }
 
 function renderPositionsTable(rows, basket) {
   const pu = basket.unit_price;
@@ -2383,10 +2437,8 @@ function renderPositionsTable(rows, basket) {
   const tPct  = tBaseEnergy > 0 ? tSecEnergy/tBaseEnergy : 0;
 
   const tableRows = rows.map(m => {
-    const alert = currentBasket ? rowHasAlert(currentBasket, m) : false;
-    const _aC = (currentBasket && currentBasket.epsp) ? 'var(--negative-500)' : 'var(--advisory-500)';
-    const _aB = (currentBasket && currentBasket.epsp) ? 'var(--negative-100)' : 'var(--advisory-100)';
-    const alertStyle = alert ? `background:${_aB};border-left:4px solid ${_aC};box-shadow:inset 0 0 0 1px ${_aC};` : '';
+    const alert = currentBasket ? fxRowAlert(currentBasket, m) : null;
+    const alertCls = alert ? (alert.kind === 'authorised' ? 'fx-alert-auth' : 'fx-alert-adv') : '';
     const alertTitle = alert ? ` title="${alert.label}"` : '';
     const pct = m.secured_pct || 0;
     const mtmClass = m.mtm_cost > 0 ? 'mtm-positive' : m.mtm_cost < 0 ? 'mtm-negative' : 'mtm-zero';
@@ -2408,8 +2460,9 @@ function renderPositionsTable(rows, basket) {
     const uaCell = `<td class="td-center">${ua != null ? ua : '—'}</td>`;
 
     const nowM = new Date().toISOString().slice(0,8)+'01';
-    const rowCls = m.month === nowM ? 'fx-row-current' : ((m.secured_pct||0) >= 0.995 ? 'fx-row-hedged' : (isFuture ? 'future-month' : ''));
-    return `<tr${rowCls ? ` class="${rowCls}"` : ''}${alertTitle} style="${m.month === nowM ? '' : alertStyle}">
+    const baseCls = m.month === nowM ? 'fx-row-current' : ((m.secured_pct||0) >= 0.995 ? 'fx-row-hedged' : (isFuture ? 'future-month' : ''));
+    const rowCls = (m.month === nowM ? baseCls : ((baseCls ? baseCls + ' ' : '') + alertCls)).trim();
+    return `<tr${rowCls ? ` class="${rowCls}"` : ''}${alertTitle}>
       <td>${fmtMonth(m.month)}</td>
       <td>${escape(m.season||'')}</td>
       <td class="td-right">${isPower && m[volField_base] != null ? m[volField_base].toFixed(4) : fmtVol(m[volField_base])}</td>
@@ -2664,8 +2717,7 @@ function renderTargets(basket) {
     return;
   }
 
-  const isGas = basket.commodity === 'gas';
-  const numT = isGas ? 8 : 5;
+  const numT = fxTierCount(basket);
 
   let thCols = '<th>Month</th><th class="td-right">Mkt Price</th>';
   for (let i = 1; i <= numT; i++) thCols += `<th class="td-center">T${i}</th>`;
@@ -2673,7 +2725,8 @@ function renderTargets(basket) {
 
   const rows = targets.map(t => {
     const mm = basket.months.find(m => m.month === t.month);
-    const mp = mm && mm.market_price != null ? mm.market_price.toFixed(2) : '-';
+    const mpNum = mm && mm.market_price != null ? mm.market_price : null;
+    const mp = mpNum != null ? mpNum.toFixed(2) : '-';
     let tds = `<td>${fmtMonth(t.month)}</td><td class="td-right">${mp}</td>`;
     for (let i = 1; i <= numT; i++) {
       const price = t[`lower_t${i}`];
@@ -2682,11 +2735,18 @@ function renderTargets(basket) {
         tds += `<td class="td-center" style="color:var(--grey-200)">—</td>`;
       } else if (achieved === 'Yes') {
         tds += `<td class="achieved-cell td-center" style="background:var(--green-500);color:var(--navy-900);font-weight:700;font-size:12px;font-family:var(--font-mono);" title="Target achieved">${price} &#10003;</td>`;
+      } else if (mpNum != null && mpNum < price) {
+        // Hit: market has reached this buy target — colour the cell by its designation
+        const advisory = fxTargetKind(basket, i) === 'advisory';
+        const cls = advisory ? 'fx-hit-adv' : 'fx-hit-auth';
+        const lbl = advisory ? 'Advisory target hit' : 'Authorised target hit';
+        tds += `<td class="td-center ${cls}" title="${lbl} — market ${mp} below ${price}">${price}</td>`;
       } else {
         tds += `<td class="td-center"><span class="target-pending" title="Pending">&#9711;</span><span class="target-price">${price}</span></td>`;
       }
     }
-    tds += `<td class="td-right">${t.upper_alert != null ? t.upper_alert : '-'}</td>`;
+    const uaHit = (mpNum != null && t.upper_alert != null && mpNum > t.upper_alert);
+    tds += `<td class="td-right${uaHit ? ' fx-hit-adv' : ''}"${uaHit ? ` title="Upper alert hit — market ${mp} above ${t.upper_alert}"` : ''}>${t.upper_alert != null ? t.upper_alert : '-'}</td>`;
     return `<tr>${tds}</tr>`;
   }).join('');
 
@@ -3437,14 +3497,7 @@ async function fxUpdMonth(basket, m, field, v){
     .update({[field]: v, updated_by: FLEX.user})
     .eq('basket_id', basket.id).eq('month', m.month), 'Saved');
 }
-async function fxToggleEpsp(){
-  const b = currentBasket; if(!b) return;
-  const nv = !b.epsp;
-  b.epsp = nv;
-  const _et=document.getElementById('detail-epsp-toggle'); if(_et){ _et.textContent = nv ? '\u25CF Authorised' : '\u25CF Advisory'; _et.style.color = nv ? 'var(--negative-500)' : 'var(--advisory-500)'; }
-  rerenderCurrent();
-  await fxWrite(FLEX.sb.from('flex_baskets').update({ epsp: nv, updated_by: FLEX.user }).eq('id', b.id), nv ? 'Set to Authorised' : 'Set to Advisory');
-}
+// (Basket-level Authorised/Advisory toggle removed \u2014 designations are now set per target tier.)
 async function fxUpdTarget(basket, t, patch){
   patch.updated_by = FLEX.user;
   await fxWrite(FLEX.sb.from('flex_targets').update(patch)
@@ -4396,7 +4449,7 @@ async function fxTemplateBasket(){
     r.getCell(2).numFmt = b.commodity==='power' ? '0.0000' : '0.00';
   }
   // Targets sheet — edit tier prices + upper alert, re-import to apply
-  const _numT = b.commodity==='gas'?8:5;
+  const _numT = fxTierCount(b);
   const tws=wb.addWorksheet('Targets',{views:[{state:'frozen',ySplit:1}]});
   const tcols=[{header:'Month',width:12}];
   for(let i=1;i<=_numT;i++) tcols.push({header:((b.target_labels&&b.target_labels[i-1])||('T'+i)),width:12});
@@ -4439,7 +4492,7 @@ async function fxImportParse(file){
   const tchanges=[];
   const tws=wb.Sheets['Targets'];
   if(tws){
-    const numT=b.commodity==='gas'?8:5;
+    const numT=fxTierCount(b);
     const trows=XLSX.utils.sheet_to_json(tws,{header:1,raw:true,defval:null}).slice(1);
     for(const r of trows){
       if(!r||r[0]==null) continue;
@@ -4657,30 +4710,42 @@ renderTargets = function(basket){
   _renderTargets(basket);
   const el=document.getElementById('tab-targets'); if(!el) return;
   if(FX_TBUF_BID!==basket.id){ FX_TBUF={}; FX_TBUF_ORIG={}; FX_TBUF_BID=basket.id; }
-  const numT = basket.commodity==='gas'?8:5;
-  // tier label headers (custom names + click-to-rename in edit mode)
+  const numT = fxTierCount(basket);
+  // tier label headers (custom names + click-to-rename, + Authorised/Advisory toggle, in edit mode)
   const ths=el.querySelectorAll('thead th');
   for(let n=1;n<=numT;n++){
     const th=ths[1+n]; if(!th) continue;
     const lbl=(basket.target_labels&&basket.target_labels[n-1])||('T'+n);
-    th.textContent=lbl;
     if(EDIT){
-      th.style.cursor='pointer'; th.title='Click to rename this target column';
-      th.onclick=()=>{ if(th.querySelector('input')) return;
-        fxCellInputText(th, lbl, async v=>{
+      const kind=fxTargetKind(basket,n);
+      th.innerHTML=`<div class="fx-th-lbl" title="Click to rename this target">${escape(lbl)}</div>`
+        +`<button type="button" class="fx-kindbtn ${kind==='advisory'?'adv':'auth'}" title="Click to switch this target between Authorised (red) and Advisory (purple)">${kind==='advisory'?'Advisory':'Authorised'}</button>`;
+      const lblEl=th.querySelector('.fx-th-lbl'); lblEl.style.cursor='pointer';
+      lblEl.onclick=(e)=>{ e.stopPropagation(); if(lblEl.querySelector('input')) return;
+        fxCellInputText(lblEl, lbl, async v=>{
           const labels=(basket.target_labels||Array.from({length:8},(_,i)=>'T'+(i+1))).slice();
           labels[n-1]=v||('T'+n);
-          await fxWrite(FLEX.sb.from('flex_baskets').update({target_labels:labels, updated_by:FLEX.user}).eq('id',basket.id),'Column renamed');
+          await fxWrite(FLEX.sb.from('flex_baskets').update({target_labels:labels, updated_by:FLEX.user}).eq('id',basket.id),'Target renamed');
         });
       };
+      th.querySelector('.fx-kindbtn').onclick=async(e)=>{ e.stopPropagation();
+        const kinds=(basket.target_kinds?basket.target_kinds.slice():Array.from({length:8},()=>'authorised'));
+        while(kinds.length<8) kinds.push('authorised');
+        kinds[n-1]=(kind==='advisory'?'authorised':'advisory');
+        await fxWrite(FLEX.sb.from('flex_baskets').update({target_kinds:kinds, updated_by:FLEX.user}).eq('id',basket.id), 'Target set to '+(kinds[n-1]==='advisory'?'Advisory':'Authorised'));
+      };
+    } else {
+      th.textContent=lbl;
     }
   }
   // toolbar + per-cell editing with explicit tick buttons
   if(EDIT){
     const bar=document.createElement('div'); bar.className='fx-toolbar';
     const _pend=Object.keys(FX_TBUF).length;
-    bar.innerHTML=`<button class="fx-btn green" onclick="fxAddTargetMonths()">+ Add target rows for future months</button>
-      <span style="font-size:11px;color:#6b7280">Click a price to edit &middot; click the circle/tick to mark achieved &middot; changes stage until you Apply</span>`
+    bar.innerHTML=`<button class="fx-btn green" onclick="fxAddTargetMonths()">+ Add target rows for future months</button>`
+      + (numT<8? ` <button class="fx-btn" onclick="fxAddTargetCol(currentBasket)" title="Show another target tier">+ Add target column</button>` : '')
+      + (numT>1? ` <button class="fx-btn danger" onclick="fxRemTargetCol(currentBasket)" title="Hide the last target tier">&minus; Remove last column</button>` : '')
+      + ` <span style="font-size:11px;color:#6b7280">Click a name to rename &middot; click Authorised/Advisory to set its colour &middot; click a price to edit &middot; click the circle/tick to mark achieved &middot; changes stage until you Apply</span>`
       + (_pend? ` <button class="fx-btn" style="background:var(--green-500);color:var(--navy-900);font-weight:800" onclick="fxApplyTargets(currentBasket)">&#10003; Apply ${_pend} change${_pend>1?'s':''}</button> <button class="fx-btn danger" onclick="fxDiscardTargets(currentBasket)">Discard</button>` : '');
     el.insertBefore(bar, el.firstChild);
     const targets=basket.targets||[];
@@ -4720,6 +4785,22 @@ renderTargets = function(basket){
     ${notes.length?notes.map(n=>fxNoteCard(n,true)).join(''):'<div style="font-size:12px;color:#9aa1ad">No target notes for this basket yet.</div>'}`;
   el.appendChild(nd);
 };
+
+// ── TARGETS: add / remove a target column (per basket, non-destructive) ──
+async function fxAddTargetCol(b){
+  if(!b) return;
+  const n=fxTierCount(b);
+  if(n>=8){ fxToast('Maximum of 8 targets', false); return; }
+  await fxWrite(FLEX.sb.from('flex_baskets').update({target_count:n+1, updated_by:FLEX.user}).eq('id',b.id), 'Added target column');
+}
+async function fxRemTargetCol(b){
+  if(!b) return;
+  const n=fxTierCount(b);
+  if(n<=1){ fxToast('At least one target is required', false); return; }
+  const hasData=(b.targets||[]).some(t=>t['lower_t'+n]!=null);
+  if(hasData && !confirm('Target '+n+' has prices set. Remove the column anyway?\n\nThe prices stay saved in the database and reappear if you add the column back.')) return;
+  await fxWrite(FLEX.sb.from('flex_baskets').update({target_count:n-1, updated_by:FLEX.user}).eq('id',b.id), 'Removed last target column');
+}
 
 // ── BOOT ─────────────────────────────────────────────────────────
 window._flexTsToken = null;
