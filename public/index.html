@@ -1196,6 +1196,7 @@
           <div class="nav-item" data-page="compare">Consumption and cost comparison</div>
           <div class="nav-item" data-page="usage">Carbon Reporting</div>
           <div class="nav-item" data-page="league">League Table</div>
+          <div class="nav-item" data-page="hhd">Half-Hourly Data</div>
         </div>
         <div class="sidebar-foot">
           <button class="signout-btn" onclick="doSignOut()">Sign out</button>
@@ -1412,6 +1413,68 @@
           </div>
           <div id="leagueEmpty" style="display:none;">
             <div class="empty-state">No site data for the selected filters yet.</div>
+          </div>
+        </div>
+
+        <div class="dash-section" data-page="hhd" style="display:none;">
+          <style>
+            .hhd-controls{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:16px;}
+            .hhd-controls .filter-block{display:flex;flex-direction:column;gap:4px;}
+            .hhd-controls label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700;}
+            .hhd-controls select,.hhd-controls input{padding:8px 10px;border:1px solid #d9d9d9;border-radius:8px;font-size:14px;background:#fff;}
+            .hhd-nav-btns{display:flex;gap:6px;align-items:center;}
+            .hhd-nav-btns button{padding:8px 12px;border:1px solid #d9d9d9;background:#fff;border-radius:8px;cursor:pointer;font-size:15px;line-height:1;}
+            .hhd-nav-btns button:hover{background:#f2f2f2;}
+            .hhd-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px;}
+            .hhd-kpi{background:#fff;border:1px solid #eee;border-radius:12px;padding:14px 16px;}
+            .hhd-kpi .k-lab{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700;}
+            .hhd-kpi .k-val{font-size:22px;font-weight:800;color:#1f3864;margin-top:4px;}
+            .hhd-kpi .k-sub{font-size:11px;color:var(--muted);margin-top:2px;min-height:14px;}
+            .hhd-badge{display:inline-block;padding:4px 10px;border-radius:999px;background:#e2efda;color:#375623;font-size:12px;font-weight:700;}
+            .hhd-grid2{display:grid;grid-template-columns:1fr;gap:16px;}
+            @media(min-width:1100px){.hhd-grid2{grid-template-columns:1fr 1fr;}}
+            .hhd-heat-wrap{overflow-x:auto;}
+            .hhd-heat{display:grid;gap:1px;min-width:760px;}
+            .hhd-heat .hc{height:14px;border-radius:2px;}
+            .hhd-heat .hr-lab{font-size:10px;color:var(--muted);display:flex;align-items:center;padding-right:6px;white-space:nowrap;}
+            .hhd-heat .hh-lab{font-size:9px;color:var(--muted);text-align:center;}
+            .hhd-nodata{color:var(--muted);font-style:italic;padding:20px;text-align:center;}
+            .hhd-legend{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:8px;flex-wrap:wrap;}
+            .hhd-legend .sw{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:middle;}
+          </style>
+          <div class="section-head">
+            <h2>Half-Hourly Data</h2>
+            <div class="section-meta">Half-hourly electricity consumption per site, updated daily from Stark. <span id="hhdFresh" class="hhd-badge" style="display:none;"></span></div>
+          </div>
+
+          <div id="hhdEmpty" style="display:none;"><div class="empty-state">No half-hourly data available for your account yet.</div></div>
+
+          <div id="hhdMain" style="display:none;">
+            <div class="hhd-controls">
+              <div class="filter-block"><label>Site</label><select id="hhdSite" onchange="hhdSiteChange()"></select></div>
+              <div class="filter-block"><label>View</label><select id="hhdRange" onchange="hhdLoad()"><option value="day">Day</option><option value="week">Week</option><option value="month" selected>Month</option></select></div>
+              <div class="filter-block"><label>Period</label><div class="hhd-nav-btns"><button onclick="hhdShift(-1)" title="Previous">&lsaquo;</button><span id="hhdRangeLabel" style="min-width:170px;text-align:center;font-weight:700;">—</span><button onclick="hhdShift(1)" title="Next">&rsaquo;</button></div></div>
+              <div class="filter-block" style="margin-left:auto;"><label>&nbsp;</label><button class="btn-secondary" onclick="hhdExport()">Export CSV</button></div>
+            </div>
+
+            <div class="hhd-kpis">
+              <div class="hhd-kpi"><div class="k-lab">Total consumption</div><div class="k-val" id="hhdKpiTotal">—</div><div class="k-sub" id="hhdKpiDays"></div></div>
+              <div class="hhd-kpi"><div class="k-lab">Peak demand</div><div class="k-val" id="hhdKpiPeak">—</div><div class="k-sub" id="hhdPeakWhen"></div></div>
+              <div class="hhd-kpi"><div class="k-lab">Base load</div><div class="k-val" id="hhdKpiBase">—</div><div class="k-sub">overnight minimum</div></div>
+              <div class="hhd-kpi"><div class="k-lab">Average day</div><div class="k-val" id="hhdKpiAvg">—</div><div class="k-sub" id="hhdKpiEst"></div></div>
+            </div>
+
+            <div class="hhd-grid2">
+              <div class="card"><h3 style="margin:0 0 10px;font-size:15px;">Load profile</h3><div style="position:relative;height:300px;"><canvas id="hhdProfile"></canvas></div><div id="hhdProfileNote" class="hhd-nodata" style="display:none;">No data found for this period.</div></div>
+              <div class="card"><h3 style="margin:0 0 10px;font-size:15px;">Daily consumption</h3><div style="position:relative;height:300px;"><canvas id="hhdTotals"></canvas></div><div id="hhdTotalsNote" class="hhd-nodata" style="display:none;">No data found for this period.</div></div>
+            </div>
+
+            <div class="card" style="margin-top:16px;">
+              <h3 style="margin:0 0 10px;font-size:15px;">Consumption heatmap <span style="font-weight:400;color:var(--muted);font-size:12px;">— kWh per half hour</span></h3>
+              <div class="hhd-heat-wrap"><div id="hhdHeat"></div></div>
+              <div class="hhd-legend"><span>Low</span><span class="sw" style="background:#eef2ff;"></span><span class="sw" style="background:#9db8e8;"></span><span class="sw" style="background:#3b5aa0;"></span><span class="sw" style="background:#1f3864;"></span><span>High</span><span style="margin-left:12px;"><span class="sw" style="background:repeating-linear-gradient(45deg,#eee,#eee 3px,#ddd 3px,#ddd 6px);"></span> No data found</span></div>
+              <div id="hhdHeatNote" class="hhd-nodata" style="display:none;">No data found for this period.</div>
+            </div>
           </div>
         </div>
       </main>
@@ -7325,11 +7388,157 @@
       document.querySelectorAll('#dashPage .sidebar-nav .nav-item').forEach(n => {
         n.classList.toggle('active', n.dataset.page === page);
       });
+      if (page === 'hhd') { try { hhdOpen(); } catch (e) { console.error(e); } }
     }
     document.addEventListener('click', e => {
       const navItem = e.target.closest('#dashPage .sidebar-nav .nav-item[data-page]');
       if (navItem) showCustomerPage(navItem.dataset.page);
     });
+
+    // ═════════════════════════════════════════════════════════════════════
+    //  HALF-HOURLY DATA (HHD) — client view  [Stark daily feed]
+    // ═════════════════════════════════════════════════════════════════════
+    var _hhd = { init:false, sites:[], rows:[], win:null, anchor:null, profile:null, totals:null };
+    function _hhdTimes(){ var o=[]; for(var i=0;i<48;i++){ var m=i*30,h=Math.floor(m/60),mm=m%60; o.push((h<10?'0':'')+h+':'+(mm<10?'0':'')+mm);} return o; }
+    function _hhdISO(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+    function _hhdKwh(n){ return Number(n).toLocaleString('en-GB',{maximumFractionDigits:0})+' kWh'; }
+    function _hhdDate(s){ return new Date(s+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
+    function _hhdDateShort(s){ return new Date(s+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short'}); }
+
+    async function hhdOpen(){
+      if(_hhd.init) return; _hhd.init=true;
+      _ccxChartLib();
+      var cid=(currentUser&&currentUser.customerId)||null;
+      try{
+        var r=await sb.from('hh_site_summary').select('*').order('site_name');
+        var sites=(r.data||[]);
+        if(cid) sites=sites.filter(function(s){ return s.customer_id===cid; });
+        _hhd.sites=sites;
+        if(!sites.length){ document.getElementById('hhdEmpty').style.display='block'; document.getElementById('hhdMain').style.display='none'; return; }
+        document.getElementById('hhdEmpty').style.display='none'; document.getElementById('hhdMain').style.display='block';
+        var sel=document.getElementById('hhdSite');
+        sel.innerHTML=sites.map(function(s){ var lbl=(s.site_name||s.mpan)+' — '+s.mpan+(Number(s.days_with_data)>0?'':' (no data)'); return '<option value="'+escapeHtml(s.mpan)+'">'+escapeHtml(lbl)+'</option>'; }).join('');
+        var first=sites.find(function(s){ return Number(s.days_with_data)>0; })||sites[0];
+        sel.value=first.mpan;
+        _hhd.anchor=first.last_day_with_data||first.last_day;
+        var maxLast=sites.reduce(function(mx,s){ var d=s.last_day_with_data||s.last_day; return (d&&d>mx)?d:mx; },'');
+        var fb=document.getElementById('hhdFresh'); if(maxLast){ fb.style.display='inline-block'; fb.textContent='Data to '+_hhdDate(maxLast); }
+        await hhdLoad();
+      }catch(e){ console.error('hhdOpen',e); }
+    }
+
+    function hhdSiteChange(){
+      var s=_hhd.sites.find(function(x){ return x.mpan===document.getElementById('hhdSite').value; });
+      if(s) _hhd.anchor=s.last_day_with_data||s.last_day;
+      hhdLoad();
+    }
+    function hhdShift(dir){
+      var a=new Date((_hhd.anchor||_hhdISO(new Date()))+'T00:00:00');
+      var range=document.getElementById('hhdRange').value;
+      if(range==='day') a.setDate(a.getDate()+dir); else if(range==='week') a.setDate(a.getDate()+7*dir); else a.setMonth(a.getMonth()+dir);
+      _hhd.anchor=_hhdISO(a); hhdLoad();
+    }
+    function _hhdWindow(){
+      var a=new Date((_hhd.anchor||_hhdISO(new Date()))+'T00:00:00');
+      var range=document.getElementById('hhdRange').value, start, end;
+      if(range==='day'){ start=new Date(a); end=new Date(a); }
+      else if(range==='week'){ end=new Date(a); start=new Date(a); start.setDate(start.getDate()-6); }
+      else { start=new Date(a.getFullYear(),a.getMonth(),1); end=new Date(a.getFullYear(),a.getMonth()+1,0); }
+      return { start:_hhdISO(start), end:_hhdISO(end), range:range };
+    }
+    async function hhdLoad(){
+      var mpan=document.getElementById('hhdSite').value;
+      var w=_hhdWindow(); _hhd.win=w;
+      document.getElementById('hhdRangeLabel').textContent = w.range==='day' ? _hhdDate(w.start) : (_hhdDateShort(w.start)+' – '+_hhdDate(w.end));
+      try{
+        var r=await sb.from('hh_data').select('reading_date,intervals,interval_count,total_kwh,est_flag').eq('mpan',mpan).gte('reading_date',w.start).lte('reading_date',w.end).order('reading_date');
+        _hhd.rows=r.data||[];
+        await _ccxChartLib();
+        hhdRender();
+      }catch(e){ console.error('hhdLoad',e); }
+    }
+
+    function hhdRender(){
+      var rows=_hhd.rows, times=_hhdTimes();
+      var total=0, withData=0, peak=-1, peakInfo=null, base=Infinity, estDays=0;
+      rows.forEach(function(r){
+        var iv=r.intervals||[]; var has=false;
+        for(var i=0;i<iv.length&&i<48;i++){ var v=iv[i]; if(v!=null){ has=true; total+=v; if(v>peak){peak=v;peakInfo={d:r.reading_date,i:i};} if(v<base) base=v; } }
+        if(has) withData++;
+        if(r.est_flag==='E') estDays++;
+      });
+      var noData = withData===0;
+      var setv=function(id,v){ var el=document.getElementById(id); if(el) el.textContent=v; };
+      setv('hhdKpiTotal', noData?'No data found':_hhdKwh(total));
+      setv('hhdKpiPeak', noData?'No data found':(peak*2).toFixed(1)+' kW');
+      setv('hhdKpiBase', (noData||base===Infinity)?'No data found':(base*2).toFixed(1)+' kW');
+      setv('hhdKpiAvg', noData?'No data found':(_hhdKwh(withData?total/withData:0).replace(' kWh','')+' kWh/day'));
+      setv('hhdKpiDays', noData?'':(withData+' of '+rows.length+' days with data'));
+      setv('hhdPeakWhen', (noData||!peakInfo)?'':(_hhdDate(peakInfo.d)+' at '+times[peakInfo.i]));
+      setv('hhdKpiEst', estDays?('incl. '+estDays+' estimated day'+(estDays>1?'s':'')):'');
+      hhdProfile(noData); hhdTotals(noData); hhdHeat(noData);
+    }
+
+    function hhdProfile(noData){
+      var el=document.getElementById('hhdProfile'), note=document.getElementById('hhdProfileNote');
+      if(_hhd.profile){ _hhd.profile.destroy(); _hhd.profile=null; }
+      if(noData || !window.Chart){ el.style.display='none'; note.style.display='block'; note.textContent='No data found for this period.'; return; }
+      el.style.display=''; note.style.display='none';
+      var times=_hhdTimes(), rows=_hhd.rows, w=_hhd.win, datasets=[];
+      if(w.range==='day'){
+        var iv=(rows[0]&&rows[0].intervals)||[]; var data=[]; for(var i=0;i<48;i++){ data.push(iv[i]==null?null:iv[i]); }
+        datasets.push({label:'kWh per half hour', data:data, borderColor:'#1f3864', backgroundColor:'rgba(31,56,100,.12)', fill:true, spanGaps:false, tension:.3, pointRadius:0});
+      } else {
+        var wd=Array(48).fill(0), wdn=Array(48).fill(0), we=Array(48).fill(0), wen=Array(48).fill(0);
+        rows.forEach(function(r){ var iv=r.intervals||[]; var dt=new Date(r.reading_date+'T00:00:00'); var wkend=(dt.getDay()===0||dt.getDay()===6);
+          for(var i=0;i<48;i++){ var v=iv[i]; if(v==null) continue; if(wkend){we[i]+=v;wen[i]++;}else{wd[i]+=v;wdn[i]++;} } });
+        var avg=function(s,n){ return s.map(function(x,i){ return n[i]?x/n[i]:null; }); };
+        datasets.push({label:'Weekday avg', data:avg(wd,wdn), borderColor:'#1f3864', backgroundColor:'rgba(31,56,100,.10)', fill:true, spanGaps:false, tension:.3, pointRadius:0});
+        datasets.push({label:'Weekend avg', data:avg(we,wen), borderColor:'#93c43a', backgroundColor:'rgba(147,196,58,.10)', fill:true, spanGaps:false, tension:.3, pointRadius:0});
+      }
+      _hhd.profile=new Chart(el,{type:'line',data:{labels:times,datasets:datasets},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:datasets.length>1}},scales:{x:{ticks:{maxTicksLimit:12,autoSkip:true},title:{display:true,text:'Time of day'}},y:{beginAtZero:true,title:{display:true,text:'kWh'}}}}});
+    }
+
+    function hhdTotals(noData){
+      var el=document.getElementById('hhdTotals'), note=document.getElementById('hhdTotalsNote');
+      if(_hhd.totals){ _hhd.totals.destroy(); _hhd.totals=null; }
+      var rows=_hhd.rows, w=_hhd.win;
+      if(noData || w.range==='day' || !window.Chart){ el.style.display='none'; note.style.display='block'; note.textContent = w.range==='day'?'Switch to Week or Month to see daily totals.':'No data found for this period.'; return; }
+      el.style.display=''; note.style.display='none';
+      var labels=rows.map(function(r){ return _hhdDateShort(r.reading_date); });
+      var data=rows.map(function(r){ return (r.interval_count>0)?Number(r.total_kwh):null; });
+      var colors=rows.map(function(r){ return (r.interval_count>0)?'#1f3864':'rgba(0,0,0,0.06)'; });
+      _hhd.totals=new Chart(el,{type:'bar',data:{labels:labels,datasets:[{label:'kWh',data:data,backgroundColor:colors}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){ return c.raw==null?'No data found':_hhdKwh(c.raw); }}}},scales:{x:{ticks:{maxTicksLimit:16,autoSkip:true}},y:{beginAtZero:true,title:{display:true,text:'kWh/day'}}}}});
+    }
+
+    function hhdHeat(noData){
+      var wrap=document.getElementById('hhdHeat'), note=document.getElementById('hhdHeatNote');
+      var rows=_hhd.rows, w=_hhd.win;
+      if(noData || w.range==='day'){ wrap.innerHTML=''; note.style.display='block'; note.textContent = w.range==='day'?'Switch to Week or Month to see the heatmap.':'No data found for this period.'; return; }
+      note.style.display='none';
+      var maxv=0; rows.forEach(function(r){ (r.intervals||[]).forEach(function(v){ if(v!=null&&v>maxv) maxv=v; }); });
+      var stops=[[238,242,255],[157,184,232],[59,90,160],[31,56,100]];
+      var col=function(v){ if(v==null) return 'repeating-linear-gradient(45deg,#eee,#eee 3px,#ddd 3px,#ddd 6px)'; var t=maxv?v/maxv:0; var seg=Math.min(2,Math.floor(t*3)); var f=(t*3)-seg; var a=stops[seg],b=stops[seg+1]; var c=a.map(function(x,i){ return Math.round(x+(b[i]-x)*f); }); return 'rgb('+c[0]+','+c[1]+','+c[2]+')'; };
+      var times=_hhdTimes();
+      var html='<div class="hhd-heat" style="grid-template-columns:96px repeat(48,1fr);">';
+      html+='<div class="hr-lab"></div>';
+      for(var i=0;i<48;i++){ html+='<div class="hh-lab">'+((i%6===0)?times[i]:'')+'</div>'; }
+      rows.forEach(function(r){
+        html+='<div class="hr-lab">'+_hhdDateShort(r.reading_date)+'</div>';
+        var iv=r.intervals||[];
+        for(var i=0;i<48;i++){ var v=(i<iv.length)?iv[i]:null; var title=(v==null)?(r.reading_date+' '+times[i]+' — No data found'):(r.reading_date+' '+times[i]+' — '+v+' kWh'); html+='<div class="hc" title="'+escapeHtml(title)+'" style="background:'+col(v)+';"></div>'; }
+      });
+      html+='</div>';
+      wrap.innerHTML=html;
+    }
+
+    function hhdExport(){
+      var rows=_hhd.rows, times=_hhdTimes(), w=_hhd.win;
+      var out=[['Date'].concat(times).join(',')];
+      rows.forEach(function(r){ var iv=r.intervals||[]; var cells=[]; for(var i=0;i<48;i++){ var v=(i<iv.length)?iv[i]:null; cells.push(v==null?'No data found':v); } out.push([r.reading_date].concat(cells).join(',')); });
+      var blob=new Blob([out.join('\n')],{type:'text/csv;charset=utf-8;'});
+      var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='HHD_'+document.getElementById('hhdSite').value+'_'+w.start+'_'+w.end+'.csv'; document.body.appendChild(a); a.click(); a.remove();
+    }
 
 
     // ═════════════════════════════════════════════════════════════════════
