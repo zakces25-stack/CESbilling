@@ -2467,7 +2467,7 @@ function fxSeasonList(){ const out=[]; const now=new Date();
     cur=new Date(Date.UTC(yr, mo+6, 1)); }
   return out; }
 // NEC (p/kWh) per season for a basket, matched by name + commodity
-function fxNecFor(basket){ const map={}; (DATA.necs||[]).forEach(n=>{ if(n.nec==null || n.commodity!==basket.commodity) return; const linked = n.basket_id ? (n.basket_id===basket.id) : (n.basket_name===basket.name); if(linked) map[n.season]=n.nec; }); return map; }
+function fxNecFor(basket){ const map={}; (DATA.necs||[]).forEach(n=>{ if(n.nec==null || n.commodity!==basket.commodity) return; if(n.basket_name===basket.name) map[n.season]=n.nec; }); return map; }
 // Convert wholesale market price to p/kWh: power £/MWh ÷ 10; gas p/therm ÷ 29.3071
 function fxConvPkwh(basket, mkt){ if(mkt==null) return null; return basket.commodity==='power' ? mkt/10 : mkt/29.3071; }
 // Delivered rate (p/kWh) = converted MtM price (mark-to-market) + NEC for that month's season.
@@ -4127,9 +4127,8 @@ async function fxRenameSave(){
   if(!name) return fxMErr('Name required.');
   const _oldName=currentBasket.name, _bid=currentBasket.id;
   if(await fxWrite(FLEX.sb.from('flex_baskets').update({name, updated_by:FLEX.user}).eq('id', _bid), 'Renamed')){
-    // keep NEC + Site rows mapped to this basket after the rename (stable basket_id; also link any that only matched the old name)
-    await FLEX.sb.from('flex_necs').update({basket_name:name, basket_id:_bid}).eq('basket_id', _bid);
-    await FLEX.sb.from('flex_necs').update({basket_name:name, basket_id:_bid}).is('basket_id',null).eq('basket_name', _oldName);
+    // NECs are kept SEPARATE — they link only when the name is identical, so a basket rename does NOT touch NEC rows.
+    // Sites belong to the basket, so keep their label in sync.
     await FLEX.sb.from('flex_sites').update({basket_name:name}).eq('basket_id', _bid);
     currentBasket.name=name; document.getElementById('detail-title').textContent=name;
     fxCloseModal();
@@ -4471,19 +4470,23 @@ function renderNecs(){
   const necs=(DATA.necs||[]);
   function section(commodity, title){
     const rowsMap={};
-    necs.filter(n=>n.commodity===commodity).forEach(n=>{ const e=rowsMap[n.basket_name]=rowsMap[n.basket_name]||{so:(n.sort_order!=null?n.sort_order:9999),bid:null,vals:{}}; e.vals[n.season]=n.nec; if(n.sort_order!=null) e.so=n.sort_order; if(n.basket_id) e.bid=n.basket_id; });
+    necs.filter(n=>n.commodity===commodity).forEach(n=>{ const e=rowsMap[n.basket_name]=rowsMap[n.basket_name]||{so:(n.sort_order!=null?n.sort_order:9999),vals:{}}; e.vals[n.season]=n.nec; if(n.sort_order!=null) e.so=n.sort_order; });
+    // Always show every basket of this commodity — a newly-added basket appears here automatically with its name.
+    const isBasket={}; (BASKETS||[]).filter(b=>b.commodity===commodity).forEach(b=>{ isBasket[b.name]=true; if(!rowsMap[b.name]) rowsMap[b.name]={so:100000,vals:{}}; });
     const names=Object.keys(rowsMap).sort((a,b)=>(rowsMap[a].so-rowsMap[b].so)||a.localeCompare(b));
-    if(!names.length) return '';
-    const head='<tr><th style="text-align:left">Basket</th>'+seasons.map(s=>`<th class="td-right">${s}</th>`).join('')+'</tr>';
-    const body=names.map(nm=>{ const vals=rowsMap[nm].vals;
+    const head='<tr><th style="text-align:left">Basket</th>'+seasons.map(s=>`<th class="td-right">${s}</th>`).join('')+(EDIT?'<th style="width:30px"></th>':'')+'</tr>';
+    const body=names.map(nm=>{ const vals=rowsMap[nm].vals; const linked=!!isBasket[nm];
       const tds=seasons.map(s=>{ const v=vals[s];
         return `<td class="td-right fx-nec${EDIT?' fx-editable':''}" data-b="${escape(nm)}" data-c="${commodity}" data-s="${s}">${v!=null?(+v).toFixed(4).replace(/\.?0+$/,''):'<span style="color:#c8cdd8">—</span>'}</td>`; }).join('');
-      return `<tr><td class="fx-necname${EDIT?' fx-editable':''}" data-name="${escape(nm)}" data-bid="${escape(rowsMap[nm].bid||'')}" data-c="${commodity}" title="${escape(nm)}${EDIT?' — click to rename':''}" style="text-align:left;font-weight:600">${escape(nm)}</td>${tds}</tr>`; }).join('');
-    return `<div class="extra-section" style="margin-bottom:18px;overflow-x:auto"><div class="extra-section-title">${title}</div><table class="fx-htable fx-nectable" style="border-collapse:collapse;font-size:11.5px"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+      const warn=linked?'':` <span title="No basket has this exact name, so this row isn't linked to a basket. Rename it to match a basket to link it." style="color:#c2453b;font-size:9px;font-weight:700;margin-left:5px;vertical-align:middle">&#9888; unlinked</span>`;
+      const del=EDIT?`<td style="text-align:center"><button class="fx-necdel" data-name="${escape(nm)}" data-c="${commodity}" title="Remove this NEC row" style="border:none;background:none;color:#c2453b;cursor:pointer;font-size:14px;font-weight:700;line-height:1;padding:0 2px">&#10005;</button></td>`:'';
+      return `<tr><td class="fx-necname${EDIT?' fx-editable':''}" data-name="${escape(nm)}" data-c="${commodity}" title="${escape(nm)}${EDIT?' — click to rename this NEC row':''}" style="text-align:left;font-weight:600">${escape(nm)}${warn}</td>${tds}${del}</tr>`; }).join('');
+    const add=EDIT?`<div style="margin-top:8px"><button class="fx-btn" onclick="fxNecAddRow('${commodity}')">+ Add row</button></div>`:'';
+    return `<div class="extra-section" style="margin-bottom:18px;overflow-x:auto"><div class="extra-section-title">${title}</div><table class="fx-htable fx-nectable" style="border-collapse:collapse;font-size:11.5px"><thead>${head}</thead><tbody>${body}</tbody></table>${add}</div>`;
   }
   el.innerHTML=`<div class="extra-tab-inner">
     ${EDIT?`<div class="fx-toolbar" style="margin-bottom:10px"><button class="fx-btn" onclick="fxNecsExport()">&#8623; Export to Excel</button><label class="fx-btn" style="cursor:pointer;display:inline-flex;align-items:center">&#8624; Import from Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])fxNecsImport(this.files[0]);this.value=''"></label></div>`:''}
-    <div style="font-size:12.5px;color:#6b7280;margin-bottom:12px;">Non-energy costs (p/kWh) per basket, by season W-21 &rarr; S-32 (auto-extends into new seasons). ${EDIT?'Click any cell to edit.':'Read-only — switch on edit mode to change values.'} These are added to each basket’s converted wholesale rate to produce its delivered rate on the Positions tab.</div>
+    <div style="font-size:12.5px;color:#6b7280;margin-bottom:12px;">Non-energy costs (p/kWh) per basket, by season W-21 &rarr; S-32 (auto-extends into new seasons). ${EDIT?'Click any cell to edit, click a name to rename that row, use <b>+ Add row</b> / <b>&#10005;</b> to manage rows.':'Read-only — switch on edit mode to change values.'} A row links to a basket <b>only when its name is identical</b> to the basket — new baskets appear here automatically. These NECs are added to each basket’s converted wholesale rate to produce its delivered rate on the Positions tab.</div>
     ${section('power','Power — NECs (p/kWh)')}
     ${section('gas','Gas — NECs (p/kWh)')}
   </div>`;
@@ -4497,23 +4500,32 @@ function renderNecs(){
       });
     };
   });
-  // Editable basket name — renames the linked basket (keeps NECs mapped by stable basket_id); relabels orphan rows
+  // Editable NEC-row name — relabels THIS NEC row only (does NOT rename the basket). Links to a basket only when the name is identical.
   el.querySelectorAll('td.fx-necname').forEach(td=>{ td.style.cursor='pointer';
     td.onclick=()=>{ if(td.querySelector('input')) return;
-      const oldName=td.dataset.name, bid=td.dataset.bid||null, cm=td.dataset.c;
+      const oldName=td.dataset.name, cm=td.dataset.c;
       fxCellInputText(td, oldName, async v=>{
         const nn2=(v||'').trim(); if(!nn2 || nn2===oldName) return;
-        if(bid){
-          const ok=await fxWrite(FLEX.sb.from('flex_baskets').update({name:nn2, updated_by:FLEX.user}).eq('id',bid), 'Basket renamed to '+nn2);
-          if(ok){ await FLEX.sb.from('flex_necs').update({basket_name:nn2}).eq('basket_id',bid);
-                  await FLEX.sb.from('flex_sites').update({basket_name:nn2}).eq('basket_id',bid); }
-        } else {
-          const match=(BASKETS||[]).find(x=>x.commodity===cm && x.name===nn2);
-          await fxWrite(FLEX.sb.from('flex_necs').update({basket_name:nn2, basket_id:match?match.id:null}).eq('basket_name',oldName).eq('commodity',cm), 'NEC name updated');
-        }
+        if((DATA.necs||[]).some(n=>n.commodity===cm && n.basket_name===nn2)){ fxToast('A NEC row named “'+nn2+'” already exists.', false); return; }
+        const has=(DATA.necs||[]).some(n=>n.commodity===cm && n.basket_name===oldName);
+        if(has){ await fxWrite(FLEX.sb.from('flex_necs').update({basket_name:nn2}).eq('basket_name',oldName).eq('commodity',cm), 'NEC row renamed'); }
+        else { await fxWrite(FLEX.sb.from('flex_necs').upsert({basket_name:nn2, commodity:cm, season:'W-21', nec:null, updated_by:FLEX.user},{onConflict:'basket_name,commodity,season'}), 'NEC row added'); }
       });
     };
   });
+  // Remove a NEC row (deletes its values). If a basket has this exact name it reappears empty, since the basket still exists.
+  el.querySelectorAll('.fx-necdel').forEach(btn=>{ btn.onclick=async(ev)=>{ ev.stopPropagation();
+    const nm=btn.dataset.name, cm=btn.dataset.c;
+    if(!confirm('Remove the NEC row “'+nm+'”?\n\nIts NEC values will be deleted. (If a basket has this exact name it will reappear as an empty row, since the basket still exists.)')) return;
+    await fxWrite(FLEX.sb.from('flex_necs').delete().eq('basket_name',nm).eq('commodity',cm), 'NEC row removed');
+  }; });
+}
+async function fxNecAddRow(commodity){
+  const nm=(prompt('Name for the new NEC row.\n\nType the exact basket name to link it to a basket, or any label for an unlinked row:')||'').trim();
+  if(!nm) return;
+  if((DATA.necs||[]).some(n=>n.commodity===commodity && n.basket_name===nm)){ fxToast('A NEC row named “'+nm+'” already exists.', false); return; }
+  // placeholder row (earliest season, no value) so the row persists and appears immediately
+  await fxWrite(FLEX.sb.from('flex_necs').upsert({basket_name:nm, commodity:commodity, season:'W-21', nec:null, updated_by:FLEX.user},{onConflict:'basket_name,commodity,season'}),'NEC row added');
 }
 async function fxNecsExport(){
   if(typeof ExcelJS==='undefined') return fxToast('Excel engine not loaded — reload the page', false);

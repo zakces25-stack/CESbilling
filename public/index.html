@@ -1443,11 +1443,23 @@
             .hhd-badge{display:inline-block;padding:4px 10px;border-radius:999px;background:#e2efda;color:#375623;font-size:12px;font-weight:700;}
             .hhd-grid2{display:grid;grid-template-columns:1fr;gap:16px;}
             @media(min-width:1100px){.hhd-grid2{grid-template-columns:1fr 1fr;}}
-            .hhd-heat-wrap{overflow-x:auto;}
-            .hhd-heat{display:grid;gap:1px;min-width:760px;}
-            .hhd-heat .hc{height:14px;border-radius:2px;}
-            .hhd-heat .hr-lab{font-size:10px;color:var(--muted);display:flex;align-items:center;padding-right:6px;white-space:nowrap;}
+            .hhd-heat-wrap{}
+            .hhd-months{display:flex;flex-direction:column;gap:8px;}
+            .hhd-month{border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff;}
+            .hhd-month-hd{width:100%;display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f8fafc;border:none;cursor:pointer;font-family:inherit;font-size:14px;font-weight:700;color:#1f3864;text-align:left;transition:background .12s;}
+            .hhd-month-hd:hover{background:#eef2f7;}
+            .hhd-month-hd .chev{display:inline-block;transition:transform .15s;color:#6b7280;font-size:12px;}
+            .hhd-month-hd.open .chev{transform:rotate(90deg);}
+            .hhd-month-stat{margin-left:auto;font-weight:600;font-size:12px;color:var(--muted);}
+            .hhd-month-body{padding:12px 14px;overflow-x:auto;border-top:1px solid #e5e7eb;}
+            .hhd-heat{display:grid;gap:1px;min-width:720px;}
+            .hhd-heat .hc{height:15px;border-radius:2px;cursor:pointer;}
+            .hhd-heat .hc:hover{outline:2px solid #1f3864;outline-offset:-1px;position:relative;z-index:2;}
+            .hhd-heat .hr-lab{font-size:10px;color:var(--muted);display:flex;align-items:center;padding-right:8px;white-space:nowrap;font-weight:600;}
             .hhd-heat .hh-lab{font-size:9px;color:var(--muted);text-align:center;}
+            .hhd-heat-tip{position:fixed;z-index:99999;pointer-events:none;display:none;background:rgba(17,24,39,0.96);color:#fff;border-radius:8px;padding:8px 11px;font-size:12px;line-height:1.5;box-shadow:0 8px 24px rgba(0,0,0,.28);max-width:240px;}
+            .hhd-heat-tip .v{font-weight:800;font-size:14px;}
+            .hhd-heat-tip .muted{color:#9ca3af;font-style:italic;}
             .hhd-nodata{color:var(--muted);font-style:italic;padding:20px;text-align:center;}
             .hhd-legend{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:8px;flex-wrap:wrap;}
             .hhd-legend .sw{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:middle;}
@@ -7530,26 +7542,71 @@
       _hhd.totals=new Chart(el,{type:'bar',data:{labels:labels,datasets:[{label:'kWh',data:data,backgroundColor:colors,borderRadius:4,maxBarThickness:34}]},options:{responsive:true,maintainAspectRatio:false,animation:{duration:250},interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:_hhdTip({title:function(it){ return _hhdDate(full[it[0].dataIndex]); },label:function(c){ return c.raw==null?'No data found':_hhdKwh(c.raw); }})},scales:{x:{grid:{display:false},ticks:{maxTicksLimit:16,autoSkip:true}},y:{beginAtZero:true,grid:{color:'rgba(0,0,0,0.05)'},title:{display:true,text:'kWh/day'}}}}});
     }
 
+    function _hhdHeatColor(v, maxv){
+      if(v==null) return 'repeating-linear-gradient(45deg,#eee,#eee 3px,#ddd 3px,#ddd 6px)';
+      var stops=[[238,242,255],[157,184,232],[59,90,160],[31,56,100]];
+      var t=maxv?v/maxv:0; var seg=Math.min(2,Math.floor(t*3)); var f=(t*3)-seg; var a=stops[seg],b=stops[seg+1];
+      var c=a.map(function(x,i){ return Math.round(x+(b[i]-x)*f); }); return 'rgb('+c[0]+','+c[1]+','+c[2]+')';
+    }
+    function hhdToggleMonth(btn){ btn.classList.toggle('open'); var body=btn.nextElementSibling; if(body) body.style.display=btn.classList.contains('open')?'block':'none'; }
+    function _hhdHeatTip(){
+      var t=document.getElementById('hhdHeatTip');
+      if(!t){ t=document.createElement('div'); t.id='hhdHeatTip'; t.className='hhd-heat-tip'; document.body.appendChild(t); }
+      return t;
+    }
+    function _hhdHeatBind(){
+      var wrap=document.getElementById('hhdHeat'); if(wrap._tipBound) return; wrap._tipBound=true;
+      var times=_hhdTimes();
+      wrap.addEventListener('mouseover', function(e){ var c=e.target.closest?e.target.closest('.hc'):null; if(!c) return;
+        var tip=_hhdHeatTip(); var d=c.getAttribute('data-d'), i=+c.getAttribute('data-i'), vs=c.getAttribute('data-v');
+        var end=(i<47)?times[i+1]:'24:00';
+        var val=(vs==='')?'<span class="muted">No data found</span>':'<span class="v">'+Number(vs).toFixed(2)+' kWh</span>';
+        tip.innerHTML='<b>'+_hhdDate(d)+'</b><br>'+times[i]+'&nbsp;–&nbsp;'+end+'<br>'+val;
+        tip.style.display='block';
+      });
+      wrap.addEventListener('mousemove', function(e){ var tip=document.getElementById('hhdHeatTip'); if(!tip||tip.style.display!=='block') return;
+        var x=e.clientX+14, y=e.clientY+14, w=tip.offsetWidth, h=tip.offsetHeight;
+        if(x+w>window.innerWidth-10) x=e.clientX-w-14;
+        if(y+h>window.innerHeight-10) y=e.clientY-h-14;
+        tip.style.left=x+'px'; tip.style.top=y+'px';
+      });
+      wrap.addEventListener('mouseout', function(e){ var c=e.target.closest?e.target.closest('.hc'):null; if(c){ var tip=document.getElementById('hhdHeatTip'); if(tip) tip.style.display='none'; } });
+    }
     function hhdHeat(noData){
       var wrap=document.getElementById('hhdHeat'), note=document.getElementById('hhdHeatNote');
       var rows=_hhd.rows;
       if(noData){ wrap.innerHTML=''; note.style.display='block'; note.textContent='No data found for this period.'; return; }
-      if(rows.length>120){ wrap.innerHTML=''; note.style.display='block'; note.textContent='Pick a shorter range (about 4 months or less) to see the heatmap.'; return; }
       note.style.display='none';
-      var maxv=0; rows.forEach(function(r){ (r.intervals||[]).forEach(function(v){ if(v!=null&&v>maxv) maxv=v; }); });
-      var stops=[[238,242,255],[157,184,232],[59,90,160],[31,56,100]];
-      var col=function(v){ if(v==null) return 'repeating-linear-gradient(45deg,#eee,#eee 3px,#ddd 3px,#ddd 6px)'; var t=maxv?v/maxv:0; var seg=Math.min(2,Math.floor(t*3)); var f=(t*3)-seg; var a=stops[seg],b=stops[seg+1]; var c=a.map(function(x,i){ return Math.round(x+(b[i]-x)*f); }); return 'rgb('+c[0]+','+c[1]+','+c[2]+')'; };
       var times=_hhdTimes();
-      var html='<div class="hhd-heat" style="grid-template-columns:96px repeat(48,1fr);">';
-      html+='<div class="hr-lab"></div>';
-      for(var i=0;i<48;i++){ html+='<div class="hh-lab">'+((i%6===0)?times[i]:'')+'</div>'; }
-      rows.forEach(function(r){
-        html+='<div class="hr-lab">'+_hhdDateShort(r.reading_date)+'</div>';
-        var iv=r.intervals||[];
-        for(var i=0;i<48;i++){ var v=(i<iv.length)?iv[i]:null; var title=(v==null)?(r.reading_date+' '+times[i]+' — No data found'):(r.reading_date+' '+times[i]+' — '+v+' kWh'); html+='<div class="hc" title="'+escapeHtml(title)+'" style="background:'+col(v)+';"></div>'; }
+      var maxv=0; rows.forEach(function(r){ (r.intervals||[]).forEach(function(v){ if(v!=null&&v>maxv) maxv=v; }); });
+      // group rows by calendar month
+      var groups=[], byKey={};
+      rows.forEach(function(r){ var key=r.reading_date.slice(0,7); if(!byKey[key]){ byKey[key]={key:key,rows:[]}; groups.push(byKey[key]); } byKey[key].rows.push(r); });
+      var lastKey=groups.length?groups[groups.length-1].key:null;
+      var mName=function(key){ var p=key.split('-'); return new Date(+p[0],+p[1]-1,1).toLocaleDateString('en-GB',{month:'long',year:'numeric'}); };
+      var html='<div class="hhd-months">';
+      groups.forEach(function(g){
+        var tot=0, dwd=0; g.rows.forEach(function(r){ if(r.interval_count>0){ dwd++; tot+=Number(r.total_kwh)||0; } });
+        var nd=g.rows.length-dwd;
+        var open=(g.key===lastKey);
+        var stat=g.rows.length+' days · '+_hhdKwh(tot)+(nd>0?' · '+nd+' no-data':'');
+        html+='<div class="hhd-month">';
+        html+='<button type="button" class="hhd-month-hd'+(open?' open':'')+'" onclick="hhdToggleMonth(this)"><span class="chev">&#9656;</span>'+mName(g.key)+'<span class="hhd-month-stat">'+stat+'</span></button>';
+        html+='<div class="hhd-month-body" style="display:'+(open?'block':'none')+';">';
+        html+='<div class="hhd-heat" style="grid-template-columns:64px repeat(48,1fr);">';
+        html+='<div class="hh-lab"></div>';
+        for(var i=0;i<48;i++){ html+='<div class="hh-lab">'+((i%6===0)?times[i]:'')+'</div>'; }
+        g.rows.forEach(function(r){
+          var d=new Date(r.reading_date+'T00:00:00');
+          html+='<div class="hr-lab">'+d.toLocaleDateString('en-GB',{weekday:'short',day:'2-digit'})+'</div>';
+          var iv=r.intervals||[];
+          for(var i=0;i<48;i++){ var v=(i<iv.length)?iv[i]:null; html+='<div class="hc" data-d="'+r.reading_date+'" data-i="'+i+'" data-v="'+(v==null?'':v)+'" style="background:'+_hhdHeatColor(v,maxv)+';"></div>'; }
+        });
+        html+='</div></div></div>';
       });
       html+='</div>';
       wrap.innerHTML=html;
+      _hhdHeatBind();
     }
 
     // Clean, formatted Excel table export (reuses ExcelJS + _downloadBlob already in the page).
