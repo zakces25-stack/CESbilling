@@ -1789,6 +1789,7 @@ button{transition:all .14s ease}
         <button class="tab-btn" data-tab="seasons">Seasons</button>
         <button class="tab-btn" data-tab="targets">Targets</button>
         <button class="tab-btn" data-tab="graphs">Graphs</button>
+        <button class="tab-btn" data-tab="sites">Sites</button>
       </div>
 
       <div class="tab-pane active" id="tab-positions"></div>
@@ -1796,6 +1797,7 @@ button{transition:all .14s ease}
       <div class="tab-pane" id="tab-seasons"></div>
       <div class="tab-pane" id="tab-targets"></div>
       <div class="tab-pane" id="tab-graphs"></div>
+      <div class="tab-pane" id="tab-sites"></div>
     </div>
 
   </div>
@@ -1826,7 +1828,7 @@ async function _fetchAll(table, cols, orderCols) {
   return out;
 }
 async function loadFlexData() {
-  const [baskets, months, trades, targets, curves, orders, contacts, deadlines, admin, meta, notes, adminCells, adminCols] = await Promise.all([
+  const [baskets, months, trades, targets, curves, orders, contacts, deadlines, admin, meta, notes, adminCells, adminCols, adminMonths, sites] = await Promise.all([
     _fetchAll('flex_baskets', 'id,name,commodity,unit_vol,unit_price,is_ces,sort_order,archived,target_labels,epsp,target_kinds,target_count', ['sort_order']),
     _fetchAll('flex_positions', 'basket_id,month,days,season,baseload_vol,secured_vol,secured_wap,baseload_vol_total,secured_vol_total,secured_pct,secured_cost,open_vol,open_vol_total,open_pct,market_price,mkt_source,residual_cost,mtm_cost,mtm_price', ['basket_id', 'month']),
     _fetchAll('flex_trades', 'id,basket_id,trade_ref,trade_date,counterparty,start_date,end_date,volume,product,strike,deal_type,cost', ['basket_id', 'id']),
@@ -1839,7 +1841,9 @@ async function loadFlexData() {
     _fetchAll('flex_meta', 'key,value', ['key']),
     _fetchAll('flex_notes', 'id,basket_id,scope,subject,body,author,created_at', ['id']),
     _fetchAll('flex_admin_cells', 'id,row_id,month,da_trade,cog,pos_report,vals', ['id']),
-    _fetchAll('flex_admin_columns', 'id,col_key,kind,label,sort_order', ['sort_order','id'])
+    _fetchAll('flex_admin_columns', 'id,col_key,kind,label,sort_order', ['sort_order','id']),
+    _fetchAll('flex_admin_months', 'month,sort_order', ['month']),
+    _fetchAll('flex_sites', 'id,basket_id,basket_name,commodity,customer,mpxn,contract_start,contract_end,nec_unit_rate,nec_standing_charge,source,archived', ['basket_id','id'])
   ]);
   const byM = {}, byT = {}, byG = {};
   for (const m of months) (byM[m.basket_id] ??= []).push({
@@ -1888,8 +1892,10 @@ async function loadFlexData() {
     adminCells: adminCells.map(c => ({ id: c.id, row_id: c.row_id, month: c.month, vals: c.vals || {} })),
     curves: { gas: curveOf('gas'), power: curveOf('power'), last_updated: _cuTxt },
     admin: { month_labels: seedMeta.admin_month_labels || [],
+      months_list: (adminMonths||[]).map(r => String(r.month).slice(0,10)).sort(),
       columns: (adminCols||[]).map(c => ({ id: c.id, key: c.col_key, kind: c.kind, label: c.label, sort: c.sort_order })),
       rows: admin.map(r => ({ id: r.id, detail: r.detail || {} })) },
+    sites: (sites||[]).map(s => ({ id:s.id, basket_id:s.basket_id, basket_name:s.basket_name, commodity:s.commodity, customer:s.customer, mpxn:s.mpxn, contract_start:s.contract_start?String(s.contract_start).slice(0,10):null, contract_end:s.contract_end?String(s.contract_end).slice(0,10):null, nec_unit_rate:_num(s.nec_unit_rate), nec_standing_charge:_num(s.nec_standing_charge), source:s.source, archived:!!s.archived })),
     contacts: { suppliers: contacts.map(c => ({ id: c.id, supplier: c.supplier, note: c.note, details: c.details || [] })),
                 sefe_deadlines: deadlines.map(d => ({ id: d.id, period: d.period, last_trading: d.last_trading, deadline: d.deadline })) },
     firm_orders: { power: ordersOf('power'), gas: ordersOf('gas') }
@@ -3057,6 +3063,7 @@ function selectBasket(id) {
   renderSeasons(basket);
   renderTargets(basket);
   renderGraphs(basket);
+  renderSites(basket);
 
   // Reset tabs
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -3363,7 +3370,7 @@ function rerenderCurrent(){
     destroyCharts();
     document.getElementById('detail-title').textContent = b.name;
     renderDetailStats(b); renderPositions(b); renderTrades(b);
-    renderSeasons(b); renderTargets(b); renderGraphs(b);
+    renderSeasons(b); renderTargets(b); renderGraphs(b); renderSites(b);
   } else if (selectedId){ // basket deleted remotely
     selectedId=null; currentBasket=null;
     document.getElementById('overview').style.display='block';
@@ -4195,7 +4202,10 @@ renderAdmin = function(){
   const detailCols=cols.filter(c=>c.kind==='detail');
   const taskCols=cols.filter(c=>c.kind==='task');
   const rows=(A.rows||[]);
-  const months=[[prevM,'A'],[curM,'B']];
+  const nowM2=fxNowMonth();
+  const mlist=((DATA.admin&&DATA.admin.months_list)||[]).slice().sort();
+  const monthsArr=(mlist.length?mlist:[prevM,curM]);
+  const months=monthsArr.map((mo,i)=>[mo,(i%2===0?'A':'B')]);
   const tCount=Math.max(taskCols.length,1);
   const cellVal=(rowId,month,key)=>{ const c=(DATA.adminCells||[]).find(x=>x.row_id===rowId && x.month===month); return (c&&c.vals)?(c.vals[key]||''):''; };
   const headLbl=c=> EDIT
@@ -4204,7 +4214,7 @@ renderAdmin = function(){
   const dash='<span style="color:#c8cdd8">&mdash;</span>';
   const detailTh=(detailCols.length?detailCols.map(c=>`<th rowspan="2" class="fx-admh" style="text-align:left">${headLbl(c)}</th>`).join('')
     : '<th rowspan="2" style="text-align:left;color:#c8cdd8">(no detail columns)</th>');
-  const topTh=months.map(([mo,g],mi)=>`<th colspan="${tCount}" class="fx-mh${g}">${fmtMonth(mo)}${mi===1?' &middot; current':''}</th>`).join('');
+  const topTh=months.map(([mo,g])=>`<th colspan="${tCount}" class="fx-mh${g}">${fmtMonth(mo)}${mo===nowM2?' &middot; current':''}${EDIT?` <button class="fx-admh-x" title="Remove this month" onclick="event.stopPropagation();fxAdmRemoveMonth('${mo}')">&times;</button>`:''}</th>`).join('');
   const subTh=months.map(([mo,g])=> (taskCols.length?taskCols:[{id:0}]).map((c,ci)=>`<th class="fx-g${g}${ci===0?' fx-gs':''} fx-admh">${c.id?headLbl(c):dash}</th>`).join('') ).join('');
   const tr=rows.map(r=>{
     let tds=(detailCols.length?detailCols:[{id:0}]).map(c=> c.id
@@ -4220,7 +4230,7 @@ renderAdmin = function(){
   }).join('');
   const colCount=detailCols.length + taskCols.length*months.length + (EDIT?1:0) + 3;
   el.innerHTML=`<div class="extra-tab-inner">
-    ${EDIT?`<div class="fx-toolbar"><button class="fx-btn green" onclick="fxAdminAddRow()">+ Add row</button><button class="fx-btn" onclick="fxAdmAddColumn('detail')">+ Add detail column</button><button class="fx-btn" onclick="fxAdmAddColumn('task')">+ Add task column</button><span style="font-size:11px;color:#6b7280">Click a cell to edit &middot; click a header to rename &middot; &times; on a header removes the column &middot; the two month blocks (previous + current) roll automatically</span></div>`:''}
+    ${EDIT?`<div class="fx-toolbar"><button class="fx-btn green" onclick="fxAdminAddRow()">+ Add row</button><button class="fx-btn" onclick="fxAdmAddColumn('detail')">+ Add detail column</button><button class="fx-btn" onclick="fxAdmAddColumn('task')">+ Add task column</button><button class="fx-btn" onclick="fxAdmAddMonth()">+ Add month</button><span style="font-size:11px;color:#6b7280">Click a cell to edit &middot; click a header to rename &middot; &times; removes that column or month &middot; + Add month adds the next month section</span></div>`:''}
     <div class="extra-section" style="overflow-x:auto">
       <div class="extra-section-title">Admin — trade &amp; reporting schedule</div>
       <table class="extra-table" style="width:100%;border-collapse:collapse;font-size:12px">
@@ -4271,6 +4281,17 @@ async function fxAdmColRemove(id){
   if(!confirm('Remove the "'+(c.label||'column')+'" column?\n\nExisting values stay saved in the background but are hidden.')) return;
   await fxWrite(FLEX.sb.from('flex_admin_columns').delete().eq('id',id),'Column removed');
 }
+async function fxAdmAddMonth(){
+  const ms=((DATA.admin&&DATA.admin.months_list)||[]).slice().sort();
+  const base=ms.length? ms[ms.length-1] : fxNowMonth();
+  const d=new Date(base+'T00:00:00'); d.setMonth(d.getMonth()+1);
+  const nm=d.toISOString().slice(0,8)+'01';
+  await fxWrite(FLEX.sb.from('flex_admin_months').insert({month:nm, updated_by:FLEX.user}),'Added '+fmtMonth(nm));
+}
+async function fxAdmRemoveMonth(mo){
+  if(!confirm('Remove the '+fmtMonth(mo)+' section from the tracker?\n\nThe cell values for that month stay saved in the background.')) return;
+  await fxWrite(FLEX.sb.from('flex_admin_months').delete().eq('month',mo),'Removed '+fmtMonth(mo));
+}
 async function fxAdminAddRow(){
   await fxWrite(FLEX.sb.from('flex_admin_schedule').insert({detail:{}, updated_by:FLEX.user}),'Row added');
 }
@@ -4279,6 +4300,119 @@ async function fxAdminRowDelete(id){
   if(!confirm('Delete this admin row (and its month cells)?')) return;
   await FLEX.sb.from('flex_admin_cells').delete().eq('row_id',id);
   await fxWrite(FLEX.sb.from('flex_admin_schedule').delete().eq('id',id),'Admin row deleted');
+}
+
+// ── SITES (per basket): active + archive, full edit, add/remove, bulk Excel ──
+function fxSiteCols(gas){
+  return gas
+    ? [['customer','Customer','text'],['mpxn','MPRN','text'],['contract_start','Start','date'],['contract_end','End','date'],['nec_unit_rate','NEC unit (p/kWh)','num'],['nec_standing_charge','NEC standing (£/d)','num'],['source','Source','text']]
+    : [['customer','Customer','text'],['mpxn','MPAN','text'],['contract_start','Start','date'],['contract_end','End','date'],['nec_unit_rate','NEC unit (p/kWh)','num'],['source','Source','text']];
+}
+function fxSiteArchived(s){ const t=new Date().toISOString().slice(0,10); return !!s.archived || (s.contract_end && String(s.contract_end).slice(0,10) < t); }
+function fxDMY(iso){ if(!iso) return '—'; const p=String(iso).slice(0,10).split('-'); return p.length===3 ? (p[2]+'/'+p[1]+'/'+p[0]) : String(iso); }
+function fxSitesFor(basket){ return (DATA.sites||[]).filter(s=> s.basket_id===basket.id || (s.basket_name && s.basket_name===basket.name)); }
+function renderSites(basket){
+  const el=document.getElementById('tab-sites'); if(!el) return;
+  const gas=basket.commodity==='gas';
+  const cols=fxSiteCols(gas);
+  const all=fxSitesFor(basket);
+  const active=all.filter(s=>!fxSiteArchived(s));
+  const archived=all.filter(fxSiteArchived);
+  const disp=(s,f,typ)=>{ const v=s[f]; if(v==null||v==='') return '<span style="color:#c8cdd8">—</span>';
+    return typ==='date' ? fxDMY(v) : (typ==='num' ? (+v).toFixed(4).replace(/\.?0+$/,'') : escape(String(v))); };
+  function tableHtml(list, archive){
+    if(!list.length) return `<div style="padding:12px 2px;color:#6b7280;font-size:12px;">${archive?'No archived sites.':'No live sites in this basket yet.'}</div>`;
+    const head='<tr>'+cols.map(c=>`<th style="text-align:left">${c[1]}</th>`).join('')+(EDIT?'<th></th>':'')+'</tr>';
+    const body=list.map(s=>{
+      const tds=cols.map(c=>`<td class="fx-sitec${EDIT?' fx-editable':''}" data-id="${s.id}" data-f="${c[0]}" data-t="${c[2]}">${disp(s,c[0],c[2])}</td>`).join('');
+      const act=EDIT?`<td class="fx-actions"><button class="fx-icon" title="Delete site" onclick="fxSiteDelete(${s.id})">&#128465;</button></td>`:'';
+      return `<tr>${tds}${act}</tr>`;
+    }).join('');
+    return `<div style="overflow-x:auto;border:1px solid var(--border,#e6e1d6);border-radius:8px;"><table class="fx-htable" style="width:100%;border-collapse:collapse;"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+  }
+  const tools=EDIT?`<div class="fx-toolbar" style="margin:0 0 10px"><button class="fx-btn green" onclick="fxSiteAdd()">+ Add site</button><button class="fx-btn" onclick="fxSitesExport()">&#8623; Export to Excel</button><label class="fx-btn" style="cursor:pointer;display:inline-flex;align-items:center">&#8624; Import from Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])fxSitesImport(this.files[0]);this.value=''"></label></div>`:'';
+  el.innerHTML = tools
+    + `<div style="font-size:12px;color:#6b7280;margin:2px 0 8px;">${active.length} live site${active.length!==1?'s':''}${archived.length?(' · '+archived.length+' archived'):''} &middot; sites move to the archive automatically once their contract end date passes</div>`
+    + tableHtml(active,false)
+    + (archived.length ? `<details style="margin-top:16px;"><summary style="cursor:pointer;font-weight:800;font-size:13px;color:var(--navy,#2f3d7e);padding:8px 2px;">&#128451; Archived sites (${archived.length}) &mdash; contract ended</summary><div style="margin-top:8px;">${tableHtml(archived,true)}</div></details>` : '');
+  if(!EDIT) return;
+  el.querySelectorAll('td.fx-sitec').forEach(td=>{ td.style.cursor='pointer';
+    td.onclick=()=>{ if(td.querySelector('input')) return;
+      const id=+td.dataset.id, f=td.dataset.f, typ=td.dataset.t;
+      const s=(DATA.sites||[]).find(x=>x.id===id); const cur=s?s[f]:null;
+      if(typ==='num'){
+        fxCellInput(td, cur, async v=>{ await fxWrite(FLEX.sb.from('flex_sites').update({[f]:v, updated_by:FLEX.user}).eq('id',id),'Site updated'); });
+      } else {
+        fxCellInputText(td, cur!=null?cur:'', async v=>{
+          let val=v;
+          if(typ==='date' && v){ const p=(typeof fxParseDate==='function')?fxParseDate(v):null; val=p?p.slice(0,10):v; }
+          await fxWrite(FLEX.sb.from('flex_sites').update({[f]:(val===''?null:val), updated_by:FLEX.user}).eq('id',id),'Site updated');
+        });
+      }
+    };
+  });
+}
+async function fxSiteAdd(){
+  const b=currentBasket; if(!b) return;
+  await fxWrite(FLEX.sb.from('flex_sites').insert({basket_id:b.id, basket_name:b.name, commodity:b.commodity, updated_by:FLEX.user}),'Site added — fill in its details');
+}
+async function fxSiteDelete(id){
+  if(!confirm('Delete this site? This cannot be undone.')) return;
+  await fxWrite(FLEX.sb.from('flex_sites').delete().eq('id',id),'Site deleted');
+}
+async function fxSitesExport(){
+  const b=currentBasket; if(!b) return;
+  if(typeof ExcelJS==='undefined') return fxToast('Excel engine not loaded — reload the page', false);
+  const gas=b.commodity==='gas';
+  const all=fxSitesFor(b);
+  const headers= gas
+    ? ['Flex Basket','Flex Customer','MPRN','Contract Start Date','Contract End Date','NEC Unit rate (p/kwh)','NEC Standing Charge (£/d)','Source']
+    : ['Flex Basket','Flex Customer','MPAN','Contract Start Date','Contract End Date','NEC Unit rate (p/kwh)','Source'];
+  const wb=new ExcelJS.Workbook(); const ws=wb.addWorksheet((gas?'Gas':'Power')+' Sites');
+  ws.getRow(2).values=[null].concat(headers);
+  ws.getRow(2).eachCell(c=>{ c.font={bold:true}; });
+  let rr=3;
+  all.forEach(s=>{
+    const cs=s.contract_start?new Date(s.contract_start+'T00:00:00'):null;
+    const ce=s.contract_end?new Date(s.contract_end+'T00:00:00'):null;
+    const base=[null, b.name, s.customer, s.mpxn, cs, ce, (s.nec_unit_rate!=null?+s.nec_unit_rate:null)];
+    const arr= gas ? base.concat([(s.nec_standing_charge!=null?+s.nec_standing_charge:null), s.source]) : base.concat([s.source]);
+    const row=ws.getRow(rr++); row.values=arr;
+    row.getCell(5).numFmt='dd/mm/yyyy'; row.getCell(6).numFmt='dd/mm/yyyy';
+  });
+  const buf=await wb.xlsx.writeBuffer();
+  fxDownloadBlob(buf, b.name.replace(/[^\w]+/g,'_')+'_Sites_'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+async function fxSitesImport(file){
+  const b=currentBasket; if(!b) return;
+  if(typeof XLSX==='undefined') return fxToast('Excel engine not loaded — reload the page', false);
+  let wb; try{ wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true}); }catch(e){ return fxToast('Could not read that file', false); }
+  const gas=b.commodity==='gas';
+  const ws=wb.Sheets[wb.SheetNames.find(n=>/site/i.test(n))||wb.SheetNames[0]];
+  if(!ws) return fxToast('No sheet found in that file', false);
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null});
+  function dd(v){ if(v instanceof Date) return v.toISOString().slice(0,10); if(v==null) return null; const p=(typeof fxParseDate==='function')?fxParseDate(String(v)):null; return p?p.slice(0,10):null; }
+  function nn(v){ const f=parseFloat(v); return isNaN(f)?null:f; }
+  const rows=[];
+  for(const r of aoa){ if(!r) continue;
+    const cust=r[2], mpxn=r[3];
+    if(mpxn==null) continue;
+    const ms=String(typeof mpxn==='number'?Math.round(mpxn):mpxn).trim();
+    if(!ms || /mpan|mprn/i.test(ms)) continue;
+    rows.push({ basket_id:b.id, basket_name:b.name, commodity:b.commodity,
+      customer:(cust!=null?String(cust):null), mpxn:ms,
+      contract_start:dd(r[4]), contract_end:dd(r[5]), nec_unit_rate:nn(r[6]),
+      nec_standing_charge: gas? nn(r[7]) : null, source: gas? (r[8]!=null?String(r[8]):null) : (r[7]!=null?String(r[7]):null) });
+  }
+  if(!rows.length) return fxToast('No site rows found in that file', false);
+  const existing=fxSitesFor(b); const byMpxn={}; existing.forEach(s=>{ if(s.mpxn) byMpxn[String(s.mpxn)]=s; });
+  const toInsert=[]; let upd=0;
+  rows.forEach(rec=>{ if(byMpxn[rec.mpxn]) upd++; else toInsert.push(rec); });
+  if(!confirm('Import '+rows.length+' site row(s) for '+b.name+'?\n\n'+upd+' will update existing sites (matched on MPAN/MPRN) and '+toInsert.length+' will be added. Nothing is deleted.')) return;
+  for(const rec of rows){ const ex=byMpxn[rec.mpxn]; if(ex){ const patch={customer:rec.customer, contract_start:rec.contract_start, contract_end:rec.contract_end, nec_unit_rate:rec.nec_unit_rate, nec_standing_charge:rec.nec_standing_charge, source:rec.source, updated_by:FLEX.user}; const {error}=await FLEX.sb.from('flex_sites').update(patch).eq('id',ex.id); if(error){ return fxToast('Import failed: '+error.message,false); } } }
+  if(toInsert.length){ const {error}=await FLEX.sb.from('flex_sites').insert(toInsert.map(r=>Object.assign({},r,{updated_by:FLEX.user}))); if(error){ return fxToast('Import failed: '+error.message,false); } }
+  fxToast('Imported '+rows.length+' sites ('+toInsert.length+' new, '+upd+' updated)');
+  fxScheduleReload();
 }
 
 // ── CONTACTS: original layout, edit buttons only ─────────────────
