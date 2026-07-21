@@ -1476,7 +1476,6 @@
               <div class="filter-block"><label>Site</label><div class="hhd-select"><select id="hhdSite" onchange="hhdSiteChange()"></select></div></div>
               <div class="filter-block"><label>From</label><input type="date" id="hhdFrom" class="hhd-date" onchange="hhdLoad()"></div>
               <div class="filter-block"><label>To</label><input type="date" id="hhdTo" class="hhd-date" onchange="hhdLoad()"></div>
-              <div class="filter-block"><label>Quick range</label><div class="hhd-quick"><button type="button" onclick="hhdQuick(7,this)">7d</button><button type="button" onclick="hhdQuick(30,this)">30d</button><button type="button" onclick="hhdQuick(90,this)">90d</button><button type="button" onclick="hhdQuick(0,this)">Max</button></div></div>
               <div class="filter-block" style="margin-left:auto;"><label>&nbsp;</label><button class="btn-secondary hhd-export-btn" onclick="hhdExport()">Export Half-Hourly Data</button></div>
             </div>
             <div id="hhdRangeInfo" class="hhd-rangeinfo"></div>
@@ -7429,7 +7428,11 @@
     function _hhdKwh(n){ return Number(n).toLocaleString('en-GB',{maximumFractionDigits:0})+' kWh'; }
     function _hhdDate(s){ return new Date(s+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
     function _hhdDateShort(s){ return new Date(s+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short'}); }
-    function _hhdTip(cb){ return { enabled:true, mode:'index', intersect:false, backgroundColor:'rgba(17,24,39,0.96)', titleColor:'#fff', bodyColor:'#e5e7eb', borderColor:'rgba(255,255,255,0.08)', borderWidth:1, padding:10, cornerRadius:8, displayColors:false, caretSize:5, titleFont:{size:11,weight:'600'}, bodyFont:{size:14,weight:'700'}, callbacks:cb }; }
+    function _hhdTip(cb){
+      try{ if(window.Chart&&Chart.Tooltip&&Chart.Tooltip.positioners&&!Chart.Tooltip.positioners.hhdCursor){ Chart.Tooltip.positioners.hhdCursor=function(items,evtPos){ return evtPos?{x:evtPos.x,y:evtPos.y}:false; }; } }catch(e){}
+      var pos=(window.Chart&&Chart.Tooltip&&Chart.Tooltip.positioners&&Chart.Tooltip.positioners.hhdCursor)?'hhdCursor':'average';
+      return { enabled:true, position:pos, mode:'index', intersect:false, backgroundColor:'rgba(17,24,39,0.96)', titleColor:'#fff', bodyColor:'#e5e7eb', borderColor:'rgba(255,255,255,0.08)', borderWidth:1, padding:10, cornerRadius:8, displayColors:false, caretSize:5, caretPadding:8, titleFont:{size:11,weight:'600'}, bodyFont:{size:14,weight:'700'}, callbacks:cb };
+    }
 
     async function hhdOpen(){
       if(_hhd.init) return; _hhd.init=true;
