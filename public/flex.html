@@ -1848,7 +1848,7 @@ async function loadFlexData() {
     _fetchAll('flex_admin_columns', 'id,col_key,kind,label,sort_order', ['sort_order','id']),
     _fetchAll('flex_admin_months', 'month,sort_order', ['month']),
     _fetchAll('flex_sites', 'id,basket_id,basket_name,commodity,customer,mpxn,contract_start,contract_end,nec_unit_rate,nec_standing_charge,source,archived', ['basket_id','id']),
-    _fetchAll('flex_necs', 'id,basket_name,commodity,season,nec,sort_order', ['commodity','sort_order','season'])
+    _fetchAll('flex_necs', 'id,basket_name,commodity,season,nec,sort_order,basket_id', ['commodity','sort_order','season'])
   ]);
   const byM = {}, byT = {}, byG = {};
   for (const m of months) (byM[m.basket_id] ??= []).push({
@@ -1901,7 +1901,7 @@ async function loadFlexData() {
       columns: (adminCols||[]).map(c => ({ id: c.id, key: c.col_key, kind: c.kind, label: c.label, sort: c.sort_order })),
       rows: admin.map(r => ({ id: r.id, detail: r.detail || {} })) },
     sites: (sites||[]).map(s => ({ id:s.id, basket_id:s.basket_id, basket_name:s.basket_name, commodity:s.commodity, customer:s.customer, mpxn:s.mpxn, contract_start:s.contract_start?String(s.contract_start).slice(0,10):null, contract_end:s.contract_end?String(s.contract_end).slice(0,10):null, nec_unit_rate:_num(s.nec_unit_rate), nec_standing_charge:_num(s.nec_standing_charge), source:s.source, archived:!!s.archived })),
-    necs: (necs||[]).map(n => ({ id:n.id, basket_name:n.basket_name, commodity:n.commodity, season:n.season, nec:_num(n.nec), sort_order:n.sort_order })),
+    necs: (necs||[]).map(n => ({ id:n.id, basket_name:n.basket_name, commodity:n.commodity, season:n.season, nec:_num(n.nec), sort_order:n.sort_order, basket_id:n.basket_id })),
     contacts: { suppliers: contacts.map(c => ({ id: c.id, supplier: c.supplier, note: c.note, details: c.details || [] })),
                 sefe_deadlines: deadlines.map(d => ({ id: d.id, period: d.period, last_trading: d.last_trading, deadline: d.deadline })) },
     firm_orders: { power: ordersOf('power'), gas: ordersOf('gas') }
@@ -2467,7 +2467,7 @@ function fxSeasonList(){ const out=[]; const now=new Date();
     cur=new Date(Date.UTC(yr, mo+6, 1)); }
   return out; }
 // NEC (p/kWh) per season for a basket, matched by name + commodity
-function fxNecFor(basket){ const map={}; (DATA.necs||[]).forEach(n=>{ if(n.basket_name===basket.name && n.commodity===basket.commodity && n.nec!=null) map[n.season]=n.nec; }); return map; }
+function fxNecFor(basket){ const map={}; (DATA.necs||[]).forEach(n=>{ if(n.nec==null || n.commodity!==basket.commodity) return; const linked = n.basket_id ? (n.basket_id===basket.id) : (n.basket_name===basket.name); if(linked) map[n.season]=n.nec; }); return map; }
 // Convert wholesale market price to p/kWh: power £/MWh ÷ 10; gas p/therm ÷ 29.3071
 function fxConvPkwh(basket, mkt){ if(mkt==null) return null; return basket.commodity==='power' ? mkt/10 : mkt/29.3071; }
 // Delivered rate (p/kWh) = converted MtM price (mark-to-market) + NEC for that month's season.
@@ -4125,7 +4125,12 @@ function fxRenameModal(){
 async function fxRenameSave(){
   const name=document.getElementById('fR_name').value.trim();
   if(!name) return fxMErr('Name required.');
-  if(await fxWrite(FLEX.sb.from('flex_baskets').update({name, updated_by:FLEX.user}).eq('id', currentBasket.id), 'Renamed')){
+  const _oldName=currentBasket.name, _bid=currentBasket.id;
+  if(await fxWrite(FLEX.sb.from('flex_baskets').update({name, updated_by:FLEX.user}).eq('id', _bid), 'Renamed')){
+    // keep NEC + Site rows mapped to this basket after the rename (stable basket_id; also link any that only matched the old name)
+    await FLEX.sb.from('flex_necs').update({basket_name:name, basket_id:_bid}).eq('basket_id', _bid);
+    await FLEX.sb.from('flex_necs').update({basket_name:name, basket_id:_bid}).is('basket_id',null).eq('basket_name', _oldName);
+    await FLEX.sb.from('flex_sites').update({basket_name:name}).eq('basket_id', _bid);
     currentBasket.name=name; document.getElementById('detail-title').textContent=name;
     fxCloseModal();
   }
@@ -4466,14 +4471,14 @@ function renderNecs(){
   const necs=(DATA.necs||[]);
   function section(commodity, title){
     const rowsMap={};
-    necs.filter(n=>n.commodity===commodity).forEach(n=>{ const e=rowsMap[n.basket_name]=rowsMap[n.basket_name]||{so:(n.sort_order!=null?n.sort_order:9999),vals:{}}; e.vals[n.season]=n.nec; if(n.sort_order!=null) e.so=n.sort_order; });
+    necs.filter(n=>n.commodity===commodity).forEach(n=>{ const e=rowsMap[n.basket_name]=rowsMap[n.basket_name]||{so:(n.sort_order!=null?n.sort_order:9999),bid:null,vals:{}}; e.vals[n.season]=n.nec; if(n.sort_order!=null) e.so=n.sort_order; if(n.basket_id) e.bid=n.basket_id; });
     const names=Object.keys(rowsMap).sort((a,b)=>(rowsMap[a].so-rowsMap[b].so)||a.localeCompare(b));
     if(!names.length) return '';
     const head='<tr><th style="text-align:left">Basket</th>'+seasons.map(s=>`<th class="td-right">${s}</th>`).join('')+'</tr>';
     const body=names.map(nm=>{ const vals=rowsMap[nm].vals;
       const tds=seasons.map(s=>{ const v=vals[s];
         return `<td class="td-right fx-nec${EDIT?' fx-editable':''}" data-b="${escape(nm)}" data-c="${commodity}" data-s="${s}">${v!=null?(+v).toFixed(4).replace(/\.?0+$/,''):'<span style="color:#c8cdd8">—</span>'}</td>`; }).join('');
-      return `<tr><td class="fx-necname" title="${escape(nm)}" style="text-align:left;font-weight:600">${escape(nm)}</td>${tds}</tr>`; }).join('');
+      return `<tr><td class="fx-necname${EDIT?' fx-editable':''}" data-name="${escape(nm)}" data-bid="${escape(rowsMap[nm].bid||'')}" data-c="${commodity}" title="${escape(nm)}${EDIT?' — click to rename':''}" style="text-align:left;font-weight:600">${escape(nm)}</td>${tds}</tr>`; }).join('');
     return `<div class="extra-section" style="margin-bottom:18px;overflow-x:auto"><div class="extra-section-title">${title}</div><table class="fx-htable fx-nectable" style="border-collapse:collapse;font-size:11.5px"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
   }
   el.innerHTML=`<div class="extra-tab-inner">
@@ -4489,6 +4494,23 @@ function renderNecs(){
       const rec=(DATA.necs||[]).find(n=>n.basket_name===bn && n.commodity===cm && n.season===se);
       fxCellInput(td, rec?rec.nec:null, async v=>{
         await fxWrite(FLEX.sb.from('flex_necs').upsert({basket_name:bn, commodity:cm, season:se, nec:v, updated_by:FLEX.user},{onConflict:'basket_name,commodity,season'}),'NEC updated');
+      });
+    };
+  });
+  // Editable basket name — renames the linked basket (keeps NECs mapped by stable basket_id); relabels orphan rows
+  el.querySelectorAll('td.fx-necname').forEach(td=>{ td.style.cursor='pointer';
+    td.onclick=()=>{ if(td.querySelector('input')) return;
+      const oldName=td.dataset.name, bid=td.dataset.bid||null, cm=td.dataset.c;
+      fxCellInputText(td, oldName, async v=>{
+        const nn2=(v||'').trim(); if(!nn2 || nn2===oldName) return;
+        if(bid){
+          const ok=await fxWrite(FLEX.sb.from('flex_baskets').update({name:nn2, updated_by:FLEX.user}).eq('id',bid), 'Basket renamed to '+nn2);
+          if(ok){ await FLEX.sb.from('flex_necs').update({basket_name:nn2}).eq('basket_id',bid);
+                  await FLEX.sb.from('flex_sites').update({basket_name:nn2}).eq('basket_id',bid); }
+        } else {
+          const match=(BASKETS||[]).find(x=>x.commodity===cm && x.name===nn2);
+          await fxWrite(FLEX.sb.from('flex_necs').update({basket_name:nn2, basket_id:match?match.id:null}).eq('basket_name',oldName).eq('commodity',cm), 'NEC name updated');
+        }
       });
     };
   });
@@ -4521,9 +4543,10 @@ async function fxNecsImport(file){
     const hdr=aoa[0]||[];
     for(let r=1;r<aoa.length;r++){ const row=aoa[r]; if(!row) continue; const nm=row[0];
       if(nm==null||String(nm).trim()===''||/^basket$/i.test(String(nm).trim())) continue;
+      const bname=String(nm).trim(); const mb=(BASKETS||[]).find(x=>x.commodity===comm && x.name===bname);
       for(let c=1;c<hdr.length;c++){ const seas=String(hdr[c]||'').trim().toUpperCase(); if(!/^[SW]-\d{2}$/.test(seas)) continue;
         const v=row[c]; if(v==null||v===''||isNaN(+v)) continue;
-        ups.push({basket_name:String(nm).trim(), commodity:comm, season:seas, nec:+v, updated_by:FLEX.user}); }
+        ups.push({basket_name:bname, commodity:comm, season:seas, nec:+v, basket_id: mb?mb.id:null, updated_by:FLEX.user}); }
     }
   });
   if(!ups.length) return fxToast('No NEC values found — expected sheets named Power/Gas with a Basket column and season columns (e.g. W-26, S-27).', false);
