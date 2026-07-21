@@ -4417,12 +4417,10 @@ async function fxSitesExport(){
   ws.getRow(2).eachCell(c=>{ c.font={bold:true}; });
   let rr=3;
   all.forEach(s=>{
-    const cs=s.contract_start?new Date(s.contract_start+'T00:00:00'):null;
-    const ce=s.contract_end?new Date(s.contract_end+'T00:00:00'):null;
-    const base=[null, b.name, s.customer, s.mpxn, cs, ce, (s.nec_unit_rate!=null?+s.nec_unit_rate:null)];
+    // dates written as ISO text (YYYY-MM-DD) — avoids Excel date-serial timezone shifts on round-trip
+    const base=[null, b.name, s.customer, s.mpxn, s.contract_start||null, s.contract_end||null, (s.nec_unit_rate!=null?+s.nec_unit_rate:null)];
     const arr= gas ? base.concat([(s.nec_standing_charge!=null?+s.nec_standing_charge:null), s.source]) : base.concat([s.source]);
-    const row=ws.getRow(rr++); row.values=arr;
-    row.getCell(5).numFmt='dd/mm/yyyy'; row.getCell(6).numFmt='dd/mm/yyyy';
+    ws.getRow(rr++).values=arr;
   });
   const buf=await wb.xlsx.writeBuffer();
   fxDownloadBlob(buf, b.name.replace(/[^\w]+/g,'_')+'_Sites_'+new Date().toISOString().slice(0,10)+'.xlsx');
@@ -4434,8 +4432,9 @@ async function fxSitesImport(file){
   const gas=b.commodity==='gas';
   const ws=wb.Sheets[wb.SheetNames.find(n=>/site/i.test(n))||wb.SheetNames[0]];
   if(!ws) return fxToast('No sheet found in that file', false);
+  fxNormRange(ws);
   const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null});
-  function dd(v){ if(v instanceof Date) return v.toISOString().slice(0,10); if(v==null) return null; const p=(typeof fxParseDate==='function')?fxParseDate(String(v)):null; return p?p.slice(0,10):null; }
+  function dd(v){ if(v instanceof Date){ if(isNaN(v.getTime())) return null; return v.getFullYear()+'-'+String(v.getMonth()+1).padStart(2,'0')+'-'+String(v.getDate()).padStart(2,'0'); } if(v==null||v==='') return null; const sv=String(v).trim(); if(/^\d{4}-\d{2}-\d{2}$/.test(sv)) return sv; const p=(typeof fxParseDate==='function')?fxParseDate(sv):null; return p?p.slice(0,10):null; }
   function nn(v){ const f=parseFloat(v); return isNaN(f)?null:f; }
   const rows=[];
   for(const r of aoa){ if(!r) continue;
@@ -4518,7 +4517,7 @@ async function fxNecsImport(file){
   const ups=[];
   wb.SheetNames.forEach(sn=>{
     const comm=/gas/i.test(sn)?'gas':(/power/i.test(sn)?'power':null); if(!comm) return;
-    const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:null}); if(!aoa.length) return;
+    const aoa=XLSX.utils.sheet_to_json(fxNormRange(wb.Sheets[sn]),{header:1,raw:true,defval:null}); if(!aoa.length) return;
     const hdr=aoa[0]||[];
     for(let r=1;r<aoa.length;r++){ const row=aoa[r]; if(!row) continue; const nm=row[0];
       if(nm==null||String(nm).trim()===''||/^basket$/i.test(String(nm).trim())) continue;
@@ -4712,6 +4711,11 @@ function fxDownloadBlob(buf, name){
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
 }
+// Force a worksheet's used-range origin to A1 so sheet_to_json({header:1}) yields ABSOLUTE column
+// indices (A=0, B=1, …). Files exported with a blank leading column (col A) otherwise make SheetJS
+// index from the range start (col B), shifting every column one to the left. This was the cause of
+// the sites-import misalignment; apply it before every header:1 parse.
+function fxNormRange(ws){ if(ws && ws['!ref']){ try{ const r=XLSX.utils.decode_range(ws['!ref']); r.s.r=0; r.s.c=0; ws['!ref']=XLSX.utils.encode_range(r); }catch(e){} } return ws; }
 async function fxExportBasket(){
   const b=currentBasket; if(!b) return;
   if(typeof ExcelJS==='undefined') return fxToast('Excel engine not loaded — reload the page', false);
@@ -4798,7 +4802,7 @@ async function fxImportParse(file){
   catch(e){ return fxToast('Could not read that file', false); }
   const ws=wb.Sheets['Baseload']||wb.Sheets[wb.SheetNames[0]];
   if(!ws) return fxToast('No sheet found', false);
-  const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null}).slice(1);
+  const rows=XLSX.utils.sheet_to_json(fxNormRange(ws),{header:1,raw:true,defval:null}).slice(1);
   const known={}; b.months.forEach(m=>{ known[fmtMonth(m.month)]=m; known[m.month]=m; });
   const changes=[];
   for(const r of rows){
@@ -4813,7 +4817,7 @@ async function fxImportParse(file){
   const tws=wb.Sheets['Targets'];
   if(tws){
     const numT=fxTierCount(b);
-    const trows=XLSX.utils.sheet_to_json(tws,{header:1,raw:true,defval:null}).slice(1);
+    const trows=XLSX.utils.sheet_to_json(fxNormRange(tws),{header:1,raw:true,defval:null}).slice(1);
     for(const r of trows){
       if(!r||r[0]==null) continue;
       const key=r[0] instanceof Date? (r[0].getFullYear()+'-'+String(r[0].getMonth()+1).padStart(2,'0')+'-01') : String(r[0]).trim();
@@ -5002,6 +5006,7 @@ async function fxFullCurveImport(file){
   let wb; try{ wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true}); }catch(e){ return fxToast('Could not read that file', false); }
   const ws=wb.Sheets[wb.SheetNames.find(n=>/curve/i.test(n))||wb.SheetNames[0]];
   if(!ws) return fxToast('No sheet found in that file', false);
+  fxNormRange(ws);
   const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null});
   function toMonth(v){ if(v instanceof Date) return v.getFullYear()+'-'+String(v.getMonth()+1).padStart(2,'0')+'-01';
     if(v==null) return null; const p=(typeof fxParseDate==='function')?fxParseDate(String(v)):null; return p?p.slice(0,8)+'01':null; }
