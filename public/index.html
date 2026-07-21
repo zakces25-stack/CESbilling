@@ -1550,7 +1550,7 @@
               <button class="btn-primary" style="width:auto;padding:10px 18px;margin-top:12px;" onclick="bxSaveMine()">Save my figures</button>
               <button class="btn-secondary" id="bxConfirmBtn" style="width:auto;padding:10px 18px;margin-top:12px;margin-left:8px;border:2px solid var(--navy);color:var(--navy);font-weight:800;" onclick="bxConfirmMonth()">&#10004; Confirm &mdash; this is my total for <span id="bxConfirmMonthLbl">this month</span></button>
               <div id="bxConfirmState" style="margin-top:10px;font-size:12.5px;font-weight:700;"></div>
-              <button class="btn-secondary" style="width:auto;padding:10px 18px;margin-top:12px;margin-left:8px;color:#b5340f;border-color:#e3b3a6;" onclick="bxDeleteMine()">Delete this month</button>
+              <button class="btn-secondary" id="bxDeleteMineBtn" style="width:auto;padding:10px 18px;margin-top:12px;margin-left:8px;color:#b5340f;border-color:#e3b3a6;display:none;" onclick="bxDeleteMine()">Delete this month</button>
             </div>
 
             <div class="card" id="bxNewBizCard" style="margin-bottom:16px;">
@@ -5279,6 +5279,7 @@
       var _e = document.getElementById('bxEntryMonthLbl'); if(_e) _e.textContent = _lbl;
       var _cl = document.getElementById('bxConfirmMonthLbl'); if(_cl) _cl.textContent = _lbl;
       bxUpdateConfirmUI(rawK, _lbl);
+      var _dmBtn = document.getElementById('bxDeleteMineBtn'); if(_dmBtn) _dmBtn.style.display = (currentUser && currentUser.salesLead) ? '' : 'none';
       bxRenderNotes();
       renderOverviewTarget();
       var _teamPk = key || '__all__';
@@ -6484,6 +6485,7 @@
           + '<div class="sk-entry-grid sk-entry-vert" id="leadEntryFields"></div>'
           + '<div class="form-group" style="margin-top:12px;"><label>If they lost any customers or meters — why?</label><textarea id="lead_lost_reason" rows="2" style="width:100%;padding:10px 12px;border:1px solid var(--border,#d9d9e3);border-radius:8px;font:inherit;resize:vertical;box-sizing:border-box;" placeholder="Reason customers / meters were lost"></textarea></div>'
           + '<button class="btn-primary" style="width:auto;padding:10px 18px;margin-top:12px;" onclick="leadSaveEntry()">Save figures for this broker</button>'
+          + '<button class="btn-secondary" style="width:auto;padding:10px 18px;margin-top:12px;margin-left:8px;color:#b5340f;border-color:#e3b3a6;" onclick="leadDeleteEntry()">Delete this month</button>'
         + '</div>';
       var ef=document.getElementById('leadEntryFields'); if(ef) ef.innerHTML=_skEntryFieldsHtml('lead_', true);
       var lm=document.getElementById('leadMonth'); if(lm && !lm.value) lm.value=new Date().toISOString().slice(0,7);
@@ -6544,6 +6546,24 @@
       logAction('lead_save_kpi', null, { rep_id:rep, period:key });
       await salesFetchAll(); brokerRenderTeam(); renderLeadLost();
       _skFlash('leadMsg','Saved figures for '+escapeHtml(nm[rep]||'broker')+'.');
+    }
+    async function leadDeleteEntry(){
+      if(!(currentUser && currentUser.salesLead)){ safeAlert('Only the sales lead can delete a broker’s month.', null); return; }
+      var rep=(document.getElementById('leadRep')||{}).value;
+      var mo=(document.getElementById('leadMonth')||{}).value;
+      if(!rep){ safeAlert('Pick a broker.', null); return; }
+      if(!mo){ safeAlert('Pick a month.', null); return; }
+      var key=mo+'-01';
+      var nm={}; (_SK.reps||[]).forEach(function(r){ nm[r.id]=r.name; });
+      var who=nm[rep]||'this broker';
+      var row=(_SK.kpis||[]).filter(function(k){ return k.rep_id===rep && k.period===key; })[0];
+      if(!row){ safeAlert('There are no saved figures for '+who+' in '+_skPeriodLabel(key)+'.', null); return; }
+      if(!window.confirm('Delete '+who+'’s figures for '+_skPeriodLabel(key)+'? This removes that month entirely and cannot be undone.')) return;
+      var resp=await sb.from('broker_kpis').delete().eq('rep_id', rep).eq('period', key);
+      if(resp.error){ safeAlert('Could not delete these figures.', resp.error); return; }
+      logAction('lead_delete_kpi', null, { rep_id:rep, period:key });
+      await salesFetchAll(); brokerRenderTeam(); renderLeadLost(); leadLoadEntry();
+      _skFlash('leadMsg','Deleted '+escapeHtml(who)+'’s figures for '+_skPeriodLabel(key)+'.');
     }
     function brokerNav(view){
       var sales = document.getElementById('brokerSalesView');
