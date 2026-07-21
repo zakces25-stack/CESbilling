@@ -65,6 +65,10 @@ td.fx-actions{white-space:nowrap}
 .fx-src.man{background:#efe9fb;color:#5b21b6}
 td.fx-fc-edit{cursor:pointer}
 td.fx-fc-edit:hover{background:rgba(159,190,28,.10)}
+.fx-admh-lbl{border-bottom:1px dashed transparent}
+.fx-admh-lbl:hover{border-bottom-color:currentColor}
+.fx-admh-x{margin-left:5px;border:none;background:transparent;color:#ffb4a8;cursor:pointer;font-size:13px;font-weight:900;line-height:1;padding:0 2px;opacity:.7}
+.fx-admh-x:hover{opacity:1;color:#fff}
 .fx-log-new{animation:fxflash 1.6s ease}
 @keyframes fxflash{0%{background:#f4f8e4}100%{background:transparent}}
 /* cursors */
@@ -1822,7 +1826,7 @@ async function _fetchAll(table, cols, orderCols) {
   return out;
 }
 async function loadFlexData() {
-  const [baskets, months, trades, targets, curves, orders, contacts, deadlines, admin, meta, notes, adminCells] = await Promise.all([
+  const [baskets, months, trades, targets, curves, orders, contacts, deadlines, admin, meta, notes, adminCells, adminCols] = await Promise.all([
     _fetchAll('flex_baskets', 'id,name,commodity,unit_vol,unit_price,is_ces,sort_order,archived,target_labels,epsp,target_kinds,target_count', ['sort_order']),
     _fetchAll('flex_positions', 'basket_id,month,days,season,baseload_vol,secured_vol,secured_wap,baseload_vol_total,secured_vol_total,secured_pct,secured_cost,open_vol,open_vol_total,open_pct,market_price,mkt_source,residual_cost,mtm_cost,mtm_price', ['basket_id', 'month']),
     _fetchAll('flex_trades', 'id,basket_id,trade_ref,trade_date,counterparty,start_date,end_date,volume,product,strike,deal_type,cost', ['basket_id', 'id']),
@@ -1831,10 +1835,11 @@ async function loadFlexData() {
     _fetchAll('flex_firm_orders', 'id,commodity,basket_name,period,volume,price', ['id']),
     _fetchAll('flex_contacts', 'id,supplier,note,details', ['id']),
     _fetchAll('flex_sefe_deadlines', 'id,period,last_trading,deadline', ['id']),
-    _fetchAll('flex_admin_schedule', 'id,group_name,basket,ced,supplier,months', ['id']),
+    _fetchAll('flex_admin_schedule', 'id,group_name,basket,ced,supplier,months,detail', ['id']),
     _fetchAll('flex_meta', 'key,value', ['key']),
     _fetchAll('flex_notes', 'id,basket_id,scope,subject,body,author,created_at', ['id']),
-    _fetchAll('flex_admin_cells', 'id,row_id,month,da_trade,cog,pos_report', ['id'])
+    _fetchAll('flex_admin_cells', 'id,row_id,month,da_trade,cog,pos_report,vals', ['id']),
+    _fetchAll('flex_admin_columns', 'id,col_key,kind,label,sort_order', ['sort_order','id'])
   ]);
   const byM = {}, byT = {}, byG = {};
   for (const m of months) (byM[m.basket_id] ??= []).push({
@@ -1880,11 +1885,11 @@ async function loadFlexData() {
     archived: baskets.filter(b => !!b.archived).map(mkB),
     notes: notes.map(n => ({ id: n.id, basket_id: n.basket_id, scope: n.scope,
       subject: n.subject, body: n.body, author: n.author, at: n.created_at })),
-    adminCells: adminCells.map(c => ({ id: c.id, row_id: c.row_id, month: c.month,
-      da_trade: c.da_trade, cog: c.cog, pos_report: c.pos_report })),
+    adminCells: adminCells.map(c => ({ id: c.id, row_id: c.row_id, month: c.month, vals: c.vals || {} })),
     curves: { gas: curveOf('gas'), power: curveOf('power'), last_updated: _cuTxt },
-    admin: { month_labels: seedMeta.admin_month_labels || [], rows: admin.map(r => ({
-      id: r.id, group: r.group_name, basket: r.basket, ced: r.ced, supplier: r.supplier, months: r.months || [] })) },
+    admin: { month_labels: seedMeta.admin_month_labels || [],
+      columns: (adminCols||[]).map(c => ({ id: c.id, key: c.col_key, kind: c.kind, label: c.label, sort: c.sort_order })),
+      rows: admin.map(r => ({ id: r.id, detail: r.detail || {} })) },
     contacts: { suppliers: contacts.map(c => ({ id: c.id, supplier: c.supplier, note: c.note, details: c.details || [] })),
                 sefe_deadlines: deadlines.map(d => ({ id: d.id, period: d.period, last_trading: d.last_trading, deadline: d.deadline })) },
     firm_orders: { power: ordersOf('power'), gas: ordersOf('gas') }
@@ -4185,70 +4190,94 @@ renderAdmin = function(){
   const el=document.getElementById('main-tab-admin'); if(!el) return;
   if(el.dataset.rendered) return; el.dataset.rendered='1';
   const prevM=fxPrevMonth(), curM=fxNowMonth();
-  const lbl=iso=>fmtMonth(iso);
-  const rows=(DATA.admin.rows||[]);
-  const cell=(rowId, month, field)=>{
-    const c=(DATA.adminCells||[]).find(x=>x.row_id===rowId && x.month===month);
-    return c ? (c[field]||'') : '';
-  };
+  const A=DATA.admin||{};
+  const cols=(A.columns||[]).slice().sort((a,b)=>(a.sort-b.sort)||(a.id-b.id));
+  const detailCols=cols.filter(c=>c.kind==='detail');
+  const taskCols=cols.filter(c=>c.kind==='task');
+  const rows=(A.rows||[]);
+  const months=[[prevM,'A'],[curM,'B']];
+  const tCount=Math.max(taskCols.length,1);
+  const cellVal=(rowId,month,key)=>{ const c=(DATA.adminCells||[]).find(x=>x.row_id===rowId && x.month===month); return (c&&c.vals)?(c.vals[key]||''):''; };
+  const headLbl=c=> EDIT
+    ? `<span class="fx-admh-lbl" data-col="${c.id}" title="Click to rename">${escape(c.label)}</span><button class="fx-admh-x" title="Remove column" onclick="event.stopPropagation();fxAdmColRemove(${c.id})">&times;</button>`
+    : escape(c.label);
+  const dash='<span style="color:#c8cdd8">&mdash;</span>';
+  const detailTh=(detailCols.length?detailCols.map(c=>`<th rowspan="2" class="fx-admh" style="text-align:left">${headLbl(c)}</th>`).join('')
+    : '<th rowspan="2" style="text-align:left;color:#c8cdd8">(no detail columns)</th>');
+  const topTh=months.map(([mo,g],mi)=>`<th colspan="${tCount}" class="fx-mh${g}">${fmtMonth(mo)}${mi===1?' &middot; current':''}</th>`).join('');
+  const subTh=months.map(([mo,g])=> (taskCols.length?taskCols:[{id:0}]).map((c,ci)=>`<th class="fx-g${g}${ci===0?' fx-gs':''} fx-admh">${c.id?headLbl(c):dash}</th>`).join('') ).join('');
   const tr=rows.map(r=>{
-    let tds=`<td class="lbl" style="text-align:left">${escape(r.group||'')}</td><td class="lbl">${escape(r.basket||'')}</td><td>${escape(r.ced||'')}</td><td>${escape(r.supplier||'')}</td>`;
-    [[prevM,'fx-gA'],[curM,'fx-gB']].forEach(([mo,g])=>['da_trade','cog','pos_report'].forEach((f,fi)=>{
-      tds+=`<td class="fx-adm ${g}${fi===0?' fx-gs':''}" data-row="${r.id}" data-month="${mo}" data-field="${f}">${escape(cell(r.id,mo,f))||'<span style="color:#c8cdd8">—</span>'}</td>`;
+    let tds=(detailCols.length?detailCols:[{id:0}]).map(c=> c.id
+      ? `<td class="lbl fx-admd${EDIT?' fx-editable':''}" data-row="${r.id}" data-key="${escape(c.key)}" style="text-align:left">${escape((r.detail&&r.detail[c.key])||'')||dash}</td>`
+      : `<td>${dash}</td>`).join('');
+    months.forEach(([mo,g])=> (taskCols.length?taskCols:[{id:0}]).forEach((c,ci)=>{
+      tds+= c.id
+        ? `<td class="fx-adm fx-g${g}${ci===0?' fx-gs':''}${EDIT?' fx-editable':''}" data-row="${r.id}" data-month="${mo}" data-key="${escape(c.key)}">${escape(cellVal(r.id,mo,c.key))||dash}</td>`
+        : `<td class="fx-g${g}">${dash}</td>`;
     }));
-    tds+=`<td class="fx-actions"><button class="fx-icon" title="Edit row" onclick="fxAdminRowModal(${r.id})">&#9998;</button><button class="fx-icon" title="Delete row" onclick="fxAdminRowDelete(${r.id})">&#128465;</button></td>`;
+    if(EDIT) tds+=`<td class="fx-actions"><button class="fx-icon" title="Delete row" onclick="fxAdminRowDelete(${r.id})">&#128465;</button></td>`;
     return `<tr>${tds}</tr>`;
   }).join('');
+  const colCount=detailCols.length + taskCols.length*months.length + (EDIT?1:0) + 3;
   el.innerHTML=`<div class="extra-tab-inner">
-    <div class="fx-toolbar"><button class="fx-btn green" onclick="fxAdminRowModal()">+ Add row</button><span style="font-size:11px;color:#6b7280">Click any month cell to type an exact date (e.g. 09/07/26) — every change is recorded in the edit log</span></div>
+    ${EDIT?`<div class="fx-toolbar"><button class="fx-btn green" onclick="fxAdminAddRow()">+ Add row</button><button class="fx-btn" onclick="fxAdmAddColumn('detail')">+ Add detail column</button><button class="fx-btn" onclick="fxAdmAddColumn('task')">+ Add task column</button><span style="font-size:11px;color:#6b7280">Click a cell to edit &middot; click a header to rename &middot; &times; on a header removes the column &middot; the two month blocks (previous + current) roll automatically</span></div>`:''}
     <div class="extra-section" style="overflow-x:auto">
       <div class="extra-section-title">Admin — trade &amp; reporting schedule</div>
       <table class="extra-table" style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead><tr><th rowspan="2" style="text-align:left">Group</th><th rowspan="2">Basket</th><th rowspan="2">CED</th><th rowspan="2">Supplier</th>
-          <th colspan="3" class="fx-mhA">${lbl(prevM)}</th><th colspan="3" class="fx-mhB">${lbl(curM)} &middot; current</th><th rowspan="2"></th></tr>
-        <tr><th class="fx-gA fx-gs">DA trade</th><th class="fx-gA">COG</th><th class="fx-gA">Pos report</th><th class="fx-gB fx-gs">DA trade</th><th class="fx-gB">COG</th><th class="fx-gB">Pos report</th></tr></thead>
-        <tbody>${tr || `<tr><td colspan="11" style="padding:14px;color:#6b7280">No admin rows yet.</td></tr>`}</tbody>
+        <thead><tr>${detailTh}${topTh}${EDIT?'<th rowspan="2"></th>':''}</tr>
+        <tr>${subTh}</tr></thead>
+        <tbody>${tr || `<tr><td colspan="${colCount}" style="padding:14px;color:#6b7280">No admin rows yet.</td></tr>`}</tbody>
       </table>
     </div></div>`;
-  el.querySelectorAll('td.fx-adm').forEach(td=>{
-    td.style.cursor='pointer';
-    td.classList.add('fx-editable');
+  if(!EDIT) return;
+  el.querySelectorAll('td.fx-adm').forEach(td=>{ td.style.cursor='pointer';
     td.onclick=()=>{ if(td.querySelector('input')) return;
-      const cur=(DATA.adminCells||[]).find(x=>x.row_id===+td.dataset.row && x.month===td.dataset.month);
-      fxCellInputText(td, cur?cur[td.dataset.field]:'', async v=>{
-        if(cur && cur.id){
-          await fxWrite(FLEX.sb.from('flex_admin_cells').update({[td.dataset.field]:v, updated_by:FLEX.user}).eq('id', cur.id), 'Saved');
-        } else {
-          await fxWrite(FLEX.sb.from('flex_admin_cells').insert({row_id:+td.dataset.row, month:td.dataset.month, [td.dataset.field]:v, updated_by:FLEX.user}), 'Saved');
+      const cur=(DATA.adminCells||[]).find(x=>x.row_id===+td.dataset.row && x.month===td.dataset.month); const key=td.dataset.key;
+      fxCellInputText(td, (cur&&cur.vals)?(cur.vals[key]||''):'', async v=>{
+        if(cur && cur.id){ const vals=Object.assign({},cur.vals||{}); if(v==null||v==='') delete vals[key]; else vals[key]=v;
+          await fxWrite(FLEX.sb.from('flex_admin_cells').update({vals, updated_by:FLEX.user}).eq('id',cur.id),'Saved');
+        } else { const vals={}; if(v!=null&&v!=='') vals[key]=v;
+          await fxWrite(FLEX.sb.from('flex_admin_cells').insert({row_id:+td.dataset.row, month:td.dataset.month, vals, updated_by:FLEX.user}),'Saved');
         }
       });
     };
   });
+  el.querySelectorAll('td.fx-admd').forEach(td=>{ td.style.cursor='pointer';
+    td.onclick=()=>{ if(td.querySelector('input')) return;
+      const r=(DATA.admin.rows||[]).find(x=>x.id===+td.dataset.row); const key=td.dataset.key;
+      fxCellInputText(td, (r&&r.detail)?(r.detail[key]||''):'', async v=>{
+        const detail=Object.assign({}, (r&&r.detail)||{}); if(v==null||v==='') delete detail[key]; else detail[key]=v;
+        await fxWrite(FLEX.sb.from('flex_admin_schedule').update({detail, updated_by:FLEX.user}).eq('id',+td.dataset.row),'Saved');
+      });
+    };
+  });
+  el.querySelectorAll('.fx-admh-lbl').forEach(sp=>{ sp.style.cursor='pointer';
+    sp.onclick=(e)=>{ e.stopPropagation(); if(sp.querySelector('input')) return;
+      const id=+sp.dataset.col; const c=(DATA.admin.columns||[]).find(x=>x.id===id);
+      fxCellInputText(sp, c?c.label:'', async v=>{
+        await fxWrite(FLEX.sb.from('flex_admin_columns').update({label:v||'Column', updated_by:FLEX.user}).eq('id',id),'Column renamed');
+      });
+    };
+  });
 };
-function fxAdminRowModal(id){
-  const r=id?(DATA.admin.rows||[]).find(x=>x.id===id):null;
-  fxModal(`<h3>${r?'Edit':'Add'} admin row</h3>
-  <div class="fx-grid">
-    <div class="fx-field"><label>Group</label><input id="fA_group" value="${r?escape(r.group||''):''}"></div>
-    <div class="fx-field" style="grid-column:span 2"><label>Basket</label><input id="fA_basket" value="${r?escape(r.basket||''):''}"></div>
-    <div class="fx-field"><label>CED</label><input id="fA_ced" value="${r?escape(r.ced||''):''}" placeholder="30.09.28"></div>
-    <div class="fx-field"><label>Supplier</label><input id="fA_supplier" value="${r?escape(r.supplier||''):''}"></div>
-  </div>
-  <div class="fx-err" id="fxMErr"></div>
-  <div class="fx-modal-foot"><button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
-  <button class="fx-btn green" onclick="fxAdminRowSave(${id||'null'})">Save</button></div>`);
+async function fxAdmAddColumn(kind){
+  const cols=(DATA.admin.columns||[]).filter(c=>c.kind===kind);
+  const sort=cols.reduce((m,c)=>Math.max(m,c.sort||0),0)+1;
+  const key='k'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+  await fxWrite(FLEX.sb.from('flex_admin_columns').insert({col_key:key, kind:kind, label:(kind==='detail'?'New detail':'New task'), sort_order:sort, updated_by:FLEX.user}), (kind==='detail'?'Detail':'Task')+' column added');
 }
-async function fxAdminRowSave(id){
-  const row={ group_name:document.getElementById('fA_group').value.trim()||null,
-    basket:document.getElementById('fA_basket').value.trim()||null,
-    ced:document.getElementById('fA_ced').value.trim()||null,
-    supplier:document.getElementById('fA_supplier').value.trim()||null, updated_by:FLEX.user };
-  if(!row.basket) return fxMErr('Basket name required.');
-  const q=id?FLEX.sb.from('flex_admin_schedule').update(row).eq('id',id):FLEX.sb.from('flex_admin_schedule').insert(row);
-  if(await fxWrite(q,'Admin row saved')) fxCloseModal();
+async function fxAdmColRemove(id){
+  const c=(DATA.admin.columns||[]).find(x=>x.id===id); if(!c) return;
+  if(!confirm('Remove the "'+(c.label||'column')+'" column?\n\nExisting values stay saved in the background but are hidden.')) return;
+  await fxWrite(FLEX.sb.from('flex_admin_columns').delete().eq('id',id),'Column removed');
+}
+async function fxAdminAddRow(){
+  await fxWrite(FLEX.sb.from('flex_admin_schedule').insert({detail:{}, updated_by:FLEX.user}),'Row added');
 }
 async function fxAdminRowDelete(id){
+  if(!id) return;
   if(!confirm('Delete this admin row (and its month cells)?')) return;
+  await FLEX.sb.from('flex_admin_cells').delete().eq('row_id',id);
   await fxWrite(FLEX.sb.from('flex_admin_schedule').delete().eq('id',id),'Admin row deleted');
 }
 
@@ -4593,7 +4622,7 @@ renderCurves = function(){
       <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:12px;padding:15px 18px;border:2px solid var(--navy,#2f3d7e);border-radius:12px;background:linear-gradient(90deg,#eef1fb,#f6f8fe);color:var(--navy,#2f3d7e);font-weight:800;font-size:15px;user-select:none;box-shadow:0 2px 10px rgba(47,61,126,.10);">
         <span style="font-size:20px;line-height:1;">&#128202;</span>
         <span>Full market curve data</span>
-        <span style="font-weight:600;color:#5a6488;font-size:12.5px;">&mdash; every month Oct-21 &rarr; Sep-32 &middot; imported curve to W-29, manual sources beyond</span>
+        <span style="font-weight:600;color:#5a6488;font-size:12.5px;">&mdash; every month Oct-21 &rarr; Sep-32 &middot; live imported curve where available, manual sources beyond</span>
         <span class="fxPrevChevron" style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:#fff;background:var(--navy,#2f3d7e);padding:5px 12px;border-radius:999px;white-space:nowrap;">View <span class="fxPrevCaret" style="transition:transform .15s;">&#9662;</span></span>
       </summary>
       <div id="fxPrevCurveBody"></div>
@@ -4630,7 +4659,21 @@ function fxQLabel(q){ if(!q) return '\u2014'; var m=/^Q(\d)(\d{2})$/.exec(String
 // ── FULL MARKET CURVE DATA (Oct-21 → Sep-32) ─────────────────────
 // Imported Marex curve is priority up to W-29 (kept live by the twice-daily import + capture trigger);
 // from W-29 (Oct-2029) → S-32 we use manual sources. Fully editable + bulk Excel (tab-4 layout).
-const FX_MANUAL_FROM = '2029-10-01';   // W-29 — manual region start (advances as the imported curve extends)
+// Manual region begins at the START of the furthest season the imported curve reaches — self-advancing.
+const FX_MANUAL_FALLBACK = '2029-10-01'; // used only if the live curve has no seasons loaded yet
+function fxSeasonStart(label){
+  const m=/^([SW])-?(\d{2})$/.exec(String(label||'').trim()); if(!m) return null;
+  return (2000+(+m[2]))+'-'+(m[1]==='S'?'04':'10')+'-01';   // S-YY → Apr, W-YY → Oct
+}
+let _fxManualFrom=null;
+async function fxManualFromMonth(force){
+  if(_fxManualFrom && !force) return _fxManualFrom;
+  const { data } = await FLEX.sb.from('flex_curves').select('period_label').eq('period_type','season');
+  let best=null;
+  (data||[]).forEach(r=>{ const s=fxSeasonStart(r.period_label); if(s && (!best || s>best)) best=s; });
+  _fxManualFrom = best || FX_MANUAL_FALLBACK;   // first month of the furthest imported season = first manual month
+  return _fxManualFrom;
+}
 let _fxFullCurve = null;
 async function fxLoadFullCurve(force){
   if(_fxFullCurve && !force) return _fxFullCurve;
@@ -4649,11 +4692,12 @@ async function fxRenderFullCurve(){
   const months=Object.keys(byM).sort();   // oldest first
   if(!months.length){ body.innerHTML='<div style="padding:10px 2px;color:#6b7280;font-size:12px;">No curve data yet.</div>'; return; }
   const nowKey=new Date().toISOString().slice(0,8)+'01';
+  const manualFrom=await fxManualFromMonth(true);   // self-advancing boundary (start of furthest imported season)
   const cell=(k,c,v)=> EDIT
     ? `<td class="td-right fx-fc-edit" data-c="${c}" data-m="${k}" title="Click to edit">${v!=null?(+v).toFixed(2):'—'}</td>`
     : `<td class="td-right">${v!=null?(+v).toFixed(2):'—'}</td>`;
   const rows=months.map(k=>{ const m=byM[k];
-    const src = k<nowKey ? '<span class="fx-src hist">settled</span>' : (k>=FX_MANUAL_FROM ? '<span class="fx-src man">manual</span>' : '<span class="fx-src live">imported</span>');
+    const src = k<nowKey ? '<span class="fx-src hist">settled</span>' : (k>=manualFrom ? '<span class="fx-src man">manual</span>' : '<span class="fx-src live">imported</span>');
     return `<tr><td>${fmtMonth(k)}</td><td>${fxQLabel(m.quarter)}</td><td>${m.season||'—'}</td>${cell(k,'power',m.power)}${cell(k,'gas',m.gas)}<td>${src}</td></tr>`;
   }).join('');
   const tools = EDIT
@@ -4708,16 +4752,17 @@ async function fxFullCurveImport(file){
   const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null});
   function toMonth(v){ if(v instanceof Date) return v.getFullYear()+'-'+String(v.getMonth()+1).padStart(2,'0')+'-01';
     if(v==null) return null; const p=(typeof fxParseDate==='function')?fxParseDate(String(v)):null; return p?p.slice(0,8)+'01':null; }
+  const manualFrom=await fxManualFromMonth(true);
   const upserts=[]; let skipped=0;
   for(const r of aoa){ if(!r) continue;
     const pM=toMonth(r[1]);   // Power block: B month, C quarter, D season, E mid
     const gM=toMonth(r[7]);   // Gas block:  H month, I quarter, J season, K mid
-    if(pM && r[4]!=null && !isNaN(+r[4])){ if(pM>=FX_MANUAL_FROM) upserts.push({commodity:'power',month:pM,quarter:r[2]!=null?String(r[2]):null,season:r[3]!=null?String(r[3]):null,mid:+r[4]}); else skipped++; }
-    if(gM && r[10]!=null && !isNaN(+r[10])){ if(gM>=FX_MANUAL_FROM) upserts.push({commodity:'gas',month:gM,quarter:r[8]!=null?String(r[8]):null,season:r[9]!=null?String(r[9]):null,mid:+r[10]}); else skipped++; }
+    if(pM && r[4]!=null && !isNaN(+r[4])){ if(pM>=manualFrom) upserts.push({commodity:'power',month:pM,quarter:r[2]!=null?String(r[2]):null,season:r[3]!=null?String(r[3]):null,mid:+r[4]}); else skipped++; }
+    if(gM && r[10]!=null && !isNaN(+r[10])){ if(gM>=manualFrom) upserts.push({commodity:'gas',month:gM,quarter:r[8]!=null?String(r[8]):null,season:r[9]!=null?String(r[9]):null,mid:+r[10]}); else skipped++; }
   }
   if(!upserts.length) return fxToast('No manual-region rows (W-29 onward) found in that file', false);
   const monthsSet=new Set(upserts.map(u=>u.month));
-  if(!confirm('Import '+upserts.length+' values across '+monthsSet.size+' month(s), from '+FX_MANUAL_FROM.slice(0,7)+' onward?\n\n'+skipped+' earlier row(s) skipped — those months are governed by the live Marex import.')) return;
+  if(!confirm('Import '+upserts.length+' values across '+monthsSet.size+' month(s), from '+manualFrom.slice(0,7)+' onward?\n\n'+skipped+' earlier row(s) skipped — those months are governed by the live Marex import.')) return;
   const {error}=await FLEX.sb.from('flex_curve_history').upsert(upserts,{onConflict:'commodity,month'});
   if(error) return fxToast(error.message||'Import failed', false);
   fxToast('Imported '+upserts.length+' curve values'); _fxFullCurve=null; fxRenderFullCurve();
