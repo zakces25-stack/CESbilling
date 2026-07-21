@@ -52,6 +52,13 @@ td.fx-actions{white-space:nowrap}
 .fx-log-row .meta{display:flex;gap:7px;align-items:center;color:#6b7280;font-size:10.5px;margin-bottom:2px}
 .fx-log-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
 .fx-log-row .who{font-weight:700;color:#141a3c}
+.fx-log-group{border-bottom:1px solid #e9ebf0}
+.fx-log-group>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;padding:7px 14px;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#4b5563;background:#f6f7fb;position:sticky;top:0;z-index:1}
+.fx-log-group>summary::-webkit-details-marker{display:none}
+.fx-log-group .fx-log-gl{flex:1}
+.fx-log-group .fx-log-gc{background:#e2e6ef;color:#3a3f47;border-radius:999px;padding:1px 8px;font-size:9.5px;font-weight:700}
+.fx-log-group .fx-log-caret{display:inline-block;transition:transform .12s;color:#9aa1ad;font-size:10px}
+.fx-log-group[open]>summary .fx-log-caret{transform:rotate(90deg)}
 .fx-log-new{animation:fxflash 1.6s ease}
 @keyframes fxflash{0%{background:#f4f8e4}100%{background:transparent}}
 /* cursors */
@@ -1060,13 +1067,15 @@ body {
 /* ── Target designations: wrapped headers, hit cells & whole-row alerts (kind-aware) ── */
 #tab-targets thead th{ white-space:normal!important; overflow-wrap:anywhere; word-break:break-word; max-width:120px; vertical-align:bottom; line-height:1.2; }
 #tab-targets thead th .fx-th-lbl{ white-space:normal; overflow-wrap:anywhere; word-break:break-word; }
-.fx-kindbtn{ display:inline-block; margin-top:4px; padding:1px 7px; border-radius:999px; border:1.5px solid currentColor; background:transparent; font-size:9.5px; font-weight:800; letter-spacing:.3px; cursor:pointer; line-height:1.4; text-transform:uppercase; white-space:nowrap; }
-.fx-kindbtn.auth{ color:var(--negative-500); }
-.fx-kindbtn.adv{ color:var(--advisory-500); }
+.fx-kindcell{ display:inline-block; margin-left:5px; padding:0 6px; border-radius:999px; border:1.4px solid currentColor; background:#fff; font-size:8.5px; font-weight:800; letter-spacing:.4px; cursor:pointer; vertical-align:middle; text-transform:uppercase; line-height:1.6; }
+.fx-kindcell.auth{ color:var(--negative-500); }
+.fx-kindcell.adv{ color:var(--advisory-500); }
 #tab-targets td.fx-hit-auth{ background:rgba(194,69,59,.20)!important; color:#8b2015!important; font-weight:800; font-family:var(--font-mono); }
 #tab-targets td.fx-hit-adv{ background:rgba(124,58,237,.18)!important; color:#5b21b6!important; font-weight:800; font-family:var(--font-mono); }
-tr.fx-alert-auth td{ background:rgba(194,69,59,.15)!important; }
-tr.fx-alert-adv td{ background:rgba(124,58,237,.13)!important; }
+tr.fx-alert-auth td{ background:rgba(194,69,59,.26)!important; }
+tr.fx-alert-adv td{ background:rgba(124,58,237,.22)!important; }
+tr.fx-alert-auth:hover td{ background:rgba(194,69,59,.32)!important; }
+tr.fx-alert-adv:hover td{ background:rgba(124,58,237,.28)!important; }
 tr.fx-alert-auth td:first-child{ border-left:4px solid var(--negative-500); font-weight:700; }
 tr.fx-alert-adv td:first-child{ border-left:4px solid var(--advisory-500); font-weight:700; }
 #fxPrevCurve > summary::-webkit-details-marker{display:none}
@@ -2343,10 +2352,10 @@ function fxTierCount(basket) {
   if (n != null && n >= 1 && n <= 8) return n;
   return (basket && basket.commodity === 'gas') ? 8 : 5;
 }
-// Designation of a target tier: 'advisory' (purple) or 'authorised' (red, default)
-function fxTargetKind(basket, i) {
-  const k = basket && basket.target_kinds;
-  return (k && k[i - 1] === 'advisory') ? 'advisory' : 'authorised';
+// Designation of an INDIVIDUAL target cell: 'advisory' (purple) or 'authorised' (red, default).
+// Stored per target row per tier as t{n}_kind on flex_targets.
+function fxTargetKind(t, i) {
+  return (t && t['t' + i + '_kind'] === 'advisory') ? 'advisory' : 'authorised';
 }
 
 function getNextUnachievedTarget(basket, monthStr) {
@@ -2373,6 +2382,7 @@ function getUpperAlert(basket, monthStr) {
 function fxRowAlert(basket, m) {
   const mp = m.market_price;
   if (!mp) return null;
+  if (m.month === fxNowMonth()) return null; // current month always uses day-ahead pricing — never let an alert fire
   const t = (basket.targets || []).find(x => x.month === m.month);
   const n = fxTierCount(basket);
   let belowAny = false, belowAuth = false, hitPrice = null;
@@ -2382,7 +2392,7 @@ function fxRowAlert(basket, m) {
       if (price != null && done !== 'Yes' && mp < price) {
         belowAny = true;
         if (hitPrice == null || price < hitPrice) hitPrice = price;
-        if (fxTargetKind(basket, i) === 'authorised') belowAuth = true;
+        if (fxTargetKind(t, i) === 'authorised') belowAuth = true;
       }
     }
   }
@@ -2460,8 +2470,10 @@ function renderPositionsTable(rows, basket) {
     const uaCell = `<td class="td-center">${ua != null ? ua : '—'}</td>`;
 
     const nowM = new Date().toISOString().slice(0,8)+'01';
-    const baseCls = m.month === nowM ? 'fx-row-current' : ((m.secured_pct||0) >= 0.995 ? 'fx-row-hedged' : (isFuture ? 'future-month' : ''));
-    const rowCls = (m.month === nowM ? baseCls : ((baseCls ? baseCls + ' ' : '') + alertCls)).trim();
+    let rowCls;
+    if (m.month === nowM) rowCls = 'fx-row-current';
+    else if (alertCls) rowCls = alertCls;              // a hit target colours the WHOLE row and beats future/hedged shading
+    else rowCls = (m.secured_pct||0) >= 0.995 ? 'fx-row-hedged' : (isFuture ? 'future-month' : '');
     return `<tr${rowCls ? ` class="${rowCls}"` : ''}${alertTitle}>
       <td>${fmtMonth(m.month)}</td>
       <td>${escape(m.season||'')}</td>
@@ -2727,6 +2739,7 @@ function renderTargets(basket) {
     const mm = basket.months.find(m => m.month === t.month);
     const mpNum = mm && mm.market_price != null ? mm.market_price : null;
     const mp = mpNum != null ? mpNum.toFixed(2) : '-';
+    const isCur = (t.month === fxNowMonth()); // current month uses day-ahead pricing — never counts as "hit"
     let tds = `<td>${fmtMonth(t.month)}</td><td class="td-right">${mp}</td>`;
     for (let i = 1; i <= numT; i++) {
       const price = t[`lower_t${i}`];
@@ -2735,9 +2748,9 @@ function renderTargets(basket) {
         tds += `<td class="td-center" style="color:var(--grey-200)">—</td>`;
       } else if (achieved === 'Yes') {
         tds += `<td class="achieved-cell td-center" style="background:var(--green-500);color:var(--navy-900);font-weight:700;font-size:12px;font-family:var(--font-mono);" title="Target achieved">${price} &#10003;</td>`;
-      } else if (mpNum != null && mpNum < price) {
+      } else if (!isCur && mpNum != null && mpNum < price) {
         // Hit: market has reached this buy target — colour the cell by its designation
-        const advisory = fxTargetKind(basket, i) === 'advisory';
+        const advisory = fxTargetKind(t, i) === 'advisory';
         const cls = advisory ? 'fx-hit-adv' : 'fx-hit-auth';
         const lbl = advisory ? 'Advisory target hit' : 'Authorised target hit';
         tds += `<td class="td-center ${cls}" title="${lbl} — market ${mp} below ${price}">${price}</td>`;
@@ -2745,7 +2758,7 @@ function renderTargets(basket) {
         tds += `<td class="td-center"><span class="target-pending" title="Pending">&#9711;</span><span class="target-price">${price}</span></td>`;
       }
     }
-    const uaHit = (mpNum != null && t.upper_alert != null && mpNum > t.upper_alert);
+    const uaHit = (!isCur && mpNum != null && t.upper_alert != null && mpNum > t.upper_alert);
     tds += `<td class="td-right${uaHit ? ' fx-hit-adv' : ''}"${uaHit ? ` title="Upper alert hit — market ${mp} above ${t.upper_alert}"` : ''}>${t.upper_alert != null ? t.upper_alert : '-'}</td>`;
     return `<tr>${tds}</tr>`;
   }).join('');
@@ -3918,7 +3931,7 @@ function fxToggleDrawer(){
   d.classList.toggle('open');
   if(d.classList.contains('open')){
     fxLogUnseen=0; fxLogBadge();
-    if(!fxLogLoaded) fxLoadLog();
+    if(!fxLogLoaded) fxLoadLog(); else fxRenderLog();
   }
 }
 function fxLogBadge(){
@@ -3934,19 +3947,43 @@ function fxLogRowHtml(r, fresh){
   const col=fxColorFor(r.user_id||r.username||'x');
   return `<div class="fx-log-row${fresh?' fx-log-new':''}"><div class="meta"><span class="fx-log-dot" style="background:${col}"></span><span class="who">${escape(r.username||'?')}</span><span>${dd} ${hh}</span></div>${escape(r.summary||'')}</div>`;
 }
+// Group the log like a browser history: recent by day, then week, then month, as it ages.
+let fxLogRows=[];
+function fxLogBucket(atStr){
+  const d=new Date(atStr), now=new Date();
+  const sod=x=>Date.UTC(x.getFullYear(),x.getMonth(),x.getDate());
+  const diff=Math.round((sod(now)-sod(d))/86400000);
+  if(diff<=0) return {key:'d0',label:'Today',open:true};
+  if(diff===1) return {key:'d1',label:'Yesterday',open:false};
+  if(diff<7) return {key:'day-'+d.toISOString().slice(0,10), label:d.toLocaleDateString('en-GB',{weekday:'long',day:'2-digit',month:'short'}), open:false};
+  if(diff<35){ const wd=(d.getDay()+6)%7, mon=new Date(d); mon.setDate(d.getDate()-wd);
+    return {key:'wk-'+mon.toISOString().slice(0,10), label:'Week of '+mon.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}), open:false}; }
+  return {key:'mo-'+d.getFullYear()+'-'+(d.getMonth()+1), label:d.toLocaleDateString('en-GB',{month:'long',year:'numeric'}), open:false};
+}
+function fxRenderLog(){
+  const bd=document.getElementById('fxLogBody'); if(!bd) return;
+  if(!fxLogRows.length){ bd.innerHTML='<div class="fx-log-row" style="color:#6b7280">No edits yet — changes made by the team will appear here live.</div>'; return; }
+  const groups=new Map();
+  for(const r of fxLogRows){ const b=fxLogBucket(r.at); if(!groups.has(b.key)) groups.set(b.key,{label:b.label,open:b.open,rows:[]}); groups.get(b.key).rows.push(r); }
+  let html='';
+  for(const g of groups.values()){
+    html+=`<details class="fx-log-group"${g.open?' open':''}><summary><span class="fx-log-caret">&#9656;</span><span class="fx-log-gl">${escape(g.label)}</span><span class="fx-log-gc">${g.rows.length}</span></summary>${g.rows.map(r=>fxLogRowHtml(r,false)).join('')}</details>`;
+  }
+  bd.innerHTML=html;
+}
 async function fxLoadLog(){
   const {data,error}=await FLEX.sb.from('flex_audit')
-    .select('id,at,user_id,username,summary,op,table_name').order('id',{ascending:false}).limit(80);
+    .select('id,at,user_id,username,summary,op,table_name').order('id',{ascending:false}).limit(400);
   if(error){ fxToast('Could not load edit log', false); return; }
   fxLogLoaded=true;
-  document.getElementById('fxLogBody').innerHTML = data.length
-    ? data.map(r=>fxLogRowHtml(r,false)).join('')
-    : '<div class="fx-log-row" style="color:#6b7280">No edits yet — changes made by the team will appear here live.</div>';
+  fxLogRows=data||[];
+  fxRenderLog();
 }
 function fxLogPush(r){
-  const bd=document.getElementById('fxLogBody');
-  if(fxLogLoaded && bd) bd.insertAdjacentHTML('afterbegin', fxLogRowHtml(r,true));
-  if(!document.getElementById('fxDrawer').classList.contains('open')){ fxLogUnseen++; fxLogBadge(); }
+  fxLogRows.unshift(r);
+  const open=document.getElementById('fxDrawer').classList.contains('open');
+  if(fxLogLoaded && open) fxRenderLog();
+  if(!open){ fxLogUnseen++; fxLogBadge(); }
 }
 
 // ── ALERT NOTIFICATIONS ──────────────────────────────────────────
@@ -4548,26 +4585,6 @@ renderCurves = function(){
   const _fxMoOpts=[['01','Jan'],['02','Feb'],['03','Mar'],['04','Apr'],['05','May'],['06','Jun'],['07','Jul'],['08','Aug'],['09','Sep'],['10','Oct'],['11','Nov'],['12','Dec']].map(function(m){return '<option value="'+m[0]+'">'+m[1]+'</option>';}).join('');
   let _fxYrOpts=''; for(let _y=2021;_y<=2032;_y++) _fxYrOpts+='<option value="'+_y+'">'+_y+'</option>';
   el.innerHTML=`<div class="extra-tab-inner" id="fxCurvesInner">
-    <div id="fxCurveGraphCard" style="border:1px solid var(--border,#e6e1d6);border-radius:12px;padding:14px 16px;margin-bottom:18px;background:#fff;">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
-        <div style="font-weight:800;font-size:14px;color:var(--navy,#2f3d7e);">&#128200; Market price curve <span style="font-weight:600;color:#6b7280;font-size:12px;">&mdash; live &middot; Power &pound;/MWh &amp; Gas p/th</span></div>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <select id="fxCgCommodity" onchange="fxRenderCurveGraph()" class="fxCgSel"><option value="both">Power &amp; Gas</option><option value="power">Power only</option><option value="gas">Gas only</option></select>
-          <span id="fxCgGran" style="display:inline-flex;border:1px solid #d7dbe8;border-radius:8px;overflow:hidden;">
-            <button type="button" data-g="month" onclick="fxCgSet('month')" class="fxCgBtn">Month</button>
-            <button type="button" data-g="quarter" onclick="fxCgSet('quarter')" class="fxCgBtn">Quarter</button>
-            <button type="button" data-g="season" onclick="fxCgSet('season')" class="fxCgBtn">Season</button>
-          </span>
-          <span style="font-size:12px;color:#4b5563;font-weight:700;">From</span>
-          <select id="fxCgFromM" onchange="fxRenderCurveGraph()" class="fxCgSel">${_fxMoOpts}</select>
-          <select id="fxCgFromY" onchange="fxRenderCurveGraph()" class="fxCgSel">${_fxYrOpts}</select>
-          <span style="font-size:12px;color:#4b5563;font-weight:700;">To</span>
-          <select id="fxCgToM" onchange="fxRenderCurveGraph()" class="fxCgSel">${_fxMoOpts}</select>
-          <select id="fxCgToY" onchange="fxRenderCurveGraph()" class="fxCgSel">${_fxYrOpts}</select>
-        </div>
-      </div>
-      <div style="position:relative;height:340px;"><canvas id="fxCurveGraph"></canvas></div>
-    </div>
     ${section('NBP Gas Forward Curve','p/th',C.gas)}
     ${section('UK Power Forward Curve','£/MWh',C.power)}
     <p style="font-size:11px;color:var(--grey-400);text-align:right;margin:0;">Marex indicative forward curve — last updated ${C.last_updated || '—'}. Basket market prices pull live: month first, then season.</p>
@@ -4598,14 +4615,7 @@ renderCurves = function(){
     </div>`;
   const inner=document.getElementById('fxCurvesInner');
   inner.insertBefore(bar, inner.firstChild);
-  (function(){ var now=new Date(), f=new Date(now.getFullYear()-1,now.getMonth(),1), t=new Date(now.getFullYear()+2,now.getMonth(),1);
-    function pad(n){return (n<10?'0':'')+n;}
-    var fm=document.getElementById('fxCgFromM'), fy=document.getElementById('fxCgFromY'), tm=document.getElementById('fxCgToM'), ty=document.getElementById('fxCgToY');
-    if(fm) fm.value=pad(f.getMonth()+1); if(fy) fy.value=String(Math.min(2032,Math.max(2021,f.getFullYear())));
-    if(tm) tm.value=pad(t.getMonth()+1); if(ty) ty.value=String(Math.min(2032,Math.max(2021,t.getFullYear())));
-    document.querySelectorAll('#fxCgGran .fxCgBtn').forEach(function(b){ b.classList.toggle('on', b.dataset.g===_fxCgGran); });
-    fxRenderCurveGraph();
-  })();
+  // (live market-price curve graph removed)
   const dz=document.getElementById('fxDrop'), inp=document.getElementById('fxDropInput');
   dz.addEventListener('click', ()=>inp.click());
   inp.addEventListener('change', ()=>{ if(inp.files[0]) fxParseMarex(inp.files[0]); inp.value=''; });
@@ -4615,46 +4625,7 @@ renderCurves = function(){
 };
 // ── Previous (historic) market curve data — months before today, rolls automatically ──
 function fxQLabel(q){ if(!q) return '\u2014'; var m=/^Q(\d)(\d{2})$/.exec(String(q)); return m ? ('Q'+m[1]+'-'+m[2]) : q; }
-let _fxCurveHist=null, _fxCurveChart=null, _fxCgGran='month';
-async function fxLoadCurveHist(){
-  if(_fxCurveHist) return _fxCurveHist;
-  const { data, error } = await FLEX.sb.from('flex_curve_history').select('commodity,month,quarter,season,mid').order('month',{ascending:true});
-  _fxCurveHist = error ? [] : (data||[]);
-  return _fxCurveHist;
-}
-function fxCgSet(g){ _fxCgGran=g; document.querySelectorAll('#fxCgGran .fxCgBtn').forEach(function(b){ b.classList.toggle('on', b.dataset.g===g); }); fxRenderCurveGraph(); }
-async function fxRenderCurveGraph(){
-  const cv=document.getElementById('fxCurveGraph'); if(!cv || typeof Chart==='undefined') return;
-  const rows=await fxLoadCurveHist();
-  const fm=document.getElementById('fxCgFromM'), fy=document.getElementById('fxCgFromY'), tm=document.getElementById('fxCgToM'), ty=document.getElementById('fxCgToY');
-  const from=(fy&&fm&&fy.value&&fm.value)? (fy.value+'-'+fm.value+'-01') : '2021-10-01';
-  const to=(ty&&tm&&ty.value&&tm.value)? (ty.value+'-'+tm.value+'-01') : '2099-12-01';
-  const commSel=(document.getElementById('fxCgCommodity')||{}).value || 'both';
-  const inr=rows.filter(function(r){ var m=String(r.month).slice(0,10); return m>=from && m<=to; });
-  function keyOf(r){ if(_fxCgGran==='quarter') return fxQLabel(r.quarter); if(_fxCgGran==='season') return r.season||null; return String(r.month).slice(0,7); }
-  const order=[], seen={}, agg={};
-  inr.forEach(function(r){ var k=keyOf(r); if(!k) return; if(!seen[k]){ seen[k]=1; order.push(k); agg[k]={power:{s:0,n:0},gas:{s:0,n:0}}; } var c=agg[k][r.commodity]; if(c && r.mid!=null){ c.s+=Number(r.mid); c.n++; } });
-  const powerData=order.map(function(k){ var c=agg[k].power; return c.n? Math.round(c.s/c.n*100)/100 : null; });
-  const gasData=order.map(function(k){ var c=agg[k].gas; return c.n? Math.round(c.s/c.n*100)/100 : null; });
-  const labels=(_fxCgGran==='month')? order.map(function(k){ return fmtMonth(k+'-01'); }) : order;
-  const base={ borderWidth:2, pointRadius:(_fxCgGran==='month'?0:2), tension:0.15, spanGaps:true };
-  const dP=Object.assign({label:'Power (£/MWh)',data:powerData,borderColor:'#2f3d7e',backgroundColor:'#2f3d7e'},base);
-  const dG=Object.assign({label:'Gas (p/th)',data:gasData,borderColor:'#c9821e',backgroundColor:'#c9821e'},base);
-  const showP=(commSel==='both'||commSel==='power'), showG=(commSel==='both'||commSel==='gas');
-  const datasets=[]; const scales={ x:{ ticks:{font:{size:10},maxRotation:45,autoSkip:true,maxTicksLimit:(_fxCgGran==='month'?18:24)}, grid:{color:'rgba(66,67,120,0.08)'} } };
-  if(showP && showG){ dP.yAxisID='y'; dG.yAxisID='y1'; datasets.push(dP,dG);
-    scales.y={position:'left',title:{display:true,text:'Power £/MWh',font:{size:11}},grid:{color:'rgba(66,67,120,0.08)'}};
-    scales.y1={position:'right',title:{display:true,text:'Gas p/th',font:{size:11}},grid:{drawOnChartArea:false}};
-  } else if(showP){ dP.yAxisID='y'; datasets.push(dP);
-    scales.y={position:'left',title:{display:true,text:'Power £/MWh',font:{size:11}},grid:{color:'rgba(66,67,120,0.08)'}};
-  } else { dG.yAxisID='y'; datasets.push(dG);
-    scales.y={position:'left',title:{display:true,text:'Gas p/th',font:{size:11}},grid:{color:'rgba(66,67,120,0.08)'}};
-  }
-  if(_fxCurveChart){ try{ _fxCurveChart.destroy(); }catch(e){} }
-  _fxCurveChart = new Chart(cv, { type:'line', data:{labels:labels,datasets:datasets},
-    options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
-      plugins:{ legend:{position:'top',labels:{font:{size:11}}} }, scales:scales } });
-}
+// (live market-price curve graph removed — the "Previous market curve data" table below still uses flex_curve_history)
 async function fxRenderPrevCurve(){
   const body=document.getElementById('fxPrevCurveBody'); if(!body || body.dataset.loaded) return;
   body.dataset.loaded='1';
@@ -4711,31 +4682,21 @@ renderTargets = function(basket){
   const el=document.getElementById('tab-targets'); if(!el) return;
   if(FX_TBUF_BID!==basket.id){ FX_TBUF={}; FX_TBUF_ORIG={}; FX_TBUF_BID=basket.id; }
   const numT = fxTierCount(basket);
-  // tier label headers (custom names + click-to-rename, + Authorised/Advisory toggle, in edit mode)
+  // tier label headers (custom names + click-to-rename in edit mode; Authorised/Advisory is set per cell, not per column)
   const ths=el.querySelectorAll('thead th');
   for(let n=1;n<=numT;n++){
     const th=ths[1+n]; if(!th) continue;
     const lbl=(basket.target_labels&&basket.target_labels[n-1])||('T'+n);
+    th.textContent=lbl;
     if(EDIT){
-      const kind=fxTargetKind(basket,n);
-      th.innerHTML=`<div class="fx-th-lbl" title="Click to rename this target">${escape(lbl)}</div>`
-        +`<button type="button" class="fx-kindbtn ${kind==='advisory'?'adv':'auth'}" title="Click to switch this target between Authorised (red) and Advisory (purple)">${kind==='advisory'?'Advisory':'Authorised'}</button>`;
-      const lblEl=th.querySelector('.fx-th-lbl'); lblEl.style.cursor='pointer';
-      lblEl.onclick=(e)=>{ e.stopPropagation(); if(lblEl.querySelector('input')) return;
-        fxCellInputText(lblEl, lbl, async v=>{
+      th.style.cursor='pointer'; th.title='Click to rename this target column';
+      th.onclick=()=>{ if(th.querySelector('input')) return;
+        fxCellInputText(th, lbl, async v=>{
           const labels=(basket.target_labels||Array.from({length:8},(_,i)=>'T'+(i+1))).slice();
           labels[n-1]=v||('T'+n);
-          await fxWrite(FLEX.sb.from('flex_baskets').update({target_labels:labels, updated_by:FLEX.user}).eq('id',basket.id),'Target renamed');
+          await fxWrite(FLEX.sb.from('flex_baskets').update({target_labels:labels, updated_by:FLEX.user}).eq('id',basket.id),'Column renamed');
         });
       };
-      th.querySelector('.fx-kindbtn').onclick=async(e)=>{ e.stopPropagation();
-        const kinds=(basket.target_kinds?basket.target_kinds.slice():Array.from({length:8},()=>'authorised'));
-        while(kinds.length<8) kinds.push('authorised');
-        kinds[n-1]=(kind==='advisory'?'authorised':'advisory');
-        await fxWrite(FLEX.sb.from('flex_baskets').update({target_kinds:kinds, updated_by:FLEX.user}).eq('id',basket.id), 'Target set to '+(kinds[n-1]==='advisory'?'Advisory':'Authorised'));
-      };
-    } else {
-      th.textContent=lbl;
     }
   }
   // toolbar + per-cell editing with explicit tick buttons
@@ -4745,7 +4706,7 @@ renderTargets = function(basket){
     bar.innerHTML=`<button class="fx-btn green" onclick="fxAddTargetMonths()">+ Add target rows for future months</button>`
       + (numT<8? ` <button class="fx-btn" onclick="fxAddTargetCol(currentBasket)" title="Show another target tier">+ Add target column</button>` : '')
       + (numT>1? ` <button class="fx-btn danger" onclick="fxRemTargetCol(currentBasket)" title="Hide the last target tier">&minus; Remove last column</button>` : '')
-      + ` <span style="font-size:11px;color:#6b7280">Click a name to rename &middot; click Authorised/Advisory to set its colour &middot; click a price to edit &middot; click the circle/tick to mark achieved &middot; changes stage until you Apply</span>`
+      + ` <span style="font-size:11px;color:#6b7280">Click a name to rename &middot; click a price to edit &middot; tick the circle to mark achieved &middot; tap each cell's Auth/Adv tag to set red/purple &middot; changes stage until you Apply</span>`
       + (_pend? ` <button class="fx-btn" style="background:var(--green-500);color:var(--navy-900);font-weight:800" onclick="fxApplyTargets(currentBasket)">&#10003; Apply ${_pend} change${_pend>1?'s':''}</button> <button class="fx-btn danger" onclick="fxDiscardTargets(currentBasket)">Discard</button>` : '');
     el.insertBefore(bar, el.firstChild);
     const targets=basket.targets||[];
@@ -4755,8 +4716,10 @@ renderTargets = function(basket){
       for(let n=1;n<=numT;n++){
         const cell=tr.cells[1+n]; if(!cell) continue;
         const price=t['lower_t'+n], ach=t['t'+n+'_achieved']==='Yes';
+        const ckind=fxTargetKind(t,n);
         cell.innerHTML=`<span class="fx-tprice" style="cursor:pointer;text-decoration:underline dotted #9aa1ad;font-family:var(--font-mono)">${price!=null?price:'—'}</span>
-          <button class="fx-tick${ach?' on':''}" title="${ach?'Achieved — click to untick':'Click to mark achieved'}">${ach?'&#10003;':'&#9711;'}</button>`;
+          <button class="fx-tick${ach?' on':''}" title="${ach?'Achieved — click to untick':'Click to mark achieved'}">${ach?'&#10003;':'&#9711;'}</button>
+          <button class="fx-kindcell ${ckind==='advisory'?'adv':'auth'}" title="This target is ${ckind==='advisory'?'Advisory (purple)':'Authorised (red)'} — click to switch">${ckind==='advisory'?'Adv':'Auth'}</button>`;
         cell.querySelector('.fx-tprice').onclick=(e)=>{
           e.stopPropagation();
           fxCellInput(cell, price, async v=>{
@@ -4768,6 +4731,11 @@ renderTargets = function(basket){
           e.stopPropagation();
           if(price==null){ fxToast('Set a price first', false); return; }
           const patch={}; patch['t'+n+'_achieved']=ach?null:'Yes';
+          fxStageTarget(basket, t, patch);
+        };
+        cell.querySelector('.fx-kindcell').onclick=(e)=>{
+          e.stopPropagation();
+          const patch={}; patch['t'+n+'_kind']=(ckind==='advisory'?'authorised':'advisory');
           fxStageTarget(basket, t, patch);
         };
       }
