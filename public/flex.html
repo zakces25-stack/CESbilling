@@ -59,6 +59,12 @@ td.fx-actions{white-space:nowrap}
 .fx-log-group .fx-log-gc{background:#e2e6ef;color:#3a3f47;border-radius:999px;padding:1px 8px;font-size:9.5px;font-weight:700}
 .fx-log-group .fx-log-caret{display:inline-block;transition:transform .12s;color:#9aa1ad;font-size:10px}
 .fx-log-group[open]>summary .fx-log-caret{transform:rotate(90deg)}
+.fx-src{display:inline-block;padding:0 7px;border-radius:999px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px}
+.fx-src.hist{background:#eceff4;color:#6b7280}
+.fx-src.live{background:#e6f0d8;color:#5b6b1f}
+.fx-src.man{background:#efe9fb;color:#5b21b6}
+td.fx-fc-edit{cursor:pointer}
+td.fx-fc-edit:hover{background:rgba(159,190,28,.10)}
 .fx-log-new{animation:fxflash 1.6s ease}
 @keyframes fxflash{0%{background:#f4f8e4}100%{background:transparent}}
 /* cursors */
@@ -3426,13 +3432,13 @@ renderTrades = function(basket){
   _renderTrades(basket);
   const el = document.getElementById('tab-trades'); if(!el) return;
   const table = el.querySelector('table');
-  const costShown = localStorage.getItem('fx-show-cost') === '1';
-  if (table && !costShown) table.classList.add('fx-hide-cost');
-  const bar=document.createElement('div'); bar.className='fx-toolbar';
-  bar.innerHTML = (EDIT?`<button class="fx-btn green" onclick="fxTradeModal()">+ Add trade</button>
-    <button class="fx-btn" onclick="fxBulkTradesModal()">&#8687; Bulk add (paste)</button>`:'')+
-    `<button class="fx-btn" onclick="fxToggleCost(this)">${costShown?'Hide':'Show'} cost column</button>`;
-  el.insertBefore(bar, el.firstChild);
+  if (table) table.classList.add('fx-hide-cost');   // Cost column always hidden — the cost calculation still runs in the background
+  if (EDIT){
+    const bar=document.createElement('div'); bar.className='fx-toolbar';
+    bar.innerHTML = `<button class="fx-btn green" onclick="fxTradeModal()">+ Add trade</button>
+      <button class="fx-btn" onclick="fxBulkTradesModal()">&#8687; Bulk add (paste)</button>`;
+    el.insertBefore(bar, el.firstChild);
+  }
   if (!EDIT) return;
   const trades = getFilteredTrades(basket);
   const tbody = el.querySelector('tbody'); if(!tbody) return;
@@ -3444,12 +3450,7 @@ renderTrades = function(basket){
     tr.appendChild(td);
   });
 };
-function fxToggleCost(btn){
-  const table=document.querySelector('#tab-trades table'); if(!table) return;
-  const nowHidden=table.classList.toggle('fx-hide-cost');
-  localStorage.setItem('fx-show-cost', nowHidden?'0':'1');
-  btn.textContent=(nowHidden?'Show':'Hide')+' cost column';
-}
+// (Show/Hide cost column toggle removed — the Cost column is always hidden; the cost calculation still runs in the background.)
 
 const _renderPositionsTable = renderPositionsTable;
 renderPositionsTable = function(rows, basket){
@@ -4588,11 +4589,11 @@ renderCurves = function(){
     ${section('NBP Gas Forward Curve','p/th',C.gas)}
     ${section('UK Power Forward Curve','£/MWh',C.power)}
     <p style="font-size:11px;color:var(--grey-400);text-align:right;margin:0;">Marex indicative forward curve — last updated ${C.last_updated || '—'}. Basket market prices pull live: month first, then season.</p>
-    <details id="fxPrevCurve" ontoggle="if(this.open)fxRenderPrevCurve()" style="margin-top:24px;">
+    <details id="fxPrevCurve" ontoggle="if(this.open)fxRenderFullCurve()" style="margin-top:24px;">
       <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:12px;padding:15px 18px;border:2px solid var(--navy,#2f3d7e);border-radius:12px;background:linear-gradient(90deg,#eef1fb,#f6f8fe);color:var(--navy,#2f3d7e);font-weight:800;font-size:15px;user-select:none;box-shadow:0 2px 10px rgba(47,61,126,.10);">
-        <span style="font-size:20px;line-height:1;">&#128201;</span>
-        <span>Previous market curve data</span>
-        <span style="font-weight:600;color:#5a6488;font-size:12.5px;">&mdash; historic settled months (rolls forward automatically)</span>
+        <span style="font-size:20px;line-height:1;">&#128202;</span>
+        <span>Full market curve data</span>
+        <span style="font-weight:600;color:#5a6488;font-size:12.5px;">&mdash; every month Oct-21 &rarr; Sep-32 &middot; imported curve to W-29, manual sources beyond</span>
         <span class="fxPrevChevron" style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:#fff;background:var(--navy,#2f3d7e);padding:5px 12px;border-radius:999px;white-space:nowrap;">View <span class="fxPrevCaret" style="transition:transform .15s;">&#9662;</span></span>
       </summary>
       <div id="fxPrevCurveBody"></div>
@@ -4626,27 +4627,100 @@ renderCurves = function(){
 // ── Previous (historic) market curve data — months before today, rolls automatically ──
 function fxQLabel(q){ if(!q) return '\u2014'; var m=/^Q(\d)(\d{2})$/.exec(String(q)); return m ? ('Q'+m[1]+'-'+m[2]) : q; }
 // (live market-price curve graph removed — the "Previous market curve data" table below still uses flex_curve_history)
-async function fxRenderPrevCurve(){
-  const body=document.getElementById('fxPrevCurveBody'); if(!body || body.dataset.loaded) return;
-  body.dataset.loaded='1';
-  body.innerHTML='<div style="padding:10px 2px;color:#6b7280;font-size:12px;">Loading…</div>';
-  const nowKey=new Date().toISOString().slice(0,7)+'-01';
+// ── FULL MARKET CURVE DATA (Oct-21 → Sep-32) ─────────────────────
+// Imported Marex curve is priority up to W-29 (kept live by the twice-daily import + capture trigger);
+// from W-29 (Oct-2029) → S-32 we use manual sources. Fully editable + bulk Excel (tab-4 layout).
+const FX_MANUAL_FROM = '2029-10-01';   // W-29 — manual region start (advances as the imported curve extends)
+let _fxFullCurve = null;
+async function fxLoadFullCurve(force){
+  if(_fxFullCurve && !force) return _fxFullCurve;
   const { data, error } = await FLEX.sb.from('flex_curve_history')
-    .select('commodity,month,quarter,season,mid').lt('month', nowKey).order('month',{ascending:false});
-  if(error){ body.dataset.loaded=''; body.innerHTML='<div style="padding:10px 2px;color:#c2453b;font-size:12px;">Could not load historic curve data — please reload.</div>'; return; }
+    .select('commodity,month,quarter,season,mid').order('month',{ascending:true});
+  _fxFullCurve = error ? null : (data||[]);
+  return _fxFullCurve;
+}
+async function fxRenderFullCurve(){
+  const body=document.getElementById('fxPrevCurveBody'); if(!body) return;
+  body.innerHTML='<div style="padding:10px 2px;color:#6b7280;font-size:12px;">Loading…</div>';
+  const data=await fxLoadFullCurve(true);
+  if(data==null){ body.innerHTML='<div style="padding:10px 2px;color:#c2453b;font-size:12px;">Could not load the full market curve — please reload.</div>'; return; }
   const byM={};
-  (data||[]).forEach(r=>{ const k=String(r.month).slice(0,10); (byM[k]=byM[k]||{month:k,quarter:r.quarter,season:r.season})[r.commodity]=r.mid; });
-  const months=Object.keys(byM).sort().reverse();
-  if(!months.length){ body.innerHTML='<div style="padding:10px 2px;color:#6b7280;font-size:12px;">No historic months yet.</div>'; return; }
+  data.forEach(r=>{ const k=String(r.month).slice(0,10); (byM[k]=byM[k]||{month:k,quarter:r.quarter,season:r.season})[r.commodity]=r.mid; });
+  const months=Object.keys(byM).sort();   // oldest first
+  if(!months.length){ body.innerHTML='<div style="padding:10px 2px;color:#6b7280;font-size:12px;">No curve data yet.</div>'; return; }
+  const nowKey=new Date().toISOString().slice(0,8)+'01';
+  const cell=(k,c,v)=> EDIT
+    ? `<td class="td-right fx-fc-edit" data-c="${c}" data-m="${k}" title="Click to edit">${v!=null?(+v).toFixed(2):'—'}</td>`
+    : `<td class="td-right">${v!=null?(+v).toFixed(2):'—'}</td>`;
   const rows=months.map(k=>{ const m=byM[k];
-    return `<tr><td>${fmtMonth(k)}</td><td>${fxQLabel(m.quarter)}</td><td>${m.season||'—'}</td>`
-      +`<td class="td-right">${m.power!=null?(+m.power).toFixed(2):'—'}</td>`
-      +`<td class="td-right">${m.gas!=null?(+m.gas).toFixed(2):'—'}</td></tr>`; }).join('');
-  body.innerHTML=`<div style="font-size:11px;color:#6b7280;margin:6px 0 8px;">${months.length} historic months · newest first · Power £/MWh, Gas p/th</div>`
-    +`<div style="max-height:440px;overflow:auto;border:1px solid var(--border,#e6e1d6);border-radius:8px;">`
-    +`<table class="fx-htable" style="width:100%;border-collapse:collapse;"><thead><tr>`
-    +`<th style="text-align:left">Month</th><th style="text-align:left">Quarter</th><th style="text-align:left">Season</th>`
-    +`<th class="td-right">Power (£/MWh)</th><th class="td-right">Gas (p/th)</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    const src = k<nowKey ? '<span class="fx-src hist">settled</span>' : (k>=FX_MANUAL_FROM ? '<span class="fx-src man">manual</span>' : '<span class="fx-src live">imported</span>');
+    return `<tr><td>${fmtMonth(k)}</td><td>${fxQLabel(m.quarter)}</td><td>${m.season||'—'}</td>${cell(k,'power',m.power)}${cell(k,'gas',m.gas)}<td>${src}</td></tr>`;
+  }).join('');
+  const tools = EDIT
+    ? `<div class="fx-toolbar" style="margin:0 0 10px"><button class="fx-btn" onclick="fxFullCurveExport()">&#8623; Export to Excel</button><label class="fx-btn" style="cursor:pointer;display:inline-flex;align-items:center">&#8624; Import from Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])fxFullCurveImport(this.files[0]);this.value=''"></label><span style="font-size:11px;color:#6b7280">Click a Power/Gas figure to edit. Imported months refresh from the twice-daily Marex curve; manual months (W-29&rarr;S-32) are yours to maintain.</span></div>`
+    : '';
+  body.innerHTML = tools
+    + `<div style="font-size:11px;color:#6b7280;margin:2px 0 8px;">${months.length} months · oldest first · Power £/MWh, Gas p/th</div>`
+    + `<div style="max-height:460px;overflow:auto;border:1px solid var(--border,#e6e1d6);border-radius:8px;">`
+    + `<table class="fx-htable" style="width:100%;border-collapse:collapse;"><thead><tr>`
+    + `<th style="text-align:left">Month</th><th style="text-align:left">Quarter</th><th style="text-align:left">Season</th>`
+    + `<th class="td-right">Power (£/MWh)</th><th class="td-right">Gas (p/th)</th><th style="text-align:left">Source</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  if(EDIT) body.querySelectorAll('.fx-fc-edit').forEach(td=>{
+    td.onclick=()=>{ if(td.querySelector('input')) return;
+      const t=td.textContent.trim(); const cur=(t==='—'||t==='')?null:parseFloat(t);
+      fxCellInput(td, cur, async v=>{
+        const c=td.dataset.c, mo=td.dataset.m;
+        const r=(_fxFullCurve||[]).find(x=>x.commodity===c && String(x.month).slice(0,10)===mo)||{};
+        const {error}=await FLEX.sb.from('flex_curve_history').upsert({commodity:c,month:mo,quarter:r.quarter||null,season:r.season||null,mid:v},{onConflict:'commodity,month'});
+        if(error){ fxToast(error.message||'Save failed', false); return; }
+        fxToast('Curve updated'); _fxFullCurve=null; fxRenderFullCurve();
+      });
+    };
+  });
+}
+async function fxRenderPrevCurve(){ return fxRenderFullCurve(); }  // back-compat alias
+async function fxFullCurveExport(){
+  if(typeof ExcelJS==='undefined') return fxToast('Excel engine not loaded — reload the page', false);
+  const data=await fxLoadFullCurve(true); if(data==null) return fxToast('Could not load the curve', false);
+  const byM={};
+  data.forEach(r=>{ const k=String(r.month).slice(0,10); (byM[k]=byM[k]||{month:k,quarter:r.quarter,season:r.season})[r.commodity]=r.mid; });
+  const months=Object.keys(byM).sort();
+  const wb=new ExcelJS.Workbook(); const ws=wb.addWorksheet('Full Price Curve List');
+  ws.getCell('B1').value='Power'; ws.getCell('H1').value='Gas';
+  ws.getCell('B1').font={bold:true,size:12}; ws.getCell('H1').font={bold:true,size:12};
+  ws.columns=[{width:3},{width:12},{width:9},{width:9},{width:11},{width:3},{width:3},{width:12},{width:9},{width:9},{width:11}];
+  let row=2;
+  for(const k of months){ const m=byM[k]; const d=new Date(k+'T00:00:00');
+    ws.getCell('B'+row).value=d; ws.getCell('B'+row).numFmt='mmm-yy';
+    ws.getCell('C'+row).value=m.quarter||null; ws.getCell('D'+row).value=m.season||null; ws.getCell('E'+row).value=m.power!=null?+m.power:null;
+    ws.getCell('H'+row).value=d; ws.getCell('H'+row).numFmt='mmm-yy';
+    ws.getCell('I'+row).value=m.quarter||null; ws.getCell('J'+row).value=m.season||null; ws.getCell('K'+row).value=m.gas!=null?+m.gas:null;
+    row++;
+  }
+  const buf=await wb.xlsx.writeBuffer();
+  fxDownloadBlob(buf, 'Full Market Curve '+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+async function fxFullCurveImport(file){
+  if(typeof XLSX==='undefined') return fxToast('Excel engine not loaded — reload the page', false);
+  let wb; try{ wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true}); }catch(e){ return fxToast('Could not read that file', false); }
+  const ws=wb.Sheets[wb.SheetNames.find(n=>/curve/i.test(n))||wb.SheetNames[0]];
+  if(!ws) return fxToast('No sheet found in that file', false);
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null});
+  function toMonth(v){ if(v instanceof Date) return v.getFullYear()+'-'+String(v.getMonth()+1).padStart(2,'0')+'-01';
+    if(v==null) return null; const p=(typeof fxParseDate==='function')?fxParseDate(String(v)):null; return p?p.slice(0,8)+'01':null; }
+  const upserts=[]; let skipped=0;
+  for(const r of aoa){ if(!r) continue;
+    const pM=toMonth(r[1]);   // Power block: B month, C quarter, D season, E mid
+    const gM=toMonth(r[7]);   // Gas block:  H month, I quarter, J season, K mid
+    if(pM && r[4]!=null && !isNaN(+r[4])){ if(pM>=FX_MANUAL_FROM) upserts.push({commodity:'power',month:pM,quarter:r[2]!=null?String(r[2]):null,season:r[3]!=null?String(r[3]):null,mid:+r[4]}); else skipped++; }
+    if(gM && r[10]!=null && !isNaN(+r[10])){ if(gM>=FX_MANUAL_FROM) upserts.push({commodity:'gas',month:gM,quarter:r[8]!=null?String(r[8]):null,season:r[9]!=null?String(r[9]):null,mid:+r[10]}); else skipped++; }
+  }
+  if(!upserts.length) return fxToast('No manual-region rows (W-29 onward) found in that file', false);
+  const monthsSet=new Set(upserts.map(u=>u.month));
+  if(!confirm('Import '+upserts.length+' values across '+monthsSet.size+' month(s), from '+FX_MANUAL_FROM.slice(0,7)+' onward?\n\n'+skipped+' earlier row(s) skipped — those months are governed by the live Marex import.')) return;
+  const {error}=await FLEX.sb.from('flex_curve_history').upsert(upserts,{onConflict:'commodity,month'});
+  if(error) return fxToast(error.message||'Import failed', false);
+  fxToast('Imported '+upserts.length+' curve values'); _fxFullCurve=null; fxRenderFullCurve();
 }
 
 // ── TARGETS: staged batch editing (edit many, Apply once) ────────
