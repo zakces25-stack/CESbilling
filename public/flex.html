@@ -2470,9 +2470,9 @@ function fxSeasonList(){ const out=[]; const now=new Date();
 function fxNecFor(basket){ const map={}; (DATA.necs||[]).forEach(n=>{ if(n.basket_name===basket.name && n.commodity===basket.commodity && n.nec!=null) map[n.season]=n.nec; }); return map; }
 // Convert wholesale market price to p/kWh: power £/MWh ÷ 10; gas p/therm ÷ 29.3071
 function fxConvPkwh(basket, mkt){ if(mkt==null) return null; return basket.commodity==='power' ? mkt/10 : mkt/29.3071; }
-// Delivered rate (p/kWh) = converted secured WAP (what's actually been bought) + NEC for that month's season.
-// Blank when nothing has been secured (no WAP) or there is no NEC for the period.
-function fxDeliveredRate(basket, m, necMap){ const nm=necMap||fxNecFor(basket); const nec=nm[fxSeasonKey(m.month)]; const wap=m.secured_wap; if(nec==null || !wap) return null; return fxConvPkwh(basket, wap)+nec; }
+// Delivered rate (p/kWh) = converted MtM price (mark-to-market) + NEC for that month's season.
+// Blank when there is no MtM price or no NEC for the period.
+function fxDeliveredRate(basket, m, necMap){ const nm=necMap||fxNecFor(basket); const nec=nm[fxSeasonKey(m.month)]; const mtm=m.mtm_price; if(nec==null || !mtm) return null; return fxConvPkwh(basket, mtm)+nec; }
 
 function renderPositionsTable(rows, basket) {
   const pu = basket.unit_price;
