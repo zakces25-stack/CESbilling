@@ -65,6 +65,7 @@ td.fx-actions{white-space:nowrap}
 .fx-src.man{background:#efe9fb;color:#5b21b6}
 td.fx-fc-edit{cursor:pointer}
 td.fx-fc-edit:hover{background:rgba(159,190,28,.10)}
+td.fx-nec:hover{background:rgba(159,190,28,.10)}
 .fx-admh-lbl{border-bottom:1px dashed transparent}
 .fx-admh-lbl:hover{border-bottom-color:currentColor}
 .fx-admh-x{margin-left:5px;border:none;background:transparent;color:#ffb4a8;cursor:pointer;font-size:13px;font-weight:900;line-height:1;padding:0 2px;opacity:.7}
@@ -1747,6 +1748,7 @@ button{transition:all .14s ease}
         <button class="main-tab-btn" data-main-tab="contacts">Contacts</button>
         <button class="main-tab-btn" data-main-tab="orders">Firm Orders</button>
         <button class="main-tab-btn" data-main-tab="notes">Notes</button>
+        <button class="main-tab-btn" data-main-tab="necs">NEC's</button>
         <button class="main-tab-btn" data-main-tab="archive">Archive</button>
       </div>
       <!-- Portfolio tab -->
@@ -1767,6 +1769,7 @@ button{transition:all .14s ease}
       <!-- Firm Orders tab -->
       <div class="main-tab-pane" id="main-tab-orders"></div>
       <div class="main-tab-pane" id="main-tab-notes"></div>
+      <div class="main-tab-pane" id="main-tab-necs"></div>
       <div class="main-tab-pane" id="main-tab-archive"></div>
     </div>
 
@@ -1828,7 +1831,7 @@ async function _fetchAll(table, cols, orderCols) {
   return out;
 }
 async function loadFlexData() {
-  const [baskets, months, trades, targets, curves, orders, contacts, deadlines, admin, meta, notes, adminCells, adminCols, adminMonths, sites] = await Promise.all([
+  const [baskets, months, trades, targets, curves, orders, contacts, deadlines, admin, meta, notes, adminCells, adminCols, adminMonths, sites, necs] = await Promise.all([
     _fetchAll('flex_baskets', 'id,name,commodity,unit_vol,unit_price,is_ces,sort_order,archived,target_labels,epsp,target_kinds,target_count', ['sort_order']),
     _fetchAll('flex_positions', 'basket_id,month,days,season,baseload_vol,secured_vol,secured_wap,baseload_vol_total,secured_vol_total,secured_pct,secured_cost,open_vol,open_vol_total,open_pct,market_price,mkt_source,residual_cost,mtm_cost,mtm_price', ['basket_id', 'month']),
     _fetchAll('flex_trades', 'id,basket_id,trade_ref,trade_date,counterparty,start_date,end_date,volume,product,strike,deal_type,cost', ['basket_id', 'id']),
@@ -1843,7 +1846,8 @@ async function loadFlexData() {
     _fetchAll('flex_admin_cells', 'id,row_id,month,da_trade,cog,pos_report,vals', ['id']),
     _fetchAll('flex_admin_columns', 'id,col_key,kind,label,sort_order', ['sort_order','id']),
     _fetchAll('flex_admin_months', 'month,sort_order', ['month']),
-    _fetchAll('flex_sites', 'id,basket_id,basket_name,commodity,customer,mpxn,contract_start,contract_end,nec_unit_rate,nec_standing_charge,source,archived', ['basket_id','id'])
+    _fetchAll('flex_sites', 'id,basket_id,basket_name,commodity,customer,mpxn,contract_start,contract_end,nec_unit_rate,nec_standing_charge,source,archived', ['basket_id','id']),
+    _fetchAll('flex_necs', 'id,basket_name,commodity,season,nec,sort_order', ['commodity','sort_order','season'])
   ]);
   const byM = {}, byT = {}, byG = {};
   for (const m of months) (byM[m.basket_id] ??= []).push({
@@ -1896,6 +1900,7 @@ async function loadFlexData() {
       columns: (adminCols||[]).map(c => ({ id: c.id, key: c.col_key, kind: c.kind, label: c.label, sort: c.sort_order })),
       rows: admin.map(r => ({ id: r.id, detail: r.detail || {} })) },
     sites: (sites||[]).map(s => ({ id:s.id, basket_id:s.basket_id, basket_name:s.basket_name, commodity:s.commodity, customer:s.customer, mpxn:s.mpxn, contract_start:s.contract_start?String(s.contract_start).slice(0,10):null, contract_end:s.contract_end?String(s.contract_end).slice(0,10):null, nec_unit_rate:_num(s.nec_unit_rate), nec_standing_charge:_num(s.nec_standing_charge), source:s.source, archived:!!s.archived })),
+    necs: (necs||[]).map(n => ({ id:n.id, basket_name:n.basket_name, commodity:n.commodity, season:n.season, nec:_num(n.nec), sort_order:n.sort_order })),
     contacts: { suppliers: contacts.map(c => ({ id: c.id, supplier: c.supplier, note: c.note, details: c.details || [] })),
                 sefe_deadlines: deadlines.map(d => ({ id: d.id, period: d.period, last_trading: d.last_trading, deadline: d.deadline })) },
     firm_orders: { power: ordersOf('power'), gas: ordersOf('gas') }
@@ -2302,6 +2307,11 @@ function renderDetailStatsFromRows(rows, basket) {
 
   const pu = basket.unit_price;
 
+  // Avg delivered rate (p/kWh incl. NECs) over the shown period
+  const _necMapS = fxNecFor(basket);
+  const _drRows = rows.map(m => fxDeliveredRate(basket, m, _necMapS)).filter(v => v != null);
+  const avgDr = _drRows.length ? _drRows.reduce((a,b)=>a+b,0)/_drRows.length : null;
+
   // Baseload card: total MW (power) or th (gas)
   const baseCardVal = isPower ? fmtNum(totalBaseMW, 2) : fmtNum(totalBaseMWh, 0);
   const baseCardSub = isPower ? 'MW total' : (volUnit + ' total');
@@ -2346,6 +2356,11 @@ function renderDetailStatsFromRows(rows, basket) {
       <div class="stat-label">Open Vol</div>
       <div class="stat-value">${openCardVal}</div>
       <div class="stat-sub">${openCardSub}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg Delivered Rate</div>
+      <div class="stat-value">${avgDr != null ? avgDr.toFixed(3) : '—'}</div>
+      <div class="stat-sub">p/kWh incl. NECs</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">MtM Cost</div>
@@ -2437,6 +2452,26 @@ function basketAlertKind(basket) {
 }
 function basketHasAlert(basket) { return basketAlertKind(basket) != null; }
 
+// ── NECs / delivered rate ────────────────────────────────────────
+// Season key for a month: Apr-Sep = S-YY, Oct-Mar = W-(start year)
+function fxSeasonKey(mIso){ const d=new Date(mIso); if(isNaN(d)) return null; const y=d.getUTCFullYear(), mo=d.getUTCMonth();
+  if(mo>=3 && mo<=8) return 'S-'+String(y).slice(2);
+  const sy=(mo>=9)?y:y-1; return 'W-'+String(sy).slice(2); }
+// Ordered season columns W-21 → S-32, auto-extending as time passes
+function fxSeasonList(){ const out=[]; const now=new Date();
+  const endMs=Math.max(Date.UTC(2032,3,1), Date.UTC(now.getUTCFullYear()+1, now.getUTCMonth(), 1));
+  let cur=new Date(Date.UTC(2021,9,1));   // Oct-2021 = W-21
+  while(cur.getTime()<=endMs){ const mo=cur.getUTCMonth(), yr=cur.getUTCFullYear();
+    if(mo===9) out.push('W-'+String(yr).slice(2)); else if(mo===3) out.push('S-'+String(yr).slice(2));
+    cur=new Date(Date.UTC(yr, mo+6, 1)); }
+  return out; }
+// NEC (p/kWh) per season for a basket, matched by name + commodity
+function fxNecFor(basket){ const map={}; (DATA.necs||[]).forEach(n=>{ if(n.basket_name===basket.name && n.commodity===basket.commodity && n.nec!=null) map[n.season]=n.nec; }); return map; }
+// Convert wholesale market price to p/kWh: power £/MWh ÷ 10; gas p/therm ÷ 29.3071
+function fxConvPkwh(basket, mkt){ if(mkt==null) return null; return basket.commodity==='power' ? mkt/10 : mkt/29.3071; }
+// Delivered rate (p/kWh) = converted market price + NEC for that month's season; null if either is missing
+function fxDeliveredRate(basket, m, necMap){ const nm=necMap||fxNecFor(basket); const nec=nm[fxSeasonKey(m.month)]; const mk=fxConvPkwh(basket, m.market_price); if(nec==null || mk==null) return null; return mk+nec; }
+
 function renderPositionsTable(rows, basket) {
   const pu = basket.unit_price;
   const isPower = basket.commodity === 'power';
@@ -2462,6 +2497,9 @@ function renderPositionsTable(rows, basket) {
   const tWAP  = tSecEnergy > 0 ? tCost / tSecEnergy : 0;
   const tBaseEnergy = rows.reduce((s,m) => s + (m.baseload_vol_total||0), 0);
   const tPct  = tBaseEnergy > 0 ? tSecEnergy/tBaseEnergy : 0;
+  const _necMap = fxNecFor(basket);
+  const _drVals = rows.map(m => fxDeliveredRate(basket, m, _necMap)).filter(v => v != null);
+  const tDr = _drVals.length ? _drVals.reduce((a,b)=>a+b,0)/_drVals.length : null;
 
   const tableRows = rows.map(m => {
     const alert = currentBasket ? fxRowAlert(currentBasket, m) : null;
@@ -2506,6 +2544,7 @@ function renderPositionsTable(rows, basket) {
       <td class="td-right">${fmtFull(m.secured_cost)}</td>
       <td class="td-right">${fmtVol(m[volField_open])}</td>
       <td class="td-right">${m.market_price ? m.market_price.toFixed(2) : '-'}</td>
+      <td class="td-right">${(function(){ const dr=fxDeliveredRate(basket,m,_necMap); return dr!=null? dr.toFixed(3) : '<span style="color:#c8cdd8">—</span>'; })()}</td>
       <td class="td-right ${mtmClass}">${m.mtm_cost != null ? fmtFull(m.mtm_cost) : '-'}</td>
       ${ntCell}
       ${uaCell}
@@ -2527,7 +2566,8 @@ function renderPositionsTable(rows, basket) {
             <th>Secured %</th>
             <th class="td-right">Sec. Cost</th>
             <th class="td-right">Open (${volUnit})</th>
-            <th class="td-right">Mkt Price</th>
+            <th class="td-right">Mkt Price (${isPower?'£/MWh':'p/th'})</th>
+            <th class="td-right">Delivered rate (p/kWh)</th>
             <th class="td-right">MtM Cost</th>
             <th class="td-center">Next Target</th>
             <th class="td-center">Upper Alert</th>
@@ -2550,6 +2590,7 @@ function renderPositionsTable(rows, basket) {
             <td class="td-right">${fmtFull(tCost)}</td>
             <td class="td-right">${fmtVol(tOpen)}</td>
             <td></td>
+            <td class="td-right">${tDr != null ? tDr.toFixed(3) : ''}</td>
             <td class="td-right ${totalMtmClass}">${fmtFull(tMtm)}</td>
             <td></td>
             <td></td>
@@ -3124,6 +3165,7 @@ function switchMainTab(tabId) {
   if (tabId === 'contacts') renderContacts();
   if (tabId === 'orders')   renderOrders();
   if (tabId === 'notes')    fxRenderNotes();
+  if (tabId === 'necs')     renderNecs();
   if (tabId === 'archive')  fxRenderArchive();
 }
 
@@ -3379,13 +3421,13 @@ function rerenderCurrent(){
   } else {
     renderOverview();
   }
-  ['curves','admin','contacts','orders','notes','archive'].forEach(t=>{
+  ['curves','admin','contacts','orders','notes','necs','archive'].forEach(t=>{
     const el=document.getElementById('main-tab-'+t);
     if(!el) return;
     delete el.dataset.rendered; 
     if(el.classList.contains('active')){
       el.innerHTML='';
-      ({curves:renderCurves,admin:renderAdmin,contacts:renderContacts,orders:renderOrders,notes:fxRenderNotes,archive:fxRenderArchive})[t]();
+      ({curves:renderCurves,admin:renderAdmin,contacts:renderContacts,orders:renderOrders,notes:fxRenderNotes,necs:renderNecs,archive:fxRenderArchive})[t]();
     } else { el.innerHTML=''; }
   });
   fxDecorateHeader();
@@ -4413,6 +4455,41 @@ async function fxSitesImport(file){
   if(toInsert.length){ const {error}=await FLEX.sb.from('flex_sites').insert(toInsert.map(r=>Object.assign({},r,{updated_by:FLEX.user}))); if(error){ return fxToast('Import failed: '+error.message,false); } }
   fxToast('Imported '+rows.length+' sites ('+toInsert.length+' new, '+upd+' updated)');
   fxScheduleReload();
+}
+
+// ── NEC main tab: per-basket NECs by season (W-21 → S-32), fully editable ─────
+function renderNecs(){
+  const el=document.getElementById('main-tab-necs'); if(!el) return;
+  if(el.dataset.rendered) return; el.dataset.rendered='1';
+  const seasons=fxSeasonList();
+  const necs=(DATA.necs||[]);
+  function section(commodity, title){
+    const rowsMap={};
+    necs.filter(n=>n.commodity===commodity).forEach(n=>{ const e=rowsMap[n.basket_name]=rowsMap[n.basket_name]||{so:(n.sort_order!=null?n.sort_order:9999),vals:{}}; e.vals[n.season]=n.nec; if(n.sort_order!=null) e.so=n.sort_order; });
+    const names=Object.keys(rowsMap).sort((a,b)=>(rowsMap[a].so-rowsMap[b].so)||a.localeCompare(b));
+    if(!names.length) return '';
+    const head='<tr><th style="text-align:left">Basket</th>'+seasons.map(s=>`<th class="td-right">${s}</th>`).join('')+'</tr>';
+    const body=names.map(nm=>{ const vals=rowsMap[nm].vals;
+      const tds=seasons.map(s=>{ const v=vals[s];
+        return `<td class="td-right fx-nec${EDIT?' fx-editable':''}" data-b="${escape(nm)}" data-c="${commodity}" data-s="${s}">${v!=null?(+v).toFixed(4).replace(/\.?0+$/,''):'<span style="color:#c8cdd8">—</span>'}</td>`; }).join('');
+      return `<tr><td style="text-align:left;white-space:nowrap;font-weight:600">${escape(nm)}</td>${tds}</tr>`; }).join('');
+    return `<div class="extra-section" style="margin-bottom:18px;overflow-x:auto"><div class="extra-section-title">${title}</div><table class="fx-htable" style="border-collapse:collapse;font-size:11.5px;white-space:nowrap"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+  }
+  el.innerHTML=`<div class="extra-tab-inner">
+    <div style="font-size:12.5px;color:#6b7280;margin-bottom:12px;">Non-energy costs (p/kWh) per basket, by season W-21 &rarr; S-32 (auto-extends into new seasons). ${EDIT?'Click any cell to edit.':'Read-only — switch on edit mode to change values.'} These are added to each basket’s converted wholesale rate to produce its delivered rate on the Positions tab.</div>
+    ${section('power','Power — NECs (p/kWh)')}
+    ${section('gas','Gas — NECs (p/kWh)')}
+  </div>`;
+  if(!EDIT) return;
+  el.querySelectorAll('td.fx-nec').forEach(td=>{ td.style.cursor='pointer';
+    td.onclick=()=>{ if(td.querySelector('input')) return;
+      const bn=td.dataset.b, cm=td.dataset.c, se=td.dataset.s;
+      const rec=(DATA.necs||[]).find(n=>n.basket_name===bn && n.commodity===cm && n.season===se);
+      fxCellInput(td, rec?rec.nec:null, async v=>{
+        await fxWrite(FLEX.sb.from('flex_necs').upsert({basket_name:bn, commodity:cm, season:se, nec:v, updated_by:FLEX.user},{onConflict:'basket_name,commodity,season'}),'NEC updated');
+      });
+    };
+  });
 }
 
 // ── CONTACTS: original layout, edit buttons only ─────────────────
