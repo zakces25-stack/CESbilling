@@ -66,6 +66,7 @@ td.fx-actions{white-space:nowrap}
 td.fx-fc-edit{cursor:pointer}
 td.fx-fc-edit:hover{background:rgba(159,190,28,.10)}
 td.fx-nec:hover{background:rgba(159,190,28,.10)}
+.fx-nectable td.fx-necname,.fx-nectable th:first-child{width:210px!important;min-width:210px!important;max-width:210px!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;text-align:left!important;line-height:1.25}
 .fx-admh-lbl{border-bottom:1px dashed transparent}
 .fx-admh-lbl:hover{border-bottom-color:currentColor}
 .fx-admh-x{margin-left:5px;border:none;background:transparent;color:#ffb4a8;cursor:pointer;font-size:13px;font-weight:900;line-height:1;padding:0 2px;opacity:.7}
@@ -4473,10 +4474,11 @@ function renderNecs(){
     const body=names.map(nm=>{ const vals=rowsMap[nm].vals;
       const tds=seasons.map(s=>{ const v=vals[s];
         return `<td class="td-right fx-nec${EDIT?' fx-editable':''}" data-b="${escape(nm)}" data-c="${commodity}" data-s="${s}">${v!=null?(+v).toFixed(4).replace(/\.?0+$/,''):'<span style="color:#c8cdd8">—</span>'}</td>`; }).join('');
-      return `<tr><td style="text-align:left;white-space:nowrap;font-weight:600">${escape(nm)}</td>${tds}</tr>`; }).join('');
-    return `<div class="extra-section" style="margin-bottom:18px;overflow-x:auto"><div class="extra-section-title">${title}</div><table class="fx-htable" style="border-collapse:collapse;font-size:11.5px;white-space:nowrap"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+      return `<tr><td class="fx-necname" title="${escape(nm)}" style="text-align:left;font-weight:600">${escape(nm)}</td>${tds}</tr>`; }).join('');
+    return `<div class="extra-section" style="margin-bottom:18px;overflow-x:auto"><div class="extra-section-title">${title}</div><table class="fx-htable fx-nectable" style="border-collapse:collapse;font-size:11.5px"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
   }
   el.innerHTML=`<div class="extra-tab-inner">
+    ${EDIT?`<div class="fx-toolbar" style="margin-bottom:10px"><button class="fx-btn" onclick="fxNecsExport()">&#8623; Export to Excel</button><label class="fx-btn" style="cursor:pointer;display:inline-flex;align-items:center">&#8624; Import from Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])fxNecsImport(this.files[0]);this.value=''"></label></div>`:''}
     <div style="font-size:12.5px;color:#6b7280;margin-bottom:12px;">Non-energy costs (p/kWh) per basket, by season W-21 &rarr; S-32 (auto-extends into new seasons). ${EDIT?'Click any cell to edit.':'Read-only — switch on edit mode to change values.'} These are added to each basket’s converted wholesale rate to produce its delivered rate on the Positions tab.</div>
     ${section('power','Power — NECs (p/kWh)')}
     ${section('gas','Gas — NECs (p/kWh)')}
@@ -4491,6 +4493,45 @@ function renderNecs(){
       });
     };
   });
+}
+async function fxNecsExport(){
+  if(typeof ExcelJS==='undefined') return fxToast('Excel engine not loaded — reload the page', false);
+  const seasons=fxSeasonList();
+  const wb=new ExcelJS.Workbook();
+  ['power','gas'].forEach(comm=>{
+    const ws=wb.addWorksheet(comm==='power'?'Power':'Gas');
+    ws.getRow(1).values=['Basket'].concat(seasons);
+    ws.getRow(1).eachCell(c=>{ c.font={bold:true}; });
+    const rowsMap={};
+    (DATA.necs||[]).filter(n=>n.commodity===comm).forEach(n=>{ const e=rowsMap[n.basket_name]=rowsMap[n.basket_name]||{so:(n.sort_order!=null?n.sort_order:9999),vals:{}}; e.vals[n.season]=n.nec; if(n.sort_order!=null) e.so=n.sort_order; });
+    const names=Object.keys(rowsMap).sort((a,b)=>(rowsMap[a].so-rowsMap[b].so)||a.localeCompare(b));
+    let rr=2;
+    names.forEach(nm=>{ const vals=rowsMap[nm].vals; ws.getRow(rr++).values=[nm].concat(seasons.map(s=>vals[s]!=null?+vals[s]:null)); });
+    ws.getColumn(1).width=34;
+  });
+  const buf=await wb.xlsx.writeBuffer();
+  fxDownloadBlob(buf, 'Flex NECs '+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+async function fxNecsImport(file){
+  if(typeof XLSX==='undefined') return fxToast('Excel engine not loaded — reload the page', false);
+  let wb; try{ wb=XLSX.read(await file.arrayBuffer(),{type:'array'}); }catch(e){ return fxToast('Could not read that file', false); }
+  const ups=[];
+  wb.SheetNames.forEach(sn=>{
+    const comm=/gas/i.test(sn)?'gas':(/power/i.test(sn)?'power':null); if(!comm) return;
+    const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:null}); if(!aoa.length) return;
+    const hdr=aoa[0]||[];
+    for(let r=1;r<aoa.length;r++){ const row=aoa[r]; if(!row) continue; const nm=row[0];
+      if(nm==null||String(nm).trim()===''||/^basket$/i.test(String(nm).trim())) continue;
+      for(let c=1;c<hdr.length;c++){ const seas=String(hdr[c]||'').trim().toUpperCase(); if(!/^[SW]-\d{2}$/.test(seas)) continue;
+        const v=row[c]; if(v==null||v===''||isNaN(+v)) continue;
+        ups.push({basket_name:String(nm).trim(), commodity:comm, season:seas, nec:+v, updated_by:FLEX.user}); }
+    }
+  });
+  if(!ups.length) return fxToast('No NEC values found — expected sheets named Power/Gas with a Basket column and season columns (e.g. W-26, S-27).', false);
+  if(!confirm('Import '+ups.length+' NEC value(s)? Existing basket+season values are updated and new ones added; nothing is deleted.')) return;
+  const {error}=await FLEX.sb.from('flex_necs').upsert(ups,{onConflict:'basket_name,commodity,season'});
+  if(error) return fxToast('Import failed: '+error.message, false);
+  fxToast('Imported '+ups.length+' NEC values'); fxScheduleReload();
 }
 
 // ── CONTACTS: original layout, edit buttons only ─────────────────
