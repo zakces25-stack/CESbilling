@@ -1438,7 +1438,7 @@
             .hhd-export-btn{border-radius:10px;font-weight:700;font-size:13px;padding:10px 16px;}
             .hhd-rangeinfo{font-size:12px;color:var(--muted);font-weight:600;margin:2px 0 2px;}
             .hhd-cap{font-size:11.5px;color:#9aa0aa;margin:0 0 16px;}
-            .hhd-rangepick{min-width:236px;cursor:pointer;background:#fff;}
+            .hhd-datepick{min-width:150px;cursor:pointer;background:#fff;}
             .hhd-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px;}
             .hhd-kpi{background:#fff;border:1px solid #eee;border-radius:12px;padding:14px 16px;}
             .hhd-kpi .k-lab{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700;}
@@ -1478,7 +1478,8 @@
           <div id="hhdMain" style="display:none;">
             <div class="hhd-controls">
               <div class="filter-block"><label>Site</label><div class="hhd-select"><select id="hhdSite" onchange="hhdSiteChange()"></select></div></div>
-              <div class="filter-block"><label>Date range</label><input type="text" id="hhdRange2" class="hhd-date hhd-rangepick" placeholder="Select date range"></div>
+              <div class="filter-block"><label>From</label><input type="text" id="hhdFrom" class="hhd-date hhd-datepick" placeholder="Start date"></div>
+              <div class="filter-block"><label>To</label><input type="text" id="hhdTo" class="hhd-date hhd-datepick" placeholder="End date"></div>
               <div class="filter-block" style="margin-left:auto;"><label>&nbsp;</label><button class="btn-secondary hhd-export-btn" onclick="hhdExport()">Export Half-Hourly Data</button></div>
             </div>
             <div id="hhdRangeInfo" class="hhd-rangeinfo"></div>
@@ -7433,15 +7434,12 @@
     function _hhdDate(s){ return new Date(s+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
     function _hhdDateShort(s){ return new Date(s+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short'}); }
     function _hhdTip(cb){
-      try{ if(window.Chart&&Chart.Tooltip&&Chart.Tooltip.positioners&&!Chart.Tooltip.positioners.hhdCursor){ Chart.Tooltip.positioners.hhdCursor=function(items,evtPos){ return evtPos?{x:evtPos.x,y:evtPos.y}:false; }; } }catch(e){}
-      var pos=(window.Chart&&Chart.Tooltip&&Chart.Tooltip.positioners&&Chart.Tooltip.positioners.hhdCursor)?'hhdCursor':'average';
-      return { enabled:true, position:pos, mode:'index', intersect:false, backgroundColor:'rgba(17,24,39,0.96)', titleColor:'#fff', bodyColor:'#e5e7eb', borderColor:'rgba(255,255,255,0.08)', borderWidth:1, padding:10, cornerRadius:8, displayColors:false, caretSize:5, caretPadding:8, titleFont:{size:11,weight:'600'}, bodyFont:{size:14,weight:'700'}, callbacks:cb };
+      return { enabled:true, position:'nearest', mode:'index', intersect:false, backgroundColor:'rgba(17,24,39,0.96)', titleColor:'#fff', bodyColor:'#e5e7eb', borderColor:'rgba(255,255,255,0.08)', borderWidth:1, padding:10, cornerRadius:8, displayColors:false, caretSize:5, caretPadding:8, titleFont:{size:11,weight:'600'}, bodyFont:{size:14,weight:'700'}, callbacks:cb };
     }
 
     async function hhdOpen(){
       if(_hhd.init) return; _hhd.init=true;
       _ccxChartLib();
-      if(!_hhd._rsz){ _hhd._rsz=true; window.addEventListener('resize', function(){ clearTimeout(_hhd._rt); _hhd._rt=setTimeout(_hhdResize,120); }); }
       var cid=(currentUser&&currentUser.customerId)||null;
       try{
         var r=await sb.from('hh_site_summary').select('*').order('site_name');
@@ -7462,22 +7460,42 @@
     }
 
     function _hhdSite(mpan){ return _hhd.sites.find(function(s){ return s.mpan===mpan; }); }
-    function _hhdResize(){ try{ _hhd.profile&&_hhd.profile.resize(); }catch(e){} try{ _hhd.totals&&_hhd.totals.resize(); }catch(e){} }
+    // Custom, zoom-proof hover: the portal uses body{zoom:0.85}, which breaks Chart.js's
+    // built-in pointer->data mapping. We derive the index from a zoom-invariant fraction
+    // and drive the tooltip ourselves so it lands on the right point, under the cursor.
+    function _hhdBindHover(chart){
+      var cv=chart.canvas;
+      cv.onmousemove=function(e){
+        var rect=cv.getBoundingClientRect(); if(!rect.width||!rect.height) return;
+        var fx=(e.clientX-rect.left)/rect.width, fy=(e.clientY-rect.top)/rect.height;
+        fx=Math.max(0,Math.min(0.9999,fx)); fy=Math.max(0,Math.min(1,fy));
+        var px=fx*chart.width, py=fy*chart.height;
+        var idx=Math.round(chart.scales.x.getValueForPixel(px));
+        var n=(chart.data.labels||[]).length; if(idx<0)idx=0; if(idx>n-1)idx=n-1;
+        var act=[];
+        chart.data.datasets.forEach(function(ds,di){ var m=chart.getDatasetMeta(di); if(m&&m.data&&m.data[idx]) act.push({datasetIndex:di,index:idx}); });
+        chart.setActiveElements(act);
+        chart.tooltip.setActiveElements(act,{x:px,y:py});
+        chart.update('none');
+      };
+      cv.onmouseleave=function(){ chart.setActiveElements([]); chart.tooltip.setActiveElements([],{x:0,y:0}); chart.update('none'); };
+    }
+    function _hhdMkPicker(el, minD, maxD, defD, onPick){
+      return flatpickr(el, { dateFormat:'d M Y', minDate:minD, maxDate:maxD, defaultDate:defD, disableMobile:true, onChange:onPick });
+    }
     function _hhdInitPicker(site){
       var lo=site.first_day, hi=site.last_day_with_data||site.last_day;
       var to=hi, from=_hhdAddDays(hi,-29); if(from<lo) from=lo;
       _hhd.from=from; _hhd.to=to;
       var cap=document.getElementById('hhdRangeCap');
       if(cap){ var sl0=new Date(lo+'T00:00:00').toLocaleDateString('en-GB'), sl1=new Date(hi+'T00:00:00').toLocaleDateString('en-GB'); cap.textContent='No half-hourly data before '+sl0+'   ·   latest '+sl1; }
-      var el=document.getElementById('hhdRange2'); if(!el) return;
+      var fe=document.getElementById('hhdFrom'), te=document.getElementById('hhdTo'); if(!fe||!te) return;
       var loD=new Date(lo+'T00:00:00'), hiD=new Date(hi+'T00:00:00'), fromD=new Date(from+'T00:00:00'), toD=new Date(to+'T00:00:00');
-      if(window.flatpickr){
-        if(_hhd.fp){ _hhd.fp.set('minDate',loD); _hhd.fp.set('maxDate',hiD); _hhd.fp.setDate([fromD,toD],false); }
-        else{
-          _hhd.fp=flatpickr(el,{ mode:'range', dateFormat:'d M Y', minDate:loD, maxDate:hiD, defaultDate:[fromD,toD], disableMobile:true, rangeSeparator:'  to  ',
-            onClose:function(dates){ if(dates.length===2){ var f=_hhdISO(dates[0]), t=_hhdISO(dates[1]); if(f!==_hhd.from||t!==_hhd.to){ _hhd.from=f; _hhd.to=t; hhdLoad(); } } } });
-        }
-      } else { el.value=_hhdDate(from)+' to '+_hhdDate(hi); }
+      if(!window.flatpickr){ fe.value=_hhdDate(from); te.value=_hhdDate(to); return; }
+      if(_hhd.fpFrom){ _hhd.fpFrom.set('minDate',loD); _hhd.fpFrom.set('maxDate',hiD); _hhd.fpFrom.setDate(fromD,false); }
+      else{ _hhd.fpFrom=_hhdMkPicker(fe,loD,hiD,fromD,function(dates){ if(!dates.length) return; _hhd.from=_hhdISO(dates[0]); if(_hhd.fpTo){ _hhd.fpTo.set('minDate',dates[0]); if(_hhd.to<_hhd.from){ _hhd.to=_hhd.from; _hhd.fpTo.setDate(dates[0],false); } setTimeout(function(){ _hhd.fpTo.open(); },140); } }); }
+      if(_hhd.fpTo){ _hhd.fpTo.set('minDate',fromD); _hhd.fpTo.set('maxDate',hiD); _hhd.fpTo.setDate(toD,false); }
+      else{ _hhd.fpTo=_hhdMkPicker(te,fromD,hiD,toD,function(dates){ if(!dates.length) return; _hhd.to=_hhdISO(dates[0]); hhdLoad(); }); }
     }
     function hhdSiteChange(){ var s=_hhdSite(document.getElementById('hhdSite').value); if(s){ _hhdInitPicker(s); hhdLoad(); } }
 
@@ -7493,7 +7511,6 @@
         _hhd.rows=r.data||[];
         await _ccxChartLib();
         hhdRender();
-        requestAnimationFrame(_hhdResize); setTimeout(_hhdResize,180);
       }catch(e){ console.error('hhdLoad',e); }
     }
 
@@ -7535,7 +7552,8 @@
         datasets.push({label:'Weekday avg', data:avg(wd,wdn), borderColor:'#1f3864', backgroundColor:'rgba(31,56,100,.10)', fill:true, spanGaps:false, tension:.35, pointRadius:0, borderWidth:2});
         datasets.push({label:'Weekend avg', data:avg(we,wen), borderColor:'#93c43a', backgroundColor:'rgba(147,196,58,.10)', fill:true, spanGaps:false, tension:.35, pointRadius:0, borderWidth:2});
       }
-      _hhd.profile=new Chart(el,{type:'line',data:{labels:times,datasets:datasets},options:{responsive:true,maintainAspectRatio:false,animation:{duration:250},interaction:{mode:'index',intersect:false},plugins:{legend:{display:datasets.length>1,labels:{usePointStyle:true,boxWidth:8,font:{size:12}}},tooltip:_hhdTip({title:function(it){ return it.length?('Time '+it[0].label):''; },label:function(c){ return (datasets.length>1?c.dataset.label+': ':'')+(c.parsed.y==null?'No data':c.parsed.y.toFixed(2)+' kWh'); }})},scales:{x:{grid:{display:false},ticks:{maxTicksLimit:12,autoSkip:true},title:{display:true,text:'Time of day'}},y:{beginAtZero:true,grid:{color:'rgba(0,0,0,0.05)'},title:{display:true,text:'kWh'}}}}});
+      _hhd.profile=new Chart(el,{type:'line',data:{labels:times,datasets:datasets},options:{responsive:true,maintainAspectRatio:false,animation:{duration:250},events:[],interaction:{mode:'index',intersect:false},plugins:{legend:{display:datasets.length>1,labels:{usePointStyle:true,boxWidth:8,font:{size:12}}},tooltip:_hhdTip({title:function(it){ return it.length?('Time '+it[0].label):''; },label:function(c){ return (datasets.length>1?c.dataset.label+': ':'')+(c.parsed.y==null?'No data':c.parsed.y.toFixed(2)+' kWh'); }})},scales:{x:{grid:{display:false},ticks:{maxTicksLimit:12,autoSkip:true},title:{display:true,text:'Time of day'}},y:{beginAtZero:true,grid:{color:'rgba(0,0,0,0.05)'},title:{display:true,text:'kWh'}}}}});
+      _hhdBindHover(_hhd.profile);
     }
 
     function hhdTotals(noData){
@@ -7548,7 +7566,8 @@
       var full=rows.map(function(r){ return r.reading_date; });
       var data=rows.map(function(r){ return (r.interval_count>0)?Number(r.total_kwh):null; });
       var colors=rows.map(function(r){ return (r.interval_count>0)?'#1f3864':'rgba(0,0,0,0.06)'; });
-      _hhd.totals=new Chart(el,{type:'bar',data:{labels:labels,datasets:[{label:'kWh',data:data,backgroundColor:colors,borderRadius:4,maxBarThickness:34}]},options:{responsive:true,maintainAspectRatio:false,animation:{duration:250},interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:_hhdTip({title:function(it){ return _hhdDate(full[it[0].dataIndex]); },label:function(c){ return c.raw==null?'No data found':_hhdKwh(c.raw); }})},scales:{x:{grid:{display:false},ticks:{maxTicksLimit:16,autoSkip:true}},y:{beginAtZero:true,grid:{color:'rgba(0,0,0,0.05)'},title:{display:true,text:'kWh/day'}}}}});
+      _hhd.totals=new Chart(el,{type:'bar',data:{labels:labels,datasets:[{label:'kWh',data:data,backgroundColor:colors,borderRadius:4,maxBarThickness:34}]},options:{responsive:true,maintainAspectRatio:false,animation:{duration:250},events:[],interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:_hhdTip({title:function(it){ return _hhdDate(full[it[0].dataIndex]); },label:function(c){ return c.raw==null?'No data found':_hhdKwh(c.raw); }})},scales:{x:{grid:{display:false},ticks:{maxTicksLimit:16,autoSkip:true}},y:{beginAtZero:true,grid:{color:'rgba(0,0,0,0.05)'},title:{display:true,text:'kWh/day'}}}}});
+      _hhdBindHover(_hhd.totals);
     }
 
     function _hhdHeatColor(v, maxv){
