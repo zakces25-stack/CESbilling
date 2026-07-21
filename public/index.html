@@ -27,6 +27,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.js"></script>
   <!-- Cloudflare Turnstile — human verification on the login form -->
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -1434,7 +1436,9 @@
             .hhd-quick button:hover{border-color:#93c43a;color:#1f3864;background:#f6faee;}
             .hhd-quick button.active{background:#1f3864;border-color:#1f3864;color:#fff;}
             .hhd-export-btn{border-radius:10px;font-weight:700;font-size:13px;padding:10px 16px;}
-            .hhd-rangeinfo{font-size:12px;color:var(--muted);font-weight:600;margin:0 0 16px;}
+            .hhd-rangeinfo{font-size:12px;color:var(--muted);font-weight:600;margin:2px 0 2px;}
+            .hhd-cap{font-size:11.5px;color:#9aa0aa;margin:0 0 16px;}
+            .hhd-rangepick{min-width:236px;cursor:pointer;background:#fff;}
             .hhd-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px;}
             .hhd-kpi{background:#fff;border:1px solid #eee;border-radius:12px;padding:14px 16px;}
             .hhd-kpi .k-lab{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700;}
@@ -1452,11 +1456,11 @@
             .hhd-month-hd.open .chev{transform:rotate(90deg);}
             .hhd-month-stat{margin-left:auto;font-weight:600;font-size:12px;color:var(--muted);}
             .hhd-month-body{padding:12px 14px;overflow-x:auto;border-top:1px solid #e5e7eb;}
-            .hhd-heat{display:grid;gap:1px;min-width:720px;}
-            .hhd-heat .hc{height:15px;border-radius:2px;cursor:pointer;}
+            .hhd-heat{display:grid;gap:1px;min-width:720px;background:#e6e9f0;padding:1px;border-radius:5px;}
+            .hhd-heat .hc{height:15px;cursor:pointer;}
             .hhd-heat .hc:hover{outline:2px solid #1f3864;outline-offset:-1px;position:relative;z-index:2;}
-            .hhd-heat .hr-lab{font-size:10px;color:var(--muted);display:flex;align-items:center;padding-right:8px;white-space:nowrap;font-weight:600;}
-            .hhd-heat .hh-lab{font-size:9px;color:var(--muted);text-align:center;}
+            .hhd-heat .hr-lab{font-size:10px;color:var(--muted);display:flex;align-items:center;justify-content:flex-end;padding-right:8px;white-space:nowrap;font-weight:600;background:#fff;}
+            .hhd-heat .hh-lab{font-size:9px;color:var(--muted);text-align:center;background:#fff;}
             .hhd-heat-tip{position:fixed;z-index:99999;pointer-events:none;display:none;background:rgba(17,24,39,0.96);color:#fff;border-radius:8px;padding:8px 11px;font-size:12px;line-height:1.5;box-shadow:0 8px 24px rgba(0,0,0,.28);max-width:240px;}
             .hhd-heat-tip .v{font-weight:800;font-size:14px;}
             .hhd-heat-tip .muted{color:#9ca3af;font-style:italic;}
@@ -1474,11 +1478,11 @@
           <div id="hhdMain" style="display:none;">
             <div class="hhd-controls">
               <div class="filter-block"><label>Site</label><div class="hhd-select"><select id="hhdSite" onchange="hhdSiteChange()"></select></div></div>
-              <div class="filter-block"><label>From</label><input type="date" id="hhdFrom" class="hhd-date" onchange="hhdLoad()"></div>
-              <div class="filter-block"><label>To</label><input type="date" id="hhdTo" class="hhd-date" onchange="hhdLoad()"></div>
+              <div class="filter-block"><label>Date range</label><input type="text" id="hhdRange2" class="hhd-date hhd-rangepick" placeholder="Select date range"></div>
               <div class="filter-block" style="margin-left:auto;"><label>&nbsp;</label><button class="btn-secondary hhd-export-btn" onclick="hhdExport()">Export Half-Hourly Data</button></div>
             </div>
             <div id="hhdRangeInfo" class="hhd-rangeinfo"></div>
+            <div id="hhdRangeCap" class="hhd-cap"></div>
 
             <div class="hhd-kpis">
               <div class="hhd-kpi"><div class="k-lab">Total consumption</div><div class="k-val" id="hhdKpiTotal">—</div><div class="k-sub" id="hhdKpiDays"></div></div>
@@ -7437,6 +7441,7 @@
     async function hhdOpen(){
       if(_hhd.init) return; _hhd.init=true;
       _ccxChartLib();
+      if(!_hhd._rsz){ _hhd._rsz=true; window.addEventListener('resize', function(){ clearTimeout(_hhd._rt); _hhd._rt=setTimeout(_hhdResize,120); }); }
       var cid=(currentUser&&currentUser.customerId)||null;
       try{
         var r=await sb.from('hh_site_summary').select('*').order('site_name');
@@ -7449,7 +7454,7 @@
         sel.innerHTML=sites.map(function(s){ var lbl=(s.site_name||s.mpan)+' — '+s.mpan+(Number(s.days_with_data)>0?'':' (no data)'); return '<option value="'+escapeHtml(s.mpan)+'">'+escapeHtml(lbl)+'</option>'; }).join('');
         var first=sites.find(function(s){ return Number(s.days_with_data)>0; })||sites[0];
         sel.value=first.mpan;
-        _hhdApplyBounds(first, 30);
+        _hhdInitPicker(first);
         var maxLast=sites.reduce(function(mx,s){ var d=s.last_day_with_data||s.last_day; return (d&&d>mx)?d:mx; },'');
         var fb=document.getElementById('hhdFresh'); if(maxLast){ fb.style.display='inline-block'; fb.textContent='Data to '+_hhdDate(maxLast); }
         await hhdLoad();
@@ -7457,30 +7462,30 @@
     }
 
     function _hhdSite(mpan){ return _hhd.sites.find(function(s){ return s.mpan===mpan; }); }
-    function _hhdApplyBounds(site, days){
-      var f=document.getElementById('hhdFrom'), t=document.getElementById('hhdTo');
+    function _hhdResize(){ try{ _hhd.profile&&_hhd.profile.resize(); }catch(e){} try{ _hhd.totals&&_hhd.totals.resize(); }catch(e){} }
+    function _hhdInitPicker(site){
       var lo=site.first_day, hi=site.last_day_with_data||site.last_day;
-      f.min=lo; f.max=hi; t.min=lo; t.max=hi;
-      var to=hi, from=_hhdAddDays(hi,-(days-1)); if(from<lo) from=lo;
-      f.value=from; t.value=to;
+      var to=hi, from=_hhdAddDays(hi,-29); if(from<lo) from=lo;
+      _hhd.from=from; _hhd.to=to;
+      var cap=document.getElementById('hhdRangeCap');
+      if(cap){ var sl0=new Date(lo+'T00:00:00').toLocaleDateString('en-GB'), sl1=new Date(hi+'T00:00:00').toLocaleDateString('en-GB'); cap.textContent='No half-hourly data before '+sl0+'   ·   latest '+sl1; }
+      var el=document.getElementById('hhdRange2'); if(!el) return;
+      var loD=new Date(lo+'T00:00:00'), hiD=new Date(hi+'T00:00:00'), fromD=new Date(from+'T00:00:00'), toD=new Date(to+'T00:00:00');
+      if(window.flatpickr){
+        if(_hhd.fp){ _hhd.fp.set('minDate',loD); _hhd.fp.set('maxDate',hiD); _hhd.fp.setDate([fromD,toD],false); }
+        else{
+          _hhd.fp=flatpickr(el,{ mode:'range', dateFormat:'d M Y', minDate:loD, maxDate:hiD, defaultDate:[fromD,toD], disableMobile:true, rangeSeparator:'  to  ',
+            onClose:function(dates){ if(dates.length===2){ var f=_hhdISO(dates[0]), t=_hhdISO(dates[1]); if(f!==_hhd.from||t!==_hhd.to){ _hhd.from=f; _hhd.to=t; hhdLoad(); } } } });
+        }
+      } else { el.value=_hhdDate(from)+' to '+_hhdDate(hi); }
     }
-    function hhdSiteChange(){ var s=_hhdSite(document.getElementById('hhdSite').value); if(s) _hhdApplyBounds(s,30); hhdLoad(); }
-    function hhdQuick(days, btn){
-      var s=_hhdSite(document.getElementById('hhdSite').value); if(!s) return;
-      var hi=s.last_day_with_data||s.last_day, lo=s.first_day;
-      var from=(days>0)?_hhdAddDays(hi,-(days-1)):lo; if(from<lo) from=lo;
-      document.getElementById('hhdFrom').value=from; document.getElementById('hhdTo').value=hi;
-      document.querySelectorAll('.hhd-quick button').forEach(function(b){ b.classList.remove('active'); });
-      if(btn) btn.classList.add('active');
-      hhdLoad();
-    }
+    function hhdSiteChange(){ var s=_hhdSite(document.getElementById('hhdSite').value); if(s){ _hhdInitPicker(s); hhdLoad(); } }
 
     async function hhdLoad(){
       var mpan=document.getElementById('hhdSite').value;
-      var from=document.getElementById('hhdFrom').value, to=document.getElementById('hhdTo').value;
+      var from=_hhd.from, to=_hhd.to;
       if(!from||!to) return;
-      if(from>to){ var tmp=from; from=to; to=tmp; document.getElementById('hhdFrom').value=from; document.getElementById('hhdTo').value=to; }
-      _hhd.from=from; _hhd.to=to;
+      if(from>to){ var tmp=from; from=to; to=tmp; _hhd.from=from; _hhd.to=to; }
       var nd=Math.round((new Date(to+'T00:00:00')-new Date(from+'T00:00:00'))/864e5)+1;
       document.getElementById('hhdRangeInfo').textContent=nd+' day'+(nd>1?'s':'')+'  ·  '+_hhdDate(from)+'  →  '+_hhdDate(to);
       try{
@@ -7488,6 +7493,7 @@
         _hhd.rows=r.data||[];
         await _ccxChartLib();
         hhdRender();
+        requestAnimationFrame(_hhdResize); setTimeout(_hhdResize,180);
       }catch(e){ console.error('hhdLoad',e); }
     }
 
