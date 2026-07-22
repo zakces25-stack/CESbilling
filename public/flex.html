@@ -3991,7 +3991,7 @@ function fxToggleDrawer(){
   d.classList.toggle('open');
   if(d.classList.contains('open')){
     fxLogUnseen=0; fxLogBadge();
-    if(!fxLogLoaded) fxLoadLog(); else fxRenderLog();
+    fxLoadLog();   // always re-fetch on open so the latest edits (from anyone) are shown, not just what realtime happened to deliver
   }
 }
 function fxLogBadge(){
@@ -4033,13 +4033,14 @@ function fxRenderLog(){
 }
 async function fxLoadLog(){
   const {data,error}=await FLEX.sb.from('flex_audit')
-    .select('id,at,user_id,username,summary,op,table_name').order('id',{ascending:false}).limit(400);
+    .select('id,at,user_id,username,summary,op,table_name').neq('username','system').order('id',{ascending:false}).limit(400);
   if(error){ fxToast('Could not load edit log', false); return; }
   fxLogLoaded=true;
   fxLogRows=data||[];
   fxRenderLog();
 }
 function fxLogPush(r){
+  if(r && r.username==='system') return;   // ignore automated/system entries — they only clog the log
   fxLogRows.unshift(r);
   const open=document.getElementById('fxDrawer').classList.contains('open');
   if(fxLogLoaded && open) fxRenderLog();
