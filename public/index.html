@@ -1926,7 +1926,7 @@
         <div><strong>BillWise by CES</strong><div class="asst-sub">Answers about your bills, usage &amp; costs</div></div>
         <button class="asst-close" onclick="toggleAssistant(false)" aria-label="Close">&times;</button>
       </div>
-      <div id="asstMsgs" class="asst-msgs"><div class="asst-msg asst-model">Hi - I can answer questions about your bills, energy use and costs. What would you like to know?</div></div>
+      <div id="asstMsgs" class="asst-msgs"><div class="asst-msg asst-model">Hi - I can answer questions about your bills, energy use, costs and your half-hourly usage - peaks, load profile and out-of-hours use. What would you like to know?</div></div>
       <div class="asst-input-row">
         <input id="asstInput" type="text" placeholder="e.g. What was my total last month?" maxlength="1000" onkeydown="if(event.key==='Enter')sendAssistant()" />
         <button class="asst-send" onclick="sendAssistant()">Send</button>
@@ -3508,7 +3508,7 @@
     function _asstReset() {
       _asstMsgs = [];
       var box = document.getElementById('asstMsgs');
-      if (box) box.innerHTML = '<div class="asst-msg asst-model">Hi, I am BillWise by CES. I can answer questions about your bills, energy use and costs - what would you like to know?</div>';
+      if (box) box.innerHTML = '<div class="asst-msg asst-model">Hi, I am BillWise by CES. I can answer questions about your bills, energy use, costs and your half-hourly usage - peaks, load profile and out-of-hours use. What would you like to know?</div>';
       var p = document.getElementById('asstPanel'); if (p) p.style.display = 'none';
     }
     function _asstRemoveChips() { var c = document.getElementById('asstChips'); if (c) c.remove(); }
