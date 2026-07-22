@@ -1194,8 +1194,8 @@
         </div>
         <div class="sidebar-nav">
           <div class="nav-item active" data-page="reports">Bill Validation Reports</div>
-          <div class="nav-item" data-page="hhd">Half-Hourly Data</div>
           <div class="nav-item" data-page="sites">Site List</div>
+          <div class="nav-item" data-page="hhd">Half-Hourly Data</div>
           <div class="nav-item" data-page="compare">Consumption and cost comparison</div>
           <div class="nav-item" data-page="usage">Carbon Reporting</div>
           <div class="nav-item" data-page="league">League Table</div>
@@ -1470,7 +1470,7 @@
           </style>
           <div class="section-head">
             <h2>Half-Hourly Data</h2>
-            <div class="section-meta">Half-hourly electricity consumption per site, updated daily from Stark. <span id="hhdFresh" class="hhd-badge" style="display:none;"></span></div>
+            <div class="section-meta"><span id="hhdFresh"></span></div>
           </div>
 
           <div id="hhdEmpty" style="display:none;"><div class="empty-state">No half-hourly data available for your account yet.</div></div>
@@ -7453,8 +7453,10 @@
         var first=sites.find(function(s){ return Number(s.days_with_data)>0; })||sites[0];
         sel.value=first.mpan;
         _hhdInitPicker(first);
-        var maxLast=sites.reduce(function(mx,s){ var d=s.last_day_with_data||s.last_day; return (d&&d>mx)?d:mx; },'');
-        var fb=document.getElementById('hhdFresh'); if(maxLast){ fb.style.display='inline-block'; fb.textContent='Data to '+_hhdDate(maxLast); }
+        var maxIng=null;
+        sites.forEach(function(s){ if(s.last_ingested){ var t=new Date(s.last_ingested).getTime(); if(!maxIng||t>maxIng.t) maxIng={t:t,iso:s.last_ingested}; } });
+        var fb=document.getElementById('hhdFresh');
+        if(fb){ if(maxIng){ var dt=new Date(maxIng.iso); fb.textContent='Last updated on '+dt.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})+' at '+dt.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',hour12:false}); } else { fb.textContent=''; } }
         await hhdLoad();
       }catch(e){ console.error('hhdOpen',e); }
     }
