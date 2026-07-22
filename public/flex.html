@@ -2309,9 +2309,11 @@ function renderDetailStatsFromRows(rows, basket) {
   const pu = basket.unit_price;
 
   // Avg delivered rate (p/kWh incl. NECs) over the shown period
+  // Volume-weighted (by baseload volume): = convert(vol-wtd MtM price) + vol-wtd NEC, over months with both an MtM price and an NEC
   const _necMapS = fxNecFor(basket);
-  const _drRows = rows.map(m => fxDeliveredRate(basket, m, _necMapS)).filter(v => v != null);
-  const avgDr = _drRows.length ? _drRows.reduce((a,b)=>a+b,0)/_drRows.length : null;
+  let _drWSum = 0, _drW = 0;
+  rows.forEach(m => { const dr = fxDeliveredRate(basket, m, _necMapS); const w = m.baseload_vol_total || 0; if (dr != null && w > 0) { _drWSum += dr * w; _drW += w; } });
+  const avgDr = _drW > 0 ? _drWSum / _drW : null;
 
   // Baseload card: total MW (power) or th (gas)
   const baseCardVal = isPower ? fmtNum(totalBaseMW, 2) : fmtNum(totalBaseMWh, 0);
@@ -2359,7 +2361,7 @@ function renderDetailStatsFromRows(rows, basket) {
       <div class="stat-sub">${openCardSub}</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">Avg Delivered Rate</div>
+      <div class="stat-label">Avg Delivered Rate (vol-wtd)</div>
       <div class="stat-value">${avgDr != null ? avgDr.toFixed(3) : '—'}</div>
       <div class="stat-sub">p/kWh incl. NECs</div>
     </div>
@@ -4992,8 +4994,10 @@ async function fxRenderFullCurve(){
     const src = k<nowKey ? '<span class="fx-src hist">settled</span>' : (k>=manualFrom ? '<span class="fx-src man">manual</span>' : '<span class="fx-src live">imported</span>');
     return `<tr><td>${fmtMonth(k)}</td><td>${fxQLabel(m.quarter)}</td><td>${m.season||'—'}</td>${cell(k,'power',m.power)}${cell(k,'gas',m.gas)}<td>${src}</td></tr>`;
   }).join('');
+  const manSeasons=[...new Set(months.filter(k=>k>=manualFrom).map(k=>byM[k].season).filter(Boolean))];
+  const seasonTool = manSeasons.length ? `<span style="display:inline-flex;align-items:center;gap:6px;margin-left:6px;padding-left:10px;border-left:1px solid #e0dccf"><b style="font-size:11px;color:#4b5563">Set whole season:</b><select id="fxCurveSeasonSel" style="font-size:11px;padding:2px 4px">${manSeasons.map(s=>`<option value="${escape(s)}">${escape(s)}</option>`).join('')}</select><select id="fxCurveSeasonComm" style="font-size:11px;padding:2px 4px"><option value="power">Power &pound;/MWh</option><option value="gas">Gas p/th</option></select><input id="fxCurveSeasonVal" type="number" step="0.01" placeholder="value" style="width:78px;font-size:11px;padding:2px 4px"><button class="fx-btn" onclick="fxCurveSetSeason()">Apply</button></span>` : '';
   const tools = EDIT
-    ? `<div class="fx-toolbar" style="margin:0 0 10px"><button class="fx-btn" onclick="fxFullCurveExport()">&#8623; Export to Excel</button><label class="fx-btn" style="cursor:pointer;display:inline-flex;align-items:center">&#8624; Import from Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])fxFullCurveImport(this.files[0]);this.value=''"></label><span style="font-size:11px;color:#6b7280">Click a Power/Gas figure to edit. Imported months refresh from the twice-daily Marex curve; manual months (W-29&rarr;S-32) are yours to maintain.</span></div>`
+    ? `<div class="fx-toolbar" style="margin:0 0 10px;flex-wrap:wrap"><button class="fx-btn" onclick="fxFullCurveExport()">&#8623; Export to Excel</button><label class="fx-btn" style="cursor:pointer;display:inline-flex;align-items:center">&#8624; Import from Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])fxFullCurveImport(this.files[0]);this.value=''"></label>${seasonTool}<span style="font-size:11px;color:#6b7280;flex-basis:100%;margin-top:4px">Click a Power/Gas figure to edit, or set a whole season at once above. Imported months refresh from the twice-daily Marex curve; manual months (W-29&rarr;S-32) are yours to maintain.</span></div>`
     : '';
   body.innerHTML = tools
     + `<div style="font-size:11px;color:#6b7280;margin:2px 0 8px;">${months.length} months · oldest first · Power £/MWh, Gas p/th</div>`
@@ -5060,6 +5064,24 @@ async function fxFullCurveImport(file){
   if(error) return fxToast(error.message||'Import failed', false);
   fxToast('Imported '+upserts.length+' curve values'); _fxFullCurve=null; fxRenderFullCurve();
 }
+// Set one commodity's value across every (manual) month of a whole season at once
+async function fxCurveSetSeason(){
+  const sel=document.getElementById('fxCurveSeasonSel'), commEl=document.getElementById('fxCurveSeasonComm'), valEl=document.getElementById('fxCurveSeasonVal');
+  if(!sel||!commEl||!valEl) return;
+  const season=sel.value, comm=commEl.value, raw=(valEl.value||'').trim();
+  if(raw===''||isNaN(+raw)){ fxToast('Enter a value first', false); return; }
+  const val=+raw;
+  const manualFrom=await fxManualFromMonth(true);
+  const data=await fxLoadFullCurve(true)||[];
+  const targetMonths=[...new Set(data.filter(r=>r.season===season).map(r=>String(r.month).slice(0,10)))].filter(k=>k>=manualFrom).sort();
+  if(!targetMonths.length){ fxToast('No manual months in '+season+' — earlier months are governed by the Marex import', false); return; }
+  if(!confirm('Set '+(comm==='power'?'Power':'Gas')+' = '+val+(comm==='power'?' £/MWh':' p/th')+' for all '+targetMonths.length+' month(s) in '+season+'?')) return;
+  const ups=targetMonths.map(k=>{ const r=data.find(x=>x.commodity===comm && String(x.month).slice(0,10)===k) || data.find(x=>String(x.month).slice(0,10)===k) || {};
+    return {commodity:comm, month:k, quarter:r.quarter||null, season:season, mid:val}; });
+  const {error}=await FLEX.sb.from('flex_curve_history').upsert(ups,{onConflict:'commodity,month'});
+  if(error){ fxToast(error.message||'Save failed', false); return; }
+  fxToast('Set '+(comm==='power'?'Power':'Gas')+' for '+ups.length+' month(s) in '+season); _fxFullCurve=null; fxRenderFullCurve();
+}
 
 // ── TARGETS: staged batch editing (edit many, Apply once) ────────
 let FX_TBUF = {}, FX_TBUF_ORIG = {}, FX_TBUF_BID = null;
@@ -5094,22 +5116,32 @@ renderTargets = function(basket){
   const el=document.getElementById('tab-targets'); if(!el) return;
   if(FX_TBUF_BID!==basket.id){ FX_TBUF={}; FX_TBUF_ORIG={}; FX_TBUF_BID=basket.id; }
   const numT = fxTierCount(basket);
-  // tier label headers (custom names + click-to-rename in edit mode; Authorised/Advisory is set per cell, not per column)
+  // tier label headers: click the name to rename; in edit mode each header also carries an Auth/Adv chip that sets the WHOLE column at once (still staged until Apply). Per-cell chips remain for exceptions.
   const ths=el.querySelectorAll('thead th');
   for(let n=1;n<=numT;n++){
     const th=ths[1+n]; if(!th) continue;
     const lbl=(basket.target_labels&&basket.target_labels[n-1])||('T'+n);
-    th.textContent=lbl;
-    if(EDIT){
-      th.style.cursor='pointer'; th.title='Click to rename this target column';
-      th.onclick=()=>{ if(th.querySelector('input')) return;
-        fxCellInputText(th, lbl, async v=>{
-          const labels=(basket.target_labels||Array.from({length:8},(_,i)=>'T'+(i+1))).slice();
-          labels[n-1]=v||('T'+n);
-          await fxWrite(FLEX.sb.from('flex_baskets').update({target_labels:labels, updated_by:FLEX.user}).eq('id',basket.id),'Column renamed');
-        });
-      };
-    }
+    if(!EDIT){ th.textContent=lbl; continue; }
+    const tgts=basket.targets||[];
+    const colKind=(tgts.length && tgts.every(t=>fxTargetKind(t,n)==='advisory')) ? 'advisory' : 'authorised';
+    th.innerHTML=`<span class="fx-tlabel" style="cursor:pointer;text-decoration:underline dotted #9aa1ad" title="Click to rename this target column">${escape(lbl)}</span> `
+      +`<button class="fx-kindcell fx-kindcol ${colKind==='advisory'?'adv':'auth'}" title="Set every target in this column to ${colKind==='advisory'?'Authorised (red)':'Advisory (purple)'}">${colKind==='advisory'?'Adv':'Auth'}</button>`;
+    th.querySelector('.fx-tlabel').onclick=()=>{ if(th.querySelector('input')) return;
+      fxCellInputText(th, lbl, async v=>{
+        const labels=(basket.target_labels||Array.from({length:8},(_,i)=>'T'+(i+1))).slice();
+        labels[n-1]=v||('T'+n);
+        await fxWrite(FLEX.sb.from('flex_baskets').update({target_labels:labels, updated_by:FLEX.user}).eq('id',basket.id),'Column renamed');
+      });
+    };
+    th.querySelector('.fx-kindcol').onclick=(e)=>{ e.stopPropagation();
+      const nk=colKind==='advisory'?'authorised':'advisory'; const key='t'+n+'_kind';
+      (basket.targets||[]).forEach(t=>{
+        FX_TBUF_ORIG[t.month]=FX_TBUF_ORIG[t.month]||{};
+        if(!(key in FX_TBUF_ORIG[t.month])) FX_TBUF_ORIG[t.month][key]=(key in t)?t[key]:null;
+        t[key]=nk; FX_TBUF[t.month]=Object.assign(FX_TBUF[t.month]||{}, {[key]:nk});
+      });
+      renderTargets(basket);
+    };
   }
   // toolbar + per-cell editing with explicit tick buttons
   if(EDIT){
@@ -5118,7 +5150,7 @@ renderTargets = function(basket){
     bar.innerHTML=`<button class="fx-btn green" onclick="fxAddTargetMonths()">+ Add target rows for future months</button>`
       + (numT<8? ` <button class="fx-btn" onclick="fxAddTargetCol(currentBasket)" title="Show another target tier">+ Add target column</button>` : '')
       + (numT>1? ` <button class="fx-btn danger" onclick="fxRemTargetCol(currentBasket)" title="Hide the last target tier">&minus; Remove last column</button>` : '')
-      + ` <span style="font-size:11px;color:#6b7280">Click a name to rename &middot; click a price to edit &middot; tick the circle to mark achieved &middot; tap each cell's Auth/Adv tag to set red/purple &middot; changes stage until you Apply</span>`
+      + ` <span style="font-size:11px;color:#6b7280">Click a name to rename &middot; click a price to edit &middot; tick the circle to mark achieved &middot; tap each cell's Auth/Adv tag to set red/purple &middot; or use a column header's Auth/Adv chip to set the whole column &middot; changes stage until you Apply</span>`
       + (_pend? ` <button class="fx-btn" style="background:var(--green-500);color:var(--navy-900);font-weight:800" onclick="fxApplyTargets(currentBasket)">&#10003; Apply ${_pend} change${_pend>1?'s':''}</button> <button class="fx-btn danger" onclick="fxDiscardTargets(currentBasket)">Discard</button>` : '');
     el.insertBefore(bar, el.firstChild);
     const targets=basket.targets||[];
