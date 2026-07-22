@@ -4992,12 +4992,25 @@ async function fxRenderFullCurve(){
   if(!months.length){ body.innerHTML='<div style="padding:10px 2px;color:#6b7280;font-size:12px;">No curve data yet.</div>'; return; }
   const nowKey=new Date().toISOString().slice(0,8)+'01';
   const manualFrom=await fxManualFromMonth(true);   // self-advancing boundary (start of furthest imported season)
-  const cell=(k,c,v)=> EDIT
+  // Live Marex value for a month: month mid where available, else the season mid — mirrors how positions resolve market price.
+  const marexMid=(commodity,monthKey,seasonLabel)=>{
+    const cur=(DATA.curves&&DATA.curves[commodity])||{};
+    const mm=(cur.months||[]).find(x=>x.month&&String(x.month).slice(0,10)===monthKey);
+    if(mm&&mm.mid!=null) return mm.mid;
+    const ss=(cur.seasons||[]).find(x=>x.period===seasonLabel);
+    return (ss&&ss.mid!=null)?ss.mid:null;
+  };
+  const cell=(c,k,v,editable)=> (EDIT&&editable)
     ? `<td class="td-right fx-fc-edit" data-c="${c}" data-m="${k}" title="Click to edit">${v!=null?(+v).toFixed(2):'—'}</td>`
-    : `<td class="td-right">${v!=null?(+v).toFixed(2):'—'}</td>`;
+    : `<td class="td-right"${!editable?' style="color:#5b6472" title="From the live Marex curve (read-only)"':''}>${v!=null?(+v).toFixed(2):'—'}</td>`;
   const rows=months.map(k=>{ const m=byM[k];
-    const src = k<nowKey ? '<span class="fx-src hist">settled</span>' : (k>=manualFrom ? '<span class="fx-src man">manual</span>' : '<span class="fx-src live">imported</span>');
-    return `<tr><td>${fmtMonth(k)}</td><td>${fxQLabel(m.quarter)}</td><td>${m.season||'—'}</td>${cell(k,'power',m.power)}${cell(k,'gas',m.gas)}<td>${src}</td></tr>`;
+    // current month is day-ahead (not in the forward curve) = manual; the region between it and the manual tail is the live Marex curve.
+    const imported = (k>nowKey && k<manualFrom);
+    const src = k<nowKey ? '<span class="fx-src hist">settled</span>'
+              : (imported ? '<span class="fx-src live">imported</span>' : '<span class="fx-src man">manual</span>');
+    const pv = imported ? (marexMid('power',k,m.season) ?? m.power) : m.power;
+    const gv = imported ? (marexMid('gas',k,m.season) ?? m.gas) : m.gas;
+    return `<tr><td>${fmtMonth(k)}</td><td>${fxQLabel(m.quarter)}</td><td>${m.season||'—'}</td>${cell('power',k,pv,!imported)}${cell('gas',k,gv,!imported)}<td>${src}</td></tr>`;
   }).join('');
   const manSeasons=[...new Set(months.filter(k=>k>=manualFrom).map(k=>byM[k].season).filter(Boolean))];
   const seasonTool = manSeasons.length ? `<span style="display:inline-flex;align-items:center;gap:6px;margin-left:6px;padding-left:10px;border-left:1px solid #e0dccf"><b style="font-size:11px;color:#4b5563">Set whole season:</b><select id="fxCurveSeasonSel" style="font-size:11px;padding:2px 4px">${manSeasons.map(s=>`<option value="${escape(s)}">${escape(s)}</option>`).join('')}</select><select id="fxCurveSeasonComm" style="font-size:11px;padding:2px 4px"><option value="power">Power &pound;/MWh</option><option value="gas">Gas p/th</option></select><input id="fxCurveSeasonVal" type="number" step="0.01" placeholder="value" style="width:78px;font-size:11px;padding:2px 4px"><button class="fx-btn" onclick="fxCurveSetSeason()">Apply</button></span>` : '';
