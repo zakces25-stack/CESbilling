@@ -1529,6 +1529,7 @@ tr.fx-row-current td{background:#fdf3cf!important}
 .fx-htable th.rowlbl,.fx-htable td.rowlbl{background:#f7f8fb!important;font-family:var(--font-body);font-weight:800;color:#4b5563!important;font-size:10px;text-transform:uppercase;letter-spacing:.4px;text-align:left;padding-left:10px}
 .fx-htable tr:first-child th:first-child{border-top-left-radius:8px}
 .fx-htable tr:first-child th:last-child{border-top-right-radius:8px}
+.fx-fctable thead th{position:sticky;top:0;z-index:3}
 th.fx-mhA{background:#3a4667!important;border-left:3px solid #fff!important}
 th.fx-mhB{background:#2e5d4b!important;border-left:3px solid #fff!important}
 th.fx-gA{background:#3a4667!important}
@@ -1836,7 +1837,7 @@ async function loadFlexData() {
     _fetchAll('flex_baskets', 'id,name,commodity,unit_vol,unit_price,is_ces,sort_order,archived,target_labels,epsp,target_kinds,target_count', ['sort_order']),
     _fetchAll('flex_positions', 'basket_id,month,days,season,baseload_vol,secured_vol,secured_wap,baseload_vol_total,secured_vol_total,secured_pct,secured_cost,open_vol,open_vol_total,open_pct,market_price,mkt_source,residual_cost,mtm_cost,mtm_price', ['basket_id', 'month']),
     _fetchAll('flex_trades', 'id,basket_id,trade_ref,trade_date,counterparty,start_date,end_date,volume,product,strike,deal_type,cost', ['basket_id', 'id']),
-    _fetchAll('flex_targets', 'basket_id,month,lower_t1,t1_achieved,lower_t2,t2_achieved,lower_t3,t3_achieved,lower_t4,t4_achieved,lower_t5,t5_achieved,lower_t6,t6_achieved,lower_t7,t7_achieved,lower_t8,t8_achieved,upper_alert', ['basket_id', 'month']),
+    _fetchAll('flex_targets', 'basket_id,month,lower_t1,t1_achieved,lower_t2,t2_achieved,lower_t3,t3_achieved,lower_t4,t4_achieved,lower_t5,t5_achieved,lower_t6,t6_achieved,lower_t7,t7_achieved,lower_t8,t8_achieved,upper_alert,t1_kind,t2_kind,t3_kind,t4_kind,t5_kind,t6_kind,t7_kind,t8_kind', ['basket_id', 'month']),
     _fetchAll('flex_curves', 'id,commodity,period_type,period_label,month,mid,pct_chg,updated_at', ['id']),
     _fetchAll('flex_firm_orders', 'id,commodity,basket_name,period,volume,price', ['id']),
     _fetchAll('flex_contacts', 'id,supplier,note,details', ['id']),
@@ -1869,7 +1870,7 @@ async function loadFlexData() {
   });
   for (const t of targets) {
     const row = { month: t.month, upper_alert: _num(t.upper_alert) };
-    for (let n = 1; n <= 8; n++) { row['lower_t'+n] = _num(t['lower_t'+n]); row['t'+n+'_achieved'] = t['t'+n+'_achieved']; }
+    for (let n = 1; n <= 8; n++) { row['lower_t'+n] = _num(t['lower_t'+n]); row['t'+n+'_achieved'] = t['t'+n+'_achieved']; row['t'+n+'_kind'] = t['t'+n+'_kind'] || null; }
     (byT[t.basket_id] ??= []).push(row);
   }
   const _nowM = new Date().toISOString().slice(0,8)+'01';
@@ -4951,8 +4952,8 @@ renderCurves = function(){
 function fxQLabel(q){ if(!q) return '\u2014'; var m=/^Q(\d)(\d{2})$/.exec(String(q)); return m ? ('Q'+m[1]+'-'+m[2]) : q; }
 // (live market-price curve graph removed — the "Previous market curve data" table below still uses flex_curve_history)
 // ── FULL MARKET CURVE DATA (Oct-21 → Sep-32) ─────────────────────
-// Imported Marex curve is priority up to W-29 (kept live by the twice-daily import + capture trigger);
-// from W-29 (Oct-2029) → S-32 we use manual sources. Fully editable + bulk Excel (tab-4 layout).
+// Imported Marex curve is always the priority (kept live by the twice-daily import + capture trigger);
+// the manual tail begins at the season AFTER the furthest imported season and self-advances. Fully editable + bulk Excel (tab-4 layout).
 // Manual region begins at the START of the furthest season the imported curve reaches — self-advancing.
 const FX_MANUAL_FALLBACK = '2029-10-01'; // used only if the live curve has no seasons loaded yet
 function fxSeasonStart(label){
@@ -4965,7 +4966,10 @@ async function fxManualFromMonth(force){
   const { data } = await FLEX.sb.from('flex_curves').select('period_label').eq('period_type','season');
   let best=null;
   (data||[]).forEach(r=>{ const s=fxSeasonStart(r.period_label); if(s && (!best || s>best)) best=s; });
-  _fxManualFrom = best || FX_MANUAL_FALLBACK;   // first month of the furthest imported season = first manual month
+  // Marex-imported seasons are the priority: the furthest imported season is IMPORTED, so the manual region
+  // begins at the season AFTER it (+6 months). Self-advancing — as Marex adds each new season this rolls forward.
+  if(best){ const d=new Date(best+'T00:00:00Z'); d.setUTCMonth(d.getUTCMonth()+6); _fxManualFrom=d.toISOString().slice(0,10); }
+  else _fxManualFrom=FX_MANUAL_FALLBACK;
   return _fxManualFrom;
 }
 let _fxFullCurve = null;
@@ -4997,12 +5001,12 @@ async function fxRenderFullCurve(){
   const manSeasons=[...new Set(months.filter(k=>k>=manualFrom).map(k=>byM[k].season).filter(Boolean))];
   const seasonTool = manSeasons.length ? `<span style="display:inline-flex;align-items:center;gap:6px;margin-left:6px;padding-left:10px;border-left:1px solid #e0dccf"><b style="font-size:11px;color:#4b5563">Set whole season:</b><select id="fxCurveSeasonSel" style="font-size:11px;padding:2px 4px">${manSeasons.map(s=>`<option value="${escape(s)}">${escape(s)}</option>`).join('')}</select><select id="fxCurveSeasonComm" style="font-size:11px;padding:2px 4px"><option value="power">Power &pound;/MWh</option><option value="gas">Gas p/th</option></select><input id="fxCurveSeasonVal" type="number" step="0.01" placeholder="value" style="width:78px;font-size:11px;padding:2px 4px"><button class="fx-btn" onclick="fxCurveSetSeason()">Apply</button></span>` : '';
   const tools = EDIT
-    ? `<div class="fx-toolbar" style="margin:0 0 10px;flex-wrap:wrap"><button class="fx-btn" onclick="fxFullCurveExport()">&#8623; Export to Excel</button><label class="fx-btn" style="cursor:pointer;display:inline-flex;align-items:center">&#8624; Import from Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])fxFullCurveImport(this.files[0]);this.value=''"></label>${seasonTool}<span style="font-size:11px;color:#6b7280;flex-basis:100%;margin-top:4px">Click a Power/Gas figure to edit, or set a whole season at once above. Imported months refresh from the twice-daily Marex curve; manual months (W-29&rarr;S-32) are yours to maintain.</span></div>`
+    ? `<div class="fx-toolbar" style="margin:0 0 10px;flex-wrap:wrap"><button class="fx-btn" onclick="fxFullCurveExport()">&#8623; Export to Excel</button><label class="fx-btn" style="cursor:pointer;display:inline-flex;align-items:center">&#8624; Import from Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])fxFullCurveImport(this.files[0]);this.value=''"></label>${seasonTool}<span style="font-size:11px;color:#6b7280;flex-basis:100%;margin-top:4px">Click a Power/Gas figure to edit, or set a whole season at once above. Imported months refresh from the twice-daily Marex curve (always the priority); the manual tail beyond the imported seasons is yours to maintain.</span></div>`
     : '';
   body.innerHTML = tools
     + `<div style="font-size:11px;color:#6b7280;margin:2px 0 8px;">${months.length} months · oldest first · Power £/MWh, Gas p/th</div>`
     + `<div style="max-height:460px;overflow:auto;border:1px solid var(--border,#e6e1d6);border-radius:8px;">`
-    + `<table class="fx-htable" style="width:100%;border-collapse:collapse;"><thead><tr>`
+    + `<table class="fx-htable fx-fctable" style="width:100%;"><thead><tr>`
     + `<th style="text-align:left">Month</th><th style="text-align:left">Quarter</th><th style="text-align:left">Season</th>`
     + `<th class="td-right">Power (£/MWh)</th><th class="td-right">Gas (p/th)</th><th style="text-align:left">Source</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   if(EDIT) body.querySelectorAll('.fx-fc-edit').forEach(td=>{
@@ -5057,7 +5061,7 @@ async function fxFullCurveImport(file){
     if(pM && r[4]!=null && !isNaN(+r[4])){ if(pM>=manualFrom) upserts.push({commodity:'power',month:pM,quarter:r[2]!=null?String(r[2]):null,season:r[3]!=null?String(r[3]):null,mid:+r[4]}); else skipped++; }
     if(gM && r[10]!=null && !isNaN(+r[10])){ if(gM>=manualFrom) upserts.push({commodity:'gas',month:gM,quarter:r[8]!=null?String(r[8]):null,season:r[9]!=null?String(r[9]):null,mid:+r[10]}); else skipped++; }
   }
-  if(!upserts.length) return fxToast('No manual-region rows (W-29 onward) found in that file', false);
+  if(!upserts.length) return fxToast('No manual-region rows (beyond the imported Marex seasons) found in that file', false);
   const monthsSet=new Set(upserts.map(u=>u.month));
   if(!confirm('Import '+upserts.length+' values across '+monthsSet.size+' month(s), from '+manualFrom.slice(0,7)+' onward?\n\n'+skipped+' earlier row(s) skipped — those months are governed by the live Marex import.')) return;
   const {error}=await FLEX.sb.from('flex_curve_history').upsert(upserts,{onConflict:'commodity,month'});
