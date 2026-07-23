@@ -3722,13 +3722,21 @@ function fxNewBasketModal(){
     <div class="fx-field"><label>Commodity</label><select id="fN_comm"><option value="power">Power</option><option value="gas">Gas</option></select></div>
     <div class="fx-field"><label>CES basket?</label><select id="fN_ces"><option value="false">No</option><option value="true">Yes</option></select></div>
   </div>
-  <p style="font-size:12.5px;color:#4b5563;margin:12px 0 6px">Paste the month grid — 2 to 5 columns: <b>Month</b> (e.g. Apr-27 or 01/04/2027), <b>Baseload</b>, optional <b>Market price</b>, optional <b>Days</b>, optional <b>Season</b>. Days and season are worked out automatically if not given.</p>
-  <textarea id="fN_paste" placeholder="Apr-27\t0.45\nMay-27\t0.44"></textarea>
-  <div id="fN_prev"></div>
+  <p style="font-size:12.5px;color:#4b5563;margin:14px 0 8px"><b>Quickest:</b> enter a name and click <b>Create empty basket</b> — then add months, trades, targets, sites and NECs from the basket's own tabs whenever you like.</p>
+  <div style="background:#f4f8fb;border:1px solid #dbe4ec;border-radius:6px;padding:10px 12px;margin:6px 0">
+    <div style="font-weight:700;font-size:12.5px;color:#12324f;margin-bottom:3px">Or set everything up at once from a spreadsheet</div>
+    <p style="font-size:12px;color:#4b5563;margin:0 0 8px">Download the template, fill in the tabs, then upload it — the basket and all its data are created in one go.</p>
+    <button class="fx-btn" onclick="fxNewBasketTemplate()">&#10515; Download template</button>
+    <button class="fx-btn green" onclick="fxNewBasketImportPick()">&#10514; Create from filled template</button>
+  </div>
+  <details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:#6b7280">Advanced — paste a month grid instead</summary>
+    <p style="font-size:12px;color:#4b5563;margin:8px 0 6px">Optional. Paste 2–5 columns: <b>Month</b>, <b>Baseload</b>, [Market price], [Days], [Season].</p>
+    <textarea id="fN_paste" placeholder="Apr-27\t0.45\nMay-27\t0.44"></textarea>
+  </details>
   <div class="fx-err" id="fxMErr"></div>
   <div class="fx-modal-foot">
     <button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
-    <button class="fx-btn green" onclick="fxCreateBasket()">Create basket</button>
+    <button class="fx-btn green" onclick="fxCreateBasket()">Create empty basket</button>
   </div>`);
 }
 async function fxCreateBasket(){
@@ -3738,7 +3746,8 @@ async function fxCreateBasket(){
   if(!name) return fxMErr('Basket name is required.');
   const id=name.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
   if(BASKETS.find(b=>b.id===id)) return fxMErr('A basket with this name already exists.');
-  const lines=document.getElementById('fN_paste').value.split(/\r?\n/).filter(l=>l.trim());
+  const pasteEl=document.getElementById('fN_paste');
+  const lines=(pasteEl?pasteEl.value:'').split(/\r?\n/).filter(l=>l.trim());
   const months=[];
   for(const line of lines){
     const c=line.split(/\t|,| {2,}/).map(x=>x.trim()).filter(x=>x!=='');
@@ -3749,15 +3758,116 @@ async function fxCreateBasket(){
       season: c[4]||fxSeason(m), baseload_vol: fxNum(c[1]),
       market_price: c[2]!==undefined? fxNum(c[2]) : null, updated_by: FLEX.user });
   }
-  if(!months.length) return fxMErr('No month rows parsed.');
   const bk={ id, name, commodity:comm, unit_vol: comm==='power'?'MW':'th/d',
     unit_price: comm==='power'?'£/MWh':'p/th', is_ces:isCes,
     sort_order: (Math.max(0,...BASKETS.map(b=>b.sort_order??0))+1), updated_by: FLEX.user };
   const r1=await FLEX.sb.from('flex_baskets').insert(bk);
   if(r1.error) return fxMErr(r1.error.message);
-  const r2=await FLEX.sb.from('flex_basket_months').insert(months);
-  if(r2.error) return fxMErr('Basket created but months failed: '+r2.error.message);
-  fxToast('Basket created with '+months.length+' months');
+  if(months.length){
+    const r2=await FLEX.sb.from('flex_basket_months').insert(months);
+    if(r2.error) return fxMErr('Basket created but months failed: '+r2.error.message);
+  }
+  fxToast(months.length ? ('Basket created with '+months.length+' months') : 'Empty basket created — add its details from the tabs');
+  fxCloseModal(); fxScheduleReload();
+}
+// ── NEW BASKET: downloadable template + robust header-based importer ──────────
+async function fxNewBasketTemplate(){
+  if(typeof ExcelJS==='undefined') return fxToast('Excel engine not loaded — reload the page', false);
+  const comm=(document.getElementById('fN_comm')||{}).value||'power';
+  const vol = comm==='power'?'MW':'therms/day';
+  const price = comm==='power'?'£/MWh':'p/therm';
+  const wb=new ExcelJS.Workbook();
+  const style=ws=>{ ws.getRow(1).eachCell(c=>{ c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF12324F'}}; c.font={color:{argb:'FFFFFFFF'},bold:true,size:10}; }); ws.views=[{state:'frozen',ySplit:1}]; };
+  const ins=wb.addWorksheet('Instructions'); ins.columns=[{width:115}];
+  ['CES Flex — New basket template','',
+   'Fill in the tabs below, then upload with "Create from filled template" (type the basket name + commodity in the portal first).',
+   'Only the Months tab is needed to start; Trades, Targets, Sites and NECs are optional and can also be added later.',
+   'Leave a cell blank if not applicable. Do NOT rename the column headers or the tab names — column order does not matter.','',
+   'MONTHS — one row per delivery month. Month e.g. Apr-27 or 01/04/2027. Baseload ('+vol+') is required. Market price ('+price+') optional. Days & Season auto-fill if blank.',
+   'TRADES — one row per completed trade. Start Date, End Date, Volume ('+vol+') and Strike Price ('+price+') are required. Deal Type = Buy or Sell.',
+   'TARGETS — one row per month. Enter each tier price (T1..T8) and the Upper Alert. Tn Kind = Authorised or Advisory (blank = Authorised). Leave unused tiers blank.',
+   'SITES — the sites in this basket. Customer and MPAN/MPRN identify each site.',
+   'NECs — non-energy cost per season (p/kWh). Season e.g. S-27, W-27.'
+  ].forEach((t,i)=>{ const r=ins.addRow([t]); if(i===0) r.getCell(1).font={bold:true,size:14,color:{argb:'FF12324F'}}; else if(/^[A-Z]{3,} —/.test(t)) r.getCell(1).font={bold:true,color:{argb:'FF12324F'}}; });
+  const mo=wb.addWorksheet('Months'); mo.columns=[{header:'Month',width:12},{header:'Baseload ('+vol+')',width:20},{header:'Market Price ('+price+')',width:22},{header:'Days',width:8},{header:'Season',width:10}]; style(mo);
+  const tr=wb.addWorksheet('Trades'); tr.columns=[{header:'Trade Ref',width:14},{header:'Trade Date',width:12},{header:'Counterparty',width:18},{header:'Start Date',width:12},{header:'End Date',width:12},{header:'Volume ('+vol+')',width:16},{header:'Product',width:14},{header:'Strike Price ('+price+')',width:20},{header:'Deal Type',width:10}]; style(tr);
+  const tg=wb.addWorksheet('Targets'); const tc=[{header:'Month',width:12}]; for(let i=1;i<=8;i++) tc.push({header:'T'+i,width:8}); tc.push({header:'Upper Alert',width:12}); for(let i=1;i<=8;i++) tc.push({header:'T'+i+' Kind',width:12}); tg.columns=tc; style(tg);
+  const si=wb.addWorksheet('Sites'); si.columns=[{header:'Customer',width:28},{header:'MPAN/MPRN',width:20},{header:'Contract Start',width:14},{header:'Contract End',width:14},{header:'NEC Unit Rate (p/kWh)',width:20},{header:'NEC Standing Charge (p/day)',width:24}]; style(si);
+  const ne=wb.addWorksheet('NECs'); ne.columns=[{header:'Season',width:10},{header:'NEC (p/kWh)',width:14}]; style(ne);
+  const buf=await wb.xlsx.writeBuffer();
+  fxDownloadBlob(buf, 'CES Flex — New Basket Template.xlsx');
+  fxToast('Template downloaded — fill it in, then Create from filled template');
+}
+// read a sheet into {hdr:[lowercased headers], rows:[...]} with the range normalised to A1
+function fxSheetRows(wb, name){
+  const ws=wb.Sheets[name]; if(!ws) return null;
+  fxNormRange(ws);
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null});
+  if(!aoa.length) return {hdr:[],rows:[]};
+  const hdr=(aoa[0]||[]).map(h=>String(h==null?'':h).trim().toLowerCase());
+  return {hdr, rows:aoa.slice(1)};
+}
+// find a column index by header name — exact match first, then substring; order-independent
+function fxFind(hdr, ...terms){
+  for(const t of terms){ const i=hdr.indexOf(t.toLowerCase()); if(i>=0) return i; }
+  for(const t of terms){ const tl=t.toLowerCase(); for(let i=0;i<hdr.length;i++){ if(hdr[i]&&hdr[i].includes(tl)) return i; } }
+  return -1;
+}
+function fxNewBasketImportPick(){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.xls';
+  inp.onchange=async()=>{ const f=inp.files[0]; if(f) await fxNewBasketImport(f); };
+  inp.click();
+}
+async function fxNewBasketImport(file){
+  const name=(document.getElementById('fN_name').value||'').trim();
+  const comm=document.getElementById('fN_comm').value;
+  const isCes=document.getElementById('fN_ces').value==='true';
+  if(!name) return fxMErr('Enter a basket name (and commodity) first, then upload the template.');
+  const id=name.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+  if(BASKETS.find(b=>b.id===id)) return fxMErr('A basket with this name already exists.');
+  if(typeof XLSX==='undefined') return fxMErr('Excel engine not loaded — reload the page.');
+  let wb; try{ wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true}); }catch(e){ return fxMErr('Could not read that file.'); }
+  const iso=v=>{ if(v==null||v==='') return null; if(v instanceof Date&&!isNaN(v)) return v.getFullYear()+'-'+String(v.getMonth()+1).padStart(2,'0')+'-'+String(v.getDate()).padStart(2,'0'); const p=fxParseDate(String(v)); return p?p.slice(0,10):null; };
+  const mIso=v=>{ const d=iso(v); return d?d.slice(0,8)+'01':null; };
+  const months=[], trades=[], targets=[], sites=[], necs=[]; let maxTier=0;
+  let s;
+  if((s=fxSheetRows(wb,'Months'))){ const H=s.hdr, cM=fxFind(H,'month'),cB=fxFind(H,'baseload'),cK=fxFind(H,'market'),cD=fxFind(H,'days'),cS=fxFind(H,'season');
+    for(const r of s.rows){ if(!r) continue; const mk=mIso(r[cM]); if(!mk) continue; const bl=cB>=0?fxNum(r[cB]):null; const mp=cK>=0?fxNum(r[cK]):null; if(bl==null&&mp==null) continue;
+      months.push({basket_id:id,month:mk,days:(cD>=0&&r[cD]!=null)?parseInt(r[cD]):fxDaysIn(mk),season:(cS>=0&&r[cS]!=null)?String(r[cS]).trim():fxSeason(mk),baseload_vol:bl,market_price:mp,updated_by:FLEX.user}); } }
+  if((s=fxSheetRows(wb,'Trades'))){ const H=s.hdr, cR=fxFind(H,'trade ref','ref'),cDt=fxFind(H,'trade date'),cC=fxFind(H,'counterparty'),cS=fxFind(H,'start'),cE=fxFind(H,'end'),cV=fxFind(H,'volume'),cP=fxFind(H,'product'),cK=fxFind(H,'strike'),cDl=fxFind(H,'deal');
+    for(const r of s.rows){ if(!r) continue; const sd=iso(r[cS]),ed=iso(r[cE]),vol=cV>=0?fxNum(r[cV]):null,strike=cK>=0?fxNum(r[cK]):null; if(!sd||!ed||vol==null||strike==null) continue;
+      const dt=(cDl>=0&&r[cDl]&&String(r[cDl]).trim().toLowerCase().charAt(0)==='s')?'Sell':'Buy';
+      trades.push({basket_id:id,trade_ref:(cR>=0&&r[cR]!=null)?String(r[cR]):null,trade_date:cDt>=0?iso(r[cDt]):null,counterparty:(cC>=0&&r[cC]!=null)?String(r[cC]):null,start_date:sd,end_date:ed,volume:vol,product:(cP>=0&&r[cP]!=null)?String(r[cP]):null,strike:strike,deal_type:dt,cost:vol*strike,updated_by:FLEX.user}); } }
+  if((s=fxSheetRows(wb,'Targets'))){ const H=s.hdr, cM=fxFind(H,'month'),cUA=fxFind(H,'upper alert','upper');
+    for(const r of s.rows){ if(!r) continue; const mk=mIso(r[cM]); if(!mk) continue; const rec={basket_id:id,month:mk,updated_by:FLEX.user}; let any=false;
+      for(let i=1;i<=8;i++){ const cp=fxFind(H,'t'+i); const ck=fxFind(H,'t'+i+' kind'); const pv=cp>=0?fxNum(r[cp]):null; if(pv!=null){ rec['lower_t'+i]=pv; any=true; if(i>maxTier) maxTier=i; } const kv=(ck>=0&&r[ck]!=null)?String(r[ck]).trim().toLowerCase():''; rec['t'+i+'_kind']= pv!=null?(kv.startsWith('adv')?'advisory':'authorised'):null; }
+      const ua=cUA>=0?fxNum(r[cUA]):null; if(ua!=null){ rec.upper_alert=ua; any=true; }
+      if(any) targets.push(rec); } }
+  if((s=fxSheetRows(wb,'Sites'))){ const H=s.hdr, cC=fxFind(H,'customer'),cMp=fxFind(H,'mpan','mprn','mpxn'),cs=fxFind(H,'contract start','start'),ce=fxFind(H,'contract end','end'),cu=fxFind(H,'unit rate','unit'),csc=fxFind(H,'standing');
+    for(const r of s.rows){ if(!r) continue; const cust=(cC>=0&&r[cC]!=null)?String(r[cC]).trim():''; const mp=(cMp>=0&&r[cMp]!=null)?String(r[cMp]).trim():''; if(!cust&&!mp) continue;
+      sites.push({basket_id:id,basket_name:name,commodity:comm,customer:cust||null,mpxn:mp||null,contract_start:cs>=0?iso(r[cs]):null,contract_end:ce>=0?iso(r[ce]):null,nec_unit_rate:cu>=0?fxNum(r[cu]):null,nec_standing_charge:csc>=0?fxNum(r[csc]):null,source:'import',archived:false,updated_by:FLEX.user}); } }
+  if((s=fxSheetRows(wb,'NECs'))){ const H=s.hdr, cS=fxFind(H,'season'),cN=fxFind(H,'nec'); let so=0;
+    for(const r of s.rows){ if(!r) continue; const se=(cS>=0&&r[cS]!=null)?String(r[cS]).trim():''; if(!se) continue;
+      necs.push({basket_name:name,basket_id:id,commodity:comm,season:se,nec:cN>=0?fxNum(r[cN]):null,sort_order:++so,updated_by:FLEX.user}); } }
+  window._fxNewBasket={id,name,comm,isCes,maxTier,months,trades,targets,sites,necs};
+  fxModal(`<h3>Create basket from template</h3>
+   <p style="font-size:13px;color:#374151">Ready to create <b>${escape(name)}</b> (${comm}) with:</p>
+   <ul style="font-size:12.5px;color:#374151;line-height:1.7;margin:6px 0 0 4px">
+     <li><b>${months.length}</b> month(s)</li><li><b>${trades.length}</b> trade(s)</li>
+     <li><b>${targets.length}</b> target row(s)${maxTier?' (up to T'+maxTier+')':''}</li>
+     <li><b>${sites.length}</b> site(s)</li><li><b>${necs.length}</b> NEC season(s)</li></ul>
+   <div class="fx-err" id="fxMErr"></div>
+   <div class="fx-modal-foot"><button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
+   <button class="fx-btn green" onclick="fxNewBasketCommit()">Create basket</button></div>`);
+}
+async function fxNewBasketCommit(){
+  const d=window._fxNewBasket; if(!d) return;
+  const bk={ id:d.id, name:d.name, commodity:d.comm, unit_vol:d.comm==='power'?'MW':'th/d', unit_price:d.comm==='power'?'£/MWh':'p/th', is_ces:d.isCes, target_count:d.maxTier||null, sort_order:(Math.max(0,...BASKETS.map(b=>b.sort_order??0))+1), updated_by:FLEX.user };
+  const r1=await FLEX.sb.from('flex_baskets').insert(bk); if(r1.error) return fxMErr(r1.error.message);
+  const ins=async(t,rows)=>{ if(!rows||!rows.length) return null; const {error}=await FLEX.sb.from(t).insert(rows); return error; };
+  const err = await ins('flex_basket_months',d.months) || await ins('flex_trades',d.trades) || await ins('flex_targets',d.targets) || await ins('flex_sites',d.sites) || await ins('flex_necs',d.necs);
+  if(err) return fxMErr('Basket created, but some rows failed: '+err.message);
+  fxToast('Created '+d.name+' — '+d.months.length+' months, '+d.trades.length+' trades, '+d.targets.length+' targets, '+d.sites.length+' sites, '+d.necs.length+' NECs');
   fxCloseModal(); fxScheduleReload();
 }
 
