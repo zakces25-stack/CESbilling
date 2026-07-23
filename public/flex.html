@@ -1615,6 +1615,12 @@ button{transition:all .14s ease}
 #flexChip{position:fixed;right:14px;bottom:14px;z-index:96000;display:none;align-items:center;gap:10px;background:#141a3c;color:#fff;border-radius:999px;padding:8px 9px 8px 16px;font-size:12px;box-shadow:0 8px 24px rgba(3,8,26,.35);font-family:inherit}
 #flexChip button{background:rgba(255,255,255,.14);border:0;color:#fff;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
 #flexChip button:hover{background:rgba(255,255,255,.28)}
+/* sidebar top controls (Log / Refresh / Sign out) — moved out of the floating chip */
+#flexSideCtrls{padding:12px 16px 2px;display:flex;flex-direction:column;gap:8px}
+#flexSideCtrls #flexChipUser{color:#e6ebf5;font-size:12px;font-weight:600;display:flex;align-items:center}
+#flexSideCtrls .fx-sidebtns{display:flex;gap:6px}
+#flexSideCtrls .fx-sidebtns button{flex:1;background:rgba(255,255,255,.12);border:0;color:#fff;border-radius:8px;padding:6px 8px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap}
+#flexSideCtrls .fx-sidebtns button:hover{background:rgba(255,255,255,.24)}
 .fl-turnstile{margin-top:16px;min-height:66px}
 #flexBtn{transition:background .15s ease,transform .1s ease,box-shadow .15s ease}
 #flexBtn:hover{box-shadow:0 6px 18px rgba(47,61,126,.45)}
@@ -1698,13 +1704,6 @@ button{transition:all .14s ease}
     <a class="fl-back" href="/">&larr; Back to the CES billing portal</a>
   </div>
 </div>
-<div id="flexChip">
-  <span class="fx-grip" title="Drag to move this bar">&#10495;</span>
-  <span id="flexChipUser"></span>
-  <button id="fxLogBtn" onclick="fxToggleDrawer()" title="Live edit log">&#128203; Log<span class="bdg"></span></button>
-  <button onclick="flexReload()" title="Re-fetch latest data">Refresh</button>
-  <button onclick="FLEX.sb.auth.signOut().then(()=>location.reload())">Sign out</button>
-</div>
 <div id="fxModalWrap" onclick="if(event.target===this)fxCloseModal()"><div id="fxModal"></div></div>
 <div id="fxDrawer"><div class="hd"><span>&#128203; Live edit log</span><button onclick="fxToggleDrawer()">&#10005;</button></div><div class="bd" id="fxLogBody"></div></div>
 <div id="fxCursors"></div>
@@ -1721,6 +1720,15 @@ button{transition:all .14s ease}
       </div>
     </div>
     <div class="sidebar-asof" id="fx-asof">Live</div>
+  </div>
+
+  <div id="flexSideCtrls">
+    <span id="flexChipUser"></span>
+    <div class="fx-sidebtns">
+      <button id="fxLogBtn" onclick="fxToggleDrawer()" title="Open the live edit log on the right">&#128203; Log<span class="bdg"></span></button>
+      <button onclick="flexReload()" title="Re-fetch the latest data">&#8635; Refresh</button>
+      <button onclick="FLEX.sb.auth.signOut().then(()=>location.reload())" title="Sign out">Sign out</button>
+    </div>
   </div>
 
   <div id="sidebar-controls">
@@ -4117,6 +4125,30 @@ function fxLogRowHtml(r, fresh){
   const col=fxColorFor(r.user_id||r.username||'x');
   return `<div class="fx-log-row${fresh?' fx-log-new':''}"><div class="meta"><span class="fx-log-dot" style="background:${col}"></span><span class="who">${escape(r.username||'?')}</span><span>${dd} ${hh}</span></div>${escape(r.summary||'')}</div>`;
 }
+// Collapse a burst (bulk import / many small edits) into one general line instead of every value.
+function fxLogFriendlyScope(r){
+  if(r.basket_id){ const b=(BASKETS||[]).concat((DATA&&DATA.archived)||[]).find(x=>x.id===r.basket_id); if(b) return b.name; }
+  const map={flex_curve_history:'the market curve',flex_curves:'the market curve',flex_targets:'targets',flex_basket_months:'baseload volumes',flex_trades:'trades',flex_sites:'sites',flex_necs:'NECs',flex_admin_cells:'the admin schedule',flex_admin_schedule:'the admin schedule',flex_baskets:'baskets',flex_notes:'notes',flex_contacts:'contacts',flex_firm_orders:'firm orders'};
+  return map[r.table_name]||(r.table_name||'the portal');
+}
+function fxLogGroupRowHtml(r,n){
+  const t=new Date(r.at), hh=t.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}), dd=t.toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
+  const col=fxColorFor(r.user_id||r.username||'x');
+  return `<div class="fx-log-row"><div class="meta"><span class="fx-log-dot" style="background:${col}"></span><span class="who">${escape(r.username||'?')}</span><span>${dd} ${hh}</span></div>made multiple changes to <b>${escape(fxLogFriendlyScope(r))}</b> <span style="color:#9aa1ad">(${n} edits)</span></div>`;
+}
+// rows are newest-first within a bucket; collapse contiguous runs of the same person + same scope (>=4) into one line
+function fxLogCollapse(rows){
+  const out=[]; let i=0;
+  while(i<rows.length){
+    const r=rows[i]; let j=i+1;
+    while(j<rows.length && rows[j].username===r.username && rows[j].table_name===r.table_name && (rows[j].basket_id||'')===(r.basket_id||'')) j++;
+    const run=j-i;
+    if(run>=4) out.push(fxLogGroupRowHtml(r,run));
+    else for(let k=i;k<j;k++) out.push(fxLogRowHtml(rows[k],false));
+    i=j;
+  }
+  return out.join('');
+}
 // Group the log like a browser history: recent by day, then week, then month, as it ages.
 let fxLogRows=[];
 function fxLogBucket(atStr){
@@ -4137,13 +4169,13 @@ function fxRenderLog(){
   for(const r of fxLogRows){ const b=fxLogBucket(r.at); if(!groups.has(b.key)) groups.set(b.key,{label:b.label,open:b.open,rows:[]}); groups.get(b.key).rows.push(r); }
   let html='';
   for(const g of groups.values()){
-    html+=`<details class="fx-log-group"${g.open?' open':''}><summary><span class="fx-log-caret">&#9656;</span><span class="fx-log-gl">${escape(g.label)}</span><span class="fx-log-gc">${g.rows.length}</span></summary>${g.rows.map(r=>fxLogRowHtml(r,false)).join('')}</details>`;
+    html+=`<details class="fx-log-group"${g.open?' open':''}><summary><span class="fx-log-caret">&#9656;</span><span class="fx-log-gl">${escape(g.label)}</span><span class="fx-log-gc">${g.rows.length}</span></summary>${fxLogCollapse(g.rows)}</details>`;
   }
   bd.innerHTML=html;
 }
 async function fxLoadLog(){
   const {data,error}=await FLEX.sb.from('flex_audit')
-    .select('id,at,user_id,username,summary,op,table_name').neq('username','system').order('id',{ascending:false}).limit(400);
+    .select('id,at,user_id,username,summary,op,table_name,basket_id').neq('username','system').order('id',{ascending:false}).limit(400);
   if(error){ fxToast('Could not load edit log', false); return; }
   fxLogLoaded=true;
   fxLogRows=data||[];
@@ -5390,9 +5422,8 @@ async function flexStart() {
   FLEX.color = fxColorFor(FLEX.uid);
   try { const { data: prof } = await FLEX.sb.from('profiles').select('display_name').eq('id', FLEX.uid).single();
         FLEX.name = (prof && prof.display_name) || FLEX.user; } catch(e){ FLEX.name = FLEX.user; }
-  const chip = document.getElementById('flexChip');
-  document.getElementById('flexChipUser').innerHTML = '<span class="fx-log-dot" style="background:'+FLEX.color+';margin-right:6px"></span>' + escape(FLEX.user);
-  chip.style.display = 'flex';
+  const uEl = document.getElementById('flexChipUser');
+  if(uEl) uEl.innerHTML = '<span class="fx-log-dot" style="background:'+FLEX.color+';margin-right:6px"></span>' + escape(FLEX.user);
   renderSidebar(); renderOverview(); fxDecorateHeader();
   fxStartRealtime(); fxStartCursors();
   fxAskNotifyPermission();
