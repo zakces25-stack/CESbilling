@@ -3095,8 +3095,9 @@ function renderGraphs(basket) {
 function selectBasket(id) {
   selectedId = id;
   tradeFilterMonth = '';
-  const basket = BASKETS.find(b => b.id === id);
+  const basket = BASKETS.find(b => b.id === id) || (DATA.archived||[]).find(b => b.id === id);
   if (!basket) return;
+  if (basket.archived){ EDIT=false; document.querySelectorAll('.fx-edit-toggle').forEach(x=>{x.classList.remove('on');x.innerHTML='&#9998; Edit';}); }
 
   currentBasket = basket;
   destroyCharts();
@@ -3118,6 +3119,7 @@ function selectBasket(id) {
   renderTargets(basket);
   renderGraphs(basket);
   renderSites(basket);
+  fxArchivedBanner(basket);
 
   // Reset tabs
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -3418,14 +3420,16 @@ async function fxWrite(promise, okMsg){
 // ── state-preserving re-render ───────────────────────────────────
 function rerenderCurrent(){
   renderSidebar();
-  const detailOpen = selectedId && BASKETS.find(b=>b.id===selectedId);
-  if (detailOpen){
-    const b = BASKETS.find(x=>x.id===selectedId);
+  const bSel = selectedId ? (BASKETS.find(b=>b.id===selectedId) || (DATA.archived||[]).find(b=>b.id===selectedId)) : null;
+  if (bSel){
+    const b = bSel;
     currentBasket = b;
+    if(b.archived){ EDIT=false; document.querySelectorAll('.fx-edit-toggle').forEach(x=>{x.classList.remove('on');x.innerHTML='&#9998; Edit';}); }
     destroyCharts();
     document.getElementById('detail-title').textContent = b.name;
     renderDetailStats(b); renderPositions(b); renderTrades(b);
     renderSeasons(b); renderTargets(b); renderGraphs(b); renderSites(b);
+    fxArchivedBanner(b);
   } else if (selectedId){ // basket deleted remotely
     selectedId=null; currentBasket=null;
     document.getElementById('overview').style.display='block';
@@ -4297,13 +4301,14 @@ function fxRenderArchive(){
   const list=(DATA.archived||[]);
   el.innerHTML=`<div class="extra-tab-inner">
     <div class="overview-header" style="margin-top:0"><div class="overview-title">Archived baskets</div>
-    <div class="overview-sub">Restore at any time — deleting is permanent and removes all months, trades, targets and notes for the basket</div></div>
+    <div class="overview-sub">Open any basket to view it read-only — no need to restore first. Restore at any time; deleting is permanent and removes all months, trades, targets and notes for the basket</div></div>
     ${list.length? list.map(b=>`
       <div class="fx-arch-card">
-        <div><b>${escape(b.name)}</b>
+        <div><b class="fx-arch-name" onclick="fxViewArchived('${b.id}')" style="cursor:pointer" title="Open to view">${escape(b.name)}</b>
           <span class="commodity-badge-lg ${b.commodity}" style="margin-left:10px">${b.commodity==='power'?'Power':'Gas'}</span>
           <div style="font-size:11px;color:#6b7280;margin-top:4px">${b.months.length} months &middot; ${b.trades.length} trades</div></div>
         <div style="display:flex;gap:8px">
+          <button class="fx-btn" onclick="fxViewArchived('${b.id}')" title="Open this basket read-only">&#128065; View</button>
           <button class="fx-btn green" onclick="fxRestoreBasket('${b.id}')">&#8634; Restore</button>
           <button class="fx-btn danger" onclick="fxDeleteModal('${b.id}')">&#128465; Delete permanently</button>
         </div>
@@ -4312,6 +4317,18 @@ function fxRenderArchive(){
 }
 async function fxRestoreBasket(id){
   await fxWrite(FLEX.sb.from('flex_baskets').update({archived:false, updated_by:FLEX.user}).eq('id', id), 'Basket restored');
+}
+// Open an archived basket read-only (switch to the Portfolio view, then open it)
+function fxViewArchived(id){ switchMainTab('portfolio'); selectBasket(id); }
+// Show/remove the "archived — read-only" banner at the top of the detail pane
+function fxArchivedBanner(b){
+  const host=document.getElementById('detail'); if(!host) return;
+  let ban=document.getElementById('fxArchBanner');
+  if(b && b.archived){
+    if(!ban){ ban=document.createElement('div'); ban.id='fxArchBanner'; host.insertBefore(ban, host.firstChild); }
+    ban.style.cssText='background:#fff4e5;border:1px solid #f0d3a0;color:#7a5a1e;border-radius:8px;padding:9px 14px;margin:0 0 12px;font-size:12.5px;display:flex;align-items:center;justify-content:space-between;gap:12px';
+    ban.innerHTML=`<span>&#128451; This basket is <b>archived</b> — shown read-only. Restore it to make changes.</span><button class="fx-btn green" onclick="fxRestoreBasket('${b.id}')">&#8634; Restore</button>`;
+  } else if(ban){ ban.remove(); }
 }
 function fxDeleteModal(id){
   const b=(DATA.archived||[]).find(x=>x.id===id); if(!b) return;
