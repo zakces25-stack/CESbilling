@@ -2656,10 +2656,12 @@ function renderPositions(basket) {
 function tradePeriodMonths(basket) {
   const months = new Set();
   basket.trades.forEach(t => {
-    if (t.start && t.end) {
+    // guard against reversed/malformed ranges (end before start) — those would loop forever below
+    if (t.start && t.end && t.end >= t.start) {
       let y = Number(t.start.slice(0,4)), mo = Number(t.start.slice(5,7));
       const endKey = t.end.slice(0,7);
-      while (true) {
+      let guard = 0;
+      while (guard++ < 1200) {   // hard cap (~100 years) so a bad date can never freeze the page
         const key = y + '-' + String(mo).padStart(2,'0');
         months.add(key + '-01');
         if (key === endKey) break;
