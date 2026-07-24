@@ -1407,7 +1407,7 @@
           <div class="nav-item active" id="bkNavSales" onclick="brokerNav('sales')">Sales Performance</div>
           <div class="nav-item" id="bkNavAnalytics" onclick="brokerNav('analytics')">Analytical Data</div>
           <div class="nav-item" id="bkNavProjects" onclick="brokerNav('projects')">My Projects</div>
-          <div class="nav-item" id="bkNavCust" onclick="brokerNav('customers')">My Customers</div>
+          <div class="nav-item" id="bkNavCust" onclick="brokerNav('customers')">My Portfolio</div>
           <div class="nav-item" id="bkNavLead" onclick="brokerNav('lead')" style="display:none;">Team admin</div>
         </div>
         <div class="sidebar-foot">
@@ -1520,7 +1520,12 @@
               <div class="success-box" id="bxMsg" style="display:none;">Saved.</div>
               <div class="sk-entry-grid sk-entry-vert" id="bxEntryFields"></div>
               <div class="form-group" style="margin-top:12px;"><label id="bxLostReasonLbl">If you lost any customers or meters — why?</label><textarea id="bx_lost_reason" rows="2" style="width:100%;padding:10px 12px;border:1px solid var(--border,#d9d9e3);border-radius:8px;font:inherit;resize:vertical;box-sizing:border-box;" placeholder="Reason customers / meters were lost this month"></textarea></div>
-              <div class="form-group"><label>Customers of concern</label><textarea id="bx_customers_of_concern" rows="2" style="width:100%;padding:10px 12px;border:1px solid var(--border,#d9d9e3);border-radius:8px;font:inherit;resize:vertical;box-sizing:border-box;" placeholder="Any accounts at risk, and why"></textarea></div>
+              <div class="form-group">
+                <label>Customers of concern <span style="color:#b5340f;">*</span></label>
+                <p style="font-size:11.5px;color:var(--muted);margin:0 0 8px;">Required every month before you can Confirm. Add any accounts at risk (customer + reason), or tick “No customers of concern”.</p>
+                <label style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;margin-bottom:8px;cursor:pointer;text-transform:none;"><input type="checkbox" id="bxCocNo" onchange="bxCocNoToggle()"> No customers of concern this month</label>
+                <div id="bxCocBody"><div id="bxCocRows"></div><button type="button" class="btn-secondary" style="padding:7px 12px;" onclick="bxCocAdd('','')">＋ Add customer of concern</button></div>
+              </div>
               <button class="btn-primary" style="width:auto;padding:10px 18px;margin-top:12px;" onclick="bxSaveMine()">Save my figures</button>
               <button class="btn-secondary" id="bxConfirmBtn" style="width:auto;padding:10px 18px;margin-top:12px;margin-left:8px;border:2px solid var(--navy);color:var(--navy);font-weight:800;" onclick="bxConfirmMonth()">&#10004; Confirm &mdash; this is my total for <span id="bxConfirmMonthLbl">this month</span></button>
               <div id="bxConfirmState" style="margin-top:10px;font-size:12.5px;font-weight:700;"></div>
@@ -1670,7 +1675,7 @@
         <!-- View: the broker's customers -->
         <div id="brokerCustomersView" style="display:none;">
           <div class="section-head" style="align-items:center;justify-content:space-between;gap:14px;">
-            <h2>Your customers</h2>
+            <h2>My Portfolio</h2>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn-secondary" style="width:auto;padding:8px 16px;" onclick="bkToggleBulkForm()">&#8679; Bulk import</button>
               <button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="bkToggleCustomerForm()">+ Add customer</button>
@@ -4699,7 +4704,6 @@
     var _SK_FIELDS = [
       ['billing_total', 'Billing total (£, annual equivalent — include consultancy / direct £)'],
       ['long_term_total', 'Long term total (£)'],
-      ['ces_direct_total', 'CES direct (£)'],
       ['consultancy', 'Consultancy / direct sales (£) · shared saving, metering, fixed fees — excluded from uplift'],
       ['total_kwh', 'Total kWh'],
       ['new_business_gbp', 'Total new business (£)'],
@@ -4891,7 +4895,6 @@
     // ── Admin: month-end report (matches Sales Team KPIs; styled table + charts + red flags) ──
     var _ME_COLS = [
       {k:'billing_total',label:'Billing Total',fmt:'money',flag:true},
-      {k:'ces_direct_total',label:'CES Direct',fmt:'money',flag:true},
       {k:'long_term_total',label:'Long Term',fmt:'money',flag:true},
       {k:'consultancy',label:'Consultancy / Direct',fmt:'money',flag:false},
       {k:'total_kwh',label:'Total kWh',fmt:'int',flag:true},
@@ -5242,7 +5245,7 @@
       var effK = _SK.myRepId ? _skEffRow(_SK.myRepId, key) : null;
       _skFillEntry('bx_', rawK);              // entry form edits the manually-typed base only
       var _lr = document.getElementById('bx_lost_reason'); if(_lr) _lr.value = (rawK && rawK.lost_reason) || '';
-      var _coc = document.getElementById('bx_customers_of_concern'); if(_coc) _coc.value = (rawK && rawK.customers_of_concern) || '';
+      bxCocSet(rawK && rawK.customers_of_concern);
       renderMoneyDashboard(key, effK);        // dashboards/commission read the sales-inclusive figure
       renderSalaryCalc(key, effK);
       bxRenderSaleList();
@@ -5276,6 +5279,7 @@
       var lbl = _skPeriodLabel(key);
       var row = _SK.kpis.filter(function(x){ return x.rep_id === _SK.myRepId && x.period === key; })[0];
       if(!row){ safeAlert('Save your figures for ' + lbl + ' first, then confirm.', null); return; }
+      if(!_cocFilled(row.customers_of_concern)){ safeAlert('Before confirming ' + lbl + ', please complete “Customers of concern” and Save — add at least one account and reason, or tick “No customers of concern”.', null); return; }
       if(!confirm('Confirm ' + lbl + ' as your FINAL figures?\n\nAfter confirming you will NOT be able to change them \u2014 only CES admin can. Once every broker has confirmed, the month-end report is generated and emailed to management automatically.')) return;
       var resp = await sb.from('broker_kpis').update({ confirmed_at: new Date().toISOString() }).eq('rep_id', _SK.myRepId).eq('period', key);
       if(resp.error){ safeAlert('Could not confirm your figures.', resp.error); return; }
@@ -5636,6 +5640,60 @@
         '<text x="0" y="57" font-size="12" fill="#4a4e5c" font-family="Manrope">Projected</text><rect class="sk-barh" x="80" y="45" width="' + bp + '" height="18" rx="4" fill="#2f3d7e" onmousemove="skTip(event,\'Projected commission\',\'£' + _skNum(proj,0) + '\')" onmouseout="skTipHide()"/>' +
         '</svg>';
     }
+    // ── Customers of concern (structured, required each month) ──
+    function bxCocRowHtml(c, r){
+      return '<div class="bx-coc-row" style="display:flex;gap:8px;margin-bottom:6px;">'
+        + '<input type="text" class="bx-coc-c" placeholder="Customer name" value="'+escapeHtml(c||'')+'" style="flex:1;min-width:0;padding:9px 10px;border:1px solid var(--border,#d9d9e3);border-radius:8px;font:inherit;">'
+        + '<input type="text" class="bx-coc-r" placeholder="Reason of concern" value="'+escapeHtml(r||'')+'" style="flex:2;min-width:0;padding:9px 10px;border:1px solid var(--border,#d9d9e3);border-radius:8px;font:inherit;">'
+        + '<button type="button" class="btn-secondary" title="Remove" style="padding:6px 11px;" onclick="this.closest(\'.bx-coc-row\').remove();">&times;</button></div>';
+    }
+    function bxCocAdd(c, r){ var w=document.getElementById('bxCocRows'); if(!w) return; var no=document.getElementById('bxCocNo'); if(no&&no.checked){ no.checked=false; bxCocNoToggle(); } w.insertAdjacentHTML('beforeend', bxCocRowHtml(c, r)); }
+    function bxCocNoToggle(){ var no=document.getElementById('bxCocNo'), body=document.getElementById('bxCocBody'); if(body) body.style.display=(no&&no.checked)?'none':'block'; }
+    function bxCocSet(val){
+      var w=document.getElementById('bxCocRows'), no=document.getElementById('bxCocNo'); if(!w||!no) return;
+      w.innerHTML=''; no.checked=false;
+      var v=(val==null?'':String(val)).trim();
+      if(v){
+        if(v.toLowerCase()==='no'||v.toLowerCase()==='none'){ no.checked=true; }
+        else {
+          var arr=null; try{ arr=JSON.parse(v); }catch(e){}
+          if(Array.isArray(arr)){ arr.forEach(function(o){ w.insertAdjacentHTML('beforeend', bxCocRowHtml((o&&(o.c||o.customer))||'', (o&&(o.r||o.reason))||'')); }); }
+          else { w.insertAdjacentHTML('beforeend', bxCocRowHtml('', v)); }
+        }
+      }
+      bxCocNoToggle();
+    }
+    function bxCocGet(){
+      var no=document.getElementById('bxCocNo'); if(no&&no.checked) return 'No';
+      var out=[]; [].slice.call(document.querySelectorAll('#bxCocRows .bx-coc-row')).forEach(function(rw){
+        var c=(rw.querySelector('.bx-coc-c').value||'').trim(), r=(rw.querySelector('.bx-coc-r').value||'').trim();
+        if(c||r) out.push({c:c, r:r});
+      });
+      return out.length ? JSON.stringify(out) : null;
+    }
+    function _cocFilled(val){
+      if(val==null) return false; var v=String(val).trim(); if(!v) return false;
+      if(v.toLowerCase()==='no'||v.toLowerCase()==='none') return true;
+      try{ var a=JSON.parse(v); if(Array.isArray(a)) return a.some(function(o){ return o&&String((o.c||o.customer||'')).trim(); }); }catch(e){}
+      return v.length>0;
+    }
+    function _cocRenderCell(val){
+      var v=String(val==null?'':val).trim();
+      if(!v) return '<span style="color:#b5340f;font-weight:700;">— not submitted —</span>';
+      if(v.toLowerCase()==='no'||v.toLowerCase()==='none') return '<span style="color:#2f7d4f;font-weight:600;">No accounts of concern</span>';
+      var a=null; try{ a=JSON.parse(v); }catch(e){}
+      if(Array.isArray(a)) return a.map(function(o){ var c=escapeHtml(String((o&&(o.c||o.customer))||'').trim()), r=escapeHtml(String((o&&(o.r||o.reason))||'').trim()); return '<div style="margin:2px 0;"><b>'+(c||'—')+'</b>'+(r?(' — '+r):'')+'</div>'; }).join('');
+      return escapeHtml(v);
+    }
+    function renderLeadCoc(){
+      var body=document.getElementById('leadCocBody'); if(!body) return;
+      var nm={}; (_SK.reps||[]).forEach(function(r){ nm[r.id]=r.name; });
+      var rows=(_SK.kpis||[]).filter(function(k){ return _cocFilled(k.customers_of_concern); }).sort(function(a,b){ return a.period<b.period?1:-1; });
+      if(!rows.length){ body.innerHTML='<p class="sk-empty" style="margin:0;">No customers of concern submitted yet.</p>'; return; }
+      body.innerHTML='<div style="overflow-x:auto;"><table class="sk-table"><tr><th>Month</th><th>Broker</th><th>Customers of concern</th></tr>'
+        + rows.map(function(k){ return '<tr><td style="white-space:nowrap;">'+_skPeriodLabel(k.period)+'</td><td>'+escapeHtml(nm[k.rep_id]||k.rep_id)+'</td><td>'+_cocRenderCell(k.customers_of_concern)+'</td></tr>'; }).join('')
+        + '</table></div>';
+    }
     async function bxSaveMine(){
       if(!_SK.myRepId){ safeAlert('Your sales profile isn’t linked yet.', null); return; }
       var key = _skMonthKey('bxMonth');
@@ -5644,7 +5702,7 @@
       if(_conf){ safeAlert('You confirmed ' + _skPeriodLabel(key) + ' as final — the figures are locked. Contact CES admin to amend them.', null); return; }
       var rec = _skReadEntry('bx_', _SK.myRepId, key);
       var lrEl = document.getElementById('bx_lost_reason'); rec.lost_reason = (lrEl && lrEl.value.trim()) ? lrEl.value.trim() : null;
-      var cocEl = document.getElementById('bx_customers_of_concern'); rec.customers_of_concern = (cocEl && cocEl.value.trim()) ? cocEl.value.trim() : null;
+      rec.customers_of_concern = bxCocGet();
       if(((Number(rec.lost_customers)||0) > 0 || (Number(rec.lost_meters)||0) > 0) && !rec.lost_reason){ safeAlert('You entered lost customers/meters — please add a short reason why they were lost.', null); if(lrEl && lrEl.focus) lrEl.focus(); return; }
       var resp = await sb.from('broker_kpis').upsert(rec, { onConflict:'rep_id,period' });
       if(resp.error){ safeAlert('Could not save your figures.', resp.error); return; }
@@ -6443,6 +6501,10 @@
           + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Lost Revenue Info</h3>'
           + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Every lost customer, meter or kWh reported by the team, with the reason the broker gave. Updates as brokers submit their figures.</p>'
           + '<div id="leadLostBody"></div></div>'
+        + '<div class="card" style="margin-bottom:16px;border-left:3px solid #b5340f;">'
+          + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Customers of concern</h3>'
+          + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Accounts each broker has flagged as at risk. Brokers must complete this before confirming their month; updates as they submit.</p>'
+          + '<div id="leadCocBody"></div></div>'
         + '<div class="card" style="margin-bottom:16px;">'
           + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Team targets</h3>'
           + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Set each broker\'s monthly target. Annual is the monthly figure x12.</p>'
@@ -6462,7 +6524,7 @@
         + '</div>';
       var ef=document.getElementById('leadEntryFields'); if(ef) ef.innerHTML=_skEntryFieldsHtml('lead_', true);
       var lm=document.getElementById('leadMonth'); if(lm && !lm.value) lm.value=new Date().toISOString().slice(0,7);
-      renderLeadLost(); renderLeadTargets(); leadLoadEntry();
+      renderLeadLost(); renderLeadCoc(); renderLeadTargets(); leadLoadEntry();
     }
     function renderLeadLost(){
       var body=document.getElementById('leadLostBody'); if(!body) return;
@@ -6473,8 +6535,7 @@
       body.innerHTML='<div style="overflow-x:auto;"><table class="sk-table"><tr><th>Month</th><th>Broker</th><th class="num">Lost custs</th><th class="num">Lost meters</th><th class="num">Lost kWh</th><th>Reason / detail</th></tr>'
         + rows.map(function(k){
           var reason=(k.lost_reason && String(k.lost_reason).trim()) ? escapeHtml(k.lost_reason) : '<span style="color:#b5340f;font-weight:700;">— no reason given —</span>';
-          var concern=(k.customers_of_concern && String(k.customers_of_concern).trim()) ? '<div style="color:#6b7280;font-size:11.5px;margin-top:4px;">Of concern: '+escapeHtml(k.customers_of_concern)+'</div>' : '';
-          return '<tr><td style="white-space:nowrap;">'+_skPeriodLabel(k.period)+'</td><td>'+escapeHtml(nm[k.rep_id]||k.rep_id)+'</td><td class="num">'+(Number(k.lost_customers)||0)+'</td><td class="num">'+(Number(k.lost_meters)||0)+'</td><td class="num">'+_skNum(k.lost_kwh,0)+'</td><td>'+reason+concern+'</td></tr>';
+          return '<tr><td style="white-space:nowrap;">'+_skPeriodLabel(k.period)+'</td><td>'+escapeHtml(nm[k.rep_id]||k.rep_id)+'</td><td class="num">'+(Number(k.lost_customers)||0)+'</td><td class="num">'+(Number(k.lost_meters)||0)+'</td><td class="num">'+_skNum(k.lost_kwh,0)+'</td><td>'+reason+'</td></tr>';
         }).join('') + '</table></div>';
     }
     function renderLeadTargets(){
