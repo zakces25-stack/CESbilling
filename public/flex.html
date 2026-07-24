@@ -1840,25 +1840,47 @@ async function _fetchAll(table, cols, orderCols) {
   if (window._fxTick) window._fxTick(table, out.length);
   return out;
 }
+// Table registry — key → [tableName, columns, orderCols]. Lets us refetch a subset (scoped reload) instead of everything.
+const FX_TABLES = {
+  baskets:    ['flex_baskets','id,name,commodity,unit_vol,unit_price,is_ces,sort_order,archived,target_labels,epsp,target_kinds,target_count',['sort_order']],
+  positions:  ['flex_positions','basket_id,month,days,season,baseload_vol,secured_vol,secured_wap,baseload_vol_total,secured_vol_total,secured_pct,secured_cost,open_vol,open_vol_total,open_pct,market_price,mkt_source,residual_cost,mtm_cost,mtm_price',['basket_id','month']],
+  trades:     ['flex_trades','id,basket_id,trade_ref,trade_date,counterparty,start_date,end_date,volume,product,strike,deal_type,cost',['basket_id','id']],
+  targets:    ['flex_targets','basket_id,month,lower_t1,t1_achieved,lower_t2,t2_achieved,lower_t3,t3_achieved,lower_t4,t4_achieved,lower_t5,t5_achieved,lower_t6,t6_achieved,lower_t7,t7_achieved,lower_t8,t8_achieved,upper_alert,t1_kind,t2_kind,t3_kind,t4_kind,t5_kind,t6_kind,t7_kind,t8_kind',['basket_id','month']],
+  curves:     ['flex_curves','id,commodity,period_type,period_label,month,mid,pct_chg,updated_at',['id']],
+  orders:     ['flex_firm_orders','id,commodity,basket_name,period,volume,price',['id']],
+  contacts:   ['flex_contacts','id,supplier,note,details',['id']],
+  deadlines:  ['flex_sefe_deadlines','id,period,last_trading,deadline',['id']],
+  admin:      ['flex_admin_schedule','id,group_name,basket,ced,supplier,months,detail',['id']],
+  meta:       ['flex_meta','key,value',['key']],
+  notes:      ['flex_notes','id,basket_id,scope,subject,body,author,created_at',['id']],
+  adminCells: ['flex_admin_cells','id,row_id,month,da_trade,cog,pos_report,vals',['id']],
+  adminCols:  ['flex_admin_columns','id,col_key,kind,label,sort_order',['sort_order','id']],
+  adminMonths:['flex_admin_months','month,sort_order',['month']],
+  sites:      ['flex_sites','id,basket_id,basket_name,commodity,customer,mpxn,contract_start,contract_end,nec_unit_rate,nec_standing_charge,source,archived',['basket_id','id']],
+  necs:       ['flex_necs','id,basket_name,commodity,season,nec,sort_order,basket_id',['commodity','sort_order','season']]
+};
+let RAW = {};
 async function loadFlexData() {
-  const [baskets, months, trades, targets, curves, orders, contacts, deadlines, admin, meta, notes, adminCells, adminCols, adminMonths, sites, necs] = await Promise.all([
-    _fetchAll('flex_baskets', 'id,name,commodity,unit_vol,unit_price,is_ces,sort_order,archived,target_labels,epsp,target_kinds,target_count', ['sort_order']),
-    _fetchAll('flex_positions', 'basket_id,month,days,season,baseload_vol,secured_vol,secured_wap,baseload_vol_total,secured_vol_total,secured_pct,secured_cost,open_vol,open_vol_total,open_pct,market_price,mkt_source,residual_cost,mtm_cost,mtm_price', ['basket_id', 'month']),
-    _fetchAll('flex_trades', 'id,basket_id,trade_ref,trade_date,counterparty,start_date,end_date,volume,product,strike,deal_type,cost', ['basket_id', 'id']),
-    _fetchAll('flex_targets', 'basket_id,month,lower_t1,t1_achieved,lower_t2,t2_achieved,lower_t3,t3_achieved,lower_t4,t4_achieved,lower_t5,t5_achieved,lower_t6,t6_achieved,lower_t7,t7_achieved,lower_t8,t8_achieved,upper_alert,t1_kind,t2_kind,t3_kind,t4_kind,t5_kind,t6_kind,t7_kind,t8_kind', ['basket_id', 'month']),
-    _fetchAll('flex_curves', 'id,commodity,period_type,period_label,month,mid,pct_chg,updated_at', ['id']),
-    _fetchAll('flex_firm_orders', 'id,commodity,basket_name,period,volume,price', ['id']),
-    _fetchAll('flex_contacts', 'id,supplier,note,details', ['id']),
-    _fetchAll('flex_sefe_deadlines', 'id,period,last_trading,deadline', ['id']),
-    _fetchAll('flex_admin_schedule', 'id,group_name,basket,ced,supplier,months,detail', ['id']),
-    _fetchAll('flex_meta', 'key,value', ['key']),
-    _fetchAll('flex_notes', 'id,basket_id,scope,subject,body,author,created_at', ['id']),
-    _fetchAll('flex_admin_cells', 'id,row_id,month,da_trade,cog,pos_report,vals', ['id']),
-    _fetchAll('flex_admin_columns', 'id,col_key,kind,label,sort_order', ['sort_order','id']),
-    _fetchAll('flex_admin_months', 'month,sort_order', ['month']),
-    _fetchAll('flex_sites', 'id,basket_id,basket_name,commodity,customer,mpxn,contract_start,contract_end,nec_unit_rate,nec_standing_charge,source,archived', ['basket_id','id']),
-    _fetchAll('flex_necs', 'id,basket_name,commodity,season,nec,sort_order,basket_id', ['commodity','sort_order','season'])
-  ]);
+  const keys = Object.keys(FX_TABLES);
+  const res = await Promise.all(keys.map(k => _fetchAll(FX_TABLES[k][0], FX_TABLES[k][1], FX_TABLES[k][2])));
+  keys.forEach((k,i)=> RAW[k]=res[i]);
+  fxBuildData();
+}
+// Scoped refresh: refetch only the named DB tables into RAW, then rebuild DATA. Empty/unknown → just rebuild.
+async function fxReloadTables(tableNames){
+  const want = new Set(tableNames||[]);
+  const keys = Object.keys(FX_TABLES).filter(k => want.has(FX_TABLES[k][0]));
+  if(keys.length){
+    const res = await Promise.all(keys.map(k => _fetchAll(FX_TABLES[k][0], FX_TABLES[k][1], FX_TABLES[k][2])));
+    keys.forEach((k,i)=> RAW[k]=res[i]);
+  }
+  fxBuildData();
+}
+function fxBuildData(){
+  const baskets=RAW.baskets||[], months=RAW.positions||[], trades=RAW.trades||[], targets=RAW.targets||[],
+        curves=RAW.curves||[], orders=RAW.orders||[], contacts=RAW.contacts||[], deadlines=RAW.deadlines||[],
+        admin=RAW.admin||[], meta=RAW.meta||[], notes=RAW.notes||[], adminCells=RAW.adminCells||[],
+        adminCols=RAW.adminCols||[], adminMonths=RAW.adminMonths||[], sites=RAW.sites||[], necs=RAW.necs||[];
   const byM = {}, byT = {}, byG = {};
   for (const m of months) (byM[m.basket_id] ??= []).push({
     month: m.month, days: m.days, season: m.season,
@@ -3397,23 +3419,28 @@ function fxSeason(iso){const d=new Date(iso+'T00:00:00Z');const m=d.getUTCMonth(
   if(m>=4&&m<=9)return `Summer-${y}`; if(m<=3)y-=1; return `Winter-${y}`;}
 
 // ── write helpers ────────────────────────────────────────────────
-let fxDirty=false, fxHold=false, fxReloadTimer=null;
+let fxDirty=false, fxHold=false, fxReloadTimer=null, fxReloadScope=null;
 function fxHolding(){ return fxHold || document.querySelector('#fxModalWrap[style*="flex"]') || document.activeElement && (document.activeElement.classList.contains('fx-cell') || document.activeElement.closest('#fxModal')); }
-function fxScheduleReload(){
+// scope = array of DB table names to refetch; omit for a full reload. Scopes accumulate across the debounce window.
+function fxScheduleReload(scope){
+  if(!scope) fxReloadScope='full';
+  else if(fxReloadScope!=='full'){ if(!(fxReloadScope instanceof Set)) fxReloadScope=new Set(); scope.forEach(t=>fxReloadScope.add(t)); }
   clearTimeout(fxReloadTimer);
   fxReloadTimer=setTimeout(async ()=>{
     if(fxHolding()){ fxDirty=true; return; }
     fxDirty=false;
-    await loadFlexData();
+    const sc=fxReloadScope; fxReloadScope=null;
+    try{ if(sc && sc!=='full') await fxReloadTables([...sc]); else await loadFlexData(); }
+    catch(e){ try{ await loadFlexData(); }catch(_){} }
     rerenderCurrent();
     fxCheckAlerts();
   }, 850);
 }
-async function fxWrite(promise, okMsg){
+async function fxWrite(promise, okMsg, scope){
   const { error } = await promise;
   if (error){ console.error(error); fxToast(error.message || 'Save failed', false); return false; }
   if (okMsg) fxToast(okMsg);
-  fxScheduleReload();
+  fxScheduleReload(scope);
   return true;
 }
 
@@ -4229,10 +4256,17 @@ function fxAskNotifyPermission(){
 }
 
 // ── REALTIME DATA (auto-apply, edit-aware) ───────────────────────
+// Which tables to refetch when a given table changes (positions is a view derived from trades/curves/months)
+function fxScopeFor(t){
+  if(t==='flex_basket_months') return ['flex_positions'];
+  if(t==='flex_trades'||t==='flex_curves') return [t,'flex_positions'];
+  if(t==='flex_baskets') return ['flex_baskets','flex_positions'];
+  return [t];
+}
 function fxStartRealtime(){
   const ch = FLEX.sb.channel('flex-data');
   ['flex_trades','flex_basket_months','flex_targets','flex_curves','flex_firm_orders','flex_baskets','flex_notes','flex_admin_cells','flex_contacts','flex_admin_schedule']
-    .forEach(t=> ch.on('postgres_changes',{event:'*',schema:'public',table:t}, ()=> fxScheduleReload()));
+    .forEach(t=> ch.on('postgres_changes',{event:'*',schema:'public',table:t}, ()=> fxScheduleReload(fxScopeFor(t))));
   ch.on('postgres_changes',{event:'INSERT',schema:'public',table:'flex_audit'}, p=> fxLogPush(p.new));
   ch.subscribe();
   // release deferred reloads when editors close
@@ -4552,12 +4586,12 @@ function renderSites(basket){
       const id=+td.dataset.id, f=td.dataset.f, typ=td.dataset.t;
       const s=(DATA.sites||[]).find(x=>x.id===id); const cur=s?s[f]:null;
       if(typ==='num'){
-        fxCellInput(td, cur, async v=>{ await fxWrite(FLEX.sb.from('flex_sites').update({[f]:v, updated_by:FLEX.user}).eq('id',id),'Site updated'); });
+        fxCellInput(td, cur, async v=>{ await fxWrite(FLEX.sb.from('flex_sites').update({[f]:v, updated_by:FLEX.user}).eq('id',id),'Site updated',['flex_sites']); });
       } else {
         fxCellInputText(td, cur!=null?cur:'', async v=>{
           let val=v;
           if(typ==='date' && v){ const p=(typeof fxParseDate==='function')?fxParseDate(v):null; val=p?p.slice(0,10):v; }
-          await fxWrite(FLEX.sb.from('flex_sites').update({[f]:(val===''?null:val), updated_by:FLEX.user}).eq('id',id),'Site updated');
+          await fxWrite(FLEX.sb.from('flex_sites').update({[f]:(val===''?null:val), updated_by:FLEX.user}).eq('id',id),'Site updated',['flex_sites']);
         });
       }
     };
@@ -4565,11 +4599,11 @@ function renderSites(basket){
 }
 async function fxSiteAdd(){
   const b=currentBasket; if(!b) return;
-  await fxWrite(FLEX.sb.from('flex_sites').insert({basket_id:b.id, basket_name:b.name, commodity:b.commodity, updated_by:FLEX.user}),'Site added — fill in its details');
+  await fxWrite(FLEX.sb.from('flex_sites').insert({basket_id:b.id, basket_name:b.name, commodity:b.commodity, updated_by:FLEX.user}),'Site added — fill in its details',['flex_sites']);
 }
 async function fxSiteDelete(id){
   if(!confirm('Delete this site? This cannot be undone.')) return;
-  await fxWrite(FLEX.sb.from('flex_sites').delete().eq('id',id),'Site deleted');
+  await fxWrite(FLEX.sb.from('flex_sites').delete().eq('id',id),'Site deleted',['flex_sites']);
 }
 async function fxSitesExport(){
   const b=currentBasket; if(!b) return;
@@ -4619,10 +4653,11 @@ async function fxSitesImport(file){
   const toInsert=[]; let upd=0;
   rows.forEach(rec=>{ if(byMpxn[rec.mpxn]) upd++; else toInsert.push(rec); });
   if(!confirm('Import '+rows.length+' site row(s) for '+b.name+'?\n\n'+upd+' will update existing sites (matched on MPAN/MPRN) and '+toInsert.length+' will be added. Nothing is deleted.')) return;
-  for(const rec of rows){ const ex=byMpxn[rec.mpxn]; if(ex){ const patch={customer:rec.customer, contract_start:rec.contract_start, contract_end:rec.contract_end, nec_unit_rate:rec.nec_unit_rate, nec_standing_charge:rec.nec_standing_charge, source:rec.source, updated_by:FLEX.user}; const {error}=await FLEX.sb.from('flex_sites').update(patch).eq('id',ex.id); if(error){ return fxToast('Import failed: '+error.message,false); } } }
-  if(toInsert.length){ const {error}=await FLEX.sb.from('flex_sites').insert(toInsert.map(r=>Object.assign({},r,{updated_by:FLEX.user}))); if(error){ return fxToast('Import failed: '+error.message,false); } }
+  const _ops=rows.map(rec=>{ const ex=byMpxn[rec.mpxn]; if(!ex) return null; const patch={customer:rec.customer, contract_start:rec.contract_start, contract_end:rec.contract_end, nec_unit_rate:rec.nec_unit_rate, nec_standing_charge:rec.nec_standing_charge, source:rec.source, updated_by:FLEX.user}; return FLEX.sb.from('flex_sites').update(patch).eq('id',ex.id); }).filter(Boolean);
+  if(toInsert.length) _ops.push(FLEX.sb.from('flex_sites').insert(toInsert.map(r=>Object.assign({},r,{updated_by:FLEX.user}))));
+  const _res=await Promise.all(_ops); const _bad=_res.find(x=>x&&x.error); if(_bad){ return fxToast('Import failed: '+_bad.error.message,false); }
   fxToast('Imported '+rows.length+' sites ('+toInsert.length+' new, '+upd+' updated)');
-  fxScheduleReload();
+  fxScheduleReload(['flex_sites']);
 }
 
 // ── NEC main tab: per-basket NECs by season (W-21 → S-32), fully editable ─────
@@ -4659,7 +4694,7 @@ function renderNecs(){
       const bn=td.dataset.b, cm=td.dataset.c, se=td.dataset.s;
       const rec=(DATA.necs||[]).find(n=>n.basket_name===bn && n.commodity===cm && n.season===se);
       fxCellInput(td, rec?rec.nec:null, async v=>{
-        await fxWrite(FLEX.sb.from('flex_necs').upsert({basket_name:bn, commodity:cm, season:se, nec:v, updated_by:FLEX.user},{onConflict:'basket_name,commodity,season'}),'NEC updated');
+        await fxWrite(FLEX.sb.from('flex_necs').upsert({basket_name:bn, commodity:cm, season:se, nec:v, updated_by:FLEX.user},{onConflict:'basket_name,commodity,season'}),'NEC updated',['flex_necs']);
       });
     };
   });
@@ -4671,8 +4706,8 @@ function renderNecs(){
         const nn2=(v||'').trim(); if(!nn2 || nn2===oldName) return;
         if((DATA.necs||[]).some(n=>n.commodity===cm && n.basket_name===nn2)){ fxToast('A NEC row named “'+nn2+'” already exists.', false); return; }
         const has=(DATA.necs||[]).some(n=>n.commodity===cm && n.basket_name===oldName);
-        if(has){ await fxWrite(FLEX.sb.from('flex_necs').update({basket_name:nn2}).eq('basket_name',oldName).eq('commodity',cm), 'NEC row renamed'); }
-        else { await fxWrite(FLEX.sb.from('flex_necs').upsert({basket_name:nn2, commodity:cm, season:'W-21', nec:null, updated_by:FLEX.user},{onConflict:'basket_name,commodity,season'}), 'NEC row added'); }
+        if(has){ await fxWrite(FLEX.sb.from('flex_necs').update({basket_name:nn2}).eq('basket_name',oldName).eq('commodity',cm), 'NEC row renamed', ['flex_necs']); }
+        else { await fxWrite(FLEX.sb.from('flex_necs').upsert({basket_name:nn2, commodity:cm, season:'W-21', nec:null, updated_by:FLEX.user},{onConflict:'basket_name,commodity,season'}), 'NEC row added', ['flex_necs']); }
       });
     };
   });
@@ -4680,7 +4715,7 @@ function renderNecs(){
   el.querySelectorAll('.fx-necdel').forEach(btn=>{ btn.onclick=async(ev)=>{ ev.stopPropagation();
     const nm=btn.dataset.name, cm=btn.dataset.c;
     if(!confirm('Remove the NEC row “'+nm+'”?\n\nIts NEC values will be deleted. (If a basket has this exact name it will reappear as an empty row, since the basket still exists.)')) return;
-    await fxWrite(FLEX.sb.from('flex_necs').delete().eq('basket_name',nm).eq('commodity',cm), 'NEC row removed');
+    await fxWrite(FLEX.sb.from('flex_necs').delete().eq('basket_name',nm).eq('commodity',cm), 'NEC row removed', ['flex_necs']);
   }; });
 }
 async function fxNecAddRow(commodity){
@@ -4688,7 +4723,7 @@ async function fxNecAddRow(commodity){
   if(!nm) return;
   if((DATA.necs||[]).some(n=>n.commodity===commodity && n.basket_name===nm)){ fxToast('A NEC row named “'+nm+'” already exists.', false); return; }
   // placeholder row (earliest season, no value) so the row persists and appears immediately
-  await fxWrite(FLEX.sb.from('flex_necs').upsert({basket_name:nm, commodity:commodity, season:'W-21', nec:null, updated_by:FLEX.user},{onConflict:'basket_name,commodity,season'}),'NEC row added');
+  await fxWrite(FLEX.sb.from('flex_necs').upsert({basket_name:nm, commodity:commodity, season:'W-21', nec:null, updated_by:FLEX.user},{onConflict:'basket_name,commodity,season'}),'NEC row added',['flex_necs']);
 }
 async function fxNecsExport(){
   if(typeof ExcelJS==='undefined') return fxToast('Excel engine not loaded — reload the page', false);
@@ -4728,7 +4763,7 @@ async function fxNecsImport(file){
   if(!confirm('Import '+ups.length+' NEC value(s)? Existing basket+season values are updated and new ones added; nothing is deleted.')) return;
   const {error}=await FLEX.sb.from('flex_necs').upsert(ups,{onConflict:'basket_name,commodity,season'});
   if(error) return fxToast('Import failed: '+error.message, false);
-  fxToast('Imported '+ups.length+' NEC values'); fxScheduleReload();
+  fxToast('Imported '+ups.length+' NEC values'); fxScheduleReload(['flex_necs']);
 }
 
 // ── CONTACTS: original layout, edit buttons only ─────────────────
@@ -4895,12 +4930,10 @@ function fxBulkBaseloadPreview(){
 }
 async function fxBulkBaseloadCommit(){
   const b=currentBasket;
-  for(const r of fxBBRows){
-    const {error}=await FLEX.sb.from('flex_basket_months').update({baseload_vol:r.v, updated_by:FLEX.user}).eq('basket_id',b.id).eq('month',r.month);
-    if(error) return fxMErr(error.message);
-  }
+  const results=await Promise.all(fxBBRows.map(r=> FLEX.sb.from('flex_basket_months').update({baseload_vol:r.v, updated_by:FLEX.user}).eq('basket_id',b.id).eq('month',r.month)));
+  const bad=results.find(x=>x.error); if(bad) return fxMErr(bad.error.message);
   fxToast(fxBBRows.length+' baseloads updated — positions recalculated');
-  fxCloseModal(); fxScheduleReload();
+  fxCloseModal(); fxScheduleReload(['flex_positions']);
 }
 
 // ── EXCEL: styled export, prefilled template, import ─────────────
@@ -5041,17 +5074,13 @@ async function fxImportParse(file){
 }
 async function fxImportCommit(){
   const b=currentBasket, out=window._fxImport; if(!out) return;
-  for(const r of (out.baseload||[])){
-    const {error}=await FLEX.sb.from('flex_basket_months').update({baseload_vol:r.v, updated_by:FLEX.user}).eq('basket_id',b.id).eq('month',r.month);
-    if(error) return fxMErr(error.message);
-  }
-  for(const r of (out.targets||[])){
-    const rec=Object.assign({basket_id:b.id, month:r.month, updated_by:FLEX.user}, r.patch);
-    const {error}=await FLEX.sb.from('flex_targets').upsert(rec, {onConflict:'basket_id,month'});
-    if(error) return fxMErr(error.message);
-  }
+  const ops=[];
+  for(const r of (out.baseload||[])) ops.push(FLEX.sb.from('flex_basket_months').update({baseload_vol:r.v, updated_by:FLEX.user}).eq('basket_id',b.id).eq('month',r.month));
+  for(const r of (out.targets||[])){ const rec=Object.assign({basket_id:b.id, month:r.month, updated_by:FLEX.user}, r.patch); ops.push(FLEX.sb.from('flex_targets').upsert(rec, {onConflict:'basket_id,month'})); }
+  const results=await Promise.all(ops);   // all at once instead of sequentially
+  const bad=results.find(x=>x.error); if(bad) return fxMErr(bad.error.message);
   fxToast((out.baseload||[]).length+' baseload · '+(out.targets||[]).length+' target month(s) updated');
-  window._fxImport=null; fxCloseModal(); fxScheduleReload();
+  window._fxImport=null; fxCloseModal(); fxScheduleReload(['flex_positions','flex_targets']);
 }
 // ── CURVES: horizontal layout (replaces vertical tables) ─────────
 renderCurves = function(){
@@ -5271,16 +5300,14 @@ function fxStageTarget(basket, t, patch){
 }
 async function fxApplyTargets(basket){
   const months = Object.keys(FX_TBUF); if(!months.length) return;
-  let ok = true, done = 0;
-  for(const mo of months){
-    const patch = Object.assign({}, FX_TBUF[mo], { updated_by: FLEX.user });
-    const { error } = await FLEX.sb.from('flex_targets').update(patch).eq('basket_id', basket.id).eq('month', mo);
-    if(error){ ok = false; fxToast(error.message || 'Save failed', false); break; }
-    done++;
-  }
+  // fire all month updates concurrently (was sequential) — each sets only its own staged fields, so no clobbering
+  const patches = months.map(mo => ({ mo, patch: Object.assign({}, FX_TBUF[mo], { updated_by: FLEX.user }) }));
   FX_TBUF = {}; FX_TBUF_ORIG = {};
-  if(ok) fxToast('Applied ' + done + ' month' + (done>1?'s':''));
-  fxScheduleReload();
+  const results = await Promise.all(patches.map(p => FLEX.sb.from('flex_targets').update(p.patch).eq('basket_id', basket.id).eq('month', p.mo)));
+  const bad = results.find(r => r.error);
+  if(bad){ fxToast(bad.error.message || 'Save failed', false); }
+  else fxToast('Applied ' + patches.length + ' month' + (patches.length>1?'s':''));
+  fxScheduleReload(['flex_targets']);   // targets don't affect positions — scoped reload
 }
 function fxDiscardTargets(basket){
   for(const mo in FX_TBUF_ORIG){ const t = (basket.targets||[]).find(x=>x.month===mo); if(t) Object.assign(t, FX_TBUF_ORIG[mo]); }
