@@ -27,6 +27,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.js"></script>
   <!-- Cloudflare Turnstile — human verification on the login form -->
@@ -1480,7 +1481,7 @@
               <div class="filter-block"><label>Site</label><div class="hhd-select"><select id="hhdSite" onchange="hhdSiteChange()"></select></div></div>
               <div class="filter-block"><label>From</label><input type="text" id="hhdFrom" class="hhd-date hhd-datepick" placeholder="Start date"></div>
               <div class="filter-block"><label>To</label><input type="text" id="hhdTo" class="hhd-date hhd-datepick" placeholder="End date"></div>
-              <div class="filter-block" style="margin-left:auto;"><label>&nbsp;</label><button class="btn-secondary hhd-export-btn" onclick="hhdExport()">Export Half-Hourly Data</button></div>
+              <div class="filter-block" style="margin-left:auto;"><label>&nbsp;</label><button class="btn-secondary hhd-export-btn" onclick="hhdExportModal()">Export Half-Hourly Data</button></div>
             </div>
             <div id="hhdRangeInfo" class="hhd-rangeinfo"></div>
             <div id="hhdRangeCap" class="hhd-cap"></div>
@@ -1926,7 +1927,7 @@
         <div><strong>BillWise by CES</strong><div class="asst-sub">Answers about your bills, usage &amp; costs</div></div>
         <button class="asst-close" onclick="toggleAssistant(false)" aria-label="Close">&times;</button>
       </div>
-      <div id="asstMsgs" class="asst-msgs"><div class="asst-msg asst-model">Hi - I can answer questions about your bills, energy use, costs and your half-hourly usage - peaks, load profile and out-of-hours use. What would you like to know?</div></div>
+      <div id="asstMsgs" class="asst-msgs"><div class="asst-msg asst-model">Hi - I can answer questions about your bills, energy use and costs. What would you like to know?</div></div>
       <div class="asst-input-row">
         <input id="asstInput" type="text" placeholder="e.g. What was my total last month?" maxlength="1000" onkeydown="if(event.key==='Enter')sendAssistant()" />
         <button class="asst-send" onclick="sendAssistant()">Send</button>
@@ -3508,7 +3509,7 @@
     function _asstReset() {
       _asstMsgs = [];
       var box = document.getElementById('asstMsgs');
-      if (box) box.innerHTML = '<div class="asst-msg asst-model">Hi, I am BillWise by CES. I can answer questions about your bills, energy use, costs and your half-hourly usage - peaks, load profile and out-of-hours use. What would you like to know?</div>';
+      if (box) box.innerHTML = '<div class="asst-msg asst-model">Hi, I am BillWise by CES. I can answer questions about your bills, energy use and costs - what would you like to know?</div>';
       var p = document.getElementById('asstPanel'); if (p) p.style.display = 'none';
     }
     function _asstRemoveChips() { var c = document.getElementById('asstChips'); if (c) c.remove(); }
@@ -7485,9 +7486,17 @@
     function _hhdMkPicker(el, minD, maxD, defD, onPick){
       return flatpickr(el, { dateFormat:'d M Y', minDate:minD, maxDate:maxD, defaultDate:defD, disableMobile:true, onChange:onPick });
     }
-    function _hhdInitPicker(site){
+    function _hhdInitPicker(site, preserve){
       var lo=site.first_day, hi=site.last_day_with_data||site.last_day;
-      var to=hi, from=_hhdAddDays(hi,-29); if(from<lo) from=lo;
+      var to, from;
+      if(preserve && _hhd.from && _hhd.to){
+        // keep the range the user already chose, clamped to this site's available data
+        from=_hhd.from; to=_hhd.to;
+        if(from<lo) from=lo; if(to>hi) to=hi;
+        if(from>hi || to<lo || from>to){ to=hi; from=_hhdAddDays(hi,-29); if(from<lo) from=lo; }  // no overlap → sensible default
+      } else {
+        to=hi; from=_hhdAddDays(hi,-29); if(from<lo) from=lo;
+      }
       _hhd.from=from; _hhd.to=to;
       var cap=document.getElementById('hhdRangeCap');
       if(cap){ var sl0=new Date(lo+'T00:00:00').toLocaleDateString('en-GB'), sl1=new Date(hi+'T00:00:00').toLocaleDateString('en-GB'); cap.textContent='No half-hourly data before '+sl0+'   ·   latest '+sl1; }
@@ -7499,7 +7508,7 @@
       if(_hhd.fpTo){ _hhd.fpTo.set('minDate',fromD); _hhd.fpTo.set('maxDate',hiD); _hhd.fpTo.setDate(toD,false); }
       else{ _hhd.fpTo=_hhdMkPicker(te,fromD,hiD,toD,function(dates){ if(!dates.length) return; _hhd.to=_hhdISO(dates[0]); hhdLoad(); }); }
     }
-    function hhdSiteChange(){ var s=_hhdSite(document.getElementById('hhdSite').value); if(s){ _hhdInitPicker(s); hhdLoad(); } }
+    function hhdSiteChange(){ var s=_hhdSite(document.getElementById('hhdSite').value); if(s){ _hhdInitPicker(s, true); hhdLoad(); } }
 
     async function hhdLoad(){
       var mpan=document.getElementById('hhdSite').value;
@@ -7640,22 +7649,19 @@
     }
 
     // Clean, formatted Excel table export (reuses ExcelJS + _downloadBlob already in the page).
-    async function hhdExport(){
-      var rows=_hhd.rows, times=_hhdTimes();
-      if(!rows.length){ safeAlert('No half-hourly data to export for this range.', null); return; }
-      var sel=document.getElementById('hhdSite'), mpan=sel.value;
-      var siteName=(sel.options[sel.selectedIndex]||{}).text||mpan;
-      if(typeof ExcelJS==='undefined' || !ExcelJS.Workbook){ safeAlert('The Excel engine is still loading — please try again in a moment.', null); return; }
+    // Build an ExcelJS workbook buffer for one site's HHD (shared by the multi-site export)
+    async function _hhdWorkbookBuffer(siteName, mpan, fromISO, toISO, rows){
+      var times=_hhdTimes();
       var wb=new ExcelJS.Workbook(); wb.creator='CES Billing Portal';
       var ws=wb.addWorksheet('Half-Hourly Data',{views:[{state:'frozen',xSplit:2,ySplit:3}]});
       var lastCol=2+48+1;
       ws.mergeCells(1,1,1,lastCol); var t1=ws.getCell(1,1); t1.value='Half-Hourly Consumption (kWh)'; t1.font={bold:true,size:14,color:{argb:'FF1F3864'}};
-      ws.mergeCells(2,1,2,lastCol); var t2=ws.getCell(2,1); t2.value=siteName+'      '+_hhdDate(_hhd.from)+'  to  '+_hhdDate(_hhd.to); t2.font={italic:true,size:10,color:{argb:'FF808080'}};
+      ws.mergeCells(2,1,2,lastCol); var t2=ws.getCell(2,1); t2.value=siteName+'  ·  '+mpan+'      '+_hhdDate(fromISO)+'  to  '+_hhdDate(toISO); t2.font={italic:true,size:10,color:{argb:'FF808080'}};
       var header=['Date','Day'].concat(times).concat(['Total kWh']);
       var hr=ws.getRow(3);
       header.forEach(function(h,i){ var c=hr.getCell(i+1); c.value=h; c.font={bold:true,size:10,color:{argb:'FFFFFFFF'}}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF1F3864'}}; c.alignment={horizontal:'center',vertical:'middle'}; });
       hr.height=18;
-      rows.forEach(function(r){
+      (rows||[]).forEach(function(r){
         var iv=r.intervals||[]; var d=new Date(r.reading_date+'T00:00:00');
         var line=[_hhdDate(r.reading_date), d.toLocaleDateString('en-GB',{weekday:'short'})];
         for(var i=0;i<48;i++){ var v=(i<iv.length)?iv[i]:null; line.push(v==null?'No data found':v); }
@@ -7665,8 +7671,132 @@
         row.eachCell(function(c,col){ if(col>2){ c.alignment={horizontal:'right'}; if(typeof c.value==='number') c.numFmt='0.00'; } if(c.value==='No data found'){ c.font={italic:true,size:9,color:{argb:'FF9CA3AF'}}; c.alignment={horizontal:'center'}; } if(wkend){ c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF6F7FB'}}; } });
       });
       ws.getColumn(1).width=15; ws.getColumn(2).width=6; for(var i=3;i<=50;i++){ ws.getColumn(i).width=7.5; } ws.getColumn(51).width=11;
-      var buf=await wb.xlsx.writeBuffer();
-      _downloadBlob(buf, 'HHD_'+mpan+'_'+_hhd.from+'_to_'+_hhd.to+'.xlsx');
+      return await wb.xlsx.writeBuffer();
+    }
+    function _hhdFnDate(iso){ var d=new Date(iso+'T00:00:00'); var m=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return String(d.getDate()).padStart(2,'0')+m[d.getMonth()]+d.getFullYear(); }
+    function _hhdSafeName(s){ return String(s||'').replace(/[\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim(); }
+    function _hhdClamp(v,lo,hi){ if(!v) return hi; if(v<lo) return lo; if(v>hi) return hi; return v; }
+
+    // ── Multi-site HHD export: pick sites + date range(s) → one ZIP, a file per site ──
+    function hhdExportModal(){
+      if(!_hhd.sites||!_hhd.sites.length){ safeAlert('No half-hourly sites to export.', null); return; }
+      _hhdExpInjectStyle();
+      var curMpan=(document.getElementById('hhdSite')||{}).value||'';
+      var from=_hhd.from, to=_hhd.to;
+      var gLo=null, gHi=null;
+      _hhd.sites.forEach(function(s){ var h=s.last_day_with_data||s.last_day; if(!gLo||s.first_day<gLo)gLo=s.first_day; if(!gHi||h>gHi)gHi=h; });
+      var siteRow=function(s){
+        var lo=s.first_day, hi=s.last_day_with_data||s.last_day, hasData=Number(s.days_with_data)>0;
+        var checked=(s.mpan===curMpan && hasData)?' checked':'';
+        var avail = hasData ? ('data to '+new Date(hi+'T00:00:00').toLocaleDateString('en-GB')) : 'no data';
+        return '<div class="hhdx-row">'
+          + '<label class="hhdx-site"><input type="checkbox" class="hhdx-cb" data-mpan="'+escapeHtml(s.mpan)+'"'+checked+(hasData?'':' disabled')+'>'
+          + '<span class="nm">'+escapeHtml(s.site_name||s.mpan)+'</span><span class="mp">'+escapeHtml(s.mpan)+'</span><span class="av'+(hasData?'':' no')+'">'+avail+'</span></label>'
+          + '<div class="hhdx-srange" data-mpan="'+escapeHtml(s.mpan)+'" style="display:none"><input type="date" class="hhdx-sfrom" min="'+lo+'" max="'+hi+'" value="'+_hhdClamp(from,lo,hi)+'"><span>to</span><input type="date" class="hhdx-sto" min="'+lo+'" max="'+hi+'" value="'+_hhdClamp(to,lo,hi)+'"></div>'
+          + '</div>';
+      };
+      var host=document.getElementById('hhdExportModal');
+      if(!host){ host=document.createElement('div'); host.id='hhdExportModal'; document.body.appendChild(host); }
+      host.innerHTML=
+        '<div class="hhdx-ov" onclick="if(event.target===this)hhdExportClose()"><div class="hhdx-card">'
+        + '<div class="hhdx-hd"><h3>Export Half-Hourly Data</h3><button class="hhdx-x" onclick="hhdExportClose()">&times;</button></div>'
+        + '<p class="hhdx-hint">Tick the sites you want, choose the dates, and download them all in one ZIP — one file per site.</p>'
+        + '<div class="hhdx-shared"><label>Date range for all sites</label><div class="hhdx-rr"><input type="date" id="hhdxFrom" min="'+gLo+'" max="'+gHi+'" value="'+_hhdClamp(from,gLo,gHi)+'"><span>to</span><input type="date" id="hhdxTo" min="'+gLo+'" max="'+gHi+'" value="'+_hhdClamp(to,gLo,gHi)+'"></div></div>'
+        + '<label class="hhdx-per"><input type="checkbox" id="hhdxPerSite" onchange="_hhdExpToggleCustom()"> Use a different date range for each site</label>'
+        + '<div class="hhdx-tb"><button type="button" onclick="_hhdExpSelectAll(true)">Select all</button><button type="button" onclick="_hhdExpSelectAll(false)">Clear</button><span id="hhdxCount" class="hhdx-count"></span></div>'
+        + '<div class="hhdx-list">'+_hhd.sites.map(siteRow).join('')+'</div>'
+        + '<div id="hhdxStatus" class="hhdx-status"></div>'
+        + '<div class="hhdx-ft"><button class="btn-secondary" onclick="hhdExportClose()">Cancel</button><button class="btn-primary" id="hhdxGo" onclick="hhdExportRun()">Export ZIP</button></div>'
+        + '</div></div>';
+      host.style.display='block';
+      host.querySelectorAll('.hhdx-cb').forEach(function(cb){ cb.addEventListener('change', _hhdExpUpdateCount); });
+      _hhdExpUpdateCount();
+    }
+    function _hhdExpToggleCustom(){
+      var on=document.getElementById('hhdxPerSite').checked;
+      var sh=document.querySelector('#hhdExportModal .hhdx-shared'); if(sh) sh.style.display=on?'none':'block';
+      document.querySelectorAll('#hhdExportModal .hhdx-srange').forEach(function(el){
+        var cb=document.querySelector('#hhdExportModal .hhdx-cb[data-mpan="'+CSS.escape(el.dataset.mpan)+'"]');
+        el.style.display=(on && cb && cb.checked)?'flex':'none';
+      });
+    }
+    function _hhdExpSelectAll(on){ document.querySelectorAll('#hhdExportModal .hhdx-cb:not([disabled])').forEach(function(cb){ cb.checked=on; }); _hhdExpUpdateCount(); }
+    function _hhdExpUpdateCount(){
+      var n=document.querySelectorAll('#hhdExportModal .hhdx-cb:checked').length;
+      var el=document.getElementById('hhdxCount'); if(el) el.textContent=n+' site'+(n===1?'':'s')+' selected';
+      if(document.getElementById('hhdxPerSite') && document.getElementById('hhdxPerSite').checked) _hhdExpToggleCustom();
+    }
+    function hhdExportClose(){ var h=document.getElementById('hhdExportModal'); if(h) h.style.display='none'; }
+    async function hhdExportRun(){
+      var perSite=document.getElementById('hhdxPerSite').checked;
+      var checks=[].slice.call(document.querySelectorAll('#hhdExportModal .hhdx-cb:checked'));
+      if(!checks.length){ safeAlert('Pick at least one site to export.', null); return; }
+      if(typeof ExcelJS==='undefined'||!ExcelJS.Workbook){ safeAlert('The Excel engine is still loading — please try again in a moment.', null); return; }
+      if(typeof JSZip==='undefined'){ safeAlert('The zip engine is still loading — please try again in a moment.', null); return; }
+      var gf=document.getElementById('hhdxFrom').value, gt=document.getElementById('hhdxTo').value;
+      var status=document.getElementById('hhdxStatus'), go=document.getElementById('hhdxGo');
+      go.disabled=true; var oldTxt=go.textContent; go.textContent='Preparing…';
+      try{
+        var zip=new JSZip(), made=0, empty=0;
+        for(var k=0;k<checks.length;k++){
+          var mpan=checks[k].dataset.mpan, s=_hhdSite(mpan); if(!s) continue;
+          var lo=s.first_day, hi=s.last_day_with_data||s.last_day, f=gf, t=gt;
+          if(perSite){ var rr=document.querySelector('#hhdExportModal .hhdx-srange[data-mpan="'+CSS.escape(mpan)+'"]'); if(rr){ f=rr.querySelector('.hhdx-sfrom').value; t=rr.querySelector('.hhdx-sto').value; } }
+          f=_hhdClamp(f,lo,hi); t=_hhdClamp(t,lo,hi); if(f>t){ var tm=f; f=t; t=tm; }
+          if(status) status.textContent='Building '+(s.site_name||mpan)+'  ('+(k+1)+' of '+checks.length+')…';
+          var r=await sb.from('hh_data').select('reading_date,intervals,interval_count,total_kwh,est_flag').eq('mpan',mpan).gte('reading_date',f).lte('reading_date',t).order('reading_date');
+          var rows=r.data||[]; if(!rows.length) empty++;
+          var buf=await _hhdWorkbookBuffer(s.site_name||mpan, mpan, f, t, rows);
+          zip.file(_hhdSafeName(s.site_name||mpan)+' - '+mpan+' - '+_hhdFnDate(f)+'-'+_hhdFnDate(t)+'.xlsx', buf);
+          made++;
+        }
+        if(!made){ safeAlert('Nothing to export.', null); go.disabled=false; go.textContent=oldTxt; return; }
+        if(status) status.textContent='Zipping '+made+' file'+(made===1?'':'s')+'…';
+        var blob=await zip.generateAsync({type:'blob'});
+        var url=URL.createObjectURL(blob), a=document.createElement('a');
+        a.href=url; a.download='CES Half-Hourly Data '+new Date().toISOString().slice(0,10)+'.zip';
+        document.body.appendChild(a); a.click();
+        setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 1500);
+        if(status) status.textContent='Done — '+made+' file'+(made===1?'':'s')+' downloaded'+(empty?(' ('+empty+' had no data in the chosen range)'):'')+'.';
+        go.textContent='Downloaded ✓';
+        setTimeout(function(){ hhdExportClose(); go.disabled=false; go.textContent=oldTxt; }, 1500);
+      }catch(e){ console.error('hhdExportRun',e); if(status) status.textContent='Export failed: '+(e.message||e); go.disabled=false; go.textContent='Export ZIP'; }
+    }
+    function _hhdExpInjectStyle(){
+      if(document.getElementById('hhdxStyle')) return;
+      var st=document.createElement('style'); st.id='hhdxStyle';
+      st.textContent='#hhdExportModal .hhdx-ov{position:fixed;inset:0;z-index:10001;background:rgba(20,29,69,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;}'
+        +'#hhdExportModal .hhdx-card{background:#fff;border-radius:14px;max-width:640px;width:100%;padding:22px 24px;box-shadow:0 20px 60px rgba(16,24,40,.3);}'
+        +'#hhdExportModal .hhdx-hd{display:flex;align-items:center;justify-content:space-between;}'
+        +'#hhdExportModal .hhdx-hd h3{margin:0;font-size:19px;color:#1f3864;}'
+        +'#hhdExportModal .hhdx-x{border:none;background:none;font-size:26px;line-height:1;color:#9aa0aa;cursor:pointer;}'
+        +'#hhdExportModal .hhdx-hint{font-size:13px;color:#6b7280;margin:4px 0 14px;}'
+        +'#hhdExportModal .hhdx-shared{margin-bottom:10px;}'
+        +'#hhdExportModal label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;font-weight:700;display:block;margin-bottom:5px;}'
+        +'#hhdExportModal .hhdx-rr,#hhdExportModal .hhdx-srange{display:flex;align-items:center;gap:8px;}'
+        +'#hhdExportModal input[type=date]{padding:8px 10px;border:1px solid #d7dbe3;border-radius:9px;font-size:13px;font-family:inherit;color:#1f3864;}'
+        +'#hhdExportModal .hhdx-per{display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-weight:600;color:#374151;font-size:13px;margin:8px 0 12px;cursor:pointer;}'
+        +'#hhdExportModal .hhdx-per input{margin:0;width:16px;height:16px;}'
+        +'#hhdExportModal .hhdx-tb{display:flex;align-items:center;gap:8px;margin-bottom:8px;}'
+        +'#hhdExportModal .hhdx-tb button{padding:6px 12px;border:1px solid #d7dbe3;background:#fff;border-radius:8px;font-size:12px;font-weight:600;color:#374151;cursor:pointer;}'
+        +'#hhdExportModal .hhdx-tb button:hover{border-color:#93c43a;color:#1f3864;}'
+        +'#hhdExportModal .hhdx-count{margin-left:auto;font-size:12px;color:#6b7280;font-weight:600;}'
+        +'#hhdExportModal .hhdx-list{max-height:320px;overflow-y:auto;border:1px solid #eef0f4;border-radius:10px;padding:2px 4px;}'
+        +'#hhdExportModal .hhdx-row{border-bottom:1px solid #f3f4f7;}'
+        +'#hhdExportModal .hhdx-row:last-child{border-bottom:none;}'
+        +'#hhdExportModal .hhdx-site{display:flex;align-items:center;gap:10px;padding:9px 6px;text-transform:none;letter-spacing:0;font-weight:600;color:#1f3864;font-size:14px;margin:0;cursor:pointer;}'
+        +'#hhdExportModal .hhdx-site input{margin:0;width:16px;height:16px;}'
+        +'#hhdExportModal .hhdx-site .mp{font-family:ui-monospace,monospace;font-size:12px;color:#6b7280;font-weight:500;}'
+        +'#hhdExportModal .hhdx-site .av{margin-left:auto;font-size:11px;color:#8a94a6;font-weight:500;}'
+        +'#hhdExportModal .hhdx-site .av.no{color:#c0392b;}'
+        +'#hhdExportModal .hhdx-srange{padding:0 6px 10px 40px;}'
+        +'#hhdExportModal .hhdx-srange span{font-size:12px;color:#6b7280;text-transform:none;letter-spacing:0;}'
+        +'#hhdExportModal .hhdx-status{font-size:12.5px;color:#1f3864;font-weight:600;min-height:16px;margin:12px 0 4px;}'
+        +'#hhdExportModal .hhdx-ft{display:flex;justify-content:flex-end;gap:10px;margin-top:6px;}'
+        +'#hhdExportModal .hhdx-ft .btn-primary{background:#1f3864;color:#fff;border:none;padding:10px 20px;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;}'
+        +'#hhdExportModal .hhdx-ft .btn-primary:disabled{opacity:.6;cursor:default;}'
+        +'#hhdExportModal .hhdx-ft .btn-secondary{background:#fff;border:1px solid #d7dbe3;color:#374151;padding:10px 18px;border-radius:9px;font-weight:600;font-size:13px;cursor:pointer;}';
+      document.head.appendChild(st);
     }
 
 
