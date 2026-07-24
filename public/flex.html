@@ -3426,6 +3426,7 @@ function fxScheduleReload(scope){
   if(!scope) fxReloadScope='full';
   else if(fxReloadScope!=='full'){ if(!(fxReloadScope instanceof Set)) fxReloadScope=new Set(); scope.forEach(t=>fxReloadScope.add(t)); }
   clearTimeout(fxReloadTimer);
+  const _delay = (fxReloadScope==='full') ? 450 : 250;   // scoped reloads are cheap → snappier; a full reload coalesces a touch more
   fxReloadTimer=setTimeout(async ()=>{
     if(fxHolding()){ fxDirty=true; return; }
     fxDirty=false;
@@ -3434,7 +3435,7 @@ function fxScheduleReload(scope){
     catch(e){ try{ await loadFlexData(); }catch(_){} }
     rerenderCurrent();
     fxCheckAlerts();
-  }, 850);
+  }, _delay);
 }
 async function fxWrite(promise, okMsg, scope){
   const { error } = await promise;
@@ -4270,7 +4271,7 @@ function fxStartRealtime(){
   ch.on('postgres_changes',{event:'INSERT',schema:'public',table:'flex_audit'}, p=> fxLogPush(p.new));
   ch.subscribe();
   // release deferred reloads when editors close
-  document.addEventListener('focusout', ()=>{ if(fxDirty) setTimeout(()=>{ if(fxDirty && !fxHolding()) fxScheduleReload(); }, 400); });
+  document.addEventListener('focusout', ()=>{ if(fxDirty) setTimeout(()=>{ if(fxDirty && !fxHolding()) fxScheduleReload(); }, 150); });
 }
 
 // ═══════════ V3 MODULE: archive, notes, editable admin/contacts/orders, excel ═══════════
