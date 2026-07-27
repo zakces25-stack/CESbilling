@@ -69,6 +69,20 @@ td.fx-nec:hover{background:rgba(159,190,28,.10)}
 .fx-nectable td.fx-necname,.fx-nectable th:first-child{width:210px!important;min-width:210px!important;max-width:210px!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;text-align:left!important;line-height:1.25}
 .fx-admh-lbl{border-bottom:1px dashed transparent}
 .fx-admh-lbl:hover{border-bottom-color:currentColor}
+#fxModal:has(#fTW_rows){max-width:960px}
+.fx-tt-table{width:100%;border-collapse:collapse;font-size:12px}
+.fx-tt-table th,.fx-tt-table td{padding:5px 7px;border-bottom:1px solid #f0f1f4;white-space:nowrap}
+.fx-tt-table th{background:#f7f8fb;font-size:10px;text-transform:uppercase;color:#6b7280;position:sticky;top:0;z-index:1}
+.fx-tt-table select{border:1.5px solid #d8dbe4;border-radius:6px;padding:4px 6px;font-size:12px;font-family:inherit;background:#fff}
+.fx-tt-table input.fx-cell{width:82px}
+.fx-tt-u{display:inline-block;min-width:34px;margin-left:5px;color:#6b7280;font-size:10.5px;font-weight:700;text-align:left}
+#tab-targets th.fx-twap-h{background:rgba(159,190,28,.16);border-left:2px solid var(--green-500)}
+#tab-targets th.fx-twap-h .fx-twap-u{font-weight:400;text-transform:none;font-size:10px;color:#6b7280}
+#tab-targets td.fx-twap{background:rgba(159,190,28,.07);font-family:var(--font-mono);font-weight:600}
+#tab-targets td.fx-twap-over{background:rgba(194,69,59,.16);color:#8b2015}
+.fx-note-edit{margin-left:6px;padding:0 6px;border-radius:999px;background:#eceff4;color:#6b7280;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+.fx-admh-mlbl{border-bottom:1px dashed rgba(255,255,255,.45)}
+.fx-admh-mlbl:hover{border-bottom-color:currentColor}
 .fx-admh-x{margin-left:5px;border:none;background:transparent;color:#ffb4a8;cursor:pointer;font-size:13px;font-weight:900;line-height:1;padding:0 2px;opacity:.7}
 .fx-admh-x:hover{opacity:1;color:#fff}
 .fx-log-new{animation:fxflash 1.6s ease}
@@ -1852,10 +1866,11 @@ const FX_TABLES = {
   deadlines:  ['flex_sefe_deadlines','id,period,last_trading,deadline',['id']],
   admin:      ['flex_admin_schedule','id,group_name,basket,ced,supplier,months,detail',['id']],
   meta:       ['flex_meta','key,value',['key']],
-  notes:      ['flex_notes','id,basket_id,scope,subject,body,author,created_at',['id']],
+  notes:      ['flex_notes','id,basket_id,scope,subject,body,author,created_at,updated_at,updated_by',['id']],
   adminCells: ['flex_admin_cells','id,row_id,month,da_trade,cog,pos_report,vals',['id']],
   adminCols:  ['flex_admin_columns','id,col_key,kind,label,sort_order',['sort_order','id']],
-  adminMonths:['flex_admin_months','month,sort_order',['month']],
+  adminMonths:['flex_admin_months','month,sort_order,label',['month']],
+  targetTrades:['flex_target_trades','id,basket_id,label,start_month,end_month,amount_type,amount,price,sort_order',['basket_id','sort_order','id']],
   sites:      ['flex_sites','id,basket_id,basket_name,commodity,customer,mpxn,contract_start,contract_end,nec_unit_rate,nec_standing_charge,source,archived',['basket_id','id']],
   necs:       ['flex_necs','id,basket_name,commodity,season,nec,sort_order,basket_id',['commodity','sort_order','season']]
 };
@@ -1880,8 +1895,15 @@ function fxBuildData(){
   const baskets=RAW.baskets||[], months=RAW.positions||[], trades=RAW.trades||[], targets=RAW.targets||[],
         curves=RAW.curves||[], orders=RAW.orders||[], contacts=RAW.contacts||[], deadlines=RAW.deadlines||[],
         admin=RAW.admin||[], meta=RAW.meta||[], notes=RAW.notes||[], adminCells=RAW.adminCells||[],
-        adminCols=RAW.adminCols||[], adminMonths=RAW.adminMonths||[], sites=RAW.sites||[], necs=RAW.necs||[];
-  const byM = {}, byT = {}, byG = {};
+        adminCols=RAW.adminCols||[], adminMonths=RAW.adminMonths||[], sites=RAW.sites||[], necs=RAW.necs||[],
+        targetTrades=RAW.targetTrades||[];
+  const byM = {}, byT = {}, byG = {}, byTT = {};
+  for (const t of targetTrades) (byTT[t.basket_id] ??= []).push({
+    id: t.id, label: t.label || null,
+    start_month: String(t.start_month).slice(0,10), end_month: String(t.end_month).slice(0,10),
+    amount_type: t.amount_type || 'volume', amount: _num(t.amount), price: _num(t.price),
+    sort_order: t.sort_order == null ? 0 : t.sort_order
+  });
   for (const m of months) (byM[m.basket_id] ??= []).push({
     month: m.month, days: m.days, season: m.season,
     baseload_vol: _num(m.baseload_vol), secured_vol: _num(m.secured_vol) ?? 0,
@@ -1916,7 +1938,7 @@ function fxBuildData(){
       id: b.id, name: b.name, commodity: b.commodity, unit_vol: b.unit_vol,
       unit_price: b.unit_price, is_ces: !!b.is_ces, sort_order: b.sort_order,
       archived: !!b.archived, target_labels: b.target_labels || null, epsp: !!b.epsp, target_kinds: b.target_kinds || null, target_count: (b.target_count != null ? b.target_count : null),
-      months: byM[b.id] || [], targets: byT[b.id] || [],
+      months: byM[b.id] || [], targets: byT[b.id] || [], target_trades: byTT[b.id] || [],
       trades: byG[b.id] || [], seasons: []
     });
   DATA = {
@@ -1924,11 +1946,13 @@ function fxBuildData(){
     baskets: baskets.filter(b => !b.archived).map(mkB),
     archived: baskets.filter(b => !!b.archived).map(mkB),
     notes: notes.map(n => ({ id: n.id, basket_id: n.basket_id, scope: n.scope,
-      subject: n.subject, body: n.body, author: n.author, at: n.created_at })),
+      subject: n.subject, body: n.body, author: n.author, at: n.created_at,
+      edited_at: n.updated_at, edited_by: n.updated_by })),
     adminCells: adminCells.map(c => ({ id: c.id, row_id: c.row_id, month: c.month, vals: c.vals || {} })),
     curves: { gas: curveOf('gas'), power: curveOf('power'), last_updated: _cuTxt },
     admin: { month_labels: seedMeta.admin_month_labels || [],
       months_list: (adminMonths||[]).map(r => String(r.month).slice(0,10)).sort(),
+      month_label_map: Object.fromEntries((adminMonths||[]).map(r => [String(r.month).slice(0,10), r.label || null])),
       columns: (adminCols||[]).map(c => ({ id: c.id, key: c.col_key, kind: c.kind, label: c.label, sort: c.sort_order })),
       rows: admin.map(r => ({ id: r.id, detail: r.detail || {} })) },
     sites: (sites||[]).map(s => ({ id:s.id, basket_id:s.basket_id, basket_name:s.basket_name, commodity:s.commodity, customer:s.customer, mpxn:s.mpxn, contract_start:s.contract_start?String(s.contract_start).slice(0,10):null, contract_end:s.contract_end?String(s.contract_end).slice(0,10):null, nec_unit_rate:_num(s.nec_unit_rate), nec_standing_charge:_num(s.nec_standing_charge), source:s.source, archived:!!s.archived })),
@@ -2507,6 +2531,53 @@ function fxConvPkwh(basket, mkt){ if(mkt==null) return null; return basket.commo
 // Blank when there is no MtM price or no NEC for the period.
 function fxDeliveredRate(basket, m, necMap){ const nm=necMap||fxNecFor(basket); const nec=nm[fxSeasonKey(m.month)]; const mtm=m.mtm_price; if(nec==null || !mtm) return null; return fxConvPkwh(basket, mtm)+nec; }
 
+// ── TARGETED WAP (scenario engine) ───────────────────────────────
+// "What would our weighted average price be if the targets were struck?"
+// Hypothetical trades live in flex_target_trades, NOT flex_trades: flex_positions is a
+// view over flex_trades, so real hedge %, MtM cost and the Monday heat map must never
+// move just because someone modelled a scenario. Everything below is pure client-side
+// arithmetic over data already loaded.
+//
+// Volume rules, per month:
+//   power   amount is MW    -> MWh = amount x days x 24
+//   gas     amount is th/d  -> th  = amount x days
+//   percent (either fuel)   -> that % of the month's baseload total
+function fxTTVolTotal(basket, m, tt){
+  const days = m.days || 0;
+  if (tt.amount_type === 'percent') return (m.baseload_vol_total || 0) * (tt.amount / 100);
+  return basket.commodity === 'power' ? tt.amount * days * 24 : tt.amount * days;
+}
+// Scenario position for one month. Returns null when no scenario trade covers it.
+// Pass `trades` to preview an unsaved set (used by the modal); omit to use what's saved.
+function fxTargetScenario(basket, m, necMap, trades){
+  const list = (trades || basket.target_trades || [])
+    .filter(t => t && m.month >= t.start_month && m.month <= t.end_month);
+  if (!list.length) return null;
+  const baseTot = m.baseload_vol_total || 0;
+  const secTot  = m.secured_vol_total  || 0;
+  const secCost = m.secured_cost       || 0;
+  let addTot = 0, addCost = 0;
+  for (const t of list){
+    const v = fxTTVolTotal(basket, m, t);
+    if (!(v > 0) || t.price == null) continue;
+    addTot += v; addCost += v * t.price;
+  }
+  if (!(addTot > 0)) return null;
+  const newTot = secTot + addTot, newCost = secCost + addCost;
+  const wap = newTot > 0 ? newCost / newTot : null;
+  // Over-hedged: the scenario buys more than the site actually needs that month.
+  const over = baseTot > 0 && newTot > baseTot + 1e-6;
+  const openTot = Math.max(0, baseTot - newTot);
+  const mkt = m.market_price;
+  // Targeted MtM: scenario cost plus whatever is still open valued at market, over full baseload.
+  const mtm = (baseTot > 0 && mkt != null) ? (newCost + openTot * mkt) / baseTot : null;
+  const nm  = necMap || fxNecFor(basket);
+  const nec = nm[fxSeasonKey(m.month)];
+  // Same basis as the Delivered rate column: converted price + that season's NEC.
+  const deliv = (mtm != null && nec != null) ? fxConvPkwh(basket, mtm) + nec : null;
+  return { wap, mtm, deliv, over, addTot, newTot, baseTot, pct: baseTot > 0 ? newTot / baseTot : null };
+}
+
 function renderPositionsTable(rows, basket) {
   const pu = basket.unit_price;
   const isPower = basket.commodity === 'power';
@@ -2825,10 +2896,15 @@ function renderTargets(basket) {
   }
 
   const numT = fxTierCount(basket);
+  // Targeted WAP columns appear only once a scenario has been saved for this basket.
+  const _hasTT  = (basket.target_trades || []).length > 0;
+  const _necMapT = fxNecFor(basket);
 
   let thCols = '<th>Month</th><th class="td-right">Mkt Price</th>';
   for (let i = 1; i <= numT; i++) thCols += `<th class="td-center">T${i}</th>`;
   thCols += '<th class="td-right">Upper Alert</th>';
+  if (_hasTT) thCols += `<th class="td-right fx-twap-h" title="Weighted average price if the modelled target trades were struck">Targeted WAP <span class="fx-twap-u">(${escape(basket.unit_price)})</span></th>`
+                      + `<th class="td-right fx-twap-h" title="Targeted WAP blended with open volume at market, converted and with the season NEC added">Targeted delivered <span class="fx-twap-u">(p/kWh)</span></th>`;
 
   const rows = targets.map(t => {
     const mm = basket.months.find(m => m.month === t.month);
@@ -2855,6 +2931,14 @@ function renderTargets(basket) {
     }
     const uaHit = (!isCur && mpNum != null && t.upper_alert != null && mpNum > t.upper_alert);
     tds += `<td class="td-right${uaHit ? ' fx-hit-adv' : ''}"${uaHit ? ` title="Upper alert hit — market ${mp} above ${t.upper_alert}"` : ''}>${t.upper_alert != null ? t.upper_alert : '-'}</td>`;
+    if (_hasTT) {
+      const sc = mm ? fxTargetScenario(basket, mm, _necMapT) : null;
+      const dash = '<span style="color:#c8cdd8">—</span>';
+      const warn = sc && sc.over ? ' fx-twap-over' : '';
+      const tip  = sc && sc.over ? ` title="Modelled volume is ${(sc.pct*100).toFixed(0)}% of baseload — over-hedged"` : '';
+      tds += `<td class="td-right fx-twap${warn}"${tip}>${sc && sc.wap != null ? sc.wap.toFixed(2) : dash}</td>`
+           + `<td class="td-right fx-twap${warn}">${sc && sc.deliv != null ? sc.deliv.toFixed(3) : dash}</td>`;
+    }
     return `<tr>${tds}</tr>`;
   }).join('');
 
@@ -4268,7 +4352,8 @@ function fxScopeFor(t){
 }
 function fxStartRealtime(){
   const ch = FLEX.sb.channel('flex-data');
-  ['flex_trades','flex_basket_months','flex_targets','flex_curves','flex_firm_orders','flex_baskets','flex_notes','flex_admin_cells','flex_contacts','flex_admin_schedule']
+  ['flex_trades','flex_basket_months','flex_targets','flex_curves','flex_firm_orders','flex_baskets','flex_notes','flex_admin_cells','flex_contacts','flex_admin_schedule',
+   'flex_admin_months','flex_admin_columns','flex_target_trades']
     .forEach(t=> ch.on('postgres_changes',{event:'*',schema:'public',table:t}, ()=> fxScheduleReload(fxScopeFor(t))));
   ch.on('postgres_changes',{event:'INSERT',schema:'public',table:'flex_audit'}, p=> fxLogPush(p.new));
   ch.subscribe();
@@ -4295,9 +4380,25 @@ function fxCellInputText(cell, current, save){
   });
   inp.addEventListener('blur', commit);
 }
-function fxMonthISO(d){ return d.toISOString().slice(0,8)+'01'; }
-function fxNowMonth(){ return fxMonthISO(new Date()); }
-function fxPrevMonth(){ const d=new Date(); return fxMonthISO(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth()-1, 1))); }
+// Month keys are plain 'YYYY-MM-01' strings and must NEVER be built by calling
+// toISOString() on a local-time Date. Under BST (UTC+1) local midnight is 23:00 the
+// previous day in UTC, so toISOString() silently returns the PREVIOUS month — which
+// made "+ Add month" re-insert the existing month and fail on flex_admin_months_pkey.
+// These helpers use plain integer arithmetic instead, so they behave identically
+// year-round and in any timezone.
+function fxMonthKey(y, m){            // m is 1-12; values outside that roll the year
+  let yy=y, mm=m;
+  while(mm<1){ mm+=12; yy--; }
+  while(mm>12){ mm-=12; yy++; }
+  return yy+'-'+String(mm).padStart(2,'0')+'-01';
+}
+function fxMonthShift(monthIso, delta){   // '2026-07-01', +1 -> '2026-08-01'
+  const s=String(monthIso);
+  return fxMonthKey(+s.slice(0,4), +s.slice(5,7)+delta);
+}
+function fxMonthISO(d){ return fxMonthKey(d.getFullYear(), d.getMonth()+1); }
+function fxNowMonth(){ const d=new Date(); return fxMonthKey(d.getFullYear(), d.getMonth()+1); }
+function fxPrevMonth(){ const d=new Date(); return fxMonthKey(d.getFullYear(), d.getMonth()); }
 
 // ── RENAME / ARCHIVE ─────────────────────────────────────────────
 function fxRenameModal(){
@@ -4388,12 +4489,15 @@ async function fxDeleteBasket(id){
 let fxNoteFilter='';
 function fxNoteCard(n, allowActions){
   const b=[...(DATA.baskets||[]),...(DATA.archived||[])].find(x=>x.id===n.basket_id);
-  const t=new Date(n.at);
-  const when=t.toLocaleDateString('en-GB',{day:'2-digit',month:'short'})+' '+t.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+  const fmt=v=>{ const t=new Date(v); return t.toLocaleDateString('en-GB',{day:'2-digit',month:'short'})+' '+t.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); };
+  const when=fmt(n.at);
+  // Show an edit stamp only when the note has actually been changed since it was written.
+  const edited = n.edited_at && new Date(n.edited_at) - new Date(n.at) > 1000
+    ? `<span class="fx-note-edit" title="Last edited by ${escape(n.edited_by||'?')} on ${escape(fmt(n.edited_at))}">edited</span>` : '';
   return `<div class="fx-note-card">
     <div class="nh"><span class="ns">${b?`<span class="nbk">${escape(b.name)}</span>`:''}${escape(n.subject||'(no subject)')}</span>
-      <span class="nm">${escape(n.author||'?')} &middot; ${when}
-      ${allowActions&&EDIT?`<button class="fx-icon" title="Delete note" onclick="fxDeleteNote(${n.id})">&#128465;</button>`:''}</span></div>
+      <span class="nm">${escape(n.author||'?')} &middot; ${when}${edited}
+      ${allowActions&&EDIT?`<button class="fx-icon" title="Edit note" onclick="fxNoteModal('${escape(n.scope||'general')}','${escape(n.basket_id||'')}',${n.id})">&#9998;</button><button class="fx-icon" title="Delete note" onclick="fxDeleteNote(${n.id})">&#128465;</button>`:''}</span></div>
     <div class="nb">${escape(n.body||'')}</div></div>`;
 }
 function fxRenderNotes(){
@@ -4413,26 +4517,35 @@ function fxRenderNotes(){
     <div style="max-width:860px">${notes.length? notes.map(n=>fxNoteCard(n,true)).join('') : '<div class="no-targets">No notes yet.</div>'}</div>
   </div>`;
 }
-function fxNoteModal(scope, basketId){
-  const pre = basketId || (currentBasket?currentBasket.id:'') || fxNoteFilter || '';
-  fxModal(`<h3>Add ${scope==='targets'?'targets ':''}note</h3>
+// noteId set => edit an existing note; otherwise add a new one.
+function fxNoteModal(scope, basketId, noteId){
+  const ex = noteId ? (DATA.notes||[]).find(n=>n.id===noteId) : null;
+  const pre = (ex ? ex.basket_id : null) || basketId || (currentBasket?currentBasket.id:'') || fxNoteFilter || '';
+  fxModal(`<h3>${ex?'Edit':'Add'} ${scope==='targets'?'targets ':''}note</h3>
   <div class="fx-grid">
     <div class="fx-field" style="grid-column:span 2"><label>Basket</label>
       <select id="fN2_basket">${scope==='targets'?'':'<option value="">— General (no basket) —</option>'}
       ${(DATA.baskets||[]).map(b=>`<option value="${b.id}"${pre===b.id?' selected':''}>${escape(b.name)}</option>`).join('')}</select></div>
-    <div class="fx-field" style="grid-column:span 2"><label>Subject</label><input id="fN2_subject" placeholder="e.g. Winter-27 hedging approach"></div>
+    <div class="fx-field" style="grid-column:span 2"><label>Subject</label><input id="fN2_subject" placeholder="e.g. Winter-27 hedging approach" value="${ex?escape(ex.subject||''):''}"></div>
   </div>
-  <div class="fx-field" style="margin-top:10px"><label>Note</label><textarea id="fN2_body" style="white-space:pre-wrap;font-family:inherit;min-height:100px"></textarea></div>
+  <div class="fx-field" style="margin-top:10px"><label>Note</label><textarea id="fN2_body" style="white-space:pre-wrap;font-family:inherit;min-height:100px">${ex?escape(ex.body||''):''}</textarea></div>
+  ${ex?`<div style="font-size:11px;color:#6b7280;margin-top:8px">Written by ${escape(ex.author||'?')}. Saving records you as the last editor.</div>`:''}
   <div class="fx-err" id="fxMErr"></div>
   <div class="fx-modal-foot"><button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
-  <button class="fx-btn green" onclick="fxSaveNote('${scope}')">Add note</button></div>`);
+  <button class="fx-btn green" onclick="fxSaveNote('${scope}',${noteId||'null'})">${ex?'Save changes':'Add note'}</button></div>`);
 }
-async function fxSaveNote(scope){
+async function fxSaveNote(scope, noteId){
   const body=document.getElementById('fN2_body').value.trim();
   if(!body) return fxMErr('Write the note first.');
-  const row={ scope, basket_id: document.getElementById('fN2_basket').value || null,
-    subject: document.getElementById('fN2_subject').value.trim() || null,
-    body, author: FLEX.name || FLEX.user, updated_by: FLEX.user };
+  const basket_id = document.getElementById('fN2_basket').value || null;
+  const subject = document.getElementById('fN2_subject').value.trim() || null;
+  if(noteId){
+    // Keep the original author; record who edited it and when.
+    const patch={ basket_id, subject, body, updated_by: FLEX.user, updated_at: new Date().toISOString() };
+    if(await fxWrite(FLEX.sb.from('flex_notes').update(patch).eq('id', noteId), 'Note updated')) fxCloseModal();
+    return;
+  }
+  const row={ scope, basket_id, subject, body, author: FLEX.name || FLEX.user, updated_by: FLEX.user };
   if(await fxWrite(FLEX.sb.from('flex_notes').insert(row), 'Note added')) fxCloseModal();
 }
 async function fxDeleteNote(id){
@@ -4462,7 +4575,14 @@ renderAdmin = function(){
   const dash='<span style="color:#c8cdd8">&mdash;</span>';
   const detailTh=(detailCols.length?detailCols.map(c=>`<th rowspan="2" class="fx-admh" style="text-align:left">${headLbl(c)}</th>`).join('')
     : '<th rowspan="2" style="text-align:left;color:#c8cdd8">(no detail columns)</th>');
-  const topTh=months.map(([mo,g])=>`<th colspan="${tCount}" class="fx-mh${g}">${fmtMonth(mo)}${mo===nowM2?' &middot; current':''}${EDIT?` <button class="fx-admh-x" title="Remove this month" onclick="event.stopPropagation();fxAdmRemoveMonth('${mo}')">&times;</button>`:''}</th>`).join('');
+  // Month headers show a custom label when one is set, otherwise the formatted month.
+  // The `month` date itself stays untouched — it is the primary key and flex_admin_cells
+  // rows are keyed on it, so only the display label is editable.
+  const mLblMap=(DATA.admin&&DATA.admin.month_label_map)||{};
+  const mLbl=mo=> mLblMap[mo] || fmtMonth(mo);
+  const topTh=months.map(([mo,g])=>`<th colspan="${tCount}" class="fx-mh${g}">${EDIT
+      ? `<span class="fx-admh-mlbl" data-month="${mo}" title="Click to rename this month header (clear it to go back to ${escape(fmtMonth(mo))})">${escape(mLbl(mo))}</span>`
+      : escape(mLbl(mo))}${mo===nowM2?' &middot; current':''}${EDIT?` <button class="fx-admh-x" title="Remove this month" onclick="event.stopPropagation();fxAdmRemoveMonth('${mo}')">&times;</button>`:''}</th>`).join('');
   const subTh=months.map(([mo,g])=> (taskCols.length?taskCols:[{id:0}]).map((c,ci)=>`<th class="fx-g${g}${ci===0?' fx-gs':''} fx-admh">${c.id?headLbl(c):dash}</th>`).join('') ).join('');
   const tr=rows.map(r=>{
     let tds=(detailCols.length?detailCols:[{id:0}]).map(c=> c.id
@@ -4517,6 +4637,18 @@ renderAdmin = function(){
       });
     };
   });
+  // Month headers: rename to anything; clearing the box restores the formatted month.
+  el.querySelectorAll('.fx-admh-mlbl').forEach(sp=>{ sp.style.cursor='pointer';
+    sp.onclick=(e)=>{ e.stopPropagation(); if(sp.querySelector('input')) return;
+      const mo=sp.dataset.month;
+      const cur=((DATA.admin&&DATA.admin.month_label_map)||{})[mo] || '';
+      fxCellInputText(sp, cur, async v=>{
+        await fxWrite(FLEX.sb.from('flex_admin_months')
+          .update({label: v || null, updated_by:FLEX.user, updated_at:new Date().toISOString()})
+          .eq('month',mo), v? 'Month header renamed' : 'Month header reset');
+      });
+    };
+  });
 };
 async function fxAdmAddColumn(kind){
   const cols=(DATA.admin.columns||[]).filter(c=>c.kind===kind);
@@ -4532,8 +4664,12 @@ async function fxAdmColRemove(id){
 async function fxAdmAddMonth(){
   const ms=((DATA.admin&&DATA.admin.months_list)||[]).slice().sort();
   const base=ms.length? ms[ms.length-1] : fxNowMonth();
-  const d=new Date(base+'T00:00:00'); d.setMonth(d.getMonth()+1);
-  const nm=d.toISOString().slice(0,8)+'01';
+  let nm=fxMonthShift(base, 1);
+  // Belt and braces: if that month somehow already exists, walk forward to the first free one.
+  const have=new Set(ms);
+  let guard=0;
+  while(have.has(nm) && guard++ < 120) nm=fxMonthShift(nm, 1);
+  if(have.has(nm)){ fxToast('Could not find a free month to add', false); return; }
   await fxWrite(FLEX.sb.from('flex_admin_months').insert({month:nm, updated_by:FLEX.user}),'Added '+fmtMonth(nm));
 }
 async function fxAdmRemoveMonth(mo){
@@ -5355,6 +5491,7 @@ renderTargets = function(basket){
     const bar=document.createElement('div'); bar.className='fx-toolbar';
     const _pend=Object.keys(FX_TBUF).length;
     bar.innerHTML=`<button class="fx-btn green" onclick="fxAddTargetMonths()">+ Add target rows for future months</button>`
+      + ` <button class="fx-btn" onclick="fxTargetWapModal(currentBasket)" title="Model the WAP and delivered rate if these targets were struck">&#931; Targeted WAPs${(basket.target_trades||[]).length?' ('+basket.target_trades.length+')':''}</button>`
       + (numT<8? ` <button class="fx-btn" onclick="fxAddTargetCol(currentBasket)" title="Show another target tier">+ Add target column</button>` : '')
       + (numT>1? ` <button class="fx-btn danger" onclick="fxRemTargetCol(currentBasket)" title="Hide the last target tier">&minus; Remove last column</button>` : '')
       + ` <span style="font-size:11px;color:#6b7280">Click a name to rename &middot; click a price to edit &middot; tick the circle to mark achieved &middot; tap each cell's Auth/Adv tag to set red/purple &middot; or use a column header's Auth/Adv chip to set the whole column &middot; changes stage until you Apply</span>`
@@ -5404,6 +5541,171 @@ renderTargets = function(basket){
     ${notes.length?notes.map(n=>fxNoteCard(n,true)).join(''):'<div style="font-size:12px;color:#9aa1ad">No target notes for this basket yet.</div>'}`;
   el.appendChild(nd);
 };
+
+
+// ── TARGETED WAPs: scenario editor ───────────────────────────────
+// Rows are hypothetical trades. Each covers a month range so one entry can be applied
+// to several periods at once; Clone makes a variant for another period.
+let FX_TT = [], FX_TT_ORIG = [];
+
+function fxTTUnit(b, type){ return type === 'percent' ? '%' : b.unit_vol; }   // 'MW' | 'th/d' | '%'
+
+// Prefill: one row per unachieved target tier, grouped into runs of months that share
+// the same tier prices, with the still-open volume split evenly between the tiers.
+// That lands the default scenario at exactly 100% hedged, so it never trips the guard.
+function fxTTFromTargets(b){
+  const numT = fxTierCount(b), cut = fxNowMonth();
+  const rows = (b.targets || []).filter(t => t.month > cut).sort((x, y) => x.month < y.month ? -1 : 1);
+  if (!rows.length) return [];
+  const sig = t => { const o = []; for (let i = 1; i <= numT; i++){ const p = t['lower_t'+i]; if (p != null && t['t'+i+'_achieved'] !== 'Yes') o.push(p); } return o; };
+  const groups = []; let cur = null;
+  for (const t of rows){
+    const sg = sig(t), key = sg.join('|');
+    if (cur && cur.key === key){ cur.end = t.month; continue; }
+    cur = { key, prices: sg, start: t.month, end: t.month }; groups.push(cur);
+  }
+  const out = []; let order = 0;
+  for (const g of groups){
+    if (!g.prices.length) continue;
+    const ms = (b.months || []).filter(m => m.month >= g.start && m.month <= g.end);
+    const baseTot = ms.reduce((s, m) => s + (m.baseload_vol_total || 0), 0);
+    const secTot  = ms.reduce((s, m) => s + (m.secured_vol_total  || 0), 0);
+    const openPct = baseTot > 0 ? Math.max(0, (baseTot - secTot) / baseTot * 100) : 0;
+    const each = openPct > 0 ? Math.floor(openPct / g.prices.length * 100) / 100 : 0;
+    if (!(each > 0)) continue;
+    g.prices.forEach(p => out.push({ id: null, label: null, start_month: g.start, end_month: g.end,
+      amount_type: 'percent', amount: each, price: p, sort_order: order++ }));
+  }
+  return out;
+}
+
+function fxTargetWapModal(basket){
+  const b = basket || currentBasket; if (!b) return;
+  FX_TT      = (b.target_trades || []).map(t => Object.assign({}, t));
+  FX_TT_ORIG = (b.target_trades || []).map(t => Object.assign({}, t));
+  if (!FX_TT.length) FX_TT = fxTTFromTargets(b);
+  fxModal(`<h3>Targeted WAPs — ${escape(b.name)}</h3>
+  <div style="font-size:12px;color:#4b5563;margin:-8px 0 12px">The trades you would do if the targets were struck. This is a model only — it never touches real trades, hedge %, MtM or the Monday heat map. It fills the two Targeted columns on the right of the targets table.</div>
+  <div class="fx-toolbar" style="margin-bottom:8px">
+    <button class="fx-btn green" onclick="fxTTAddRow()">+ Add row</button>
+    <button class="fx-btn" onclick="fxTTFill()" title="Replace the rows below with one per unachieved target, splitting the open volume between them">&#8635; Fill from targets</button>
+    <button class="fx-btn danger" onclick="fxTTClear()" title="Remove every row (saving then clears the Targeted columns)">Clear all</button>
+  </div>
+  <div id="fTW_rows"></div>
+  <div id="fTW_prev"></div>
+  <div class="fx-err" id="fxMErr"></div>
+  <div class="fx-modal-foot"><button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
+  <button class="fx-btn green" id="fTW_save" onclick="fxTTSave()">Save changes</button></div>`);
+  fxTTRefresh(b);
+}
+
+function fxTTRefresh(b){
+  const wrap = document.getElementById('fTW_rows'); if (!wrap) return;
+  // Amount header follows the row types: MW / th/d for volume, % for percent, plain when mixed.
+  const types = new Set(FX_TT.map(r => r.amount_type));
+  const hdr = types.size === 1 ? `Amount (${fxTTUnit(b, [...types][0])})` : 'Amount';
+  const mo = (b.months || []).map(m => m.month);
+  const mSel = (val, cls, i) => `<select data-i="${i}" class="${cls}">${mo.map(x => `<option value="${x}"${x === val ? ' selected' : ''}>${fmtMonth(x)}</option>`).join('')}</select>`;
+  wrap.innerHTML = FX_TT.length
+    ? `<div class="fx-preview" style="max-height:320px"><table class="fx-tt-table">
+      <thead><tr><th>Type</th><th class="td-right">${escape(hdr)}</th><th class="td-right">Price (${escape(b.unit_price)})</th><th>From</th><th>To</th><th></th></tr></thead>
+      <tbody>${FX_TT.map((r, i) => `<tr>
+        <td><select data-i="${i}" class="fx-tt-type"><option value="volume"${r.amount_type === 'volume' ? ' selected' : ''}>Volume</option><option value="percent"${r.amount_type === 'percent' ? ' selected' : ''}>% of baseload</option></select></td>
+        <td class="td-right"><input data-i="${i}" class="fx-cell fx-tt-amt" type="number" step="any" value="${r.amount != null ? r.amount : ''}"><span class="fx-tt-u">${escape(fxTTUnit(b, r.amount_type))}</span></td>
+        <td class="td-right"><input data-i="${i}" class="fx-cell fx-tt-px" type="number" step="any" value="${r.price != null ? r.price : ''}"></td>
+        <td>${mSel(r.start_month, 'fx-tt-start', i)}</td>
+        <td>${mSel(r.end_month, 'fx-tt-end', i)}</td>
+        <td class="fx-actions"><button class="fx-icon" title="Clone this row for another period" onclick="fxTTClone(${i})">&#10697;</button><button class="fx-icon" title="Remove this row" onclick="fxTTDel(${i})">&#128465;</button></td>
+      </tr>`).join('')}</tbody></table></div>`
+    : `<div style="font-size:12px;color:#9aa1ad;padding:10px 0">No scenario rows yet. Add one, or use "Fill from targets".</div>`;
+  wrap.querySelectorAll('.fx-tt-type').forEach(el => el.onchange = e => { FX_TT[+e.target.dataset.i].amount_type = e.target.value; fxTTRefresh(b); });
+  wrap.querySelectorAll('.fx-tt-amt').forEach(el => el.oninput  = e => { FX_TT[+e.target.dataset.i].amount = fxNum(e.target.value); fxTTPreview(b); });
+  wrap.querySelectorAll('.fx-tt-px').forEach(el  => el.oninput  = e => { FX_TT[+e.target.dataset.i].price  = fxNum(e.target.value); fxTTPreview(b); });
+  wrap.querySelectorAll('.fx-tt-start').forEach(el => el.onchange = e => { const r = FX_TT[+e.target.dataset.i]; r.start_month = e.target.value; if (r.end_month < r.start_month) r.end_month = r.start_month; fxTTRefresh(b); });
+  wrap.querySelectorAll('.fx-tt-end').forEach(el   => el.onchange = e => { const r = FX_TT[+e.target.dataset.i]; r.end_month   = e.target.value; if (r.end_month < r.start_month) r.start_month = r.end_month; fxTTRefresh(b); });
+  fxTTPreview(b);
+}
+
+// Live check. Save stays greyed out while any month is over baseload.
+function fxTTPreview(b){
+  const el = document.getElementById('fTW_prev'), save = document.getElementById('fTW_save');
+  if (!el) return;
+  const rows = FX_TT.filter(r => r.amount > 0 && r.price != null);
+  const nec = fxNecFor(b);
+  const breaches = []; let covered = 0, wSum = 0, wW = 0;
+  for (const m of (b.months || [])){
+    const sc = fxTargetScenario(b, m, nec, rows);
+    if (!sc) continue;
+    covered++;
+    if (sc.over) breaches.push({ month: m.month, pct: sc.pct });
+    if (sc.wap != null && sc.newTot > 0){ wSum += sc.wap * sc.newTot; wW += sc.newTot; }
+  }
+  const bad = breaches.length > 0;
+  if (save){
+    save.disabled = bad;
+    save.style.opacity = bad ? '.45' : '';
+    save.style.cursor  = bad ? 'not-allowed' : '';
+    save.title = bad ? 'Target volumes exceed the baseload — reduce them before saving' : '';
+  }
+  el.innerHTML = !rows.length
+    ? `<div style="font-size:12px;color:#9aa1ad;margin-top:8px">Enter an amount and a price to see the effect.</div>`
+    : bad
+      ? `<div class="fx-err" style="display:block">Target volumes go over the baseload in ${breaches.length} month${breaches.length > 1 ? 's' : ''} — ${breaches.slice(0, 4).map(x => fmtMonth(x.month) + ' (' + (x.pct * 100).toFixed(0) + '%)').join(', ')}${breaches.length > 4 ? '…' : ''}. Reduce the amounts before saving.</div>`
+      : `<div style="font-size:12px;margin-top:8px;font-weight:600;color:#0f6e56">${covered} month${covered > 1 ? 's' : ''} covered · targeted WAP ${wW > 0 ? (wSum / wW).toFixed(2) : '—'} ${escape(b.unit_price)}</div>`;
+}
+
+function fxTTAddRow(){
+  const b = currentBasket; const ms = (b.months || []).map(m => m.month);
+  const f = ms.find(m => m > fxNowMonth()) || ms[0] || fxNowMonth();
+  FX_TT.push({ id: null, label: null, start_month: f, end_month: ms[ms.length - 1] || f,
+    amount_type: 'percent', amount: null, price: null, sort_order: FX_TT.length });
+  fxTTRefresh(b);
+}
+function fxTTClone(i){ const b = currentBasket; FX_TT.splice(i + 1, 0, Object.assign({}, FX_TT[i], { id: null })); FX_TT.forEach((r, n) => r.sort_order = n); fxTTRefresh(b); }
+function fxTTDel(i){   const b = currentBasket; FX_TT.splice(i, 1); FX_TT.forEach((r, n) => r.sort_order = n); fxTTRefresh(b); }
+function fxTTClear(){  const b = currentBasket; FX_TT = []; fxTTRefresh(b); }
+function fxTTFill(){
+  const b = currentBasket; const g = fxTTFromTargets(b);
+  if (!g.length) return fxMErr('No unachieved targets with open volume to model.');
+  FX_TT = g; fxTTRefresh(b);
+}
+
+async function fxTTSave(){
+  const b = currentBasket; if (!b) return;
+  const rows = FX_TT.filter(r => r.amount > 0 && r.price != null);
+  if (FX_TT.length && !rows.length) return fxMErr('Each row needs an amount and a price.');
+  for (const r of rows){
+    if (r.amount_type === 'percent' && r.amount > 100) return fxMErr('A percentage row cannot be over 100%.');
+    if (r.end_month < r.start_month) return fxMErr('A row ends before it starts.');
+  }
+  // Re-run the baseload guard here too, in case the button state was bypassed.
+  const nec = fxNecFor(b);
+  for (const m of (b.months || [])){
+    const sc = fxTargetScenario(b, m, nec, rows);
+    if (sc && sc.over) return fxMErr('Target volumes go over the baseload in ' + fmtMonth(m.month) + '. Reduce them before saving.');
+  }
+  rows.forEach((r, n) => r.sort_order = n);
+  const keep = new Set(rows.filter(r => r.id).map(r => r.id));
+  const ops = [];
+  for (const o of FX_TT_ORIG) if (!keep.has(o.id)) ops.push(FLEX.sb.from('flex_target_trades').delete().eq('id', o.id));
+  for (const r of rows){
+    const payload = { basket_id: b.id, label: r.label || null, start_month: r.start_month, end_month: r.end_month,
+      amount_type: r.amount_type, amount: r.amount, price: r.price, sort_order: r.sort_order, updated_by: FLEX.user };
+    if (r.id){
+      const o = FX_TT_ORIG.find(x => x.id === r.id);
+      const same = o && o.start_month === r.start_month && o.end_month === r.end_month
+        && o.amount_type === r.amount_type && o.amount === r.amount && o.price === r.price && o.sort_order === r.sort_order;
+      if (!same) ops.push(FLEX.sb.from('flex_target_trades').update(Object.assign({ updated_at: new Date().toISOString() }, payload)).eq('id', r.id));
+    } else ops.push(FLEX.sb.from('flex_target_trades').insert(payload));
+  }
+  if (!ops.length){ fxCloseModal(); return; }
+  const res = await Promise.all(ops);
+  const bad = res.find(x => x.error);
+  if (bad) return fxMErr(bad.error.message || 'Save failed');
+  fxToast(rows.length ? 'Targeted WAPs saved' : 'Targeted WAPs cleared');
+  fxCloseModal();
+  fxScheduleReload(['flex_target_trades']);
+}
 
 // ── TARGETS: add / remove a target column (per basket, non-destructive) ──
 async function fxAddTargetCol(b){
