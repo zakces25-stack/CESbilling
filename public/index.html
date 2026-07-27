@@ -4400,9 +4400,14 @@
           if (ey === ym) return 1;              // ends in it
           return 0;
         };
+        // Where two bills cover the same period, show the one that still stands
+        // rather than one the supplier has since credited and re-issued.
+        var credited = function (f) { return (f.flags || []).indexOf('credited') >= 0 ? 1 : 0; };
         var ranked = indexed.slice().sort(function (a, b) {
           var d = score(b) - score(a);
           if (d !== 0) return d;
+          var c = credited(a) - credited(b);
+          if (c !== 0) return c;
           return String(b.period_start || '').localeCompare(String(a.period_start || ''));
         });
         return { name: ranked[0].filename, rec: ranked[0], via: 'index', alternatives: ranked };
