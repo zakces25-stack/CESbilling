@@ -1302,7 +1302,7 @@
           <div class="nav-item" data-page="compare">Consumption and cost comparison</div>
           <div class="nav-item" data-page="usage">Carbon Reporting</div>
           <div class="nav-item" data-page="league">League Table</div>
-          <div class="nav-item" data-page="invoices">Invoice Viewer</div>
+          <div class="nav-item" data-page="invoices">View Invoices</div>
         </div>
         <div class="sidebar-foot">
           <button class="signout-btn" onclick="doSignOut()">Sign out</button>
@@ -1366,11 +1366,11 @@
           <div class="report-grid" id="occupancyGrid"></div>
         </div>
         <!-- Page: Site List -->
-        <!-- Page: Invoice viewer — meter reference list, then pick a meter + month to read the bill -->
+        <!-- Page: View invoices — meter reference list, then pick a meter + month to read the bill -->
         <div class="dash-section" data-page="invoices" style="display:none;">
           <div class="section-head">
             <div>
-              <h2>Invoice viewer</h2>
+              <h2>View invoices</h2>
               <div class="section-meta">Find any invoice by supply point and month, and read it here without downloading anything.</div>
             </div>
           </div>
@@ -7958,8 +7958,9 @@
                            : '  • (none found)') + '\n\n' +
           'Will be set to: "' + newName + '"' +
           (stale.length ? '' : '\n(The name already matches — only the logo will change.)') + '\n\n' +
-          'Embedded logo found in ' + totalLogos + ' of ' + scanned.length + ' report(s); each will be replaced with the current customer logo.\n\n' +
-          'The existing files are overwritten. Continue?';
+          'Embedded logo found in ' + totalLogos + ' of ' + scanned.length + ' report(s); each will be replaced with the current customer logo.' +
+          (totalLogos === 0 ? '\n\n⚠ No embedded logo was found — only the name would change. Cancel and check with CES before continuing.' : '') + '\n\n' +
+          'A copy of each original is kept alongside it as .original.html. Continue?';
         if (!confirm(summary)) { if (btn) { btn.disabled = false; btn.textContent = oldLabel; } return; }
 
         // Phase 2 — rewrite and re-upload.
@@ -7981,6 +7982,18 @@
           if (out !== beforeName) changedName++;
 
           if (out === s.html) continue;   // nothing to do for this file
+
+          // Keep the untouched original the first time we rewrite a file.
+          // upsert:false means a second run can never overwrite the real original
+          // with an already-rebranded copy.
+          var bakPath = s.r.html_path.replace(/\.html?$/i, '') + '.original.html';
+          var bak = await sb.storage.from('report-html').upload(bakPath, new Blob([s.html], { type: 'text/html; charset=utf-8' }), {
+            upsert: false, contentType: 'text/html; charset=utf-8'
+          });
+          if (bak.error && !/exists/i.test(bak.error.message || '')) {
+            console.error('rebrand backup failed, skipping', s.r.id, bak.error);
+            continue;   // never rewrite a file we could not back up
+          }
 
           var up = await sb.storage.from('report-html').upload(s.r.html_path, new Blob([out], { type: 'text/html; charset=utf-8' }), {
             upsert: true, contentType: 'text/html; charset=utf-8'
