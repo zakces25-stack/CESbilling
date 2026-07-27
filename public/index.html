@@ -921,6 +921,14 @@
       display: inline-block; background: rgba(47,61,126,0.08); color: var(--navy);
       border-radius: 5px; padding: 2px 7px; font-size: 11px; font-weight: 700; margin-right: 6px;
     }
+    .inv-alts { margin-top: 8px; font-size: 12px; color: var(--muted); }
+    .inv-alts span { margin-right: 6px; }
+    .inv-alt {
+      background: none; border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+      font: inherit; font-size: 11.5px; font-weight: 700; color: var(--navy);
+      padding: 3px 9px; margin: 3px 4px 0 0;
+    }
+    .inv-alt:hover { border-color: var(--navy); background: rgba(47,61,126,0.05); }
     .inv-frame-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface-2); }
     #invFrame { border: 0; width: 100%; height: 78vh; min-height: 520px; display: block; background: #fff; }
     @media (max-width: 700px) {
@@ -4265,7 +4273,7 @@
         var reports = rRes.data || [];
 
         var fRes = await sb.from('invoice_files')
-          .select('report_id, identifier, filename, is_consolidated, matched_by, page_count')
+          .select('report_id, identifier, filename, is_consolidated, matched_by, page_count, period_start, period_end, invoice_no')
           .eq('customer_id', cid);
         var files = {};
         (fRes.data || []).forEach(function (f) {
@@ -4370,9 +4378,30 @@
     // Resolve which PDF in this month's ZIP belongs to the chosen meter.
     // Preferred source is the admin-built index; if a month hasn't been indexed
     // we still try the filename, so a supplier who does name files by MPAN works.
-    function _invResolveEntry(reportId, identifier, zipNames) {
+    function _invResolveEntry(reportId, identifier, zipNames, report) {
       var indexed = (_inv.files[reportId] || []).filter(function (f) { return f.identifier === identifier; });
-      if (indexed.length) return { name: indexed[0].filename, rec: indexed[0], via: 'index' };
+      if (indexed.length) {
+        // More than one bill for this meter this month usually means a late
+        // invoice for the previous period arrived alongside the current one.
+        // Rank by how well each invoice's service period fits the report month.
+        var ym = report ? (report.year || 0) * 100 + (report.month_num || 0) : 0;
+        var score = function (f) {
+          if (!f.period_start) return 0;
+          var s = f.period_start, e = f.period_end || f.period_start;
+          var sy = parseInt(s.slice(0, 4), 10) * 100 + parseInt(s.slice(5, 7), 10);
+          var ey = parseInt(e.slice(0, 4), 10) * 100 + parseInt(e.slice(5, 7), 10);
+          if (sy === ym) return 3;              // starts in the report month
+          if (sy <= ym && ym <= ey) return 2;   // spans it
+          if (ey === ym) return 1;              // ends in it
+          return 0;
+        };
+        var ranked = indexed.slice().sort(function (a, b) {
+          var d = score(b) - score(a);
+          if (d !== 0) return d;
+          return String(b.period_start || '').localeCompare(String(a.period_start || ''));
+        });
+        return { name: ranked[0].filename, rec: ranked[0], via: 'index', alternatives: ranked };
+      }
       var flat = String(identifier || '').toUpperCase();
       var hit = (zipNames || []).filter(function (n) {
         return n.toUpperCase().replace(/[^0-9A-Z]/g, '').indexOf(flat.replace(/[^0-9A-Z]/g, '')) >= 0;
@@ -4397,7 +4426,13 @@
         var names = Object.keys(zip.files).filter(function (n) {
           return !zip.files[n].dir && /\.pdf$/i.test(n);
         });
-        var match = _invResolveEntry(reportId, identifier, names);
+        var match = _invResolveEntry(reportId, identifier, names, report);
+        // Let the customer switch between them rather than hiding the others.
+        if (_inv.pickFile) {
+          var forced = (match && match.alternatives || []).filter(function (f) { return f.filename === _inv.pickFile; })[0];
+          if (forced) match = { name: forced.filename, rec: forced, via: 'index', alternatives: match.alternatives };
+          _inv.pickFile = null;
+        }
 
         // Water is usually billed as one consolidated document for every supply
         // point, so fall back to the account-level bill rather than showing nothing.
@@ -4435,9 +4470,27 @@
         if (match.via === 'consolidated' || (match.rec && match.rec.is_consolidated)) {
           flags += '<span class="flag">Consolidated bill</span>';
         }
+        var rec = match.rec || {};
+        if (rec.period_start) {
+          flags += '<span class="flag">' + escapeHtml(_invDateUK(rec.period_start) + ' – ' + _invDateUK(rec.period_end)) + '</span>';
+        }
+        if (rec.invoice_no) flags += '<span class="flag">Invoice ' + escapeHtml(rec.invoice_no) + '</span>';
+
+        var alts = (match.alternatives || []).filter(function (f) { return f.filename !== match.name; });
+        var altHtml = alts.length
+          ? '<div class="inv-alts"><span>Also billed for this meter in ' + escapeHtml((report.month || '') + ' ' + (report.year || '')) + ':</span> ' +
+            alts.map(function (f) {
+              var lbl = (f.invoice_no ? 'Invoice ' + f.invoice_no : f.filename.split('/').pop()) +
+                        (f.period_start ? ' (' + _invDateUK(f.period_start) + ' – ' + _invDateUK(f.period_end) + ')' : '');
+              return '<button type="button" class="inv-alt" onclick="invShowFile(' + JSON.stringify(f.filename).replace(/"/g, '&quot;') + ')">' +
+                     escapeHtml(lbl) + '</button>';
+            }).join(' ') + '</div>'
+          : '';
+
         meta.innerHTML = flags +
           '<strong>' + escapeHtml((meter && meter.site_address) || identifier) + '</strong> · ' +
           escapeHtml(identifier) + ' · ' + escapeHtml((report.month || '') + ' ' + (report.year || '')) +
+          altHtml +
           ((match.via === 'consolidated')
             ? '<div style="margin-top:6px;">Your supplier bills these supply points together, so this document covers more than one site.</div>'
             : '') +
@@ -4451,6 +4504,17 @@
         _invSetStatus('Could not open that invoice. Please try again, or contact CES support.', true);
         _invShowEmpty('Nothing to show.');
       }
+    }
+
+    function _invDateUK(iso) {
+      if (!iso) return '';
+      var p = String(iso).split('-');
+      return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : String(iso);
+    }
+    // Switch to another invoice billed for the same meter in the same month.
+    function invShowFile(filename) {
+      _inv.pickFile = filename;
+      invSelectionChanged();
     }
 
     function invDownloadCurrent() {
@@ -8071,6 +8135,44 @@
           if (/statement of account/.test(t) && !/vat invoice|tax invoice/.test(t)) return 'statement';
           return 'invoice';
         };
+        // The service period the invoice covers. A monthly archive can hold a
+        // late bill for the previous period next to the current one, and both
+        // carry the same meter number — the period is what tells them apart.
+        var MONTHS_RE = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';
+        var _isoDate = function (s) {
+          var m = String(s).match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
+          if (m) {
+            var y = m[3].length === 2 ? '20' + m[3] : m[3];
+            return y + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2);
+          }
+          var t = String(s).match(new RegExp('(\\d{1,2})\\s+(' + MONTHS_RE + ')\\w*\\s+(\\d{4})', 'i'));
+          if (t) {
+            var mi = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']
+              .indexOf(t[2].slice(0, 3).toLowerCase());
+            if (mi >= 0) return t[3] + '-' + ('0' + (mi + 1)).slice(-2) + '-' + ('0' + t[1]).slice(-2);
+          }
+          return null;
+        };
+        var parsePeriod = function (text) {
+          var t = String(text || '').replace(/\s+/g, ' ');
+          var D = '(\\d{1,2}[\\/.-]\\d{1,2}[\\/.-]\\d{2,4}|\\d{1,2}\\s+(?:' + MONTHS_RE + ')\\w*\\s+\\d{4})';
+          var pats = [
+            '(?:invoice|billing|bill|supply|charge[sd]?)\\s*period\\s*:?\\s*' + D + '\\s*(?:-|to|\u2013|\u2014)\\s*' + D,
+            'period\\s*:?\\s*' + D + '\\s*(?:-|to|\u2013|\u2014)\\s*' + D,
+            '(?:for services )?from\\s*' + D + '\\s*(?:-|to|\u2013|\u2014)\\s*' + D
+          ];
+          for (var i = 0; i < pats.length; i++) {
+            var m = t.match(new RegExp(pats[i], 'i'));
+            if (m) { var a = _isoDate(m[1]), b = _isoDate(m[2]); if (a && b) return { start: a, end: b }; }
+          }
+          return null;
+        };
+        var parseInvoiceNo = function (text) {
+          var m = String(text || '').replace(/\s+/g, ' ')
+            .match(/invoice\s*(?:number|no\.?)\s*:?\s*([A-Z0-9][A-Z0-9-]{3,19})/i);
+          return m ? m[1] : null;
+        };
+
         // Supplier account / customer references, from the filename and the page.
         // An account number is stable per meter, so once learned it matches in
         // later months. Deliberately narrow: only take a reference that is
@@ -8112,6 +8214,10 @@
 
           var docType = classifyDoc(name, parsed.text);
           var refs = refTokens(name, parsed.text);
+          var per = parsePeriod(parsed.text) || {};
+          var invNo = parseInvoiceNo(parsed.text) ||
+                      ((String(name).match(/bill[_\s-]*0*(\d{4,12})/i) || [])[1] || null);
+          var extra = { period_start: per.start || null, period_end: per.end || null, invoice_no: invNo };
 
           if (hits.length === 1) {
             rows.push({
@@ -8119,7 +8225,8 @@
               identifier: hits[0].identifier, filename: name, is_consolidated: false,
               matched_by: flatName.indexOf(norm(hits[0].identifier)) >= 0 ? 'filename' : 'pdf_text',
               page_count: parsed.pages, byte_size: byteSize,
-              doc_type: docType, account_ref: refs[0] || null, _refs: refs
+              doc_type: docType, account_ref: refs[0] || null, _refs: refs,
+              period_start: extra.period_start, period_end: extra.period_end, invoice_no: extra.invoice_no
             });
           } else if (hits.length > 1) {
             // One document covering several supply points of the same utility.
@@ -8129,7 +8236,8 @@
               report_id: r.id, customer_id: r.customer_id, utility: only,
               identifier: null, filename: name, is_consolidated: true,
               matched_by: 'pdf_text', page_count: parsed.pages, byte_size: byteSize,
-              doc_type: docType, account_ref: refs[0] || null, _refs: refs
+              doc_type: docType, account_ref: refs[0] || null, _refs: refs,
+              period_start: extra.period_start, period_end: extra.period_end, invoice_no: extra.invoice_no
             });
           } else {
             var lower = String(parsed.text || '').toLowerCase().replace(/\s+/g, ' ');
@@ -8139,14 +8247,16 @@
                 report_id: r.id, customer_id: r.customer_id, utility: 'water',
                 identifier: null, filename: name, is_consolidated: true,
                 matched_by: 'retailer', page_count: parsed.pages, byte_size: byteSize,
-                doc_type: docType, account_ref: refs[0] || null, _refs: refs
+                doc_type: docType, account_ref: refs[0] || null, _refs: refs,
+              period_start: extra.period_start, period_end: extra.period_end, invoice_no: extra.invoice_no
               });
             } else {
               rows.push({
                 report_id: r.id, customer_id: r.customer_id, utility: null,
                 identifier: null, filename: name, is_consolidated: false,
                 matched_by: 'unmatched', page_count: parsed.pages, byte_size: byteSize,
-                doc_type: docType, account_ref: refs[0] || null, _refs: refs
+                doc_type: docType, account_ref: refs[0] || null, _refs: refs,
+              period_start: extra.period_start, period_end: extra.period_end, invoice_no: extra.invoice_no
               });
             }
           }
