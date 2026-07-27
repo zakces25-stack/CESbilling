@@ -921,6 +921,11 @@
       display: inline-block; background: rgba(47,61,126,0.08); color: var(--navy);
       border-radius: 5px; padding: 2px 7px; font-size: 11px; font-weight: 700; margin-right: 6px;
     }
+    .inv-warn {
+      background: rgba(201,146,47,0.12); border-left: 3px solid #c9922f; color: #7a5510;
+      border-radius: 6px; padding: 8px 11px; font-size: 12.5px; font-weight: 600; margin-bottom: 10px;
+    }
+    .inv-warn strong { font-weight: 800; }
     .inv-alts { margin-top: 8px; font-size: 12px; color: var(--muted); }
     .inv-alts span { margin-right: 6px; }
     .inv-alt {
@@ -4273,7 +4278,7 @@
         var reports = rRes.data || [];
 
         var fRes = await sb.from('invoice_files')
-          .select('report_id, identifier, filename, is_consolidated, matched_by, page_count, period_start, period_end, invoice_no')
+          .select('report_id, identifier, filename, is_consolidated, matched_by, page_count, period_start, period_end, invoice_no, flags, credits_ref, doc_type')
           .eq('customer_id', cid);
         var files = {};
         (fRes.data || []).forEach(function (f) {
@@ -4471,6 +4476,22 @@
           flags += '<span class="flag">Consolidated bill</span>';
         }
         var rec = match.rec || {};
+        var rf = rec.flags || [];
+        var warn = '';
+        if (rf.indexOf('credit_note') >= 0) {
+          warn += '<div class="inv-warn">This document is a <strong>credit note</strong>, not an invoice' +
+                  (rec.credits_ref ? ' — it credits invoice ' + escapeHtml(rec.credits_ref) : '') + '.</div>';
+        }
+        if (rf.indexOf('credited') >= 0) {
+          warn += '<div class="inv-warn">This invoice was later <strong>credited</strong> by your supplier and re-issued. ' +
+                  'Check the following month for the replacement.</div>';
+        }
+        if (rf.indexOf('period_mismatch') >= 0 && rec.period_start) {
+          warn += '<div class="inv-warn">This bill covers <strong>' + escapeHtml(_invDateUK(rec.period_start) + ' – ' + _invDateUK(rec.period_end)) +
+                  '</strong>, which is outside ' + escapeHtml((report.month || '') + ' ' + (report.year || '')) +
+                  ' — your supplier issued it late.</div>';
+        }
+
         if (rec.period_start) {
           flags += '<span class="flag">' + escapeHtml(_invDateUK(rec.period_start) + ' – ' + _invDateUK(rec.period_end)) + '</span>';
         }
@@ -4487,7 +4508,7 @@
             }).join(' ') + '</div>'
           : '';
 
-        meta.innerHTML = flags +
+        meta.innerHTML = warn + flags +
           '<strong>' + escapeHtml((meter && meter.site_address) || identifier) + '</strong> · ' +
           escapeHtml(identifier) + ' · ' + escapeHtml((report.month || '') + ' ' + (report.year || '')) +
           altHtml +
@@ -8217,7 +8238,36 @@
           var per = parsePeriod(parsed.text) || {};
           var invNo = parseInvoiceNo(parsed.text) ||
                       ((String(name).match(/bill[_\s-]*0*(\d{4,12})/i) || [])[1] || null);
-          var extra = { period_start: per.start || null, period_end: per.end || null, invoice_no: invNo };
+
+          // A credit note names the invoice it reverses — "CreditCR00080347"
+          // credits invoice 00080347. Capture that so the original can be
+          // flagged wherever it appears.
+          var creditsRef = null;
+          if (docType === 'credit_note') {
+            var cm = String(name).match(/CR0*(\d{4,12})/i) ||
+                     String(parsed.text || '').replace(/\s+/g, ' ')
+                       .match(/(?:credit(?:s|ing)?|against|original)\s*(?:invoice)?\s*(?:number|no\.?)?\s*:?\s*0*(\d{4,12})/i);
+            if (cm) creditsRef = cm[1];
+          }
+
+          // Does the service period actually belong to the month this archive
+          // was filed under? A late bill for the previous period is common and
+          // legitimate, but the reader should be told.
+          var fileFlags = [];
+          if (docType === 'credit_note') fileFlags.push('credit_note');
+          if (per.start) {
+            var ps = parseInt(per.start.slice(0, 4), 10) * 100 + parseInt(per.start.slice(5, 7), 10);
+            var pe = per.end ? parseInt(per.end.slice(0, 4), 10) * 100 + parseInt(per.end.slice(5, 7), 10) : ps;
+            var repYm = (parseInt(r.year, 10) || 0) * 100 + (parseInt(r.month_num, 10) || 0);
+            if (repYm && !(ps <= repYm && repYm <= pe)) fileFlags.push('period_mismatch');
+          } else if (docType === 'invoice') {
+            fileFlags.push('no_period');
+          }
+
+          var extra = {
+            period_start: per.start || null, period_end: per.end || null,
+            invoice_no: invNo, credits_ref: creditsRef, flags: fileFlags
+          };
 
           if (hits.length === 1) {
             rows.push({
@@ -8226,7 +8276,8 @@
               matched_by: flatName.indexOf(norm(hits[0].identifier)) >= 0 ? 'filename' : 'pdf_text',
               page_count: parsed.pages, byte_size: byteSize,
               doc_type: docType, account_ref: refs[0] || null, _refs: refs,
-              period_start: extra.period_start, period_end: extra.period_end, invoice_no: extra.invoice_no
+              period_start: extra.period_start, period_end: extra.period_end, invoice_no: extra.invoice_no,
+              credits_ref: extra.credits_ref, flags: extra.flags
             });
           } else if (hits.length > 1) {
             // One document covering several supply points of the same utility.
@@ -8237,7 +8288,8 @@
               identifier: null, filename: name, is_consolidated: true,
               matched_by: 'pdf_text', page_count: parsed.pages, byte_size: byteSize,
               doc_type: docType, account_ref: refs[0] || null, _refs: refs,
-              period_start: extra.period_start, period_end: extra.period_end, invoice_no: extra.invoice_no
+              period_start: extra.period_start, period_end: extra.period_end, invoice_no: extra.invoice_no,
+              credits_ref: extra.credits_ref, flags: extra.flags
             });
           } else {
             var lower = String(parsed.text || '').toLowerCase().replace(/\s+/g, ' ');
@@ -8248,7 +8300,8 @@
                 identifier: null, filename: name, is_consolidated: true,
                 matched_by: 'retailer', page_count: parsed.pages, byte_size: byteSize,
                 doc_type: docType, account_ref: refs[0] || null, _refs: refs,
-              period_start: extra.period_start, period_end: extra.period_end, invoice_no: extra.invoice_no
+              period_start: extra.period_start, period_end: extra.period_end, invoice_no: extra.invoice_no,
+              credits_ref: extra.credits_ref, flags: extra.flags
               });
             } else {
               rows.push({
@@ -8256,7 +8309,8 @@
                 identifier: null, filename: name, is_consolidated: false,
                 matched_by: 'unmatched', page_count: parsed.pages, byte_size: byteSize,
                 doc_type: docType, account_ref: refs[0] || null, _refs: refs,
-              period_start: extra.period_start, period_end: extra.period_end, invoice_no: extra.invoice_no
+              period_start: extra.period_start, period_end: extra.period_end, invoice_no: extra.invoice_no,
+              credits_ref: extra.credits_ref, flags: extra.flags
               });
             }
           }
@@ -8298,6 +8352,37 @@
         });
 
         unmatched = rows.filter(function (row) { return row.matched_by === 'unmatched'; }).length;
+
+        // A credit note may cancel an invoice filed in an earlier month, so look
+        // across the whole customer, not just this archive.
+        var creditRefs = {};
+        rows.forEach(function (row) { if (row.credits_ref) creditRefs[row.credits_ref] = true; });
+        try {
+          var cRes = await sb.from('invoice_files').select('credits_ref')
+            .eq('customer_id', r.customer_id).not('credits_ref', 'is', null).neq('report_id', r.id);
+          (cRes.data || []).forEach(function (c) { creditRefs[c.credits_ref] = true; });
+        } catch (e) { console.warn('[Invoices] credit lookup failed:', e); }
+
+        rows.forEach(function (row) {
+          if (row.invoice_no && creditRefs[String(row.invoice_no).replace(/^0+/, '')] ) row.flags.push('credited');
+          else if (row.invoice_no && creditRefs[row.invoice_no]) row.flags.push('credited');
+        });
+
+        // Flag invoices in earlier months that this archive's credit notes cancel.
+        var newCredits = rows.filter(function (row) { return row.credits_ref; }).map(function (row) { return row.credits_ref; });
+        if (newCredits.length) {
+          try {
+            var pRes = await sb.from('invoice_files')
+              .select('id, invoice_no, flags').eq('customer_id', r.customer_id)
+              .in('invoice_no', newCredits).neq('report_id', r.id);
+            for (var pi = 0; pi < (pRes.data || []).length; pi++) {
+              var pf = pRes.data[pi];
+              if ((pf.flags || []).indexOf('credited') >= 0) continue;
+              await sb.from('invoice_files').update({ flags: (pf.flags || []).concat(['credited']) }).eq('id', pf.id);
+            }
+          } catch (e) { console.warn('[Invoices] back-flagging credited invoices failed:', e); }
+        }
+
         rows.forEach(function (row) { delete row._refs; });
 
         await sb.from('invoice_files').delete().eq('report_id', r.id);
@@ -8306,12 +8391,25 @@
 
         logAction('index_invoices', r.id, { pdfs: names.length, rows: rows.length, unmatched: unmatched });
         if (btn) btn.textContent = unmatched ? '⚠ ' + unmatched + ' unmatched' : '✓ ' + names.length + ' indexed';
+        var nCredit = rows.filter(function (x) { return (x.flags || []).indexOf('credit_note') >= 0; }).length;
+        var offPeriod = rows.filter(function (x) { return (x.flags || []).indexOf('period_mismatch') >= 0; });
         if (!opts.silent) {
           if (unmatched) openUnmatchedModal(r.id);
-          else safeAlert('Indexed ' + names.length + ' invoice' + (names.length === 1 ? '' : 's') + ' for ' +
-                         (r.month || '') + ' ' + (r.year || '') + '. Every document matched to a supply point.', null);
+          else {
+            var note = 'Indexed ' + names.length + ' document' + (names.length === 1 ? '' : 's') + ' for ' +
+                       (r.month || '') + ' ' + (r.year || '') + '. Every one matched to a supply point.';
+            if (nCredit) note += '\n\n' + nCredit + ' credit note' + (nCredit === 1 ? '' : 's') + ' found (not invoices).';
+            if (offPeriod.length) {
+              note += '\n\n' + offPeriod.length + ' bill' + (offPeriod.length === 1 ? '' : 's') +
+                      ' cover a period outside this month:\n' +
+                      offPeriod.slice(0, 6).map(function (x) {
+                        return '  • ' + x.filename.split('/').pop() + '  (' + x.period_start + ' → ' + x.period_end + ')';
+                      }).join('\n');
+            }
+            safeAlert(note, null);
+          }
         }
-        return { total: names.length, unmatched: unmatched };
+        return { total: names.length, unmatched: unmatched, credits: nCredit, offPeriod: offPeriod.length };
       } catch (e) {
         console.error('indexReportInvoices:', e);
         if (!opts.silent) safeAlert('Could not index that archive. ' + (e.message || ''), e);
