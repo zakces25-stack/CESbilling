@@ -8595,6 +8595,57 @@
       }
     }
 
+    // ───── ADMIN: TEST THE NOTIFICATION EMAIL ─────
+    // Runs the real send-report-notification function against the real customer,
+    // so what lands in your inbox is byte-for-byte what the customer receives.
+    // test_to redirects delivery to the admin only — the customer's contacts are
+    // never mailed, so this is safe to run on a live account.
+    async function sendTestNotification() {
+      var modal = document.getElementById('emailsModal');
+      var customerId = modal && modal.dataset.customerId;
+      if (!customerId) return;
+      var to = (currentUser && currentUser.email) || '';
+      if (!to || to.indexOf('@') < 0) { safeAlert('Your admin account has no email address to send a test to.', null); return; }
+
+      var btn = document.getElementById('emailsTestBtn');
+      var errBox = document.getElementById('emailsModalErr');
+      var oldLabel = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Sending…';
+      errBox.style.display = 'none'; errBox.textContent = '';
+      try {
+        // Use the customer's most recent validation period so the subject and
+        // body read exactly as a real send would.
+        var rRes = await sb.from('reports')
+          .select('month, year').eq('customer_id', customerId).eq('report_type', 'bill_validation')
+          .order('year', { ascending: false }).order('month_num', { ascending: false }).limit(1);
+        var latest = (rRes.data || [])[0];
+        var now = new Date();
+        var month = (latest && latest.month) || now.toLocaleDateString('en-GB', { month: 'long' });
+        var year  = (latest && latest.year)  || now.getFullYear();
+
+        var resp = await sb.functions.invoke('send-report-notification', {
+          body: { customer_id: customerId, month: month, year: parseInt(year, 10), test_to: to }
+        });
+        if (resp.error) throw resp.error;
+        var d = resp.data || {};
+        if (d.error) throw new Error(d.error);
+
+        logAction('test_notification', customerId, { to: to, period: month + ' ' + year });
+        var ok = document.getElementById('emailsModalOk');
+        ok.textContent = 'Test sent to ' + to + ' — from ' + (d.from || '?') + ', reply-to ' + (d.reply_to || '?') + '.';
+        ok.classList.add('show');
+        btn.textContent = '✓ Sent';
+      } catch (e) {
+        console.error('sendTestNotification:', e);
+        errBox.textContent = 'Could not send the test. ' + ((e && e.message) || '');
+        errBox.style.display = '';
+        btn.textContent = oldLabel;
+      } finally {
+        btn.disabled = false;
+        setTimeout(function () { if (btn) btn.textContent = oldLabel; }, 3000);
+      }
+    }
+
     // ───── ADMIN: UNMATCHED INVOICES — review and assign by hand ─────
     // Some documents genuinely have no meter number on them (credit notes,
     // summary sheets). Rather than silently dropping them, list them by name and
@@ -10763,6 +10814,10 @@
         <div style="display:flex;gap:10px;margin-top:20px;">
           <button class="btn-primary" id="emailsSaveBtn" onclick="saveCustomerEmails()" style="flex:1;">Save</button>
           <button class="btn-secondary" onclick="closeEmailsModal()" style="flex:1;">Cancel</button>
+        </div>
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line);">
+          <button type="button" class="btn-secondary" id="emailsTestBtn" onclick="sendTestNotification()" style="width:auto;padding:8px 14px;font-size:13px;">Send test to me</button>
+          <div class="form-help" style="margin-top:7px;">Sends the exact notification email to your own address only — the customer's contacts are not emailed.</div>
         </div>
       </div>
     </div>
