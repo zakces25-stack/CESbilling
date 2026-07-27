@@ -8604,8 +8604,23 @@
       var modal = document.getElementById('emailsModal');
       var customerId = modal && modal.dataset.customerId;
       if (!customerId) return;
-      var to = (currentUser && currentUser.email) || '';
-      if (!to || to.indexOf('@') < 0) { safeAlert('Your admin account has no email address to send a test to.', null); return; }
+      // currentUser.email is the synthetic login handle (<username>@portal.cesgb.com)
+      // with no mailbox behind it, so a test sent there would go nowhere. The real
+      // destination is profiles.contact_email — the login address is left alone,
+      // because sign-in derives it from the username and repointing it would lock
+      // the account out.
+      var to = '';
+      try {
+        var pRes = await sb.from('profiles').select('contact_email').eq('id', currentUser.userId).single();
+        to = (pRes.data && pRes.data.contact_email) || '';
+      } catch (e) { console.warn('contact_email lookup:', e); }
+      if (!to && currentUser && currentUser.email && !/@portal\.cesgb\.com$/i.test(currentUser.email)) {
+        to = currentUser.email;
+      }
+      if (!isValidEmail(to)) {
+        safeAlert('No contact email is set for your admin account, so there is nowhere to send the test. Ask CES to set profiles.contact_email.', null);
+        return;
+      }
 
       var btn = document.getElementById('emailsTestBtn');
       var errBox = document.getElementById('emailsModalErr');
