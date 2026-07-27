@@ -8617,10 +8617,15 @@
       if (!to && currentUser && currentUser.email && !/@portal\.cesgb\.com$/i.test(currentUser.email)) {
         to = currentUser.email;
       }
-      if (!isValidEmail(to)) {
+      // contact_email may hold several addresses, so a test can go to an external
+      // inbox and an internal one at once for comparison. Validate each, not the
+      // whole string.
+      var toList = parseEmailList(to).filter(isValidEmail);
+      if (!toList.length) {
         safeAlert('No contact email is set for your admin account, so there is nowhere to send the test. Ask CES to set profiles.contact_email.', null);
         return;
       }
+      to = toList.join(', ');
 
       var btn = document.getElementById('emailsTestBtn');
       var errBox = document.getElementById('emailsModalErr');
