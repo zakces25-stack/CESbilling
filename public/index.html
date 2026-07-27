@@ -7301,10 +7301,12 @@
       try {
         const ids = (data || []).filter(x => x.invoices_path).map(x => x.id);
         if (ids.length) {
-          const iRes = await sb.from('invoice_files').select('report_id, matched_by').in('report_id', ids);
+          const iRes = await sb.from('invoice_files').select('report_id, matched_by, index_version').in('report_id', ids);
           (iRes.data || []).forEach(f => {
-            const s = idx[f.report_id] = idx[f.report_id] || { total: 0, unmatched: 0 };
-            s.total++; if (f.matched_by === 'unmatched') s.unmatched++;
+            const s = idx[f.report_id] = idx[f.report_id] || { total: 0, unmatched: 0, stale: false };
+            s.total++;
+            if (f.matched_by === 'unmatched') s.unmatched++;
+            if ((f.index_version || 1) < INVOICE_INDEX_VERSION) s.stale = true;
           });
         }
       } catch (e) { console.warn('invoice index status:', e); }
@@ -7312,11 +7314,21 @@
 
       // Any archive that has never been indexed gets picked up in the background,
       // so an admin never has to remember to press the button.
-      const pending = (data || []).filter(x => x.invoices_path && x.report_type !== 'occupancy' && !idx[x.id]);
-      if (pending.length && !window._invAutoIndexRunning) {
+      // Never indexed, or indexed by an older build that couldn't read billing
+      // periods / document types — both need a (re)build.
+      const pending = (data || []).filter(x =>
+        x.invoices_path && x.report_type !== 'occupancy' && (!idx[x.id] || idx[x.id].stale));
+      // Only ever attempt a given archive once per page load. Without this, an
+      // archive that stays stale after a rebuild — an older build that doesn't
+      // stamp a version, or a PDF the parser can't read — would be re-indexed
+      // on every table refresh, forever.
+      window._invAutoIndexTried = window._invAutoIndexTried || {};
+      const todo = pending.filter(x => !window._invAutoIndexTried[x.id]);
+      if (todo.length && !window._invAutoIndexRunning) {
         window._invAutoIndexRunning = true;
+        todo.forEach(x => { window._invAutoIndexTried[x.id] = true; });
         (async () => {
-          for (const rep of pending) {
+          for (const rep of todo) {
             try { await indexReportInvoices(rep.id, null, { silent: true }); }
             catch (e) { console.warn('[Invoices] auto-index failed for', rep.id, e); }
           }
@@ -7352,6 +7364,8 @@
             <td style="white-space:nowrap;">${isOcc ? '' : `<button class="btn-secondary" data-action="errors" data-id="${escapeHtml(r.id)}" style="margin-right:6px;padding:6px 10px;font-size:12px;">Errors (${r.fail_count || 0})</button>`}${(!isOcc && r.invoices_path) ? (
   ix && ix.unmatched
     ? `<button class="btn-secondary" data-action="unmatched-invoices" data-id="${escapeHtml(r.id)}" title="Some documents had no meter number — review and assign them" style="margin-right:6px;padding:6px 10px;font-size:12px;border-color:#c9922f;color:#8a6414;">⚠ ${ix.unmatched} unmatched</button>`
+    : ix && ix.stale
+      ? `<button class="btn-secondary" data-action="index-invoices" data-id="${escapeHtml(r.id)}" title="Indexed by an older build — rebuilding to pick up billing periods and document types" style="margin-right:6px;padding:6px 10px;font-size:12px;border-color:#c9922f;color:#8a6414;">Re-indexing…</button>`
     : ix
       ? `<button class="btn-secondary" data-action="index-invoices" data-id="${escapeHtml(r.id)}" title="${ix.total} document(s) indexed — click to rebuild the index" style="margin-right:6px;padding:6px 10px;font-size:12px;">Re-index (${ix.total})</button>`
       : `<button class="btn-secondary" data-action="index-invoices" data-id="${escapeHtml(r.id)}" title="Read each PDF in the archive and match it to a meter" style="margin-right:6px;padding:6px 10px;font-size:12px;">Index invoices</button>`
@@ -8101,6 +8115,11 @@
       }
     }
 
+    // Bump whenever the indexer learns to extract something new. Rows stamped
+    // with an older version are rebuilt automatically — otherwise an archive
+    // indexed by a previous build keeps its stale, incomplete data forever.
+    var INVOICE_INDEX_VERSION = 2;
+
     // ───── ADMIN: INDEX AN INVOICES ARCHIVE ─────
     // Suppliers name invoice PDFs after their own account and bill numbers, not
     // after the MPAN, so the only reliable way to tell which bill belongs to
@@ -8277,7 +8296,7 @@
               page_count: parsed.pages, byte_size: byteSize,
               doc_type: docType, account_ref: refs[0] || null, _refs: refs,
               period_start: extra.period_start, period_end: extra.period_end, invoice_no: extra.invoice_no,
-              credits_ref: extra.credits_ref, flags: extra.flags
+              credits_ref: extra.credits_ref, flags: extra.flags, index_version: INVOICE_INDEX_VERSION
             });
           } else if (hits.length > 1) {
             // One document covering several supply points of the same utility.
@@ -8289,7 +8308,7 @@
               matched_by: 'pdf_text', page_count: parsed.pages, byte_size: byteSize,
               doc_type: docType, account_ref: refs[0] || null, _refs: refs,
               period_start: extra.period_start, period_end: extra.period_end, invoice_no: extra.invoice_no,
-              credits_ref: extra.credits_ref, flags: extra.flags
+              credits_ref: extra.credits_ref, flags: extra.flags, index_version: INVOICE_INDEX_VERSION
             });
           } else {
             var lower = String(parsed.text || '').toLowerCase().replace(/\s+/g, ' ');
@@ -8301,7 +8320,7 @@
                 matched_by: 'retailer', page_count: parsed.pages, byte_size: byteSize,
                 doc_type: docType, account_ref: refs[0] || null, _refs: refs,
               period_start: extra.period_start, period_end: extra.period_end, invoice_no: extra.invoice_no,
-              credits_ref: extra.credits_ref, flags: extra.flags
+              credits_ref: extra.credits_ref, flags: extra.flags, index_version: INVOICE_INDEX_VERSION
               });
             } else {
               rows.push({
@@ -8310,7 +8329,7 @@
                 matched_by: 'unmatched', page_count: parsed.pages, byte_size: byteSize,
                 doc_type: docType, account_ref: refs[0] || null, _refs: refs,
               period_start: extra.period_start, period_end: extra.period_end, invoice_no: extra.invoice_no,
-              credits_ref: extra.credits_ref, flags: extra.flags
+              credits_ref: extra.credits_ref, flags: extra.flags, index_version: INVOICE_INDEX_VERSION
               });
             }
           }
