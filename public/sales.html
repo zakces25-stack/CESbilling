@@ -866,6 +866,28 @@
       .edit-report-modal__body { padding: 14px 16px; }
     }
 
+    /* ───── NOTIFICATION EMAILS (customers table cell + modal) ───── */
+    .cust-email-cell { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .cust-email-list {
+      font-size: 12.5px; font-family: 'JetBrains Mono', monospace; color: var(--text);
+      max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .cust-email-list .none { color: var(--muted); font-family: inherit; font-style: italic; }
+    .cust-email-list .more { color: var(--muted); }
+    .email-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .email-row input {
+      flex: 1; padding: 8px 10px; border: 1.5px solid var(--border); border-radius: 6px;
+      font-size: 13px; font-family: 'JetBrains Mono', monospace; background: var(--surface); color: var(--text);
+    }
+    .email-row input:focus { border-color: var(--navy); outline: none; box-shadow: 0 0 0 3px rgba(47,61,126,0.10); }
+    .email-row input.invalid { border-color: #c0392b; box-shadow: 0 0 0 3px rgba(192,57,43,0.10); }
+    .email-row .email-remove {
+      background: none; border: 1.5px solid var(--border); border-radius: 6px; cursor: pointer;
+      width: 30px; height: 30px; flex: none; line-height: 1; font-size: 17px; color: var(--muted);
+    }
+    .email-row .email-remove:hover { border-color: #c0392b; color: #c0392b; }
+    #emailsList:has(.email-row:only-child) .email-remove { visibility: hidden; }
+
     /* ───── SESSION INACTIVITY MODAL ───── */
     .session-modal {
       position: fixed; inset: 0; z-index: 2000;
@@ -6677,8 +6699,10 @@
           <td>${c.has_logo ? `<img class="cust-table-logo" src="${CUST_LOGOS_BASE}/${encodeURIComponent(c.customer_id)}.png?t=${c._t || ''}" onerror="this.style.display='none'" alt="" />` : ''}<strong>${escapeHtml(c.company_name)}</strong></td>
           <td class="mono">${escapeHtml(c.customer_id)}</td>
           <td>
-            <input type="email" data-email-id="${escapeHtml(c.customer_id)}" value="${escapeHtml(c.notification_email || '')}" placeholder="notify@example.com" style="width:200px;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:12.5px;font-family:'JetBrains Mono', monospace;" />
-            <button class="btn-secondary" data-action="save-email" data-id="${escapeHtml(c.customer_id)}" style="margin-left:6px;padding:6px 10px;font-size:12px;">Save</button>
+            <div class="cust-email-cell">
+              <span class="cust-email-list" data-email-summary="${escapeHtml(c.customer_id)}">${_emailSummaryHtml(c.notification_email)}</span>
+              <button class="btn-secondary" data-action="edit-emails" data-id="${escapeHtml(c.customer_id)}" style="padding:6px 10px;font-size:12px;white-space:nowrap;">Add emails</button>
+            </div>
           </td>
           <td class="mono">${new Date(c.created_at).toLocaleDateString('en-GB')}</td>
           <td style="white-space:nowrap;">
@@ -7288,10 +7312,8 @@
         addCustomerLogo(id);
       } else if (btn.dataset.action === 'remove-logo') {
         removeCustomerLogo(id);
-      } else if (btn.dataset.action === 'save-email') {
-        const input = document.querySelector(`input[data-email-id="${CSS.escape(id)}"]`);
-        const email = input ? input.value.trim() : '';
-        saveCustomerEmail(id, email, btn);
+      } else if (btn.dataset.action === 'edit-emails') {
+        openEmailsModal(id);
       } else if (btn.dataset.action === 'open-portal') {
         openPortalAsCustomer(id);
       }
@@ -7328,26 +7350,117 @@
       loadAdmin();
     }
 
-    async function saveCustomerEmail(customerId, email, btn) {
+    // ───── ADMIN: NOTIFICATION EMAILS (one or many per customer) ─────
+    // Stored in customers.notification_email as a comma-separated list, so a
+    // customer set up with a single address before this change still works.
+    // The report-ready email goes to every address on the list.
+    function parseEmailList(raw) {
+      return String(raw || '')
+        .split(/[,;\s]+/)
+        .map(s => s.trim())
+        .filter(Boolean);
+    }
+    function isValidEmail(s) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s); }
+    function _emailSummaryHtml(raw) {
+      const list = parseEmailList(raw);
+      if (!list.length) return '<span class="none">No email set</span>';
+      const head = escapeHtml(list[0]);
+      return list.length === 1 ? head : head + ' <span class="more">+' + (list.length - 1) + ' more</span>';
+    }
+
+    function openEmailsModal(customerId) {
+      const c = (window._adminCustomers || []).find(x => x.customer_id === customerId);
+      const modal = document.getElementById('emailsModal');
+      if (!modal) return;
+      modal.dataset.customerId = customerId;
+      document.getElementById('emailsModalCust').textContent = (c && c.company_name) || customerId;
+      const ok = document.getElementById('emailsModalOk'); if (ok) ok.classList.remove('show');
+      const err = document.getElementById('emailsModalErr'); if (err) { err.textContent = ''; err.style.display = 'none'; }
+      const list = document.getElementById('emailsList');
+      list.innerHTML = '';
+      const existing = parseEmailList(c && c.notification_email);
+      if (existing.length) existing.forEach(addEmailRow); else addEmailRow('');
+      modal.style.display = '';
+      const first = list.querySelector('input'); if (first) first.focus();
+    }
+    function closeEmailsModal() {
+      const modal = document.getElementById('emailsModal');
+      if (modal) modal.style.display = 'none';
+    }
+    function addEmailRow(value) {
+      const list = document.getElementById('emailsList');
+      if (!list) return;
+      const row = document.createElement('div');
+      row.className = 'email-row';
+      const input = document.createElement('input');
+      input.type = 'email';
+      input.placeholder = 'name@example.com';
+      input.value = typeof value === 'string' ? value : '';
+      input.addEventListener('input', () => input.classList.remove('invalid'));
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); addEmailRow(''); }
+      });
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'email-remove';
+      del.setAttribute('aria-label', 'Remove this email');
+      del.textContent = '×';
+      del.onclick = () => {
+        row.remove();
+        if (!list.querySelector('.email-row')) addEmailRow('');
+      };
+      row.appendChild(input); row.appendChild(del);
+      list.appendChild(row);
+      input.focus();
+    }
+    async function saveCustomerEmails() {
+      const modal = document.getElementById('emailsModal');
+      const customerId = modal && modal.dataset.customerId;
+      if (!customerId) return;
+      const errBox = document.getElementById('emailsModalErr');
+      const inputs = Array.from(document.querySelectorAll('#emailsList input'));
+      errBox.style.display = 'none'; errBox.textContent = '';
+      inputs.forEach(i => i.classList.remove('invalid'));
+
+      const emails = [];
+      let bad = false;
+      inputs.forEach(i => {
+        const v = i.value.trim();
+        if (!v) return;                                  // blank rows are ignored
+        if (!isValidEmail(v)) { i.classList.add('invalid'); bad = true; return; }
+        if (emails.some(e => e.toLowerCase() === v.toLowerCase())) return;  // de-dupe
+        emails.push(v);
+      });
+      if (bad) {
+        errBox.textContent = 'Check the highlighted address — it doesn’t look like a valid email.';
+        errBox.style.display = '';
+        return;
+      }
+
+      const btn = document.getElementById('emailsSaveBtn');
       const oldLabel = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = 'Saving…';
+      btn.disabled = true; btn.textContent = 'Saving…';
       try {
-        // Empty string → store as null (no notification email set)
-        const value = email && email.includes('@') ? email : (email === '' ? null : email);
-        if (email && !email.includes('@')) {
-          safeAlert('Enter a valid email address (must contain @).');
-          return;
-        }
+        const value = emails.length ? emails.join(', ') : null;   // empty → no notifications
         const { error } = await sb.from('customers').update({ notification_email: value }).eq('customer_id', customerId);
         if (error) throw error;
-        btn.textContent = '✓ Saved';
-        setTimeout(() => { btn.textContent = oldLabel; btn.disabled = false; }, 1500);
+        const c = (window._adminCustomers || []).find(x => x.customer_id === customerId);
+        if (c) c.notification_email = value;
+        const cell = document.querySelector(`[data-email-summary="${CSS.escape(customerId)}"]`);
+        if (cell) cell.innerHTML = _emailSummaryHtml(value);
+        logAction('set_notification_emails', customerId, { count: emails.length });
+        const ok = document.getElementById('emailsModalOk');
+        ok.textContent = emails.length
+          ? (emails.length === 1 ? 'Saved. 1 recipient will be notified.' : 'Saved. ' + emails.length + ' recipients will be notified.')
+          : 'Saved. No one will be notified for this customer.';
+        ok.classList.add('show');
+        setTimeout(closeEmailsModal, 900);
       } catch (e) {
-        console.error('saveCustomerEmail:', e);
-        safeAlert('Could not save email. Try again.');
-        btn.textContent = oldLabel;
-        btn.disabled = false;
+        console.error('saveCustomerEmails:', e);
+        errBox.textContent = 'Could not save. Please try again.';
+        errBox.style.display = '';
+      } finally {
+        btn.disabled = false; btn.textContent = oldLabel;
       }
     }
 
@@ -8815,6 +8928,28 @@
       <a href="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/CES_Privacy_Policy_with_ICO_Certificate.pdf" target="_blank" rel="noopener">Privacy Policy</a>
       <a href="https://cesgb.com" target="_blank" rel="noopener">cesgb.com</a>
     </span>
+  </div>
+
+  <!-- NOTIFICATION EMAILS MODAL — one or many recipients per customer -->
+  <div class="edit-report-modal" id="emailsModal" style="display:none;">
+    <div class="edit-report-modal__overlay" onclick="closeEmailsModal()"></div>
+    <div class="edit-report-modal__card">
+      <div class="edit-report-modal__head">
+        <h3>Notification emails — <span id="emailsModalCust"></span></h3>
+        <button class="btn-close" onclick="closeEmailsModal()" aria-label="Close">×</button>
+      </div>
+      <div class="edit-report-modal__body">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Everyone listed here is emailed when a bill validation report is added to this customer's portal. Add as many people at the company as you need.</p>
+        <div class="success-box" id="emailsModalOk">Saved.</div>
+        <div id="emailsList"></div>
+        <button type="button" class="btn-secondary" onclick="addEmailRow('')" style="width:auto;padding:8px 14px;font-size:13px;margin-top:2px;">＋ Add another email</button>
+        <div id="emailsModalErr" style="display:none;margin-top:12px;font-size:13px;font-weight:600;color:#c0392b;"></div>
+        <div style="display:flex;gap:10px;margin-top:20px;">
+          <button class="btn-primary" id="emailsSaveBtn" onclick="saveCustomerEmails()" style="flex:1;">Save</button>
+          <button class="btn-secondary" onclick="closeEmailsModal()" style="flex:1;">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ═══════════════════════════════════════════════════════════════════════
