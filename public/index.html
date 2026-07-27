@@ -28,6 +28,8 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <!-- pdf.js — admin-side only, used to read the meter number out of each invoice PDF when indexing an archive -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.js"></script>
   <!-- Cloudflare Turnstile — human verification on the login form -->
@@ -870,6 +872,50 @@
       .edit-report-modal__body { padding: 14px 16px; }
     }
 
+    /* ───── INVOICE VIEWER ───── */
+    #invFilters .filter-side { flex-direction: row; flex-wrap: wrap; gap: 16px; align-items: flex-end; }
+    #invFilters select {
+      padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+      background: var(--surface); font-size: 13px; color: var(--text); min-width: 260px; max-width: 460px;
+    }
+    #invFilters select:focus { border-color: var(--navy); outline: none; box-shadow: 0 0 0 3px rgba(47,61,126,0.10); }
+    .inv-ref-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .inv-ref-head h3 { font-size: 14px; font-weight: 800; }
+    .inv-ref-toggle {
+      background: none; border: 1px solid var(--border); border-radius: 7px; cursor: pointer;
+      font: inherit; font-size: 12px; font-weight: 700; color: var(--navy); padding: 5px 12px;
+    }
+    .inv-ref-toggle:hover { border-color: var(--navy); }
+    .inv-muted { font-size: 13px; color: var(--muted); }
+    table.inv-ref { width: 100%; border-collapse: collapse; }
+    table.inv-ref th, table.inv-ref td {
+      text-align: left; padding: 7px 10px; font-size: 12.5px; border-bottom: 1px solid var(--line);
+    }
+    table.inv-ref th { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); font-weight: 700; }
+    table.inv-ref td.mono { font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
+    table.inv-ref tr:last-child td { border-bottom: none; }
+    table.inv-ref .util-row td {
+      background: var(--surface-2); font-weight: 800; font-size: 11px; letter-spacing: .5px;
+      text-transform: uppercase; color: var(--navy);
+    }
+    .inv-status { font-size: 13px; font-weight: 600; color: var(--navy); margin-bottom: 10px; min-height: 18px; }
+    .inv-status.err { color: #c0392b; }
+    .inv-docmeta {
+      font-size: 12.5px; color: var(--text-2); background: var(--surface-2);
+      border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px;
+    }
+    .inv-docmeta .fn { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted); word-break: break-all; }
+    .inv-docmeta .flag {
+      display: inline-block; background: rgba(47,61,126,0.08); color: var(--navy);
+      border-radius: 5px; padding: 2px 7px; font-size: 11px; font-weight: 700; margin-right: 6px;
+    }
+    .inv-frame-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface-2); }
+    #invFrame { border: 0; width: 100%; height: 78vh; min-height: 520px; display: block; background: #fff; }
+    @media (max-width: 700px) {
+      #invFilters select { min-width: 100%; }
+      #invFrame { height: 62vh; min-height: 380px; }
+    }
+
     /* ───── NOTIFICATION EMAILS (customers table cell + modal) ───── */
     .cust-email-cell { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .cust-email-list {
@@ -1218,6 +1264,7 @@
         </div>
         <div class="sidebar-nav">
           <div class="nav-item active" data-page="reports">Bill Validation Reports</div>
+          <div class="nav-item" data-page="invoices">Invoice Viewer</div>
           <div class="nav-item" data-page="sites">Site List</div>
           <div class="nav-item" data-page="hhd">Half-Hourly Data</div>
           <div class="nav-item" data-page="compare">Consumption and cost comparison</div>
@@ -1286,6 +1333,51 @@
           <div class="report-grid" id="occupancyGrid"></div>
         </div>
         <!-- Page: Site List -->
+        <!-- Page: Invoice viewer — meter reference list, then pick a meter + month to read the bill -->
+        <div class="dash-section" data-page="invoices" style="display:none;">
+          <div class="section-head">
+            <div>
+              <h2>Invoice viewer</h2>
+              <div class="section-meta">Find any invoice by supply point and month, and read it here without downloading anything.</div>
+            </div>
+          </div>
+
+          <div class="card" id="invMeterRefCard" style="margin-bottom:18px;">
+            <div class="inv-ref-head">
+              <h3>Your supply points</h3>
+              <button type="button" class="inv-ref-toggle" id="invRefToggle" onclick="invToggleRef()" aria-expanded="true">Hide</button>
+            </div>
+            <div id="invMeterRef"><p class="inv-muted">Loading…</p></div>
+          </div>
+
+          <div class="card" style="margin-bottom:18px;">
+            <div class="usage-filters" id="invFilters">
+              <div class="filter-side">
+                <div class="filter-block">
+                  <label>Supply point</label>
+                  <select id="invMeter" onchange="invSelectionChanged()"></select>
+                </div>
+                <div class="filter-block">
+                  <label>Month</label>
+                  <select id="invMonth" onchange="invSelectionChanged()"></select>
+                </div>
+                <div class="filter-block" style="margin-left:auto;">
+                  <label>&nbsp;</label>
+                  <button type="button" class="btn-secondary" id="invDownloadBtn" onclick="invDownloadCurrent()" style="display:none;">Download this invoice</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" id="invViewerCard">
+            <div id="invStatus" class="inv-status"></div>
+            <div id="invDocMeta" class="inv-docmeta" style="display:none;"></div>
+            <div id="invFrameWrap" class="inv-frame-wrap" style="display:none;">
+              <iframe id="invFrame" title="Invoice" referrerpolicy="no-referrer"></iframe>
+            </div>
+            <div id="invEmpty" class="empty-state"><p>Pick a supply point and a month to view the invoice.</p></div>
+          </div>
+        </div>
         <div class="dash-section" data-page="sites" style="display:none;">
           <div class="section-head">
             <div>
@@ -3674,6 +3766,7 @@
       loadSiteList(cid);
       loadComparison(cid);
       loadLeague(cid);
+      loadInvoices(cid);
       // Background-prefetch the most-recent report so the FIRST click is fast.
       (validations || []).slice(0, 3).forEach(function(rep){ prefetchReport(rep); });
     }
@@ -4108,6 +4201,224 @@
       logAction('save_supply_addresses', cid, { count: rows.length });
       _skFlash('saMsg', 'Saved. These addresses now show on the Site List and download.');
     }
+    // ───── INVOICE VIEWER (customer page) ─────
+    // Invoices arrive as one ZIP per month. Rather than make the customer
+    // download a 5MB archive to read one bill, we fetch the ZIP once, keep it
+    // in memory for the session, and pull out the single PDF they asked for.
+    // Which PDF belongs to which meter comes from the invoice_files index that
+    // admin builds at upload time (supplier filenames rarely carry the MPAN).
+    var _inv = { meters: [], reports: [], files: {}, zipCache: {}, blobUrl: null, current: null };
+
+    var INV_UTIL_LABEL = { electricity: 'Electricity (MPAN)', gas: 'Gas (MPRN)', water: 'Water (SPID)' };
+    function _invUtilOrder(u) { return u === 'electricity' ? 0 : u === 'gas' ? 1 : u === 'water' ? 2 : 3; }
+
+    async function loadInvoices(cid) {
+      try {
+        var sRes = await sb.from('sites')
+          .select('utility, identifier, site_address, supplier')
+          .eq('customer_id', cid);
+        var meters = (sRes.data || []).slice().sort(function (a, b) {
+          var d = _invUtilOrder(a.utility) - _invUtilOrder(b.utility);
+          return d !== 0 ? d : String(a.site_address || '').localeCompare(String(b.site_address || ''));
+        });
+
+        var rRes = await sb.from('reports')
+          .select('id, month, year, month_num, invoices_path')
+          .eq('customer_id', cid).eq('report_type', 'bill_validation')
+          .not('invoices_path', 'is', null)
+          .order('year', { ascending: false }).order('month_num', { ascending: false });
+        var reports = rRes.data || [];
+
+        var fRes = await sb.from('invoice_files')
+          .select('report_id, identifier, filename, is_consolidated, matched_by, page_count')
+          .eq('customer_id', cid);
+        var files = {};
+        (fRes.data || []).forEach(function (f) {
+          (files[f.report_id] = files[f.report_id] || []).push(f);
+        });
+
+        _inv.meters = meters; _inv.reports = reports; _inv.files = files;
+        renderInvMeterRef();
+        renderInvPickers();
+        invSelectionChanged();
+      } catch (e) {
+        console.error('invoice viewer load:', e);
+        var ref = document.getElementById('invMeterRef');
+        if (ref) ref.innerHTML = '<p class="inv-muted">Could not load your supply points. Please refresh, or contact CES support.</p>';
+      }
+    }
+
+    // Small reference table at the top: which meter number sits at which site.
+    function renderInvMeterRef() {
+      var host = document.getElementById('invMeterRef'); if (!host) return;
+      if (!_inv.meters.length) { host.innerHTML = '<p class="inv-muted">No supply points on record yet.</p>'; return; }
+      var rows = '', lastUtil = null;
+      _inv.meters.forEach(function (m) {
+        if (m.utility !== lastUtil) {
+          lastUtil = m.utility;
+          rows += '<tr class="util-row"><td colspan="2">' + escapeHtml(INV_UTIL_LABEL[m.utility] || m.utility || 'Other') + '</td></tr>';
+        }
+        rows += '<tr><td class="mono">' + escapeHtml(m.identifier || '') + '</td>' +
+                '<td>' + escapeHtml(m.site_address || '—') + '</td></tr>';
+      });
+      host.innerHTML = '<div style="overflow-x:auto;"><table class="inv-ref">' +
+        '<thead><tr><th>Meter number</th><th>Site</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    }
+    function invToggleRef() {
+      var body = document.getElementById('invMeterRef'), btn = document.getElementById('invRefToggle');
+      if (!body || !btn) return;
+      var hidden = body.style.display === 'none';
+      body.style.display = hidden ? '' : 'none';
+      btn.textContent = hidden ? 'Hide' : 'Show';
+      btn.setAttribute('aria-expanded', hidden ? 'true' : 'false');
+    }
+
+    function renderInvPickers() {
+      var mSel = document.getElementById('invMeter'), pSel = document.getElementById('invMonth');
+      if (!mSel || !pSel) return;
+      var lastUtil = null, html = '';
+      _inv.meters.forEach(function (m) {
+        if (m.utility !== lastUtil) {
+          if (lastUtil !== null) html += '</optgroup>';
+          lastUtil = m.utility;
+          html += '<optgroup label="' + escapeHtml(INV_UTIL_LABEL[m.utility] || m.utility || 'Other') + '">';
+        }
+        html += '<option value="' + escapeHtml(m.identifier) + '">' +
+                escapeHtml((m.site_address || m.identifier) + ' · ' + m.identifier) + '</option>';
+      });
+      if (lastUtil !== null) html += '</optgroup>';
+      mSel.innerHTML = html || '<option value="">No supply points</option>';
+      pSel.innerHTML = _inv.reports.length
+        ? _inv.reports.map(function (r) {
+            return '<option value="' + escapeHtml(r.id) + '">' + escapeHtml((r.month || '') + ' ' + (r.year || '')) + '</option>';
+          }).join('')
+        : '<option value="">No invoices uploaded yet</option>';
+    }
+
+    function _invSetStatus(msg, isErr) {
+      var el = document.getElementById('invStatus'); if (!el) return;
+      el.textContent = msg || '';
+      el.classList.toggle('err', !!isErr);
+    }
+    function _invShowEmpty(msg) {
+      var wrap = document.getElementById('invFrameWrap'), empty = document.getElementById('invEmpty'),
+          meta = document.getElementById('invDocMeta'), dl = document.getElementById('invDownloadBtn');
+      if (wrap) wrap.style.display = 'none';
+      if (meta) meta.style.display = 'none';
+      if (dl) dl.style.display = 'none';
+      if (empty) { empty.style.display = ''; empty.innerHTML = '<p>' + escapeHtml(msg) + '</p>'; }
+      _inv.current = null;
+    }
+
+    // Fetch + unzip a month's archive once, then reuse it for every meter.
+    async function _invGetZip(report) {
+      if (_inv.zipCache[report.id]) return _inv.zipCache[report.id];
+      if (typeof JSZip === 'undefined') throw new Error('The zip engine is still loading — please try again in a moment.');
+      var signed = await sb.storage.from('report-invoices').createSignedUrl(report.invoices_path, 120);
+      if (signed.error) throw signed.error;
+      var resp = await fetch(signed.data.signedUrl);
+      if (!resp.ok) throw new Error('Could not retrieve the invoice archive (' + resp.status + ').');
+      var zip = await JSZip.loadAsync(await resp.arrayBuffer());
+      _inv.zipCache[report.id] = zip;
+      return zip;
+    }
+
+    // Resolve which PDF in this month's ZIP belongs to the chosen meter.
+    // Preferred source is the admin-built index; if a month hasn't been indexed
+    // we still try the filename, so a supplier who does name files by MPAN works.
+    function _invResolveEntry(reportId, identifier, zipNames) {
+      var indexed = (_inv.files[reportId] || []).filter(function (f) { return f.identifier === identifier; });
+      if (indexed.length) return { name: indexed[0].filename, rec: indexed[0], via: 'index' };
+      var flat = String(identifier || '').toUpperCase();
+      var hit = (zipNames || []).filter(function (n) {
+        return n.toUpperCase().replace(/[^0-9A-Z]/g, '').indexOf(flat.replace(/[^0-9A-Z]/g, '')) >= 0;
+      });
+      if (hit.length === 1) return { name: hit[0], rec: null, via: 'filename' };
+      return null;
+    }
+
+    async function invSelectionChanged() {
+      var mSel = document.getElementById('invMeter'), pSel = document.getElementById('invMonth');
+      if (!mSel || !pSel) return;
+      var identifier = mSel.value, reportId = pSel.value;
+      if (!identifier || !reportId) { _invSetStatus(''); _invShowEmpty('Pick a supply point and a month to view the invoice.'); return; }
+      var report = _inv.reports.filter(function (r) { return r.id === reportId; })[0];
+      var meter  = _inv.meters.filter(function (m) { return m.identifier === identifier; })[0];
+      if (!report) { _invShowEmpty('No invoices were uploaded for that month.'); return; }
+
+      _invSetStatus('Opening invoice…');
+      _invShowEmpty('Loading…');
+      try {
+        var zip = await _invGetZip(report);
+        var names = Object.keys(zip.files).filter(function (n) {
+          return !zip.files[n].dir && /\.pdf$/i.test(n);
+        });
+        var match = _invResolveEntry(reportId, identifier, names);
+
+        // Water is usually billed as one consolidated document for every supply
+        // point, so fall back to the account-level bill rather than showing nothing.
+        var consolidated = null;
+        if (!match) {
+          consolidated = (_inv.files[reportId] || []).filter(function (f) {
+            return f.is_consolidated && (!f.utility || f.utility === (meter && meter.utility));
+          })[0];
+          if (consolidated) match = { name: consolidated.filename, rec: consolidated, via: 'consolidated' };
+        }
+        if (!match) {
+          _invSetStatus('');
+          _invShowEmpty(
+            (_inv.files[reportId] && _inv.files[reportId].length)
+              ? 'No invoice for this supply point in ' + (report.month || '') + ' ' + (report.year || '') + '. It may be billed on a different cycle.'
+              : 'This month’s invoices haven’t been indexed yet, so they can’t be opened individually. Please contact CES support.'
+          );
+          return;
+        }
+
+        var blob = await zip.file(match.name).async('blob');
+        var pdfBlob = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
+        if (_inv.blobUrl) { try { URL.revokeObjectURL(_inv.blobUrl); } catch (e) {} }
+        _inv.blobUrl = URL.createObjectURL(pdfBlob);
+        _inv.current = { name: match.name, url: _inv.blobUrl, report: report, identifier: identifier };
+
+        var frame = document.getElementById('invFrame');
+        frame.src = _inv.blobUrl;
+        document.getElementById('invFrameWrap').style.display = '';
+        document.getElementById('invEmpty').style.display = 'none';
+        document.getElementById('invDownloadBtn').style.display = '';
+
+        var meta = document.getElementById('invDocMeta');
+        var flags = '';
+        if (match.via === 'consolidated' || (match.rec && match.rec.is_consolidated)) {
+          flags += '<span class="flag">Consolidated bill</span>';
+        }
+        meta.innerHTML = flags +
+          '<strong>' + escapeHtml((meter && meter.site_address) || identifier) + '</strong> · ' +
+          escapeHtml(identifier) + ' · ' + escapeHtml((report.month || '') + ' ' + (report.year || '')) +
+          ((match.via === 'consolidated')
+            ? '<div style="margin-top:6px;">Your supplier bills these supply points together, so this document covers more than one site.</div>'
+            : '') +
+          '<div class="fn" style="margin-top:6px;">' + escapeHtml(match.name) + '</div>';
+        meta.style.display = '';
+
+        _invSetStatus('');
+        logAction('view_invoice', report.id, { identifier: identifier, file: match.name, via: match.via });
+      } catch (e) {
+        console.error('invoice open:', e);
+        _invSetStatus('Could not open that invoice. Please try again, or contact CES support.', true);
+        _invShowEmpty('Nothing to show.');
+      }
+    }
+
+    function invDownloadCurrent() {
+      if (!_inv.current) return;
+      var a = document.createElement('a');
+      a.href = _inv.current.url;
+      a.download = _inv.current.name.split('/').pop();
+      document.body.appendChild(a); a.click();
+      setTimeout(function () { document.body.removeChild(a); }, 500);
+      logAction('download_invoice', _inv.current.report.id, { identifier: _inv.current.identifier, file: _inv.current.name });
+    }
+
     // ───── SITE LEAGUE TABLE (customer page) ─────
     // Maps each meter identifier (MPAN / SPID) to its physical site, so a site's
     // electricity + water roll up into one ranked row. Unmapped meters fall back
@@ -6835,6 +7146,7 @@
               ? `<button class="btn-secondary" data-action="remove-logo" data-id="${escapeHtml(c.customer_id)}" style="margin-right:6px;">Remove Logo</button>`
               : `<button class="btn-secondary" data-action="add-logo" data-id="${escapeHtml(c.customer_id)}" style="margin-right:6px;">Add Logo</button>`
             }
+            <button class="btn-secondary" data-action="rebrand-reports" data-id="${escapeHtml(c.customer_id)}" title="Rewrite this customer's stored validation reports with their current name and logo" style="margin-right:6px;">Rebrand reports</button>
             <button class="btn-secondary" data-action="open-portal" data-id="${escapeHtml(c.customer_id)}" style="margin-right:6px;">Open portal</button>
           </td>
         </tr>
@@ -6876,7 +7188,7 @@
             <td class="mono">${totalLabel}</td>
             <td class="mono">${files}</td>
             <td class="mono">${fmtDateTimeUK(r.uploaded_at)}</td>
-            <td style="white-space:nowrap;">${isOcc ? '' : `<button class="btn-secondary" data-action="errors" data-id="${escapeHtml(r.id)}" style="margin-right:6px;padding:6px 10px;font-size:12px;">Errors (${r.fail_count || 0})</button>`}<button class="btn-secondary" data-action="edit-report" data-id="${escapeHtml(r.id)}" style="margin-right:6px;padding:6px 10px;font-size:12px;">Edit</button><button class="btn-danger" data-action="delete-report" data-id="${escapeHtml(r.id)}" style="padding:6px 10px;font-size:12px;">Delete</button></td>
+            <td style="white-space:nowrap;">${isOcc ? '' : `<button class="btn-secondary" data-action="errors" data-id="${escapeHtml(r.id)}" style="margin-right:6px;padding:6px 10px;font-size:12px;">Errors (${r.fail_count || 0})</button>`}${(!isOcc && r.invoices_path) ? `<button class="btn-secondary" data-action="index-invoices" data-id="${escapeHtml(r.id)}" title="Read each PDF in the archive and match it to a meter, so customers can open invoices one at a time" style="margin-right:6px;padding:6px 10px;font-size:12px;">Index invoices</button>` : ''}<button class="btn-secondary" data-action="edit-report" data-id="${escapeHtml(r.id)}" style="margin-right:6px;padding:6px 10px;font-size:12px;">Edit</button><button class="btn-danger" data-action="delete-report" data-id="${escapeHtml(r.id)}" style="padding:6px 10px;font-size:12px;">Delete</button></td>
           </tr>
         `;
       }).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:32px;">No reports uploaded yet.</td></tr>';
@@ -7039,6 +7351,15 @@
           }
         } catch (e) {
           console.warn('[Email] Could not invoke function:', e);
+        }
+
+        // ── Index the invoice archive so customers can open bills one at a time ──
+        if (invoicesPath) {
+          try {
+            window._adminReports = (window._adminReports || []).filter(function (x) { return x.id !== reportId; });
+            window._adminReports.push({ id: reportId, customer_id: customerId, invoices_path: invoicesPath, month: month, year: parseInt(year) });
+            await indexReportInvoices(reportId, null);
+          } catch (e) { console.warn('[Invoices] auto-index failed:', e); }
         }
 
         document.getElementById('upHtmlFile').value     = '';
@@ -7435,6 +7756,10 @@
         removeCustomerLogo(id);
       } else if (btn.dataset.action === 'edit-emails') {
         openEmailsModal(id);
+      } else if (btn.dataset.action === 'index-invoices') {
+        indexReportInvoices(id, btn);
+      } else if (btn.dataset.action === 'rebrand-reports') {
+        rebrandCustomerReports(id, btn);
       } else if (btn.dataset.action === 'open-portal') {
         openPortalAsCustomer(id);
       }
@@ -7469,6 +7794,254 @@
       logAction('impersonate_end', null, {});
       showPage('adminPage');
       loadAdmin();
+    }
+
+    // ───── ADMIN: REBRAND STORED REPORTS ─────
+    // Validation reports are self-contained HTML with the customer's name and
+    // logo baked in at generation time, so a rename or a new logo leaves every
+    // historical report showing the old branding. This rewrites the stored files
+    // in place: it scans first and shows exactly what it found, and only writes
+    // after the admin confirms. Re-uploading bumps uploaded_at, which is part of
+    // the report cache key, so viewers pick the new file up immediately.
+    var REBRAND_LOGO_RE = /(window\.CUSTOMER_LOGO_DATA_URL\s*=\s*)(["'])data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]+\2/g;
+
+    async function _rebrandFetchLogoDataUrl(customerId) {
+      var url = CUST_LOGOS_BASE + '/' + encodeURIComponent(customerId) + '.png?t=' + Date.now();
+      var resp = await fetch(url, { cache: 'no-store' });
+      if (!resp.ok) throw new Error('No logo found for this customer. Upload one with "Add Logo" first.');
+      var blob = await resp.blob();
+      if (!blob.size) throw new Error('The stored logo file is empty. Re-upload it with "Add Logo".');
+      return await new Promise(function (res, rej) {
+        var fr = new FileReader();
+        fr.onload = function () { res(fr.result); };
+        fr.onerror = function () { rej(new Error('Could not read the logo file.')); };
+        fr.readAsDataURL(blob);
+      });
+    }
+
+    async function rebrandCustomerReports(customerId, btn) {
+      var cust = (window._adminCustomers || []).find(function (x) { return x.customer_id === customerId; });
+      var newName = (cust && cust.company_name) || customerId;
+      var oldLabel = btn ? btn.textContent : '';
+      if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
+      try {
+        var logoDataUrl = await _rebrandFetchLogoDataUrl(customerId);
+
+        var rRes = await sb.from('reports')
+          .select('id, month, year, html_path, uploaded_at')
+          .eq('customer_id', customerId).eq('report_type', 'bill_validation')
+          .not('html_path', 'is', null)
+          .order('year', { ascending: false });
+        var reports = rRes.data || [];
+        if (!reports.length) throw new Error('This customer has no validation reports to rebrand.');
+
+        // Phase 1 — scan. Collect the current client strings so the admin can
+        // see what is actually in the files rather than trusting a guess.
+        var scanned = [], namesFound = {};
+        for (var i = 0; i < reports.length; i++) {
+          if (btn) btn.textContent = 'Scanning ' + (i + 1) + '/' + reports.length + '…';
+          var dl = await sb.storage.from('report-html').download(reports[i].html_path);
+          if (dl.error) { console.warn('rebrand scan skip', reports[i].id, dl.error); continue; }
+          var html = await dl.data.text();
+          // The generator writes meta as {'client': '...'}, so the key itself is
+          // usually quoted; allow both that and the bare client: "..." form.
+          var mClient = html.match(/["']?client["']?\s*:\s*(["'])([^"']{2,120})\1/);
+          var mTitle  = html.match(/<title>([^<]{0,200})<\/title>/i);
+          var clientVal = mClient ? mClient[2] : null;
+          if (clientVal) namesFound[clientVal] = (namesFound[clientVal] || 0) + 1;
+          scanned.push({ r: reports[i], html: html, client: clientVal, title: mTitle ? mTitle[1] : null,
+                         logoHits: (html.match(REBRAND_LOGO_RE) || []).length });
+        }
+        if (!scanned.length) throw new Error('None of the report files could be downloaded.');
+
+        var distinct = Object.keys(namesFound);
+        var stale = distinct.filter(function (n) { return n !== newName; });
+        // A report titled "Acme Ltd - Bill Validation" alongside a meta.client of
+        // "Acme Ltd t/a Brand" would otherwise leave the title untouched, so also
+        // target the name with any trailing "t/a ..." trimmed off.
+        stale.forEach(function (n) {
+          var core = n.replace(/\s+t\/a\s+.*$/i, '').trim();
+          if (core && core !== n && core !== newName && stale.indexOf(core) < 0) stale.push(core);
+        });
+        // Longest first, so the more specific string is consumed before its prefix.
+        stale.sort(function (a, b) { return b.length - a.length; });
+        var totalLogos = scanned.reduce(function (a, s) { return a + s.logoHits; }, 0);
+
+        var summary =
+          'Rebrand ' + scanned.length + ' report' + (scanned.length === 1 ? '' : 's') + ' for ' + newName + '?\n\n' +
+          'Client name in the files:\n' +
+          (distinct.length ? distinct.map(function (n) { return '  • "' + n + '"  ×' + namesFound[n]; }).join('\n')
+                           : '  • (none found)') + '\n\n' +
+          'Will be set to: "' + newName + '"' +
+          (stale.length ? '' : '\n(The name already matches — only the logo will change.)') + '\n\n' +
+          'Embedded logo found in ' + totalLogos + ' of ' + scanned.length + ' report(s); each will be replaced with the current customer logo.\n\n' +
+          'The existing files are overwritten. Continue?';
+        if (!confirm(summary)) { if (btn) { btn.disabled = false; btn.textContent = oldLabel; } return; }
+
+        // Phase 2 — rewrite and re-upload.
+        var written = 0, changedLogo = 0, changedName = 0;
+        for (var j = 0; j < scanned.length; j++) {
+          var s = scanned[j];
+          if (btn) btn.textContent = 'Writing ' + (j + 1) + '/' + scanned.length + '…';
+          var out = s.html, before = out;
+
+          out = out.replace(REBRAND_LOGO_RE, function (_m, lhs, q) {
+            return lhs + q + logoDataUrl + q;
+          });
+          if (out !== before) changedLogo++;
+
+          var beforeName = out;
+          stale.forEach(function (oldName) {
+            out = out.split(oldName).join(newName);
+          });
+          if (out !== beforeName) changedName++;
+
+          if (out === s.html) continue;   // nothing to do for this file
+
+          var up = await sb.storage.from('report-html').upload(s.r.html_path, new Blob([out], { type: 'text/html; charset=utf-8' }), {
+            upsert: true, contentType: 'text/html; charset=utf-8'
+          });
+          if (up.error) { console.error('rebrand upload', s.r.id, up.error); continue; }
+          // Bust the version-keyed report cache for everyone.
+          await sb.from('reports').update({ uploaded_at: new Date().toISOString() }).eq('id', s.r.id);
+          written++;
+        }
+
+        try { window._reportCache = {}; if (window.caches) await caches.delete('ces-reports'); } catch (e) {}
+        logAction('rebrand_reports', customerId, { scanned: scanned.length, written: written, name: newName });
+        safeAlert('Rebranded ' + written + ' of ' + scanned.length + ' report(s).\n\n' +
+                  'Logo replaced in ' + changedLogo + '\nName updated in ' + changedName, null);
+      } catch (e) {
+        console.error('rebrandCustomerReports:', e);
+        safeAlert('Rebrand failed. ' + (e.message || ''), e);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = oldLabel; }
+      }
+    }
+
+    // ───── ADMIN: INDEX AN INVOICES ARCHIVE ─────
+    // Suppliers name invoice PDFs after their own account and bill numbers, not
+    // after the MPAN, so the only reliable way to tell which bill belongs to
+    // which meter is to read the meter number printed inside the PDF. We do that
+    // once, here, and store the result in invoice_files — the customer viewer
+    // then opens a single bill instantly without parsing anything.
+    async function _invPdfText(bytes) {
+      if (typeof pdfjsLib === 'undefined') throw new Error('pdf.js is still loading — try again in a moment.');
+      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc =
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      }
+      var doc = await pdfjsLib.getDocument({ data: bytes }).promise;
+      var out = [];
+      for (var p = 1; p <= doc.numPages; p++) {
+        var page = await doc.getPage(p);
+        var tc = await page.getTextContent();
+        out.push(tc.items.map(function (i) { return i.str; }).join(' '));
+      }
+      var pages = doc.numPages;
+      try { await doc.destroy(); } catch (e) {}
+      return { text: out.join(' '), pages: pages };
+    }
+
+    async function indexReportInvoices(reportId, btn) {
+      var r = (window._adminReports || []).find(function (x) { return x.id === reportId; });
+      if (!r || !r.invoices_path) { safeAlert('That report has no invoice archive.', null); return; }
+      var oldLabel = btn ? btn.textContent : '';
+      if (btn) { btn.disabled = true; btn.textContent = 'Indexing…'; }
+      try {
+        var mRes = await sb.from('sites').select('utility, identifier').eq('customer_id', r.customer_id);
+        var meters = mRes.data || [];
+        if (!meters.length) throw new Error('No supply points on record for this customer — upload a report first so the site list is populated.');
+
+        var signed = await sb.storage.from('report-invoices').createSignedUrl(r.invoices_path, 300);
+        if (signed.error) throw signed.error;
+        var resp = await fetch(signed.data.signedUrl);
+        if (!resp.ok) throw new Error('Could not download the archive (' + resp.status + ').');
+        var zip = await JSZip.loadAsync(await resp.arrayBuffer());
+        var names = Object.keys(zip.files).filter(function (n) { return !zip.files[n].dir && /\.pdf$/i.test(n); });
+        if (!names.length) throw new Error('No PDFs found inside the archive.');
+
+        // Compare on digits/letters only — PDFs often break the number with spaces.
+        var norm = function (s) { return String(s || '').toUpperCase().replace(/[^0-9A-Z]/g, ''); };
+        // Water retailers bill every supply point on one consolidated document
+        // that never prints the individual SPIDs, so a meter-number search finds
+        // nothing. Fall back to recognising the retailer and tagging it as the
+        // account-level water bill.
+        var WATER_RETAILERS = ['water2business', 'castle water', 'water plus', 'wave utilities',
+          'business stream', 'everflow', 'ses water', 'clear business water',
+          'source for business', 'smarta water', 'yorkshire water', 'severn trent'];
+        var rows = [], unmatched = 0;
+
+        for (var i = 0; i < names.length; i++) {
+          var name = names[i];
+          if (btn) btn.textContent = 'Indexing ' + (i + 1) + '/' + names.length + '…';
+          var bytes = await zip.file(name).async('uint8array');
+          var byteSize = bytes.length, parsed = { text: '', pages: null };
+          try { parsed = await _invPdfText(bytes); } catch (e) { console.warn('pdf text failed for', name, e); }
+          var flatText = norm(parsed.text), flatName = norm(name);
+
+          var hits = meters.filter(function (m) {
+            var id = norm(m.identifier);
+            return id && (flatText.indexOf(id) >= 0 || flatName.indexOf(id) >= 0);
+          });
+
+          if (hits.length === 1) {
+            rows.push({
+              report_id: r.id, customer_id: r.customer_id, utility: hits[0].utility,
+              identifier: hits[0].identifier, filename: name, is_consolidated: false,
+              matched_by: flatName.indexOf(norm(hits[0].identifier)) >= 0 ? 'filename' : 'pdf_text',
+              page_count: parsed.pages, byte_size: byteSize
+            });
+          } else if (hits.length > 1) {
+            // One document covering several supply points of the same utility.
+            var utils = {}; hits.forEach(function (h) { utils[h.utility] = 1; });
+            var only = Object.keys(utils).length === 1 ? Object.keys(utils)[0] : null;
+            rows.push({
+              report_id: r.id, customer_id: r.customer_id, utility: only,
+              identifier: null, filename: name, is_consolidated: true,
+              matched_by: 'pdf_text', page_count: parsed.pages, byte_size: byteSize
+            });
+          } else {
+            var lower = String(parsed.text || '').toLowerCase().replace(/\s+/g, ' ');
+            var isWater = WATER_RETAILERS.some(function (k) { return lower.indexOf(k) >= 0; });
+            if (isWater) {
+              rows.push({
+                report_id: r.id, customer_id: r.customer_id, utility: 'water',
+                identifier: null, filename: name, is_consolidated: true,
+                matched_by: 'retailer', page_count: parsed.pages, byte_size: byteSize
+              });
+            } else {
+              unmatched++;
+              rows.push({
+                report_id: r.id, customer_id: r.customer_id, utility: null,
+                identifier: null, filename: name, is_consolidated: false,
+                matched_by: 'unmatched', page_count: parsed.pages, byte_size: byteSize
+              });
+            }
+          }
+        }
+
+        await sb.from('invoice_files').delete().eq('report_id', r.id);
+        var ins = await sb.from('invoice_files').insert(rows);
+        if (ins.error) throw ins.error;
+
+        logAction('index_invoices', r.id, { pdfs: names.length, rows: rows.length, unmatched: unmatched });
+        if (btn) btn.textContent = '✓ ' + names.length + ' indexed';
+        safeAlert(
+          'Indexed ' + names.length + ' invoice' + (names.length === 1 ? '' : 's') + ' for ' +
+          (r.month || '') + ' ' + (r.year || '') + '.\n\n' +
+          'Matched to a meter: ' + (names.length - unmatched) + '\n' +
+          'Not matched: ' + unmatched +
+          (unmatched ? '\n\nUnmatched bills stay in the archive and can still be downloaded — they just cannot be opened per meter.' : ''),
+          null
+        );
+      } catch (e) {
+        console.error('indexReportInvoices:', e);
+        safeAlert('Could not index that archive. ' + (e.message || ''), e);
+        if (btn) btn.textContent = oldLabel;
+      } finally {
+        if (btn) { btn.disabled = false; setTimeout(function () { if (btn) btn.textContent = oldLabel; }, 2500); }
+      }
     }
 
     // ───── ADMIN: NOTIFICATION EMAILS (one or many per customer) ─────
