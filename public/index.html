@@ -879,13 +879,25 @@
       background: var(--surface); font-size: 13px; color: var(--text); min-width: 260px; max-width: 460px;
     }
     #invFilters select:focus { border-color: var(--navy); outline: none; box-shadow: 0 0 0 3px rgba(47,61,126,0.10); }
-    .inv-ref-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-    .inv-ref-head h3 { font-size: 14px; font-weight: 800; }
-    .inv-ref-toggle {
-      background: none; border: 1px solid var(--border); border-radius: 7px; cursor: pointer;
-      font: inherit; font-size: 12px; font-weight: 700; color: var(--navy); padding: 5px 12px;
+    /* Collapsed by default — the whole header is the click target */
+    .inv-ref-card { padding-top: 0; padding-bottom: 0; }
+    .inv-ref-head {
+      display: flex; align-items: center; gap: 10px; width: 100%;
+      background: none; border: 0; cursor: pointer; font: inherit; text-align: left;
+      padding: 16px 0; color: var(--text);
     }
-    .inv-ref-toggle:hover { border-color: var(--navy); }
+    .inv-ref-head:hover .inv-ref-title, .inv-ref-head:hover .inv-ref-hint { color: var(--navy); }
+    .inv-ref-head:focus-visible { outline: 2px solid var(--navy); outline-offset: 3px; border-radius: 6px; }
+    .inv-ref-chev {
+      font-size: 20px; line-height: 1; color: var(--muted); transition: transform .18s ease;
+      display: inline-block; transform: rotate(90deg);
+    }
+    .inv-ref-card.collapsed .inv-ref-chev { transform: rotate(0deg); }
+    .inv-ref-title { font-size: 14px; font-weight: 800; }
+    .inv-ref-count { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+    .inv-ref-hint { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--muted); }
+    .inv-ref-body { padding-bottom: 16px; }
+    .inv-ref-card.collapsed .inv-ref-body { display: none; }
     .inv-muted { font-size: 13px; color: var(--muted); }
     table.inv-ref { width: 100%; border-collapse: collapse; }
     table.inv-ref th, table.inv-ref td {
@@ -915,6 +927,27 @@
       #invFilters select { min-width: 100%; }
       #invFrame { height: 62vh; min-height: 380px; }
     }
+
+    /* ───── UNMATCHED INVOICES MODAL ───── */
+    .um-row {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      padding: 12px 0; border-bottom: 1px solid var(--line);
+    }
+    .um-row:last-of-type { border-bottom: none; }
+    .um-file { flex: 1 1 300px; min-width: 0; }
+    .um-badge {
+      display: inline-block; background: rgba(47,61,126,0.08); color: var(--navy);
+      border-radius: 5px; padding: 2px 7px; font-size: 10.5px; font-weight: 800;
+      text-transform: uppercase; letter-spacing: .4px; margin-right: 7px;
+    }
+    .um-name { font-family: 'JetBrains Mono', monospace; font-size: 12px; word-break: break-all; }
+    .um-meta { display: block; font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+    .um-actions { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; }
+    .um-select {
+      padding: 7px 9px; border: 1.5px solid var(--border); border-radius: 6px;
+      font-size: 12.5px; background: var(--surface); color: var(--text); max-width: 300px;
+    }
+    .um-select:focus { border-color: var(--navy); outline: none; box-shadow: 0 0 0 3px rgba(47,61,126,0.10); }
 
     /* ───── NOTIFICATION EMAILS (customers table cell + modal) ───── */
     .cust-email-cell { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -1264,12 +1297,12 @@
         </div>
         <div class="sidebar-nav">
           <div class="nav-item active" data-page="reports">Bill Validation Reports</div>
-          <div class="nav-item" data-page="invoices">Invoice Viewer</div>
           <div class="nav-item" data-page="sites">Site List</div>
           <div class="nav-item" data-page="hhd">Half-Hourly Data</div>
           <div class="nav-item" data-page="compare">Consumption and cost comparison</div>
           <div class="nav-item" data-page="usage">Carbon Reporting</div>
           <div class="nav-item" data-page="league">League Table</div>
+          <div class="nav-item" data-page="invoices">Invoice Viewer</div>
         </div>
         <div class="sidebar-foot">
           <button class="signout-btn" onclick="doSignOut()">Sign out</button>
@@ -1342,12 +1375,14 @@
             </div>
           </div>
 
-          <div class="card" id="invMeterRefCard" style="margin-bottom:18px;">
-            <div class="inv-ref-head">
-              <h3>Your supply points</h3>
-              <button type="button" class="inv-ref-toggle" id="invRefToggle" onclick="invToggleRef()" aria-expanded="true">Hide</button>
-            </div>
-            <div id="invMeterRef"><p class="inv-muted">Loading…</p></div>
+          <div class="card inv-ref-card collapsed" id="invMeterRefCard" style="margin-bottom:18px;">
+            <button type="button" class="inv-ref-head" id="invRefToggle" onclick="invToggleRef()" aria-expanded="false" aria-controls="invMeterRef">
+              <span class="inv-ref-chev" aria-hidden="true">›</span>
+              <span class="inv-ref-title">Your supply points</span>
+              <span class="inv-ref-count" id="invRefCount"></span>
+              <span class="inv-ref-hint" id="invRefHint">Show</span>
+            </button>
+            <div id="invMeterRef" class="inv-ref-body"><p class="inv-muted">Loading…</p></div>
           </div>
 
           <div class="card" style="margin-bottom:18px;">
@@ -4251,6 +4286,15 @@
     // Small reference table at the top: which meter number sits at which site.
     function renderInvMeterRef() {
       var host = document.getElementById('invMeterRef'); if (!host) return;
+      var countEl = document.getElementById('invRefCount');
+      if (countEl) {
+        var byUtil = {};
+        _inv.meters.forEach(function (m) { byUtil[m.utility] = (byUtil[m.utility] || 0) + 1; });
+        countEl.textContent = Object.keys(byUtil).length
+          ? '· ' + Object.keys(byUtil).sort(function (a, b) { return _invUtilOrder(a) - _invUtilOrder(b); })
+              .map(function (u) { return byUtil[u] + ' ' + u; }).join(', ')
+          : '';
+      }
       if (!_inv.meters.length) { host.innerHTML = '<p class="inv-muted">No supply points on record yet.</p>'; return; }
       var rows = '', lastUtil = null;
       _inv.meters.forEach(function (m) {
@@ -4265,12 +4309,12 @@
         '<thead><tr><th>Meter number</th><th>Site</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
     }
     function invToggleRef() {
-      var body = document.getElementById('invMeterRef'), btn = document.getElementById('invRefToggle');
-      if (!body || !btn) return;
-      var hidden = body.style.display === 'none';
-      body.style.display = hidden ? '' : 'none';
-      btn.textContent = hidden ? 'Hide' : 'Show';
-      btn.setAttribute('aria-expanded', hidden ? 'true' : 'false');
+      var card = document.getElementById('invMeterRefCard'), btn = document.getElementById('invRefToggle'),
+          hint = document.getElementById('invRefHint');
+      if (!card || !btn) return;
+      var nowOpen = card.classList.toggle('collapsed') === false;
+      btn.setAttribute('aria-expanded', nowOpen ? 'true' : 'false');
+      if (hint) hint.textContent = nowOpen ? 'Hide' : 'Show';
     }
 
     function renderInvPickers() {
@@ -7165,8 +7209,40 @@
       const tbody = document.getElementById('adminReportTable');
       if (error) { console.error('Admin reports load:', error); tbody.innerHTML = `<tr><td colspan="8">Could not load reports. Check the console for details.</td></tr>`; return; }
       window._adminReports = data || [];
+
+      // Index status per report, so the row can show "Index invoices" vs a
+      // warning that some documents still need assigning.
+      const idx = {};
+      try {
+        const ids = (data || []).filter(x => x.invoices_path).map(x => x.id);
+        if (ids.length) {
+          const iRes = await sb.from('invoice_files').select('report_id, matched_by').in('report_id', ids);
+          (iRes.data || []).forEach(f => {
+            const s = idx[f.report_id] = idx[f.report_id] || { total: 0, unmatched: 0 };
+            s.total++; if (f.matched_by === 'unmatched') s.unmatched++;
+          });
+        }
+      } catch (e) { console.warn('invoice index status:', e); }
+      window._invIndexStatus = idx;
+
+      // Any archive that has never been indexed gets picked up in the background,
+      // so an admin never has to remember to press the button.
+      const pending = (data || []).filter(x => x.invoices_path && x.report_type !== 'occupancy' && !idx[x.id]);
+      if (pending.length && !window._invAutoIndexRunning) {
+        window._invAutoIndexRunning = true;
+        (async () => {
+          for (const rep of pending) {
+            try { await indexReportInvoices(rep.id, null, { silent: true }); }
+            catch (e) { console.warn('[Invoices] auto-index failed for', rep.id, e); }
+          }
+          window._invAutoIndexRunning = false;
+          refreshAdminReportTable();
+        })();
+      }
+
       tbody.innerHTML = (data || []).map(r => {
         const isOcc = r.report_type === 'occupancy';
+        const ix = idx[r.id];
         const typeLabel = isOcc
           ? '<span class="badge badge-warn"><span class="bdot"></span>Occupancy</span>'
           : '<span class="badge badge-ok"><span class="bdot"></span>Validation</span>';
@@ -7188,7 +7264,13 @@
             <td class="mono">${totalLabel}</td>
             <td class="mono">${files}</td>
             <td class="mono">${fmtDateTimeUK(r.uploaded_at)}</td>
-            <td style="white-space:nowrap;">${isOcc ? '' : `<button class="btn-secondary" data-action="errors" data-id="${escapeHtml(r.id)}" style="margin-right:6px;padding:6px 10px;font-size:12px;">Errors (${r.fail_count || 0})</button>`}${(!isOcc && r.invoices_path) ? `<button class="btn-secondary" data-action="index-invoices" data-id="${escapeHtml(r.id)}" title="Read each PDF in the archive and match it to a meter, so customers can open invoices one at a time" style="margin-right:6px;padding:6px 10px;font-size:12px;">Index invoices</button>` : ''}<button class="btn-secondary" data-action="edit-report" data-id="${escapeHtml(r.id)}" style="margin-right:6px;padding:6px 10px;font-size:12px;">Edit</button><button class="btn-danger" data-action="delete-report" data-id="${escapeHtml(r.id)}" style="padding:6px 10px;font-size:12px;">Delete</button></td>
+            <td style="white-space:nowrap;">${isOcc ? '' : `<button class="btn-secondary" data-action="errors" data-id="${escapeHtml(r.id)}" style="margin-right:6px;padding:6px 10px;font-size:12px;">Errors (${r.fail_count || 0})</button>`}${(!isOcc && r.invoices_path) ? (
+  ix && ix.unmatched
+    ? `<button class="btn-secondary" data-action="unmatched-invoices" data-id="${escapeHtml(r.id)}" title="Some documents had no meter number — review and assign them" style="margin-right:6px;padding:6px 10px;font-size:12px;border-color:#c9922f;color:#8a6414;">⚠ ${ix.unmatched} unmatched</button>`
+    : ix
+      ? `<button class="btn-secondary" data-action="index-invoices" data-id="${escapeHtml(r.id)}" title="${ix.total} document(s) indexed — click to rebuild the index" style="margin-right:6px;padding:6px 10px;font-size:12px;">Re-index (${ix.total})</button>`
+      : `<button class="btn-secondary" data-action="index-invoices" data-id="${escapeHtml(r.id)}" title="Read each PDF in the archive and match it to a meter" style="margin-right:6px;padding:6px 10px;font-size:12px;">Index invoices</button>`
+) : ''}<button class="btn-secondary" data-action="edit-report" data-id="${escapeHtml(r.id)}" style="margin-right:6px;padding:6px 10px;font-size:12px;">Edit</button><button class="btn-danger" data-action="delete-report" data-id="${escapeHtml(r.id)}" style="padding:6px 10px;font-size:12px;">Delete</button></td>
           </tr>
         `;
       }).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:32px;">No reports uploaded yet.</td></tr>';
@@ -7757,7 +7839,9 @@
       } else if (btn.dataset.action === 'edit-emails') {
         openEmailsModal(id);
       } else if (btn.dataset.action === 'index-invoices') {
-        indexReportInvoices(id, btn);
+        indexReportInvoices(id, btn).catch(function () { /* already surfaced */ });
+      } else if (btn.dataset.action === 'unmatched-invoices') {
+        openUnmatchedModal(id);
       } else if (btn.dataset.action === 'rebrand-reports') {
         rebrandCustomerReports(id, btn);
       } else if (btn.dataset.action === 'open-portal') {
@@ -7943,9 +8027,10 @@
       return { text: out.join(' '), pages: pages };
     }
 
-    async function indexReportInvoices(reportId, btn) {
+    async function indexReportInvoices(reportId, btn, opts) {
+      opts = opts || {};
       var r = (window._adminReports || []).find(function (x) { return x.id === reportId; });
-      if (!r || !r.invoices_path) { safeAlert('That report has no invoice archive.', null); return; }
+      if (!r || !r.invoices_path) { if (!opts.silent) safeAlert('That report has no invoice archive.', null); return; }
       var oldLabel = btn ? btn.textContent : '';
       if (btn) { btn.disabled = true; btn.textContent = 'Indexing…'; }
       try {
@@ -7963,6 +8048,33 @@
 
         // Compare on digits/letters only — PDFs often break the number with spaces.
         var norm = function (s) { return String(s || '').toUpperCase().replace(/[^0-9A-Z]/g, ''); };
+
+        // What kind of document is this? A credit note or a summary sheet is not
+        // a per-meter invoice, so saying "unmatched" about it is misleading.
+        var classifyDoc = function (name, text) {
+          var n = String(name || '').toLowerCase(), t = String(text || '').toLowerCase().replace(/\s+/g, ' ');
+          if (/credit\s*note/.test(t) || /(^|\/)credit/.test(n) || /creditcr/.test(n)) return 'credit_note';
+          if (/summary[_ -]?report/.test(n) || /summary of charges|consolidated summary/.test(t)) return 'summary';
+          if (/statement of account/.test(t) && !/vat invoice|tax invoice/.test(t)) return 'statement';
+          return 'invoice';
+        };
+        // Supplier account / customer references, from the filename and the page.
+        // An account number is stable per meter, so once learned it matches in
+        // later months. Deliberately narrow: only take a reference that is
+        // labelled as one, or the leading account number in an
+        // "<account>_invoice_<billno>.pdf" style name. Bill and invoice numbers
+        // change every month, so letting those into the map would be worse than
+        // useless — they could match the wrong meter later.
+        var refTokens = function (name, text) {
+          var out = {}, m;
+          var base = String(name || '').split('/').pop();
+          var mn = base.match(/account[_\s-]*([A-Z0-9]{6,12})/i) || base.match(/^(\d{7,12})(?=[^0-9])/);
+          if (mn) out[mn[1].toUpperCase()] = 1;
+          var re = /(?:account|customer|acc)(?:\s*(?:number|no\.?|ref(?:erence)?))?\s*[:#]?\s*([A-Z0-9][A-Z0-9-]{5,15})/gi;
+          var txt = String(text || '');
+          while ((m = re.exec(txt)) !== null) out[m[1].toUpperCase()] = 1;
+          return Object.keys(out);
+        };
         // Water retailers bill every supply point on one consolidated document
         // that never prints the individual SPIDs, so a meter-number search finds
         // nothing. Fall back to recognising the retailer and tagging it as the
@@ -7985,12 +8097,16 @@
             return id && (flatText.indexOf(id) >= 0 || flatName.indexOf(id) >= 0);
           });
 
+          var docType = classifyDoc(name, parsed.text);
+          var refs = refTokens(name, parsed.text);
+
           if (hits.length === 1) {
             rows.push({
               report_id: r.id, customer_id: r.customer_id, utility: hits[0].utility,
               identifier: hits[0].identifier, filename: name, is_consolidated: false,
               matched_by: flatName.indexOf(norm(hits[0].identifier)) >= 0 ? 'filename' : 'pdf_text',
-              page_count: parsed.pages, byte_size: byteSize
+              page_count: parsed.pages, byte_size: byteSize,
+              doc_type: docType, account_ref: refs[0] || null, _refs: refs
             });
           } else if (hits.length > 1) {
             // One document covering several supply points of the same utility.
@@ -7999,7 +8115,8 @@
             rows.push({
               report_id: r.id, customer_id: r.customer_id, utility: only,
               identifier: null, filename: name, is_consolidated: true,
-              matched_by: 'pdf_text', page_count: parsed.pages, byte_size: byteSize
+              matched_by: 'pdf_text', page_count: parsed.pages, byte_size: byteSize,
+              doc_type: docType, account_ref: refs[0] || null, _refs: refs
             });
           } else {
             var lower = String(parsed.text || '').toLowerCase().replace(/\s+/g, ' ');
@@ -8008,40 +8125,202 @@
               rows.push({
                 report_id: r.id, customer_id: r.customer_id, utility: 'water',
                 identifier: null, filename: name, is_consolidated: true,
-                matched_by: 'retailer', page_count: parsed.pages, byte_size: byteSize
+                matched_by: 'retailer', page_count: parsed.pages, byte_size: byteSize,
+                doc_type: docType, account_ref: refs[0] || null, _refs: refs
               });
             } else {
-              unmatched++;
               rows.push({
                 report_id: r.id, customer_id: r.customer_id, utility: null,
                 identifier: null, filename: name, is_consolidated: false,
-                matched_by: 'unmatched', page_count: parsed.pages, byte_size: byteSize
+                matched_by: 'unmatched', page_count: parsed.pages, byte_size: byteSize,
+                doc_type: docType, account_ref: refs[0] || null, _refs: refs
               });
             }
           }
         }
+
+        // ── Second pass: match on learned supplier account references ──
+        // Credit notes and some invoices never print the MPAN, but they do carry
+        // the same account number as a bill we have already matched — this month
+        // or in a previous one. Build that lookup and retry the leftovers.
+        var refMap = {};
+        rows.forEach(function (row) {
+          if (!row.identifier || row.is_consolidated) return;
+          (row._refs || []).forEach(function (t) {
+            if (!refMap[t]) refMap[t] = { identifier: row.identifier, utility: row.utility };
+          });
+        });
+        try {
+          var prior = await sb.from('invoice_files')
+            .select('identifier, utility, account_ref')
+            .eq('customer_id', r.customer_id)
+            .not('account_ref', 'is', null)
+            .not('identifier', 'is', null)
+            .eq('is_consolidated', false)
+            .neq('report_id', r.id);
+          (prior.data || []).forEach(function (p) {
+            if (p.account_ref && !refMap[p.account_ref]) refMap[p.account_ref] = { identifier: p.identifier, utility: p.utility };
+          });
+        } catch (e) { console.warn('[Invoices] account-ref history lookup failed:', e); }
+
+        rows.forEach(function (row) {
+          if (row.matched_by !== 'unmatched') return;
+          var found = null;
+          (row._refs || []).some(function (t) { if (refMap[t]) { found = refMap[t]; return true; } return false; });
+          if (found) {
+            row.identifier = found.identifier;
+            row.utility = found.utility;
+            row.matched_by = 'account_ref';
+          }
+        });
+
+        unmatched = rows.filter(function (row) { return row.matched_by === 'unmatched'; }).length;
+        rows.forEach(function (row) { delete row._refs; });
 
         await sb.from('invoice_files').delete().eq('report_id', r.id);
         var ins = await sb.from('invoice_files').insert(rows);
         if (ins.error) throw ins.error;
 
         logAction('index_invoices', r.id, { pdfs: names.length, rows: rows.length, unmatched: unmatched });
-        if (btn) btn.textContent = '✓ ' + names.length + ' indexed';
-        safeAlert(
-          'Indexed ' + names.length + ' invoice' + (names.length === 1 ? '' : 's') + ' for ' +
-          (r.month || '') + ' ' + (r.year || '') + '.\n\n' +
-          'Matched to a meter: ' + (names.length - unmatched) + '\n' +
-          'Not matched: ' + unmatched +
-          (unmatched ? '\n\nUnmatched bills stay in the archive and can still be downloaded — they just cannot be opened per meter.' : ''),
-          null
-        );
+        if (btn) btn.textContent = unmatched ? '⚠ ' + unmatched + ' unmatched' : '✓ ' + names.length + ' indexed';
+        if (!opts.silent) {
+          if (unmatched) openUnmatchedModal(r.id);
+          else safeAlert('Indexed ' + names.length + ' invoice' + (names.length === 1 ? '' : 's') + ' for ' +
+                         (r.month || '') + ' ' + (r.year || '') + '. Every document matched to a supply point.', null);
+        }
+        return { total: names.length, unmatched: unmatched };
       } catch (e) {
         console.error('indexReportInvoices:', e);
-        safeAlert('Could not index that archive. ' + (e.message || ''), e);
+        if (!opts.silent) safeAlert('Could not index that archive. ' + (e.message || ''), e);
         if (btn) btn.textContent = oldLabel;
+        throw e;
       } finally {
         if (btn) { btn.disabled = false; setTimeout(function () { if (btn) btn.textContent = oldLabel; }, 2500); }
       }
+    }
+
+    // ───── ADMIN: UNMATCHED INVOICES — review and assign by hand ─────
+    // Some documents genuinely have no meter number on them (credit notes,
+    // summary sheets). Rather than silently dropping them, list them by name and
+    // let an admin point each one at the right supply point. An assignment also
+    // teaches the account reference, so the same document matches automatically
+    // next month.
+    var DOC_TYPE_LABEL = { credit_note: 'Credit note', summary: 'Summary report', statement: 'Statement', invoice: 'Invoice', unknown: 'Document' };
+
+    async function openUnmatchedModal(reportId) {
+      var modal = document.getElementById('unmatchedModal'); if (!modal) return;
+      var r = (window._adminReports || []).find(function (x) { return x.id === reportId; });
+      modal.dataset.reportId = reportId;
+      document.getElementById('umTitle').textContent =
+        (r ? ((r.customers && r.customers.company_name) || r.customer_id) + ' · ' + (r.month || '') + ' ' + (r.year || '') : reportId);
+      var body = document.getElementById('umBody');
+      body.innerHTML = '<p class="inv-muted">Loading…</p>';
+      modal.style.display = '';
+      try {
+        var custId = r ? r.customer_id : null;
+        var fRes = await sb.from('invoice_files')
+          .select('id, filename, doc_type, account_ref, page_count, byte_size, matched_by')
+          .eq('report_id', reportId).eq('matched_by', 'unmatched').order('filename');
+        var files = fRes.data || [];
+        var mRes = await sb.from('sites').select('utility, identifier, site_address').eq('customer_id', custId);
+        var meters = (mRes.data || []).sort(function (a, b) {
+          var d = _invUtilOrder(a.utility) - _invUtilOrder(b.utility);
+          return d !== 0 ? d : String(a.site_address || '').localeCompare(String(b.site_address || ''));
+        });
+        window._umMeters = meters;
+
+        if (!files.length) {
+          body.innerHTML = '<p class="inv-muted">Every document in this archive is matched to a supply point.</p>';
+          document.getElementById('umSaveBtn').style.display = 'none';
+          return;
+        }
+        document.getElementById('umSaveBtn').style.display = '';
+
+        var opts = '<option value="">— leave unassigned —</option>' +
+          meters.map(function (m) {
+            return '<option value="' + escapeHtml(m.identifier) + '">' +
+                   escapeHtml((m.site_address || m.identifier) + ' · ' + m.identifier) + '</option>';
+          }).join('');
+
+        body.innerHTML =
+          '<p style="font-size:13px;color:var(--muted);margin-bottom:14px;">' + files.length +
+          ' document' + (files.length === 1 ? '' : 's') + ' in this archive had no meter number on them. ' +
+          'Assign each to a supply point so customers can open it, or leave it unassigned — either way it stays in the downloadable archive.</p>' +
+          files.map(function (f) {
+            var kb = f.byte_size ? Math.round(f.byte_size / 1024) + ' KB' : '';
+            return '<div class="um-row" data-file-id="' + escapeHtml(f.id) + '">' +
+              '<div class="um-file">' +
+                '<span class="um-badge">' + escapeHtml(DOC_TYPE_LABEL[f.doc_type] || 'Document') + '</span>' +
+                '<span class="um-name">' + escapeHtml(f.filename) + '</span>' +
+                '<span class="um-meta">' + (f.page_count ? f.page_count + ' page' + (f.page_count === 1 ? '' : 's') : '') +
+                  (kb ? ' · ' + kb : '') + (f.account_ref ? ' · ref ' + escapeHtml(f.account_ref) : '') + '</span>' +
+              '</div>' +
+              '<div class="um-actions">' +
+                '<select class="um-select">' + opts + '</select>' +
+                '<button type="button" class="btn-secondary um-view" onclick="umPreview(this)" style="padding:6px 10px;font-size:12px;">View</button>' +
+              '</div>' +
+            '</div>';
+          }).join('');
+      } catch (e) {
+        console.error('openUnmatchedModal:', e);
+        body.innerHTML = '<p style="color:#c0392b;font-size:13px;">Could not load the unmatched documents.</p>';
+      }
+    }
+    function closeUnmatchedModal() {
+      var m = document.getElementById('unmatchedModal'); if (m) m.style.display = 'none';
+    }
+
+    // Open one unmatched PDF so the admin can see what it actually is.
+    async function umPreview(btn) {
+      var row = btn.closest('.um-row');
+      var name = row.querySelector('.um-name').textContent;
+      var reportId = document.getElementById('unmatchedModal').dataset.reportId;
+      var r = (window._adminReports || []).find(function (x) { return x.id === reportId; });
+      if (!r) return;
+      var old = btn.textContent; btn.disabled = true; btn.textContent = 'Opening…';
+      try {
+        var signed = await sb.storage.from('report-invoices').createSignedUrl(r.invoices_path, 120);
+        if (signed.error) throw signed.error;
+        var resp = await fetch(signed.data.signedUrl);
+        var zip = await JSZip.loadAsync(await resp.arrayBuffer());
+        var entry = zip.file(name);
+        if (!entry) throw new Error('That file is no longer in the archive.');
+        var blob = await entry.async('blob');
+        var url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+        window.open(url, '_blank', 'noopener');
+        setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+      } catch (e) {
+        safeAlert('Could not open that document. ' + (e.message || ''), e);
+      } finally { btn.disabled = false; btn.textContent = old; }
+    }
+
+    async function saveUnmatchedAssignments() {
+      var modal = document.getElementById('unmatchedModal');
+      var btn = document.getElementById('umSaveBtn');
+      var rows = Array.from(document.querySelectorAll('#umBody .um-row'));
+      var meters = window._umMeters || [];
+      var picked = rows.map(function (row) {
+        return { id: row.dataset.fileId, identifier: row.querySelector('.um-select').value };
+      }).filter(function (x) { return x.identifier; });
+      if (!picked.length) { closeUnmatchedModal(); return; }
+      var old = btn.textContent; btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        for (var i = 0; i < picked.length; i++) {
+          var m = meters.find(function (x) { return x.identifier === picked[i].identifier; });
+          var up = await sb.from('invoice_files')
+            .update({ identifier: picked[i].identifier, utility: m ? m.utility : null, matched_by: 'manual' })
+            .eq('id', picked[i].id);
+          if (up.error) throw up.error;
+        }
+        logAction('assign_invoices', modal.dataset.reportId, { assigned: picked.length });
+        safeAlert('Assigned ' + picked.length + ' document' + (picked.length === 1 ? '' : 's') +
+                  '. Where an account reference was found, next month will match automatically.', null);
+        closeUnmatchedModal();
+        await refreshAdminReportTable();
+      } catch (e) {
+        console.error('saveUnmatchedAssignments:', e);
+        safeAlert('Could not save those assignments.', e);
+      } finally { btn.disabled = false; btn.textContent = old; }
     }
 
     // ───── ADMIN: NOTIFICATION EMAILS (one or many per customer) ─────
@@ -10050,6 +10329,23 @@
         <div style="display:flex;gap:10px;margin-top:18px;">
           <button class="btn-primary" id="editSubmitBtn" onclick="doEditReport()" style="flex:1;">Save changes</button>
           <button class="btn-secondary" onclick="closeEditReport()" style="flex:1;">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- UNMATCHED INVOICES MODAL — name each document and assign it to a supply point -->
+  <div class="edit-report-modal" id="unmatchedModal" style="display:none;">
+    <div class="edit-report-modal__overlay" onclick="closeUnmatchedModal()"></div>
+    <div class="edit-report-modal__card" style="max-width:760px;">
+      <div class="edit-report-modal__head">
+        <h3>Unmatched documents — <span id="umTitle"></span></h3>
+        <button class="btn-close" onclick="closeUnmatchedModal()" aria-label="Close">×</button>
+      </div>
+      <div class="edit-report-modal__body">
+        <div id="umBody"></div>
+        <div style="display:flex;gap:10px;margin-top:20px;">
+          <button class="btn-primary" id="umSaveBtn" onclick="saveUnmatchedAssignments()" style="flex:1;">Save assignments</button>
+          <button class="btn-secondary" onclick="closeUnmatchedModal()" style="flex:1;">Close</button>
         </div>
       </div>
     </div>
