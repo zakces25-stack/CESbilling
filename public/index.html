@@ -1315,7 +1315,7 @@
           <div class="nav-item" data-page="compare">Consumption and cost comparison</div>
           <div class="nav-item" data-page="usage">Carbon Reporting</div>
           <div class="nav-item" data-page="league">League Table</div>
-          <div class="nav-item" data-page="invoices">View Invoices</div>
+          <div class="nav-item" data-page="invoices">Download Invoices</div>
         </div>
         <div class="sidebar-foot">
           <button class="signout-btn" onclick="doSignOut()">Sign out</button>
@@ -1379,13 +1379,14 @@
           <div class="report-grid" id="occupancyGrid"></div>
         </div>
         <!-- Page: Site List -->
-        <!-- Page: View invoices — meter reference list, then pick a meter + month to read the bill -->
+        <!-- Page: Download invoices — meter reference list, read one bill, or bulk-download a month -->
         <div class="dash-section" data-page="invoices" style="display:none;">
           <div class="section-head">
             <div>
-              <h2>View invoices</h2>
-              <div class="section-meta">Find any invoice by supply point and month, and read it here without downloading anything.</div>
+              <h2>Download invoices</h2>
+              <div class="section-meta">Read any invoice by supply point and month, or download a whole month's invoices for the sites you choose.</div>
             </div>
+            <button class="btn-secondary" id="invBulkBtn" onclick="invBulkModal()">Download multiple invoices</button>
           </div>
 
           <div class="card inv-ref-card collapsed" id="invMeterRefCard" style="margin-bottom:18px;">
@@ -4541,6 +4542,156 @@
     function invShowFile(filename) {
       _inv.pickFile = filename;
       invSelectionChanged();
+    }
+
+    // ── Bulk download: pick a month + sites → one ZIP, a file per supply point ──
+    // Mirrors the Half-Hourly Data export. Pulls the month's archive once, takes
+    // only the bills for the chosen sites, and renames each file to something
+    // readable rather than the supplier's account/bill reference.
+    function _invSafeName(s) {
+      return String(s || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+    function invBulkModal() {
+      if (!_inv.reports.length) { safeAlert('No invoices have been uploaded for your account yet.', null); return; }
+      if (!_inv.meters.length)  { safeAlert('No supply points on record yet.', null); return; }
+      _invBulkStyle();
+      var host = document.getElementById('invBulkModal');
+      if (!host) { host = document.createElement('div'); host.id = 'invBulkModal'; document.body.appendChild(host); }
+      var curMonth = (document.getElementById('invMonth') || {}).value || _inv.reports[0].id;
+      var lastUtil = null, rows = '';
+      _inv.meters.forEach(function (m) {
+        if (m.utility !== lastUtil) {
+          lastUtil = m.utility;
+          rows += '<div class="invx-group">' + escapeHtml(INV_UTIL_LABEL[m.utility] || m.utility || 'Other') + '</div>';
+        }
+        rows += '<label class="invx-site"><input type="checkbox" class="invx-cb" data-id="' + escapeHtml(m.identifier) + '" checked>' +
+                '<span class="nm">' + escapeHtml(m.site_address || m.identifier) + '</span>' +
+                '<span class="mp">' + escapeHtml(m.identifier) + '</span></label>';
+      });
+      host.innerHTML =
+        '<div class="invx-ov" onclick="if(event.target===this)invBulkClose()"><div class="invx-card">'
+        + '<div class="invx-hd"><h3>Download multiple invoices</h3><button class="invx-x" onclick="invBulkClose()">&times;</button></div>'
+        + '<p class="invx-hint">Choose a month and tick the supply points you need. They download together in one ZIP, one PDF per site.</p>'
+        + '<div class="invx-month"><label>Month</label><select id="invxMonth">'
+        + _inv.reports.map(function (r) {
+            return '<option value="' + escapeHtml(r.id) + '"' + (r.id === curMonth ? ' selected' : '') + '>' +
+                   escapeHtml((r.month || '') + ' ' + (r.year || '')) + '</option>';
+          }).join('')
+        + '</select></div>'
+        + '<div class="invx-tb"><button type="button" onclick="_invBulkAll(true)">Select all</button>'
+        + '<button type="button" onclick="_invBulkAll(false)">Clear</button><span id="invxCount" class="invx-count"></span></div>'
+        + '<div class="invx-list">' + rows + '</div>'
+        + '<div id="invxStatus" class="invx-status"></div>'
+        + '<div class="invx-ft"><button class="btn-secondary" onclick="invBulkClose()">Cancel</button>'
+        + '<button class="btn-primary" id="invxGo" onclick="invBulkRun()">Download ZIP</button></div>'
+        + '</div></div>';
+      host.style.display = 'block';
+      host.querySelectorAll('.invx-cb').forEach(function (cb) { cb.addEventListener('change', _invBulkCount); });
+      _invBulkCount();
+    }
+    function invBulkClose() { var h = document.getElementById('invBulkModal'); if (h) h.style.display = 'none'; }
+    function _invBulkAll(on) {
+      document.querySelectorAll('#invBulkModal .invx-cb').forEach(function (cb) { cb.checked = on; });
+      _invBulkCount();
+    }
+    function _invBulkCount() {
+      var n = document.querySelectorAll('#invBulkModal .invx-cb:checked').length;
+      var el = document.getElementById('invxCount');
+      if (el) el.textContent = n + ' site' + (n === 1 ? '' : 's') + ' selected';
+    }
+
+    async function invBulkRun() {
+      var picked = [].slice.call(document.querySelectorAll('#invBulkModal .invx-cb:checked'))
+                     .map(function (cb) { return cb.dataset.id; });
+      if (!picked.length) { safeAlert('Tick at least one supply point.', null); return; }
+      if (typeof JSZip === 'undefined') { safeAlert('The zip engine is still loading — please try again in a moment.', null); return; }
+      var reportId = document.getElementById('invxMonth').value;
+      var report = _inv.reports.filter(function (r) { return r.id === reportId; })[0];
+      if (!report) { safeAlert('Pick a month.', null); return; }
+
+      var go = document.getElementById('invxGo'), status = document.getElementById('invxStatus');
+      var oldTxt = go.textContent; go.disabled = true; go.textContent = 'Preparing…';
+      try {
+        if (status) status.textContent = 'Fetching ' + (report.month || '') + ' ' + (report.year || '') + '…';
+        var zip = await _invGetZip(report);
+        var names = Object.keys(zip.files).filter(function (n) { return !zip.files[n].dir && /\.pdf$/i.test(n); });
+
+        var out = new JSZip(), added = 0, missing = [], seen = {};
+        for (var i = 0; i < picked.length; i++) {
+          var id = picked[i];
+          var meter = _inv.meters.filter(function (m) { return m.identifier === id; })[0];
+          if (status) status.textContent = 'Adding ' + (i + 1) + ' of ' + picked.length + '…';
+          var match = _invResolveEntry(reportId, id, names, report);
+          if (!match) {
+            var cons = (_inv.files[reportId] || []).filter(function (f) {
+              return f.is_consolidated && (!f.utility || f.utility === (meter && meter.utility));
+            })[0];
+            if (cons) match = { name: cons.filename, rec: cons, via: 'consolidated' };
+          }
+          if (!match || !zip.file(match.name)) { missing.push((meter && meter.site_address) || id); continue; }
+
+          // A consolidated bill covers several sites — include it once.
+          if (seen[match.name]) continue;
+          seen[match.name] = true;
+
+          var blob = await zip.file(match.name).async('blob');
+          var isCons = !!(match.rec && match.rec.is_consolidated) || match.via === 'consolidated';
+          var label = isCons
+            ? _invSafeName((INV_UTIL_LABEL[(meter && meter.utility)] || 'Consolidated').split(' ')[0] + ' - consolidated bill')
+            : _invSafeName(((meter && meter.site_address) || id) + ' - ' + id);
+          out.file(label + ' - ' + _invSafeName((report.month || '') + ' ' + (report.year || '')) + '.pdf', blob);
+          added++;
+        }
+
+        if (!added) { safeAlert('None of the selected supply points have an invoice in that month.', null); go.disabled = false; go.textContent = oldTxt; return; }
+        if (status) status.textContent = 'Zipping ' + added + ' file' + (added === 1 ? '' : 's') + '…';
+        var outBlob = await out.generateAsync({ type: 'blob' });
+        var url = URL.createObjectURL(outBlob), a = document.createElement('a');
+        a.href = url;
+        a.download = 'Invoices ' + _invSafeName((report.month || '') + ' ' + (report.year || '')) + '.zip';
+        document.body.appendChild(a); a.click();
+        setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1500);
+
+        logAction('download_invoices_bulk', report.id, { sites: picked.length, files: added, missing: missing.length });
+        if (status) {
+          status.textContent = 'Done — ' + added + ' file' + (added === 1 ? '' : 's') + ' downloaded' +
+            (missing.length ? ' · no invoice for: ' + missing.slice(0, 4).join(', ') + (missing.length > 4 ? ' +' + (missing.length - 4) + ' more' : '') : '') + '.';
+        }
+        go.textContent = 'Downloaded ✓';
+        setTimeout(function () { invBulkClose(); go.disabled = false; go.textContent = oldTxt; }, 1800);
+      } catch (e) {
+        console.error('invBulkRun:', e);
+        if (status) status.textContent = 'Download failed — please try again, or contact CES support.';
+        go.disabled = false; go.textContent = oldTxt;
+      }
+    }
+
+    function _invBulkStyle() {
+      if (document.getElementById('invxStyle')) return;
+      var st = document.createElement('style'); st.id = 'invxStyle';
+      st.textContent =
+        '#invBulkModal .invx-ov{position:fixed;inset:0;z-index:10001;background:rgba(20,29,69,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;}'
+      + '#invBulkModal .invx-card{background:#fff;border-radius:14px;max-width:640px;width:100%;padding:22px 24px;box-shadow:0 20px 60px rgba(16,24,40,.3);}'
+      + '#invBulkModal .invx-hd{display:flex;align-items:center;justify-content:space-between;}'
+      + '#invBulkModal .invx-hd h3{margin:0;font-size:19px;color:#1f3864;}'
+      + '#invBulkModal .invx-x{border:none;background:none;font-size:26px;line-height:1;color:#9aa0aa;cursor:pointer;}'
+      + '#invBulkModal .invx-hint{font-size:13px;color:#6b7280;margin:4px 0 14px;}'
+      + '#invBulkModal label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;font-weight:700;display:block;margin-bottom:5px;}'
+      + '#invBulkModal .invx-month{margin-bottom:12px;}'
+      + '#invBulkModal select{padding:8px 10px;border:1px solid #d7dbe3;border-radius:9px;font-size:13px;font-family:inherit;color:#1f3864;min-width:220px;}'
+      + '#invBulkModal .invx-tb{display:flex;align-items:center;gap:8px;margin-bottom:8px;}'
+      + '#invBulkModal .invx-tb button{padding:6px 12px;border:1px solid #d7dbe3;background:#fff;border-radius:8px;font-size:12px;font-weight:600;color:#374151;cursor:pointer;}'
+      + '#invBulkModal .invx-tb button:hover{border-color:#93c43a;color:#1f3864;}'
+      + '#invBulkModal .invx-count{margin-left:auto;font-size:12px;color:#6b7280;font-weight:600;}'
+      + '#invBulkModal .invx-list{max-height:340px;overflow-y:auto;border:1px solid #eef0f4;border-radius:10px;padding:2px 4px;}'
+      + '#invBulkModal .invx-group{background:#faf8f4;color:#1f3864;font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;padding:6px 8px;margin:2px 0;border-radius:6px;}'
+      + '#invBulkModal .invx-site{display:flex;align-items:center;gap:10px;padding:8px 6px;text-transform:none;letter-spacing:0;font-weight:600;color:#1f3864;font-size:13.5px;margin:0;cursor:pointer;border-bottom:1px solid #f3f4f7;}'
+      + '#invBulkModal .invx-site:last-child{border-bottom:none;}'
+      + '#invBulkModal .invx-site input{margin:0;width:16px;height:16px;}'
+      + '#invBulkModal .invx-site .mp{margin-left:auto;font-family:ui-monospace,monospace;font-size:11.5px;color:#6b7280;font-weight:500;}'
+      + '#invBulkModal .invx-status{font-size:12.5px;color:#1f3864;font-weight:600;min-height:16px;margin:12px 0 4px;}'
+      + '#invBulkModal .invx-ft{display:flex;justify-content:flex-end;gap:10px;margin-top:6px;}';
+      document.head.appendChild(st);
     }
 
     function invDownloadCurrent() {
