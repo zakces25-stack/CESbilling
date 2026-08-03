@@ -7301,7 +7301,7 @@
       _skFillEntry('lead_', row);
       var lr=document.getElementById('lead_lost_reason'); if(lr) lr.value=(row && row.lost_reason)||'';
       var msg=document.getElementById('leadMsg');
-      if(row && row.confirmed_at && msg){ msg.textContent='Heads up: that broker already confirmed this month — the figures are locked (only CES admin can change them).'; msg.style.display='block'; msg.style.background='#fdf3e7'; msg.style.color='#8a5a00'; }
+      if(row && row.confirmed_at && msg){ msg.textContent='Note: that broker confirmed these figures as final. As Head of Sales you can still amend them — any change is recorded against your login.'; msg.style.display='block'; msg.style.background='#fdf3e7'; msg.style.color='#8a5a00'; }
       else if(msg){ msg.style.display='none'; msg.style.background=''; msg.style.color=''; msg.textContent='Saved.'; }
     }
     async function leadSaveEntry(){
