@@ -8116,6 +8116,7 @@
         if (data) { comp = data.company_name || customerId; hasLogo = !!data.has_logo; }
       } catch (e) { console.warn('open-portal lookup:', e); }
       _adminCtx = currentUser;
+      _hhd = { init:false, cid:null, sites:[], rows:[], from:null, to:null, profile:null, totals:null };  // never carry HHD across accounts
       currentUser = { email: _adminCtx.email, userId: _adminCtx.userId, customerId: customerId, name: comp, isAdmin: false, isBroker: false, role: 'customer', hasLogo: hasLogo, _impersonating: true };
       const b = document.getElementById('impBanner'); const n = document.getElementById('impName');
       if (n) n.textContent = comp; if (b) b.classList.add('show');
@@ -8130,6 +8131,7 @@
       const b = document.getElementById('impBanner'); if (b) b.classList.remove('show');
       const am = document.querySelector('#dashPage .avatar-menu-wrapper'); if (am) am.style.display = '';
       currentUser = _adminCtx; _adminCtx = null;
+      _hhd = { init:false, cid:null, sites:[], rows:[], from:null, to:null, profile:null, totals:null };  // never carry HHD across accounts
       logAction('impersonate_end', null, {});
       showPage('adminPage');
       loadAdmin();
@@ -8922,7 +8924,7 @@
     // ═════════════════════════════════════════════════════════════════════
     //  HALF-HOURLY DATA (HHD) — client view  [Stark daily feed]
     // ═════════════════════════════════════════════════════════════════════
-    var _hhd = { init:false, sites:[], rows:[], from:null, to:null, profile:null, totals:null };
+    var _hhd = { init:false, cid:null, sites:[], rows:[], from:null, to:null, profile:null, totals:null };
     function _hhdTimes(){ var o=[]; for(var i=0;i<48;i++){ var m=i*30,h=Math.floor(m/60),mm=m%60; o.push((h<10?'0':'')+h+':'+(mm<10?'0':'')+mm);} return o; }
     function _hhdISO(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
     function _hhdAddDays(iso,n){ var d=new Date(iso+'T00:00:00'); d.setDate(d.getDate()+n); return _hhdISO(d); }
@@ -8934,13 +8936,21 @@
     }
 
     async function hhdOpen(){
-      if(_hhd.init) return; _hhd.init=true;
+      // Half-hourly data is customer-confidential and must never carry over between
+      // accounts. The cache is keyed to the customer, so switching account (or using
+      // "Open portal" as an admin) always refetches instead of showing stale sites.
+      var _cid = (currentUser && currentUser.customerId) || null;
+      if(_hhd.init && _hhd.cid === _cid) return;
+      _hhd = { init:true, cid:_cid, sites:[], rows:[], from:null, to:null, profile:null, totals:null };
       _ccxChartLib();
-      var cid=(currentUser&&currentUser.customerId)||null;
+      var cid=_cid;
       try{
-        var r=await sb.from('hh_site_summary').select('*').order('site_name');
-        var sites=(r.data||[]);
-        if(cid) sites=sites.filter(function(s){ return s.customer_id===cid; });
+        // Scope on the server. Fetching every customer's rows and filtering in the
+        // browser meant an admin session (which RLS lets read everything) saw the
+        // whole book. The .eq is the real guard; the filter below is belt and braces.
+        if(!cid){ document.getElementById('hhdEmpty').style.display='block'; document.getElementById('hhdMain').style.display='none'; return; }
+        var r=await sb.from('hh_site_summary').select('*').eq('customer_id',cid).order('site_name');
+        var sites=(r.data||[]).filter(function(s){ return s.customer_id===cid; });
         _hhd.sites=sites;
         if(!sites.length){ document.getElementById('hhdEmpty').style.display='block'; document.getElementById('hhdMain').style.display='none'; return; }
         document.getElementById('hhdEmpty').style.display='none'; document.getElementById('hhdMain').style.display='block';
@@ -9013,7 +9023,7 @@
       var nd=Math.round((new Date(to+'T00:00:00')-new Date(from+'T00:00:00'))/864e5)+1;
       document.getElementById('hhdRangeInfo').textContent=nd+' day'+(nd>1?'s':'')+'  ·  '+_hhdDate(from)+'  →  '+_hhdDate(to);
       try{
-        var r=await sb.from('hh_data').select('reading_date,intervals,interval_count,total_kwh,est_flag').eq('mpan',mpan).gte('reading_date',from).lte('reading_date',to).order('reading_date');
+        var r=await sb.from('hh_data').select('reading_date,intervals,interval_count,total_kwh,est_flag').eq('customer_id',_hhd.cid).eq('mpan',mpan).gte('reading_date',from).lte('reading_date',to).order('reading_date');
         _hhd.rows=r.data||[];
         await _ccxChartLib();
         hhdRender();
@@ -9239,7 +9249,7 @@
           if(perSite){ var rr=document.querySelector('#hhdExportModal .hhdx-srange[data-mpan="'+CSS.escape(mpan)+'"]'); if(rr){ f=rr.querySelector('.hhdx-sfrom').value; t=rr.querySelector('.hhdx-sto').value; } }
           f=_hhdClamp(f,lo,hi); t=_hhdClamp(t,lo,hi); if(f>t){ var tm=f; f=t; t=tm; }
           if(status) status.textContent='Building '+(s.site_name||mpan)+'  ('+(k+1)+' of '+checks.length+')…';
-          var r=await sb.from('hh_data').select('reading_date,intervals,interval_count,total_kwh,est_flag').eq('mpan',mpan).gte('reading_date',f).lte('reading_date',t).order('reading_date');
+          var r=await sb.from('hh_data').select('reading_date,intervals,interval_count,total_kwh,est_flag').eq('customer_id',_hhd.cid).eq('mpan',mpan).gte('reading_date',f).lte('reading_date',t).order('reading_date');
           var rows=r.data||[]; if(!rows.length) empty++;
           var buf=await _hhdWorkbookBuffer(s.site_name||mpan, mpan, f, t, rows);
           zip.file(_hhdSafeName(s.site_name||mpan)+' - '+mpan+' - '+_hhdFnDate(f)+'-'+_hhdFnDate(t)+'.xlsx', buf);
