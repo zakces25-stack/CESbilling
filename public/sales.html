@@ -6561,6 +6561,11 @@
       var reps=(_SK.reps||[]);
       host.innerHTML =
         '<div class="section-head"><h2>Team admin</h2></div>'
+        + '<div class="admin-tabs" id="leadTabs">'
+          + '<button class="admin-tab active" id="leadTabBtn-overview" onclick="leadTab(\'overview\')">Overview</button>'
+          + '<button class="admin-tab" id="leadTabBtn-activity" onclick="leadTab(\'activity\')">Calls &amp; emails</button>'
+        + '</div>'
+        + '<div class="bx-pane active" id="leadPane-overview">'
         + '<div class="card" style="margin-bottom:16px;border-left:3px solid #b5340f;">'
           + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Lost Revenue Info</h3>'
           + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Every lost customer, meter or kWh reported by the team, with the reason the broker gave. Updates as brokers submit their figures.</p>'
@@ -6585,10 +6590,83 @@
           + '<div class="form-group" style="margin-top:12px;"><label>If they lost any customers or meters — why?</label><textarea id="lead_lost_reason" rows="2" style="width:100%;padding:10px 12px;border:1px solid var(--border,#d9d9e3);border-radius:8px;font:inherit;resize:vertical;box-sizing:border-box;" placeholder="Reason customers / meters were lost"></textarea></div>'
           + '<button class="btn-primary" style="width:auto;padding:10px 18px;margin-top:12px;" onclick="leadSaveEntry()">Save figures for this broker</button>'
           + '<button class="btn-secondary" style="width:auto;padding:10px 18px;margin-top:12px;margin-left:8px;color:#b5340f;border-color:#e3b3a6;" onclick="leadDeleteEntry()">Delete this month</button>'
+        + '</div>'
+        + '</div>'
+        + '<div class="bx-pane" id="leadPane-activity">'
+          + '<div class="card">'
+            + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Calls &amp; emails by broker</h3>'
+            + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Every broker\'s recorded call and email volume for the month. Read-only &mdash; these come from the phone system and mail logs, not from figures brokers enter themselves.</p>'
+            + '<div class="sk-entry-grid sk-entry-vert" style="margin-bottom:6px;">'
+              + '<div class="form-group"><label>Month</label><select id="leadActMonth" onchange="renderLeadActivity()"></select></div>'
+            + '</div>'
+            + '<div id="leadActBody"></div>'
+          + '</div>'
         + '</div>';
       var ef=document.getElementById('leadEntryFields'); if(ef) ef.innerHTML=_skEntryFieldsHtml('lead_', true, true);
       var lm=document.getElementById('leadMonth'); if(lm && !lm.value) lm.value=new Date().toISOString().slice(0,7);
       renderLeadLost(); renderLeadCoc(); renderLeadTargets(); leadLoadEntry();
+      _leadActFillMonths(); renderLeadActivity();
+    }
+    // ── Team admin: calls & emails per broker ──
+    // Read-only by design. RLS lets the sales lead select every rep's rows while an
+    // ordinary broker still sees only their own, so nothing here needs to re-filter
+    // for privacy — but it does need to be honest about months with no figures,
+    // because a blank row means "not recorded", not "made no calls".
+    function leadTab(name){
+      ['overview','activity'].forEach(function(n){
+        var pane=document.getElementById('leadPane-'+n); if(pane) pane.classList.toggle('active', n===name);
+        var btn=document.getElementById('leadTabBtn-'+n); if(btn) btn.classList.toggle('active', n===name);
+      });
+      if(name==='activity'){ _leadActFillMonths(); renderLeadActivity(); }
+    }
+    function _leadActPeriods(){
+      var seen={};
+      (_SK.activity||[]).forEach(function(a){ if(a.period) seen[String(a.period).slice(0,10)]=1; });
+      return Object.keys(seen).sort().reverse();
+    }
+    function _leadActFillMonths(){
+      var sel=document.getElementById('leadActMonth'); if(!sel) return;
+      var ps=_leadActPeriods(), keep=sel.value;
+      sel.innerHTML = ps.length
+        ? (ps.map(function(p){ return '<option value="'+p+'">'+escapeHtml(_skPeriodLabel(p))+'</option>'; }).join('')
+           + '<option value="__all__">All months (total)</option>')
+        : '<option value="">&mdash; nothing recorded yet &mdash;</option>';
+      if(keep) sel.value=keep;
+      if(!sel.value && ps.length) sel.value=ps[0];
+    }
+    function renderLeadActivity(){
+      var body=document.getElementById('leadActBody'); if(!body) return;
+      var acts=(_SK.activity||[]);
+      if(!acts.length){
+        body.innerHTML='<p class="sk-empty" style="margin:0;">No call or email figures have been recorded yet, so there is nothing to show.</p>';
+        return;
+      }
+      var ps=_leadActPeriods();
+      var sel=document.getElementById('leadActMonth');
+      var pick=(sel && sel.value) ? sel.value : ps[0];
+      var all=(pick==='__all__');
+      var reps=(_SK.reps||[]).filter(function(r){ return r.active!==false; });
+      var rows=reps.map(function(r){
+        var mine=acts.filter(function(a){ return a.rep_id===r.id && (all || String(a.period).slice(0,10)===pick); });
+        var c=0, e=0;
+        mine.forEach(function(a){ c+=Number(a.calls)||0; e+=Number(a.emails)||0; });
+        return { name:r.name, has:mine.length>0, months:mine.length, calls:c, emails:e };
+      });
+      var tC=0, tE=0, missing=0;
+      rows.forEach(function(x){ if(x.has){ tC+=x.calls; tE+=x.emails; } else { missing++; } });
+      var span=all?3:2;
+      var th='<tr><th>Broker</th><th class="num">Calls</th><th class="num">Emails</th>'+(all?'<th class="num">Months recorded</th>':'')+'</tr>';
+      var tb=rows.map(function(x){
+        if(!x.has) return '<tr><td>'+escapeHtml(x.name)+'</td><td colspan="'+span+'" style="color:#b5340f;font-weight:700;">&mdash; no data recorded &mdash;</td></tr>';
+        return '<tr><td>'+escapeHtml(x.name)+'</td><td class="num">'+_skNum(x.calls,0)+'</td><td class="num">'+_skNum(x.emails,0)+'</td>'
+             + (all?'<td class="num">'+x.months+'</td>':'') + '</tr>';
+      }).join('');
+      var tf='<tr class="sk-total"><td>Team total</td><td class="num">'+_skNum(tC,0)+'</td><td class="num">'+_skNum(tE,0)+'</td>'+(all?'<td></td>':'')+'</tr>';
+      body.innerHTML='<div style="overflow-x:auto;"><table class="sk-table">'+th+tb+tf+'</table></div>'
+        + '<p style="font-size:11.5px;color:var(--muted);margin:8px 0 0;">'
+        + 'Latest month on record: <strong>'+escapeHtml(_skPeriodLabel(ps[0]))+'</strong>.'
+        + (missing ? ' '+missing+' broker'+(missing>1?'s have':' has')+' nothing recorded '+(all?'in any month':'for this month')+' &mdash; treat that as missing data, not zero activity.' : '')
+        + '</p>';
     }
     function renderLeadLost(){
       var body=document.getElementById('leadLostBody'); if(!body) return;
