@@ -528,6 +528,8 @@
     #usageChart svg { width: 100%; height: auto; display: block; }
     /* Sales / Broker KPI module */
     .sk-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .sk-table tr.sk-total td { border-top: 2px solid var(--navy); background: #eef1fb; font-weight: 800; }
+    .sk-table tr.sk-total td:nth-child(2) { color: var(--navy); }
     .sk-table th, .sk-table td { padding: 8px 10px; border-bottom: 1px solid #e6e1d6; text-align: left; white-space: nowrap; }
     .sk-table th { font-weight: 800; color: var(--navy); background: #f7f5f0; }
     .sk-table td.num, .sk-table th.num { text-align: right; font-family: 'JetBrains Mono', monospace; }
@@ -5597,7 +5599,7 @@
       var rows = _SK.reps.map(function(r){ return { rep:r, a:agg[r.id] }; })
         .filter(function(x){ return x.a._n > 0 || x.a.billing_total > 0; })
         .sort(function(a,b){ return b.a.billing_total - a.a.billing_total; });
-      var th = '<tr><th>#</th><th>Rep</th><th class="num">Billing</th><th class="num">New biz</th><th class="num">Total kWh</th><th class="num">Avg commission p/kWh</th><th class="num">Lost custs</th></tr>';
+      var th = '<tr><th>#</th><th>Rep</th><th class="num">Billing</th><th class="num">New biz &pound;</th><th class="num">New biz kWh</th><th class="num">Total kWh</th><th class="num">Avg commission p/kWh</th><th class="num">Lost custs</th><th class="num">Lost kWh</th></tr>';
       var body = rows.map(function(x, i){
         var a = x.a, r = x.rep;
         var tgt = (Number(r.monthly_target)||0) * (cumulative ? 12 : 1);
@@ -5606,11 +5608,38 @@
         return '<tr style="cursor:pointer;' + st + '" onclick="skOpenRep(\'' + r.id + '\')"><td>' + (i+1) + '</td><td>' + escapeHtml(r.name) + '</td>' +
           '<td class="num">' + _skMoney(a.billing_total) + '</td>' +
           '<td class="num">' + _skMoney(a.new_business_gbp) + '</td>' +
+          '<td class="num">' + _skNum(a.new_business_kwh, 0) + '</td>' +
           '<td class="num">' + _skNum(a.total_kwh, 0) + '</td>' +
           '<td class="num">' + _skUplift(_skContractBill(a), a.total_kwh) + '</td>' +
-          '<td class="num">' + (a.lost_customers || 0) + '</td></tr>';
+          '<td class="num">' + (a.lost_customers || 0) + '</td>' +
+          '<td class="num">' + _skNum(a.lost_kwh, 0) + '</td></tr>';
       }).join('');
-      host.innerHTML = rows.length ? ('<table class="sk-table">' + th + body + '</table>') : '<p class="sk-empty">No figures for this period yet.</p>';
+      // Team total. Commission is recomputed from the summed contract billing and
+      // summed kWh -- averaging the per-rep averages would weight a small rep the
+      // same as a large one and give the wrong team figure.
+      var T = { billing_total:0, new_business_gbp:0, new_business_kwh:0, total_kwh:0, lost_customers:0, lost_kwh:0, contract:0 };
+      rows.forEach(function(x){
+        var a = x.a;
+        T.billing_total     += Number(a.billing_total)     || 0;
+        T.new_business_gbp  += Number(a.new_business_gbp)  || 0;
+        T.new_business_kwh  += Number(a.new_business_kwh)  || 0;
+        T.total_kwh         += Number(a.total_kwh)         || 0;
+        T.lost_customers    += Number(a.lost_customers)    || 0;
+        T.lost_kwh          += Number(a.lost_kwh)          || 0;
+        T.contract          += Number(_skContractBill(a))  || 0;
+      });
+      var foot = '<tr class="sk-total"><td></td><td>Team total</td>'
+        + '<td class="num">' + _skMoney(T.billing_total) + '</td>'
+        + '<td class="num">' + _skMoney(T.new_business_gbp) + '</td>'
+        + '<td class="num">' + _skNum(T.new_business_kwh, 0) + '</td>'
+        + '<td class="num">' + _skNum(T.total_kwh, 0) + '</td>'
+        + '<td class="num">' + _skUplift(T.contract, T.total_kwh) + '</td>'
+        + '<td class="num">' + T.lost_customers + '</td>'
+        + '<td class="num">' + _skNum(T.lost_kwh, 0) + '</td></tr>';
+      host.innerHTML = rows.length
+        ? ('<table class="sk-table">' + th + body + foot + '</table>'
+           + '<p style="font-size:11.5px;color:var(--muted);margin:8px 0 0;">Click any broker to open their full month-by-month history.</p>')
+        : '<p class="sk-empty">No figures for this period yet.</p>';
     }
 
     // ── Admin: commission editor + KPI entry + leaderboard ──
