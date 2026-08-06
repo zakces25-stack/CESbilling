@@ -4726,7 +4726,20 @@
     function _skUplift(bill, kwh){ kwh = Number(kwh)||0; if(!kwh) return '—'; return ((Number(bill)||0)/kwh*100).toFixed(2); }
     // Contract billing = billing minus consultancy/direct £ (shared savings, metering, fixed fees).
     // Direct sales carry no kWh, so they must never dilute or inflate the average uplift.
-    function _skContractBill(k){ k = k || {}; return Math.max(0, (Number(k.billing_total)||0) - (Number(k.consultancy)||0)); }
+    function _skContractBill(k){
+      k = k || {};
+      // Aggregates arrive with a pre-summed, override-aware value.
+      if (k._contract_eff != null) return Number(k._contract_eff) || 0;
+      // A manual override from the Head of Sales replaces the arithmetic entirely.
+      var ov = k.uplift_override, kwh = Number(k.total_kwh) || 0;
+      if (ov != null && ov !== '' && kwh) return (Number(ov) || 0) / 100 * kwh;
+      return Math.max(0, (Number(k.billing_total)||0) - (Number(k.consultancy)||0));
+    }
+    function _skHasOverride(k){
+      if (!k) return false;
+      if (k._has_override != null) return !!k._has_override;
+      return k.uplift_override != null && k.uplift_override !== '';
+    }
     function _skPeriodLabel(p){ if(!p) return ''; var d = new Date(p + 'T00:00:00'); return d.toLocaleDateString('en-GB', { month:'short', year:'numeric' }); }
     function _skMonthKey(id){ var v = (document.getElementById(id)||{}).value; return v ? v + '-01' : null; }
     function _skFlash(id, msg){ var e = document.getElementById(id); if(!e) return; e.textContent = msg; e.style.display = 'block'; setTimeout(function(){ e.style.display = 'none'; }, 2500); }
@@ -4824,31 +4837,41 @@
       var sel = document.getElementById(selId); if(!sel) return;
       sel.innerHTML = _SK.reps.map(function(r){ return '<option value="' + r.id + '">' + escapeHtml(r.name) + '</option>'; }).join('');
     }
-    function _skEntryFieldsHtml(prefix, skipNotes){
+    function _skEntryFieldsHtml(prefix, skipNotes, withOverride){
       return _SK_FIELDS.map(function(f){
         return '<div class="form-group"><label>' + f[1] + '</label><input type="number" step="any" id="' + prefix + f[0] + '"></div>';
-      }).join('') + (skipNotes ? '' : '<div class="form-group" style="grid-column:1/-1"><label>Notes</label><input type="text" id="' + prefix + 'notes"></div>');
+      }).join('')
+      + (withOverride ? '<div class="form-group"><label>Avg commission override (p/kWh) <span style="font-weight:600;color:var(--muted);text-transform:none;">&mdash; leave blank to calculate</span></label><input type="number" step="0.01" min="0" id="' + prefix + 'uplift_override' + '" placeholder="calculated"></div>' : '')
+      + (skipNotes ? '' : '<div class="form-group" style="grid-column:1/-1"><label>Notes</label><input type="text" id="' + prefix + 'notes"></div>');
     }
     function _skFillEntry(prefix, k){
       k = k || {};
       _SK_FIELDS.forEach(function(f){ var el = document.getElementById(prefix + f[0]); if(el) el.value = (k[f[0]] != null ? k[f[0]] : ''); });
+      var ov = document.getElementById(prefix + 'uplift_override');
+      if(ov) ov.value = (k.uplift_override != null ? k.uplift_override : '');
       var n = document.getElementById(prefix + 'notes'); if(n) n.value = k.notes || '';
     }
     function _skReadEntry(prefix, repId, key){
       var rec = { rep_id:repId, period:key, updated_at:new Date().toISOString() };
       _SK_FIELDS.forEach(function(f){ rec[f[0]] = parseFloat(document.getElementById(prefix + f[0]).value) || 0; });
+      var ovEl = document.getElementById(prefix + 'uplift_override');
+      if(ovEl) rec.uplift_override = (ovEl.value === '' || ovEl.value == null) ? null : (parseFloat(ovEl.value) || 0);
       var nEl = document.getElementById(prefix + 'notes'); if(nEl) rec.notes = nEl.value || null; // omitted when the form has no Notes field (broker uses the dedicated notes card)
       return rec;
     }
     function _skAggregate(periodKey){
       var out = {};
-      _SK.reps.forEach(function(r){ out[r.id] = { rep_id:r.id, _n:0 }; _SK_FIELDS.forEach(function(f){ out[r.id][f[0]] = 0; }); });
+      _SK.reps.forEach(function(r){ out[r.id] = { rep_id:r.id, _n:0, _contract_eff:0, _has_override:false }; _SK_FIELDS.forEach(function(f){ out[r.id][f[0]] = 0; }); });
       var _fyset={}; _fyMonths(_skFy()).forEach(function(p){ _fyset[p]=1; });
       _SK.eff.forEach(function(k){
         if(periodKey === '__all__'){ if(!_fyset[k.period]) return; }
         else if(k.period !== periodKey) return;
         var o = out[k.rep_id]; if(!o) return;
         _SK_FIELDS.forEach(function(f){ o[f[0]] += Number(k[f[0]]) || 0; });
+        // Override-aware contract billing, accumulated per month, so a multi-month
+        // view yields a kWh-weighted rate rather than an average of averages.
+        o._contract_eff += _skContractBill(k);
+        if (_skHasOverride(k)) o._has_override = true;
         o._n++;
       });
       return out;
@@ -4877,7 +4900,7 @@
           '<td class="num">' + _skMoney(a.new_business_gbp) + '</td>' +
           '<td class="num">' + _skNum(a.new_business_kwh, 0) + '</td>' +
           '<td class="num">' + _skNum(a.total_kwh, 0) + '</td>' +
-          '<td class="num">' + _skUplift(_skContractBill(a), a.total_kwh) + '</td>' +
+          '<td class="num">' + _skUplift(_skContractBill(a), a.total_kwh) + (_skHasOverride(a) ? '<span title="Manually set by the Head of Sales" style="color:#8a5a00;font-weight:800;">&nbsp;*</span>' : '') + '</td>' +
           (showLost
             ? '<td class="num">' + (a.lost_customers || 0) + '</td>'
               + '<td class="num">' + _skNum(a.lost_kwh, 0) + '</td>'
@@ -4909,14 +4932,16 @@
             : '') + '</tr>';
       host.innerHTML = rows.length
         ? ('<table class="sk-table">' + th + body + foot + '</table>'
-           + '<p style="font-size:11.5px;color:var(--muted);margin:8px 0 0;">Click any broker to open their full month-by-month history.</p>')
+           + '<p style="font-size:11.5px;color:var(--muted);margin:8px 0 0;">Click any broker to open their full month-by-month history.'
+           + (rows.some(function(x){ return _skHasOverride(x.a); }) ? ' &nbsp;<span style="color:#8a5a00;font-weight:800;">*</span> commission set manually, overriding the calculation.' : '')
+           + '</p>')
         : '<p class="sk-empty">No figures for this period yet.</p>';
     }
 
     // ── Admin: commission editor + KPI entry + leaderboard ──
     async function loadSalesAdmin(){
       await salesFetchAll();
-      var ef = document.getElementById('skEntryFields'); if(ef) ef.innerHTML = _skEntryFieldsHtml('sk_');
+      var ef = document.getElementById('skEntryFields'); if(ef) ef.innerHTML = _skEntryFieldsHtml('sk_', false, true);
       _skFillRepSelect('skKpiRep');
       var kp = document.getElementById('skKpiPeriod'); if(kp) kp.value = _skDefaultMonth();
       _skFillPeriodSelect('skAdminPeriod', true, adminRenderBoard);
@@ -6561,7 +6586,7 @@
           + '<button class="btn-primary" style="width:auto;padding:10px 18px;margin-top:12px;" onclick="leadSaveEntry()">Save figures for this broker</button>'
           + '<button class="btn-secondary" style="width:auto;padding:10px 18px;margin-top:12px;margin-left:8px;color:#b5340f;border-color:#e3b3a6;" onclick="leadDeleteEntry()">Delete this month</button>'
         + '</div>';
-      var ef=document.getElementById('leadEntryFields'); if(ef) ef.innerHTML=_skEntryFieldsHtml('lead_', true);
+      var ef=document.getElementById('leadEntryFields'); if(ef) ef.innerHTML=_skEntryFieldsHtml('lead_', true, true);
       var lm=document.getElementById('leadMonth'); if(lm && !lm.value) lm.value=new Date().toISOString().slice(0,7);
       renderLeadLost(); renderLeadCoc(); renderLeadTargets(); leadLoadEntry();
     }
