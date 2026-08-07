@@ -1447,7 +1447,7 @@
 
           <div class="admin-tabs" id="bxTabs">
             <button class="admin-tab active" id="bxTabBtn-overview" onclick="bxTab('overview')">Overview</button>
-            <button class="admin-tab" id="bxTabBtn-team" onclick="bxTab('team')">Team leaderboard</button>
+            <button class="admin-tab" id="bxTabBtn-team" onclick="bxTab('team')">Team figures</button>
             <button class="admin-tab" id="bxTabBtn-monthly" onclick="bxTab('monthly')">Monthly figures</button>
             <button class="admin-tab" id="bxTabBtn-targets" onclick="bxTab('targets')">My Targets</button>
             <button class="admin-tab" id="bxTabBtn-salary" onclick="bxTab('salary')" style="display:none;">Salary calculator</button>
@@ -1479,10 +1479,10 @@
             <!-- Team snapshot — follows the Viewing month -->
             <div class="card" style="margin-bottom:16px;background:#f7f5f0;">
               <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px;">
-                <h3 style="font-size:14px;font-weight:800;">Team leaderboard — <span id="bxOvTeamLbl" style="color:var(--navy);"></span> <span style="font-weight:600;color:var(--muted);font-size:12px;">· tap a rep for detail</span></h3>
-                <button class="btn-secondary" style="padding:7px 12px;" onclick="bxTab('team')">Full team leaderboard →</button>
+                <h3 style="font-size:14px;font-weight:800;">Team figures — <span id="bxOvTeamLbl" style="color:var(--navy);"></span> <span style="font-weight:600;color:var(--muted);font-size:12px;">· tap a rep for detail</span></h3>
+                <button class="btn-secondary" style="padding:7px 12px;" onclick="bxTab('team')">Full team figures →</button>
               </div>
-              <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Follows the <b>Viewing month</b> at the top of the page. For the full year or other periods, open the <b>Team leaderboard</b> tab.</p>
+              <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Follows the <b>Viewing month</b> at the top of the page. For the full year or other periods, open the <b>Team figures</b> tab.</p>
               <div id="bxOvTeamChart" style="margin-bottom:16px;"></div>
               <div id="bxOvBoard" style="overflow-x:auto;"></div>
             </div>
@@ -1520,7 +1520,7 @@
 
             <div class="card" id="bxEntryCard" style="margin-bottom:16px;">
               <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">My figures for <span id="bxEntryMonthLbl">this month</span></h3>
-              <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Enter this month's activity numbers and save — they update the team leaderboard for everyone. Use <b>Add a sale</b> to log won contracts; that fills in your billing, new business and kWh automatically.</p>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Enter this month's activity numbers and save — they update the team figures for everyone. Use <b>Add a sale</b> to log won contracts; that fills in your billing, new business and kWh automatically.</p>
               <div class="success-box" id="bxMsg" style="display:none;">Saved.</div>
               <div class="sk-entry-grid sk-entry-vert" id="bxEntryFields"></div>
               <div class="form-group" style="margin-top:12px;"><label id="bxLostReasonLbl">If you lost any customers or meters — why?</label><textarea id="bx_lost_reason" rows="2" style="width:100%;padding:10px 12px;border:1px solid var(--border,#d9d9e3);border-radius:8px;font:inherit;resize:vertical;box-sizing:border-box;" placeholder="Reason customers / meters were lost this month"></textarea></div>
@@ -1634,7 +1634,7 @@
           <div class="bx-pane" id="bxPane-team">
             <div class="card" style="margin-bottom:16px;">
               <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
-                <h3 style="font-size:15px;font-weight:800;">Team leaderboard <span style="font-weight:600;color:var(--muted);font-size:12px;">· tap a rep for their monthly detail</span></h3>
+                <h3 style="font-size:15px;font-weight:800;">Team figures <span style="font-weight:600;color:var(--muted);font-size:12px;">· tap a rep for their monthly detail</span></h3>
                 <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--navy);font-weight:800;">Period
                   <select id="bxTeamPeriod" onchange="brokerRenderTeam()" style="width:auto;font-weight:800;padding:7px 12px;border:2px solid var(--navy);border-radius:8px;color:var(--navy);background:#fff;cursor:pointer;"></select>
                 </label>
@@ -1875,7 +1875,7 @@
         <div class="admin-tabs" id="adminTabs-broker" style="display:none;">
           <button class="admin-tab" data-atab="sales" onclick="adminTab('sales')">Commission &amp; Targets</button>
           <button class="admin-tab" data-atab="sk-figures" onclick="adminTab('sk-figures')">Monthly Figures</button>
-          <button class="admin-tab" data-atab="sk-board" onclick="adminTab('sk-board')">Team Leaderboard</button>
+          <button class="admin-tab" data-atab="sk-board" onclick="adminTab('sk-board')">Team Figures</button>
           <button class="admin-tab" data-atab="sk-report" onclick="adminTab('sk-report')">Month-End Report</button>
           <button class="admin-tab" data-atab="meters" onclick="adminTab('meters')">Meters / MPANs</button>
         </div>
@@ -2012,7 +2012,7 @@
         <div class="tab-pane" id="tab-sales">
           <div class="form-card" style="margin-bottom:16px;">
             <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Sales team KPIs</h2>
-            <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Set each rep's commission rates and monthly target, enter their figures, and view the team leaderboard. Commission rates feed each rep's private salary calculator — only they can see their own.</p>
+            <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Set each rep's commission rates and monthly target, enter their figures, and view the team figures. Commission rates feed each rep's private salary calculator — only they can see their own.</p>
             <h3 style="font-size:14px;font-weight:800;margin-bottom:8px;">Commission, targets &amp; broker email</h3>
             <div class="success-box" id="skCompMsg" style="display:none;">Saved.</div>
             <div id="skCompEditor" style="overflow-x:auto;"></div>
@@ -2036,7 +2036,7 @@
         <div class="tab-pane" id="tab-sk-board">
           <div class="form-card">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
-              <h3 style="font-size:14px;font-weight:800;">Team leaderboard <span style="font-weight:600;color:var(--muted);font-size:12px;">· click a rep for detail</span></h3>
+              <h3 style="font-size:14px;font-weight:800;">Team figures <span style="font-weight:600;color:var(--muted);font-size:12px;">· click a rep for detail</span></h3>
               <div style="display:flex;gap:8px;align-items:center;">
                 <select id="skAdminPeriod" style="width:auto;"></select>
                 <button class="btn-secondary" style="padding:7px 12px;" onclick="skExpandLeaderboard()">⤢ Expand</button>
@@ -4418,7 +4418,7 @@
     var ADMIN_TAB_TITLES = {
       'upload': 'Upload Validation', 'upload-occ': 'Upload Occupancy', 'reports': 'Reports Admin',
       'customers': 'Customers', 'siteaddr': 'Site Addresses',
-      'sales': 'Commission & Targets', 'sk-figures': 'Monthly Figures', 'sk-board': 'Team Leaderboard',
+      'sales': 'Commission & Targets', 'sk-figures': 'Monthly Figures', 'sk-board': 'Team Figures',
       'sk-report': 'Month-End Report', 'meters': 'Meters / MPANs',
       'carbon': 'Carbon Config', 'carbon-console': 'Carbon Console'
     };
@@ -4704,7 +4704,7 @@
     }
 
     // ═══════════════════ SALES / BROKER KPI MODULE ═══════════════════
-    // Team leaderboard (visible to all reps) + each rep's own entry, dashboard
+    // Team figures (visible to all reps) + each rep's own entry, dashboard
     // and PRIVATE salary calculator. Data: sales_reps / broker_kpis (team-read)
     // / broker_comp (private: own + admin only, enforced by RLS).
     var _SK = { reps: [], kpis: [], sales: [], salesTeam: [], eff: [], notes: [], targets: {}, projects: [], projEntries: [], activity: [], newBiz: [], compByRep: {}, myRepId: null };
@@ -5424,7 +5424,7 @@
     }
     function skExpandLeaderboard(){
       var pk = skCurrentPeriod();
-      var title = '<h2 style="font-size:18px;font-weight:800;margin-bottom:4px;">Team leaderboard</h2>' +
+      var title = '<h2 style="font-size:18px;font-weight:800;margin-bottom:4px;">Team figures</h2>' +
         '<p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">' + (pk === '__all__' ? 'Full year (cumulative)' : _skPeriodLabel(pk)) + ' · tap a rep for their detail</p>';
       skOpenOverlay(title + '<div style="margin-bottom:18px;">' + _skBuildTeamChart(pk) + '</div><div id="skBigBoard" style="overflow-x:auto;"></div>');
       renderSalesLeaderboard('skBigBoard', pk);
@@ -6673,165 +6673,271 @@
         + '</p>';
     }
     // ── Company view (CEO, read-only) ──
-    // Its own screen rather than a dressed-up leaderboard: this aggregates the company
-    // first and only then breaks down by broker. Every figure comes from _SK.eff via
-    // _skAggregate, the same source the leaderboard and month-end report use, so the
-    // three can never quietly disagree.
+    // Its own screen rather than a dressed-up leaderboard: aggregate the company first,
+    // break down by broker second. Every figure comes from _SK.eff, the same source the
+    // team figures table and the month-end report use, so the three cannot quietly
+    // disagree. A selection is either one month ('2026-07-01') or a whole financial
+    // year ('fy:2026' = Jul 2026 through Jun 2027).
     function renderCeoView(){
       var host=document.getElementById('brokerCeoView'); if(!host) return;
       if(!(currentUser && currentUser.execView)){ host.innerHTML='<div class="card">This area is for the CEO only.</div>'; return; }
       var ps=_skPeriods();
+      var fys=_skFyList().filter(function(fy){ return _ceoMonths('fy:'+fy).length; });
+      var opts='';
+      if(fys.length) opts += '<optgroup label="Financial year">'
+        + fys.map(function(fy){ return '<option value="fy:'+fy+'">'+_ceoFyLabel(fy)+'</option>'; }).join('') + '</optgroup>';
+      if(ps.length) opts += '<optgroup label="Single month">'
+        + ps.map(function(p){ return '<option value="'+p+'">'+escapeHtml(_skPeriodLabel(p))+'</option>'; }).join('') + '</optgroup>';
       host.innerHTML =
         '<div class="section-head"><h2>Company view</h2></div>'
         + '<div class="card" style="margin-bottom:16px;">'
           + '<div class="sk-entry-grid sk-entry-vert" style="margin-bottom:0;">'
-            + '<div class="form-group"><label>Month</label><select id="ceoMonth" onchange="renderCeoBody()">'
-              + (ps.length ? ps.map(function(p){ return '<option value="'+p+'">'+escapeHtml(_skPeriodLabel(p))+'</option>'; }).join('')
-                           : '<option value="">&mdash; no figures yet &mdash;</option>')
+            + '<div class="form-group"><label>Period</label><select id="ceoMonth" onchange="renderCeoBody()">'
+              + (opts || '<option value="">&mdash; no figures yet &mdash;</option>')
             + '</select></div>'
           + '</div>'
         + '</div>'
         + '<div id="ceoBody"></div>';
       renderCeoBody();
     }
-    function _ceoPrev(pk){
-      var ps=_skPeriods().slice().sort();
-      var i=ps.indexOf(pk);
+    function _ceoIsFy(pick){ return String(pick||'').indexOf('fy:')===0; }
+    function _ceoFyOf(pick){ return Number(String(pick).slice(3)); }
+    function _ceoFyLabel(fy){ return 'FY '+fy+'/'+String(fy+1).slice(-2)+' (Jul&ndash;Jun)'; }
+    function _ceoLabel(pick){ return _ceoIsFy(pick) ? _ceoFyLabel(_ceoFyOf(pick)) : escapeHtml(_skPeriodLabel(pick)); }
+    // Only months that carry figures, so a part-completed FY isn't presented as a full
+    // year of trading and a half-year isn't compared against twelve months.
+    function _ceoMonths(pick){
+      var have={}; _skPeriods().forEach(function(p){ have[p]=1; });
+      if(!_ceoIsFy(pick)) return have[pick] ? [pick] : [];
+      return _fyMonths(_ceoFyOf(pick)).filter(function(p){ return have[p]; });
+    }
+    function _ceoPrevSel(pick){
+      if(_ceoIsFy(pick)){ var f=_ceoFyOf(pick)-1; return _ceoMonths('fy:'+f).length ? ('fy:'+f) : null; }
+      var ps=_skPeriods().slice().sort(), i=ps.indexOf(pick);
       return i>0 ? ps[i-1] : null;
     }
-    function _ceoTotals(pk){
-      var agg=_skAggregate(pk), t={ billing:0, kwh:0, contract:0, nb:0, nbKwh:0, lostC:0, lostKwh:0 };
+    function _ceoAgg(periods){
+      var set={}; periods.forEach(function(p){ set[p]=1; });
+      var out={};
+      (_SK.reps||[]).forEach(function(r){
+        out[r.id]={ rep_id:r.id, _contract_eff:0, _has_override:false, _n:0 };
+        _SK_FIELDS.forEach(function(f){ out[r.id][f[0]]=0; });
+      });
+      (_SK.eff||[]).forEach(function(k){
+        if(!set[k.period]) return;
+        var o=out[k.rep_id]; if(!o) return;
+        _SK_FIELDS.forEach(function(f){ o[f[0]] += Number(k[f[0]])||0; });
+        // Accumulate contract billing month by month so a year view yields a
+        // kWh-weighted rate rather than an average of monthly averages.
+        o._contract_eff += _skContractBill(k);
+        if(_skHasOverride(k)) o._has_override=true;
+        o._n++;
+      });
+      return out;
+    }
+    function _ceoTotals(periods){
+      var agg=_ceoAgg(periods), t={ billing:0,kwh:0,contract:0,nb:0,nbKwh:0,lostC:0,lostKwh:0,lostM:0 };
       Object.keys(agg).forEach(function(id){
         var a=agg[id];
-        t.billing  += Number(a.billing_total)||0;
-        t.kwh      += Number(a.total_kwh)||0;
-        t.contract += Number(a._contract_eff)||0;
-        t.nb       += Number(a.new_business_gbp)||0;
-        t.nbKwh    += Number(a.new_business_kwh)||0;
-        t.lostC    += Number(a.lost_customers)||0;
-        t.lostKwh  += Number(a.lost_kwh)||0;
+        t.billing+=Number(a.billing_total)||0; t.kwh+=Number(a.total_kwh)||0;
+        t.contract+=Number(a._contract_eff)||0; t.nb+=Number(a.new_business_gbp)||0;
+        t.nbKwh+=Number(a.new_business_kwh)||0; t.lostC+=Number(a.lost_customers)||0;
+        t.lostKwh+=Number(a.lost_kwh)||0; t.lostM+=Number(a.lost_meters)||0;
       });
       return t;
     }
     function _ceoDelta(now, was, money){
-      if(!was) return '<span style="color:var(--muted);">no comparable prior month</span>';
+      if(!was) return '<span style="color:var(--muted);">no comparable prior period</span>';
       var d=(now-was)/was*100, up=(d>=0);
       return '<span style="color:'+(up?'#2f7d4f':'#b5340f')+';font-weight:700;">'+(up?'&#9650;':'&#9660;')+' '+Math.abs(d).toFixed(1)+'%</span>'
            + ' <span style="color:var(--muted);">vs '+(money?_skMoney(was):_skNum(was,0))+'</span>';
     }
     function _ceoRateDelta(now, was){
-      if(!was) return '<span style="color:var(--muted);">no comparable prior month</span>';
+      if(!was) return '<span style="color:var(--muted);">no comparable prior period</span>';
       var d=now-was, up=(d>=0);
       return '<span style="color:'+(up?'#2f7d4f':'#b5340f')+';font-weight:700;">'+(up?'&#9650;':'&#9660;')+' '+Math.abs(d).toFixed(2)+'p</span>'
            + ' <span style="color:var(--muted);">vs '+was.toFixed(2)+'p</span>';
     }
-    // Early months hold figures from only one or two brokers, so a naive month-on-month
-    // comparison reports things like "kWh up 3,500%" — arithmetically right, completely
-    // misleading. Count how many brokers actually billed in each month and say so when
-    // the comparison isn't like-for-like, rather than let the headline stand unqualified.
-    function _ceoReporting(pk){
-      var agg=_skAggregate(pk), n=0;
-      Object.keys(agg).forEach(function(id){ if((Number(agg[id].billing_total)||0)>0) n++; });
-      return n;
-    }
-    function _ceoCompareNote(pk, prev){
-      if(!prev) return '';
-      var now=_ceoReporting(pk), was=_ceoReporting(prev), tot=(_SK.reps||[]).length;
-      if(was>=now) return '';
-      return '<p style="font-size:11.5px;color:#8a5a00;margin:-6px 0 16px;">'
-        + escapeHtml(_skPeriodLabel(prev))+' has billing from only '+was+' of '+tot+' brokers, against '+now
-        + ' in '+escapeHtml(_skPeriodLabel(pk))+' &mdash; the month-on-month changes above overstate the movement.</p>';
-    }
-    // A broker marked "excluded" is left out of the month-end report Adam receives,
-    // but their billing is still real money and belongs in the company total. Rather
-    // than silently pick one convention, show the company figure and say plainly why
-    // it won't match the report — otherwise the CEO and the Head of Sales compare two
-    // different totals for the same month and neither knows which is wrong.
-    function _ceoExcludedNote(pk){
-      var names=(_SK.kpis||[]).filter(function(k){ return k.period===pk && k.excluded; })
-        .map(function(k){ var r=(_SK.reps||[]).filter(function(x){ return x.id===k.rep_id; })[0];
-                          return r?_skShortName(r.name):null; })
-        .filter(Boolean);
-      if(!names.length) return '';
-      return '<p style="font-size:11.5px;color:#8a5a00;margin:8px 0 0;">'
-        + escapeHtml(names.join(', '))+' '+(names.length>1?'are':'is')
-        + ' excluded from the month-end report for this month, so the totals above will be higher than the report Adam receives. '
-        + 'The figures are counted here because the billing is still company revenue.</p>';
-    }
-    function _ceoActivity(repId, pk){
+    function _ceoActivity(repId, periods){
+      var set={}; periods.forEach(function(p){ set[p]=1; });
       var r={ calls:0, emails:0, has:false };
       (_SK.activity||[]).forEach(function(a){
-        if(a.rep_id===repId && String(a.period).slice(0,10)===pk){
+        if(a.rep_id===repId && set[String(a.period).slice(0,10)]){
           r.calls+=Number(a.calls)||0; r.emails+=Number(a.emails)||0; r.has=true;
         }
       });
       return r;
     }
+    // Early months hold figures from only one or two brokers, so a naive comparison
+    // reports things like "kWh up 3,500%" — arithmetically right, badly misleading.
+    // Count who actually billed in each period and say when it isn't like-for-like.
+    function _ceoReporting(periods){
+      var agg=_ceoAgg(periods), n=0;
+      Object.keys(agg).forEach(function(id){ if((Number(agg[id].billing_total)||0)>0) n++; });
+      return n;
+    }
+    function _ceoCompareNote(pick, prevPick){
+      if(!prevPick) return '';
+      var now=_ceoMonths(pick), was=_ceoMonths(prevPick);
+      var a=_ceoReporting(now), b=_ceoReporting(was), tot=(_SK.reps||[]).length, bits=[];
+      if(b<a) bits.push(_ceoLabel(prevPick)+' has billing from only '+b+' of '+tot+' brokers, against '+a+' in '+_ceoLabel(pick));
+      if(was.length<now.length) bits.push(_ceoLabel(prevPick)+' covers '+was.length+' month'+(was.length===1?'':'s')+' against '+now.length);
+      if(!bits.length) return '';
+      // Not escaped: both halves come from _ceoLabel, which is already HTML-safe
+      // (a fixed FY string, or an escaped month label). Escaping again would print
+      // the entity in the FY dash literally.
+      return '<p style="font-size:11.5px;color:#8a5a00;margin:-6px 0 16px;">'+bits.join('; ')
+           + ' &mdash; the changes above overstate the movement.</p>';
+    }
+    // A broker marked "excluded" is left out of the month-end report Adam receives, but
+    // their billing is still company revenue. Show the company figure and say plainly
+    // why it won't match the report, rather than leave two unexplained totals.
+    function _ceoExcludedNote(periods){
+      var set={}; periods.forEach(function(p){ set[p]=1; });
+      var seen={}, names=[];
+      (_SK.kpis||[]).forEach(function(k){
+        if(!set[k.period] || !k.excluded) return;
+        var r=(_SK.reps||[]).filter(function(x){ return x.id===k.rep_id; })[0];
+        if(r && !seen[r.id]){ seen[r.id]=1; names.push(_skShortName(r.name)); }
+      });
+      if(!names.length) return '';
+      return '<p style="font-size:11.5px;color:#8a5a00;margin:8px 0 0;">'
+        + escapeHtml(names.join(', '))+' '+(names.length>1?'are':'is')
+        + ' excluded from the month-end report for this period, so the totals above will be higher than the report Adam receives. '
+        + 'The figures are counted here because the billing is still company revenue.</p>';
+    }
+    function _ceoKpiRows(periods){
+      var set={}; periods.forEach(function(p){ set[p]=1; });
+      var live={}; (_SK.reps||[]).forEach(function(r){ live[r.id]=r.name; });
+      return (_SK.kpis||[]).filter(function(k){ return set[k.period] && live[k.rep_id]; })
+        .sort(function(a,b){ return a.period<b.period?1:(a.period>b.period?-1:0); });
+    }
+    function _ceoRepName(id){
+      var r=(_SK.reps||[]).filter(function(x){ return x.id===id; })[0];
+      return escapeHtml(r?_skShortName(r.name):String(id));
+    }
     function renderCeoBody(){
       var host=document.getElementById('ceoBody'); if(!host) return;
-      var ps=_skPeriods();
       var sel=document.getElementById('ceoMonth');
-      var pk=(sel && sel.value) ? sel.value : ps[0];
-      if(!pk){ host.innerHTML='<p class="sk-empty">No monthly figures have been submitted yet.</p>'; return; }
-      var prev=_ceoPrev(pk);
-      var T=_ceoTotals(pk), P=prev?_ceoTotals(prev):null;
+      var pick=(sel && sel.value) ? sel.value : (_skPeriods()[0]||'');
+      if(!pick){ host.innerHTML='<p class="sk-empty">No monthly figures have been submitted yet.</p>'; return; }
+      var months=_ceoMonths(pick);
+      if(!months.length){ host.innerHTML='<p class="sk-empty">No figures recorded for this period.</p>'; return; }
+      var prevPick=_ceoPrevSel(pick), prevMonths=prevPick?_ceoMonths(prevPick):[];
+      var T=_ceoTotals(months), P=prevMonths.length?_ceoTotals(prevMonths):null;
       var rate=T.kwh?(T.contract/T.kwh*100):0, pRate=(P&&P.kwh)?(P.contract/P.kwh*100):0;
       var UPLIFT_TARGET=0.6;
+      var scope=_ceoLabel(pick)+(_ceoIsFy(pick)?(' &middot; '+months.length+' month'+(months.length===1?'':'s')+' with figures'):'');
 
       var out='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:12px;margin-bottom:18px;">'
         + _skCard('Billing', _skMoney(T.billing), P?_ceoDelta(T.billing,P.billing,true):'')
         + _skCard('Total kWh', _skNum(T.kwh,0), P?_ceoDelta(T.kwh,P.kwh,false):'')
         + _skCard('Avg commission', rate.toFixed(2)+'p', P?_ceoRateDelta(rate,pRate):'')
         + _skCard('New business', _skMoney(T.nb), P?_ceoDelta(T.nb,P.nb,true):'')
-        + _skCard('Lost', _skNum(T.lostC,0)+(T.lostC===1?' customer':' customers'), _skNum(T.lostKwh,0)+' kWh')
+        + _skCard('Lost', _skNum(T.lostC,0)+(T.lostC===1?' customer':' customers'), _skNum(T.lostKwh,0)+' kWh &middot; '+_skNum(T.lostM,0)+' meters')
         + '</div>'
-        + _ceoCompareNote(pk, prev);
+        + _ceoCompareNote(pick, prevPick);
 
-      var agg=_skAggregate(pk), aggP=prev?_skAggregate(prev):null;
+      var agg=_ceoAgg(months), aggP=prevMonths.length?_ceoAgg(prevMonths):null;
       var reps=(_SK.reps||[]).slice().sort(function(a,b){
         return (Number(agg[b.id]&&agg[b.id].billing_total)||0) - (Number(agg[a.id]&&agg[a.id].billing_total)||0);
       });
       var rows=reps.map(function(r){
-        var a=agg[r.id]||{}, act=_ceoActivity(r.id,pk);
-        var kwh=Number(a.total_kwh)||0, ce=Number(a._contract_eff)||0;
-        return { rep:r, a:a, act:act, kwh:kwh,
-                 rate: kwh?(ce/kwh*100):0,
-                 billing:Number(a.billing_total)||0 };
+        var a=agg[r.id]||{}, act=_ceoActivity(r.id,months), kwh=Number(a.total_kwh)||0, ce=Number(a._contract_eff)||0;
+        return { rep:r, a:a, act:act, kwh:kwh, rate:kwh?(ce/kwh*100):0, billing:Number(a.billing_total)||0 };
       });
-      var tb=rows.map(function(x){
-        return '<tr><td>'+escapeHtml(_skShortName(x.rep.name))+'</td>'
-          + '<td class="num">'+_skMoney(x.billing)+'</td>'
-          + '<td class="num">'+_skMoney(Number(x.a.new_business_gbp)||0)+'</td>'
-          + '<td class="num">'+_skNum(x.a.new_business_kwh,0)+'</td>'
-          + '<td class="num">'+_skNum(x.kwh,0)+'</td>'
-          + '<td class="num">'+(x.kwh?x.rate.toFixed(2):'&mdash;')+(_skHasOverride(x.a)?'<span title="Set manually by the Head of Sales" style="color:#8a5a00;font-weight:800;">&nbsp;*</span>':'')+'</td>'
-          + '<td class="num">'+_skNum(x.a.lost_customers,0)+'</td>'
-          + '<td class="num">'+_skNum(x.a.lost_kwh,0)+'</td>'
-          + '<td class="num">'+(x.act.has?_skNum(x.act.calls,0):'<span style="color:var(--muted);">&mdash;</span>')+'</td>'
-          + '<td class="num">'+(x.act.has?_skNum(x.act.emails,0):'<span style="color:var(--muted);">&mdash;</span>')+'</td></tr>';
-      }).join('');
       var tCalls=0,tEmails=0,anyAct=false;
       rows.forEach(function(x){ if(x.act.has){ tCalls+=x.act.calls; tEmails+=x.act.emails; anyAct=true; } });
       out+='<div class="card" style="margin-bottom:16px;">'
-        + '<h3 style="font-size:14px;font-weight:800;margin-bottom:10px;">Every broker, every figure &mdash; '+escapeHtml(_skPeriodLabel(pk))+'</h3>'
+        + '<h3 style="font-size:14px;font-weight:800;margin-bottom:10px;">Every broker, every figure &mdash; '+scope+'</h3>'
         + '<div style="overflow-x:auto;"><table class="sk-table">'
         + '<tr><th>Broker</th><th class="num">Billing</th><th class="num">New biz &pound;</th><th class="num">New biz kWh</th><th class="num">Total kWh</th><th class="num">Avg comm p/kWh</th><th class="num">Lost custs</th><th class="num">Lost kWh</th><th class="num">Calls</th><th class="num">Emails</th></tr>'
-        + tb
+        + rows.map(function(x){
+            return '<tr><td>'+escapeHtml(_skShortName(x.rep.name))+'</td>'
+              + '<td class="num">'+_skMoney(x.billing)+'</td>'
+              + '<td class="num">'+_skMoney(Number(x.a.new_business_gbp)||0)+'</td>'
+              + '<td class="num">'+_skNum(x.a.new_business_kwh,0)+'</td>'
+              + '<td class="num">'+_skNum(x.kwh,0)+'</td>'
+              + '<td class="num">'+(x.kwh?x.rate.toFixed(2):'&mdash;')+(_skHasOverride(x.a)?'<span title="Set manually by the Head of Sales" style="color:#8a5a00;font-weight:800;">&nbsp;*</span>':'')+'</td>'
+              + '<td class="num">'+_skNum(x.a.lost_customers,0)+'</td>'
+              + '<td class="num">'+_skNum(x.a.lost_kwh,0)+'</td>'
+              + '<td class="num">'+(x.act.has?_skNum(x.act.calls,0):'<span style="color:var(--muted);">&mdash;</span>')+'</td>'
+              + '<td class="num">'+(x.act.has?_skNum(x.act.emails,0):'<span style="color:var(--muted);">&mdash;</span>')+'</td></tr>';
+          }).join('')
         + '<tr class="sk-total"><td>Team total</td><td class="num">'+_skMoney(T.billing)+'</td><td class="num">'+_skMoney(T.nb)+'</td><td class="num">'+_skNum(T.nbKwh,0)+'</td><td class="num">'+_skNum(T.kwh,0)+'</td><td class="num">'+rate.toFixed(2)+'</td><td class="num">'+_skNum(T.lostC,0)+'</td><td class="num">'+_skNum(T.lostKwh,0)+'</td><td class="num">'+(anyAct?_skNum(tCalls,0):'&mdash;')+'</td><td class="num">'+(anyAct?_skNum(tEmails,0):'&mdash;')+'</td></tr>'
         + '</table></div>'
-        + (anyAct?'':'<p style="font-size:11.5px;color:var(--muted);margin:8px 0 0;">No call or email figures recorded for this month.</p>')
-        + _ceoExcludedNote(pk)
+        + (anyAct?'':'<p style="font-size:11.5px;color:var(--muted);margin:8px 0 0;">No call or email figures recorded for this period.</p>')
+        + _ceoExcludedNote(months)
         + '</div>';
 
-      var hist=_skPeriods().slice().sort().slice(-12);
-      var billSeries=hist.map(function(p){ return { label:_skPeriodLabel(p), val:_ceoTotals(p).billing }; });
-      var rateSeries=hist.map(function(p){ var t=_ceoTotals(p); return { label:_skPeriodLabel(p), val: t.kwh?(t.contract/t.kwh*100):0 }; });
+      // ── Broker commentary: what the brokers actually wrote ──
+      var kr=_ceoKpiRows(months), multi=(months.length>1);
+      var mCol=multi?'<th>Month</th>':'', mCell=function(k){ return multi?('<td style="white-space:nowrap;">'+_skPeriodLabel(k.period)+'</td>'):''; };
+
+      var lost=kr.filter(function(k){
+        return (Number(k.lost_customers)||0)>0 || (Number(k.lost_meters)||0)>0 || (Number(k.lost_kwh)||0)>0
+            || (k.lost_reason && String(k.lost_reason).trim());
+      });
+      out+='<div class="card" style="margin-bottom:16px;border-left:3px solid #b5340f;">'
+        + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Lost business</h3>'
+        + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Every customer, meter and kWh reported lost, with the reason the broker gave.</p>'
+        + (lost.length
+            ? '<div style="overflow-x:auto;"><table class="sk-table"><tr>'+mCol+'<th>Broker</th><th class="num">Custs</th><th class="num">Meters</th><th class="num">kWh</th><th>Reason given</th></tr>'
+              + lost.map(function(k){
+                  var why=(k.lost_reason && String(k.lost_reason).trim())
+                    ? escapeHtml(k.lost_reason)
+                    : '<span style="color:#b5340f;font-weight:700;">&mdash; no reason given &mdash;</span>';
+                  return '<tr>'+mCell(k)+'<td>'+_ceoRepName(k.rep_id)+'</td><td class="num">'+_skNum(k.lost_customers,0)+'</td><td class="num">'+_skNum(k.lost_meters,0)+'</td><td class="num">'+_skNum(k.lost_kwh,0)+'</td><td>'+why+'</td></tr>';
+                }).join('')
+              + '</table></div>'
+            : '<p class="sk-empty" style="margin:0;">Nothing reported lost in this period.</p>')
+        + '</div>';
+
+      var coc=kr.filter(function(k){
+        if(!_cocFilled(k.customers_of_concern)) return false;
+        var v=String(k.customers_of_concern).trim().toLowerCase();
+        return v!=='no' && v!=='none';
+      });
+      var cocNone=kr.filter(function(k){
+        if(!_cocFilled(k.customers_of_concern)) return false;
+        var v=String(k.customers_of_concern).trim().toLowerCase();
+        return v==='no' || v==='none';
+      }).length;
+      var cocSilent=kr.filter(function(k){ return !_cocFilled(k.customers_of_concern); }).length;
+      out+='<div class="card" style="margin-bottom:16px;border-left:3px solid #b5840a;">'
+        + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Customers of concern</h3>'
+        + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Accounts each broker has flagged as at risk, in their own words.</p>'
+        + (coc.length
+            ? '<div style="overflow-x:auto;"><table class="sk-table"><tr>'+mCol+'<th>Broker</th><th>Customers of concern</th></tr>'
+              + coc.map(function(k){ return '<tr>'+mCell(k)+'<td style="white-space:nowrap;">'+_ceoRepName(k.rep_id)+'</td><td>'+_cocRenderCell(k.customers_of_concern)+'</td></tr>'; }).join('')
+              + '</table></div>'
+            : '<p class="sk-empty" style="margin:0;">No customers flagged as at risk in this period.</p>')
+        + ((cocNone||cocSilent) ? '<p style="font-size:11.5px;color:var(--muted);margin:8px 0 0;">'
+            + (cocNone?(cocNone+' submission'+(cocNone===1?'':'s')+' answered &ldquo;none&rdquo;. '):'')
+            + (cocSilent?(cocSilent+' submission'+(cocSilent===1?'':'s')+' left this blank &mdash; that is unanswered, not a clean bill of health.'):'')
+            + '</p>' : '')
+        + '</div>';
+
+      var cmt=kr.filter(function(k){ return k.notes && String(k.notes).trim(); });
+      out+='<div class="card" style="margin-bottom:16px;">'
+        + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Broker comments</h3>'
+        + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Notes each broker added when submitting their figures.</p>'
+        + (cmt.length
+            ? '<div style="overflow-x:auto;"><table class="sk-table"><tr>'+mCol+'<th>Broker</th><th>Comment</th></tr>'
+              + cmt.map(function(k){ return '<tr>'+mCell(k)+'<td style="white-space:nowrap;">'+_ceoRepName(k.rep_id)+'</td><td style="white-space:normal;">'+escapeHtml(k.notes)+'</td></tr>'; }).join('')
+              + '</table></div>'
+            : '<p class="sk-empty" style="margin:0;">No comments left in this period.</p>')
+        + '</div>';
+
+      var hist=_ceoIsFy(pick) ? months.slice() : _skPeriods().slice().sort().slice(-12);
+      var billSeries=hist.map(function(p){ return { label:_skPeriodLabel(p), val:_ceoTotals([p]).billing }; });
+      var rateSeries=hist.map(function(p){ var t=_ceoTotals([p]); return { label:_skPeriodLabel(p), val: t.kwh?(t.contract/t.kwh*100):0 }; });
       var repSeries=rows.map(function(x){ return { label:_skShortName(x.rep.name), val:x.billing }; });
       out+='<div class="card" style="margin-bottom:16px;">'
         + '<h3 style="font-size:14px;font-weight:800;margin-bottom:10px;">Trends</h3>'
         + '<div style="margin-bottom:6px;font-size:12px;color:var(--muted);">Team billing &mdash; month by month</div>'+_skColBars(billSeries,{ money:true })
         + '<div style="margin:16px 0 6px;font-size:12px;color:var(--muted);">Team average commission (p/kWh) &mdash; target '+UPLIFT_TARGET+'</div>'+_skColBars(rateSeries,{ dp:2, unit:'p', color:'#2f7d4f' })
-        + '<div style="margin:16px 0 6px;font-size:12px;color:var(--muted);">Billing by broker &mdash; '+escapeHtml(_skPeriodLabel(pk))+'</div>'+_skColBars(repSeries,{ money:true, color:'#9aa3c7' })
+        + '<div style="margin:16px 0 6px;font-size:12px;color:var(--muted);">Billing by broker &mdash; '+scope+'</div>'+_skColBars(repSeries,{ money:true, color:'#9aa3c7' })
         + '</div>';
 
       var flags=[];
@@ -6842,20 +6948,15 @@
       if(aggP) rows.forEach(function(x){
         var pb=Number((aggP[x.rep.id]||{}).billing_total)||0;
         if(pb>0 && x.billing < pb*0.85)
-          flags.push(['Billing', escapeHtml(_skShortName(x.rep.name))+' down '+(((pb-x.billing)/pb)*100).toFixed(0)+'% on '+_skPeriodLabel(prev)]);
+          flags.push(['Billing', escapeHtml(_skShortName(x.rep.name))+' down '+(((pb-x.billing)/pb)*100).toFixed(0)+'% on '+_ceoLabel(prevPick)]);
       });
-      (_SK.kpis||[]).forEach(function(k){
-        if(k.period!==pk) return;
-        if(!_cocFilled(k.customers_of_concern)) return;
-        var v=String(k.customers_of_concern).trim().toLowerCase();
-        if(v==='no'||v==='none') return;
-        var nm=(_SK.reps.filter(function(r){ return r.id===k.rep_id; })[0]||{}).name;
-        flags.push(['At risk', escapeHtml(_skShortName(nm||''))+' has flagged customers of concern']);
-      });
-      (_SK.reps||[]).forEach(function(r){
-        var k=(_SK.kpis||[]).filter(function(x){ return x.rep_id===r.id && x.period===pk; })[0];
-        if(!k) flags.push(['Not submitted', escapeHtml(_skShortName(r.name))+' has no figures for this month']);
-        else if(!k.confirmed_at && !k.excluded) flags.push(['Not confirmed', escapeHtml(_skShortName(r.name))+' has not confirmed this month as final']);
+      coc.forEach(function(k){ flags.push(['At risk', _ceoRepName(k.rep_id)+' flagged customers of concern'+(multi?(' in '+_skPeriodLabel(k.period)):'')]); });
+      months.forEach(function(p){
+        (_SK.reps||[]).forEach(function(r){
+          var k=(_SK.kpis||[]).filter(function(x){ return x.rep_id===r.id && x.period===p; })[0];
+          if(!k) flags.push(['Not submitted', escapeHtml(_skShortName(r.name))+' has no figures for '+_skPeriodLabel(p)]);
+          else if(!k.confirmed_at && !k.excluded) flags.push(['Not confirmed', escapeHtml(_skShortName(r.name))+' has not confirmed '+_skPeriodLabel(p)]);
+        });
       });
       out+='<div class="card" style="border-left:3px solid '+(flags.length?'#b5340f':'#2f7d4f')+';">'
         + '<h3 style="font-size:14px;font-weight:800;margin-bottom:10px;">Needs attention</h3>'
@@ -6863,7 +6964,7 @@
             ? '<div style="overflow-x:auto;"><table class="sk-table"><tr><th>Type</th><th>Detail</th></tr>'
               + flags.map(function(f){ return '<tr><td style="white-space:nowrap;font-weight:700;color:#b5340f;">'+f[0]+'</td><td>'+f[1]+'</td></tr>'; }).join('')
               + '</table></div>'
-            : '<p class="sk-empty" style="margin:0;">Nothing flagged for this month &mdash; every broker is on target, submitted and confirmed.</p>')
+            : '<p class="sk-empty" style="margin:0;">Nothing flagged for this period &mdash; every broker is on target, submitted and confirmed.</p>')
         + '</div>';
 
       host.innerHTML=out;
