@@ -1412,6 +1412,7 @@
           <div class="nav-item" id="bkNavProjects" onclick="brokerNav('projects')">My Projects</div>
           <div class="nav-item" id="bkNavCust" onclick="brokerNav('customers')">My Portfolio</div>
           <div class="nav-item" id="bkNavLead" onclick="brokerNav('lead')" style="display:none;">Team admin</div>
+          <div class="nav-item" id="bkNavCeo" onclick="brokerNav('ceo')" style="display:none;">Company view</div>
         </div>
         <div class="sidebar-foot">
           <a href="/" class="signout-btn" style="display:block;text-align:center;text-decoration:none;background:#eef1fb;color:#232e63;border:1px solid #c7cde8;margin-bottom:8px;">&larr; Billing portal</a>
@@ -1791,6 +1792,7 @@
           </div>
         </div>
         <div id="brokerLeadView" style="display:none;"></div>
+        <div id="brokerCeoView" style="display:none;"></div>
       </main>
     </div>
   </div>
@@ -2604,7 +2606,8 @@
         isBroker:   profile.role === 'broker',
         role:       profile.role || 'customer',
         hasLogo:    !!profile.customers?.has_logo,
-        salesLead:  !!profile.sales_lead
+        salesLead:  !!profile.sales_lead,
+        execView:   !!profile.exec_view
       };
       // ── Sales portal is broker-only ──
       if (!currentUser.isBroker) {
@@ -2649,6 +2652,7 @@
       var nameEl = document.getElementById('brokerName');
       if (nameEl) nameEl.textContent = currentUser.name || '';
       var _nl = document.getElementById('bkNavLead'); if(_nl) _nl.style.display = (currentUser && currentUser.salesLead) ? '' : 'none';
+      var _nx = document.getElementById('bkNavCeo'); if(_nx) _nx.style.display = (currentUser && currentUser.execView) ? '' : 'none';
       brokerSalesInit();      // load Sales Performance (leaderboard + my dashboard/calculator)
       brokerNav('sales');     // default broker landing = Sales Performance
       var grid = document.getElementById('brokerCustomerGrid');
@@ -6668,6 +6672,202 @@
         + (missing ? ' '+missing+' broker'+(missing>1?'s have':' has')+' nothing recorded '+(all?'in any month':'for this month')+' &mdash; treat that as missing data, not zero activity.' : '')
         + '</p>';
     }
+    // ── Company view (CEO, read-only) ──
+    // Its own screen rather than a dressed-up leaderboard: this aggregates the company
+    // first and only then breaks down by broker. Every figure comes from _SK.eff via
+    // _skAggregate, the same source the leaderboard and month-end report use, so the
+    // three can never quietly disagree.
+    function renderCeoView(){
+      var host=document.getElementById('brokerCeoView'); if(!host) return;
+      if(!(currentUser && currentUser.execView)){ host.innerHTML='<div class="card">This area is for the CEO only.</div>'; return; }
+      var ps=_skPeriods();
+      host.innerHTML =
+        '<div class="section-head"><h2>Company view</h2></div>'
+        + '<div class="card" style="margin-bottom:16px;">'
+          + '<div class="sk-entry-grid sk-entry-vert" style="margin-bottom:0;">'
+            + '<div class="form-group"><label>Month</label><select id="ceoMonth" onchange="renderCeoBody()">'
+              + (ps.length ? ps.map(function(p){ return '<option value="'+p+'">'+escapeHtml(_skPeriodLabel(p))+'</option>'; }).join('')
+                           : '<option value="">&mdash; no figures yet &mdash;</option>')
+            + '</select></div>'
+          + '</div>'
+        + '</div>'
+        + '<div id="ceoBody"></div>';
+      renderCeoBody();
+    }
+    function _ceoPrev(pk){
+      var ps=_skPeriods().slice().sort();
+      var i=ps.indexOf(pk);
+      return i>0 ? ps[i-1] : null;
+    }
+    function _ceoTotals(pk){
+      var agg=_skAggregate(pk), t={ billing:0, kwh:0, contract:0, nb:0, nbKwh:0, lostC:0, lostKwh:0 };
+      Object.keys(agg).forEach(function(id){
+        var a=agg[id];
+        t.billing  += Number(a.billing_total)||0;
+        t.kwh      += Number(a.total_kwh)||0;
+        t.contract += Number(a._contract_eff)||0;
+        t.nb       += Number(a.new_business_gbp)||0;
+        t.nbKwh    += Number(a.new_business_kwh)||0;
+        t.lostC    += Number(a.lost_customers)||0;
+        t.lostKwh  += Number(a.lost_kwh)||0;
+      });
+      return t;
+    }
+    function _ceoDelta(now, was, money){
+      if(!was) return '<span style="color:var(--muted);">no comparable prior month</span>';
+      var d=(now-was)/was*100, up=(d>=0);
+      return '<span style="color:'+(up?'#2f7d4f':'#b5340f')+';font-weight:700;">'+(up?'&#9650;':'&#9660;')+' '+Math.abs(d).toFixed(1)+'%</span>'
+           + ' <span style="color:var(--muted);">vs '+(money?_skMoney(was):_skNum(was,0))+'</span>';
+    }
+    function _ceoRateDelta(now, was){
+      if(!was) return '<span style="color:var(--muted);">no comparable prior month</span>';
+      var d=now-was, up=(d>=0);
+      return '<span style="color:'+(up?'#2f7d4f':'#b5340f')+';font-weight:700;">'+(up?'&#9650;':'&#9660;')+' '+Math.abs(d).toFixed(2)+'p</span>'
+           + ' <span style="color:var(--muted);">vs '+was.toFixed(2)+'p</span>';
+    }
+    // Early months hold figures from only one or two brokers, so a naive month-on-month
+    // comparison reports things like "kWh up 3,500%" — arithmetically right, completely
+    // misleading. Count how many brokers actually billed in each month and say so when
+    // the comparison isn't like-for-like, rather than let the headline stand unqualified.
+    function _ceoReporting(pk){
+      var agg=_skAggregate(pk), n=0;
+      Object.keys(agg).forEach(function(id){ if((Number(agg[id].billing_total)||0)>0) n++; });
+      return n;
+    }
+    function _ceoCompareNote(pk, prev){
+      if(!prev) return '';
+      var now=_ceoReporting(pk), was=_ceoReporting(prev), tot=(_SK.reps||[]).length;
+      if(was>=now) return '';
+      return '<p style="font-size:11.5px;color:#8a5a00;margin:-6px 0 16px;">'
+        + escapeHtml(_skPeriodLabel(prev))+' has billing from only '+was+' of '+tot+' brokers, against '+now
+        + ' in '+escapeHtml(_skPeriodLabel(pk))+' &mdash; the month-on-month changes above overstate the movement.</p>';
+    }
+    // A broker marked "excluded" is left out of the month-end report Adam receives,
+    // but their billing is still real money and belongs in the company total. Rather
+    // than silently pick one convention, show the company figure and say plainly why
+    // it won't match the report — otherwise the CEO and the Head of Sales compare two
+    // different totals for the same month and neither knows which is wrong.
+    function _ceoExcludedNote(pk){
+      var names=(_SK.kpis||[]).filter(function(k){ return k.period===pk && k.excluded; })
+        .map(function(k){ var r=(_SK.reps||[]).filter(function(x){ return x.id===k.rep_id; })[0];
+                          return r?_skShortName(r.name):null; })
+        .filter(Boolean);
+      if(!names.length) return '';
+      return '<p style="font-size:11.5px;color:#8a5a00;margin:8px 0 0;">'
+        + escapeHtml(names.join(', '))+' '+(names.length>1?'are':'is')
+        + ' excluded from the month-end report for this month, so the totals above will be higher than the report Adam receives. '
+        + 'The figures are counted here because the billing is still company revenue.</p>';
+    }
+    function _ceoActivity(repId, pk){
+      var r={ calls:0, emails:0, has:false };
+      (_SK.activity||[]).forEach(function(a){
+        if(a.rep_id===repId && String(a.period).slice(0,10)===pk){
+          r.calls+=Number(a.calls)||0; r.emails+=Number(a.emails)||0; r.has=true;
+        }
+      });
+      return r;
+    }
+    function renderCeoBody(){
+      var host=document.getElementById('ceoBody'); if(!host) return;
+      var ps=_skPeriods();
+      var sel=document.getElementById('ceoMonth');
+      var pk=(sel && sel.value) ? sel.value : ps[0];
+      if(!pk){ host.innerHTML='<p class="sk-empty">No monthly figures have been submitted yet.</p>'; return; }
+      var prev=_ceoPrev(pk);
+      var T=_ceoTotals(pk), P=prev?_ceoTotals(prev):null;
+      var rate=T.kwh?(T.contract/T.kwh*100):0, pRate=(P&&P.kwh)?(P.contract/P.kwh*100):0;
+      var UPLIFT_TARGET=0.6;
+
+      var out='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:12px;margin-bottom:18px;">'
+        + _skCard('Billing', _skMoney(T.billing), P?_ceoDelta(T.billing,P.billing,true):'')
+        + _skCard('Total kWh', _skNum(T.kwh,0), P?_ceoDelta(T.kwh,P.kwh,false):'')
+        + _skCard('Avg commission', rate.toFixed(2)+'p', P?_ceoRateDelta(rate,pRate):'')
+        + _skCard('New business', _skMoney(T.nb), P?_ceoDelta(T.nb,P.nb,true):'')
+        + _skCard('Lost', _skNum(T.lostC,0)+(T.lostC===1?' customer':' customers'), _skNum(T.lostKwh,0)+' kWh')
+        + '</div>'
+        + _ceoCompareNote(pk, prev);
+
+      var agg=_skAggregate(pk), aggP=prev?_skAggregate(prev):null;
+      var reps=(_SK.reps||[]).slice().sort(function(a,b){
+        return (Number(agg[b.id]&&agg[b.id].billing_total)||0) - (Number(agg[a.id]&&agg[a.id].billing_total)||0);
+      });
+      var rows=reps.map(function(r){
+        var a=agg[r.id]||{}, act=_ceoActivity(r.id,pk);
+        var kwh=Number(a.total_kwh)||0, ce=Number(a._contract_eff)||0;
+        return { rep:r, a:a, act:act, kwh:kwh,
+                 rate: kwh?(ce/kwh*100):0,
+                 billing:Number(a.billing_total)||0 };
+      });
+      var tb=rows.map(function(x){
+        return '<tr><td>'+escapeHtml(_skShortName(x.rep.name))+'</td>'
+          + '<td class="num">'+_skMoney(x.billing)+'</td>'
+          + '<td class="num">'+_skMoney(Number(x.a.new_business_gbp)||0)+'</td>'
+          + '<td class="num">'+_skNum(x.a.new_business_kwh,0)+'</td>'
+          + '<td class="num">'+_skNum(x.kwh,0)+'</td>'
+          + '<td class="num">'+(x.kwh?x.rate.toFixed(2):'&mdash;')+(_skHasOverride(x.a)?'<span title="Set manually by the Head of Sales" style="color:#8a5a00;font-weight:800;">&nbsp;*</span>':'')+'</td>'
+          + '<td class="num">'+_skNum(x.a.lost_customers,0)+'</td>'
+          + '<td class="num">'+_skNum(x.a.lost_kwh,0)+'</td>'
+          + '<td class="num">'+(x.act.has?_skNum(x.act.calls,0):'<span style="color:var(--muted);">&mdash;</span>')+'</td>'
+          + '<td class="num">'+(x.act.has?_skNum(x.act.emails,0):'<span style="color:var(--muted);">&mdash;</span>')+'</td></tr>';
+      }).join('');
+      var tCalls=0,tEmails=0,anyAct=false;
+      rows.forEach(function(x){ if(x.act.has){ tCalls+=x.act.calls; tEmails+=x.act.emails; anyAct=true; } });
+      out+='<div class="card" style="margin-bottom:16px;">'
+        + '<h3 style="font-size:14px;font-weight:800;margin-bottom:10px;">Every broker, every figure &mdash; '+escapeHtml(_skPeriodLabel(pk))+'</h3>'
+        + '<div style="overflow-x:auto;"><table class="sk-table">'
+        + '<tr><th>Broker</th><th class="num">Billing</th><th class="num">New biz &pound;</th><th class="num">New biz kWh</th><th class="num">Total kWh</th><th class="num">Avg comm p/kWh</th><th class="num">Lost custs</th><th class="num">Lost kWh</th><th class="num">Calls</th><th class="num">Emails</th></tr>'
+        + tb
+        + '<tr class="sk-total"><td>Team total</td><td class="num">'+_skMoney(T.billing)+'</td><td class="num">'+_skMoney(T.nb)+'</td><td class="num">'+_skNum(T.nbKwh,0)+'</td><td class="num">'+_skNum(T.kwh,0)+'</td><td class="num">'+rate.toFixed(2)+'</td><td class="num">'+_skNum(T.lostC,0)+'</td><td class="num">'+_skNum(T.lostKwh,0)+'</td><td class="num">'+(anyAct?_skNum(tCalls,0):'&mdash;')+'</td><td class="num">'+(anyAct?_skNum(tEmails,0):'&mdash;')+'</td></tr>'
+        + '</table></div>'
+        + (anyAct?'':'<p style="font-size:11.5px;color:var(--muted);margin:8px 0 0;">No call or email figures recorded for this month.</p>')
+        + _ceoExcludedNote(pk)
+        + '</div>';
+
+      var hist=_skPeriods().slice().sort().slice(-12);
+      var billSeries=hist.map(function(p){ return { label:_skPeriodLabel(p), val:_ceoTotals(p).billing }; });
+      var rateSeries=hist.map(function(p){ var t=_ceoTotals(p); return { label:_skPeriodLabel(p), val: t.kwh?(t.contract/t.kwh*100):0 }; });
+      var repSeries=rows.map(function(x){ return { label:_skShortName(x.rep.name), val:x.billing }; });
+      out+='<div class="card" style="margin-bottom:16px;">'
+        + '<h3 style="font-size:14px;font-weight:800;margin-bottom:10px;">Trends</h3>'
+        + '<div style="margin-bottom:6px;font-size:12px;color:var(--muted);">Team billing &mdash; month by month</div>'+_skColBars(billSeries,{ money:true })
+        + '<div style="margin:16px 0 6px;font-size:12px;color:var(--muted);">Team average commission (p/kWh) &mdash; target '+UPLIFT_TARGET+'</div>'+_skColBars(rateSeries,{ dp:2, unit:'p', color:'#2f7d4f' })
+        + '<div style="margin:16px 0 6px;font-size:12px;color:var(--muted);">Billing by broker &mdash; '+escapeHtml(_skPeriodLabel(pk))+'</div>'+_skColBars(repSeries,{ money:true, color:'#9aa3c7' })
+        + '</div>';
+
+      var flags=[];
+      rows.forEach(function(x){
+        if(x.kwh && x.rate < UPLIFT_TARGET)
+          flags.push(['Commission', escapeHtml(_skShortName(x.rep.name))+' at '+x.rate.toFixed(2)+'p, under the '+UPLIFT_TARGET+'p target']);
+      });
+      if(aggP) rows.forEach(function(x){
+        var pb=Number((aggP[x.rep.id]||{}).billing_total)||0;
+        if(pb>0 && x.billing < pb*0.85)
+          flags.push(['Billing', escapeHtml(_skShortName(x.rep.name))+' down '+(((pb-x.billing)/pb)*100).toFixed(0)+'% on '+_skPeriodLabel(prev)]);
+      });
+      (_SK.kpis||[]).forEach(function(k){
+        if(k.period!==pk) return;
+        if(!_cocFilled(k.customers_of_concern)) return;
+        var v=String(k.customers_of_concern).trim().toLowerCase();
+        if(v==='no'||v==='none') return;
+        var nm=(_SK.reps.filter(function(r){ return r.id===k.rep_id; })[0]||{}).name;
+        flags.push(['At risk', escapeHtml(_skShortName(nm||''))+' has flagged customers of concern']);
+      });
+      (_SK.reps||[]).forEach(function(r){
+        var k=(_SK.kpis||[]).filter(function(x){ return x.rep_id===r.id && x.period===pk; })[0];
+        if(!k) flags.push(['Not submitted', escapeHtml(_skShortName(r.name))+' has no figures for this month']);
+        else if(!k.confirmed_at && !k.excluded) flags.push(['Not confirmed', escapeHtml(_skShortName(r.name))+' has not confirmed this month as final']);
+      });
+      out+='<div class="card" style="border-left:3px solid '+(flags.length?'#b5340f':'#2f7d4f')+';">'
+        + '<h3 style="font-size:14px;font-weight:800;margin-bottom:10px;">Needs attention</h3>'
+        + (flags.length
+            ? '<div style="overflow-x:auto;"><table class="sk-table"><tr><th>Type</th><th>Detail</th></tr>'
+              + flags.map(function(f){ return '<tr><td style="white-space:nowrap;font-weight:700;color:#b5340f;">'+f[0]+'</td><td>'+f[1]+'</td></tr>'; }).join('')
+              + '</table></div>'
+            : '<p class="sk-empty" style="margin:0;">Nothing flagged for this month &mdash; every broker is on target, submitted and confirmed.</p>')
+        + '</div>';
+
+      host.innerHTML=out;
+    }
     function renderLeadLost(){
       var body=document.getElementById('leadLostBody'); if(!body) return;
       var nm={}; (_SK.reps||[]).forEach(function(r){ nm[r.id]=r.name; });
@@ -6748,10 +6948,11 @@
       var anl = document.getElementById('brokerAnalyticsView');
       var mv = document.getElementById('brokerMetersView');
       var lead = document.getElementById('brokerLeadView');
+      var ceo = document.getElementById('brokerCeoView');
       var nS = document.getElementById('bkNavSales'), nC = document.getElementById('bkNavCust'), nP = document.getElementById('bkNavProjects'), nA = document.getElementById('bkNavAnalytics');
-      var nL = document.getElementById('bkNavLead');
-      function _hideAll(){ [sales,cust,proj,anl,mv,lead].forEach(function(v){ if(v) v.style.display = 'none'; }); }
-      function _clr(){ [nS,nC,nP,nA,nL].forEach(function(n){ if(n) n.classList.remove('active'); }); }
+      var nL = document.getElementById('bkNavLead'), nX = document.getElementById('bkNavCeo');
+      function _hideAll(){ [sales,cust,proj,anl,mv,lead,ceo].forEach(function(v){ if(v) v.style.display = 'none'; }); }
+      function _clr(){ [nS,nC,nP,nA,nL,nX].forEach(function(n){ if(n) n.classList.remove('active'); }); }
       if(view === 'customers'){
         _hideAll(); backToBrokerCustomers();
         _clr(); if(nC) nC.classList.add('active');
@@ -6769,6 +6970,10 @@
         _hideAll(); if(lead) lead.style.display = '';
         _clr(); if(nL) nL.classList.add('active');
         renderLeadView();
+      } else if(view === 'ceo'){
+        _hideAll(); if(ceo) ceo.style.display = '';
+        _clr(); if(nX) nX.classList.add('active');
+        renderCeoView();
       } else {
         _hideAll(); if(sales) sales.style.display = '';
         _clr(); if(nS) nS.classList.add('active');
