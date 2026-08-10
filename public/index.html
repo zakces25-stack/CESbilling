@@ -4079,23 +4079,43 @@
     // validation report's bv_summary gives the live supplies + suppliers; the admin-set
     // supply_addresses table overrides the address (incl. postcode) where present.
     async function fetchCustomerSupplies(cid) {
-      const [{ data: repData }, { data: addrData }] = await Promise.all([
+      const [{ data: repData }, { data: addrData }, { data: siteData }] = await Promise.all([
         sb.from('reports').select('bv_summary, month, year').eq('customer_id', cid).eq('report_type', 'bill_validation').order('year', { ascending: false }).order('month_num', { ascending: false }).limit(1),
-        sb.from('supply_addresses').select('utility, identifier, address').eq('customer_id', cid)
+        sb.from('supply_addresses').select('utility, identifier, address').eq('customer_id', cid),
+        sb.from('sites').select('utility, identifier, site_address').eq('customer_id', cid)
       ]);
       const rep = repData && repData[0];
       const bv = (rep && rep.bv_summary) ? rep.bv_summary : null;
       const ov = {}; (addrData || []).forEach(function(a){ if (a.address) ov[a.utility + '|' + a.identifier] = a.address; });
+      // Gas entries in bv_summary carry no MPR/MPRN — only site, address, supplier and
+      // usage. The identifier lives in the sites table, so resolve it from there by
+      // address. Without this every gas supply resolved to undefined and was dropped,
+      // which is why gas never appeared on the site list.
+      const norm = function(s){ return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); };
+      const byAddr = {};
+      (siteData || []).forEach(function(s){
+        if (!s.identifier) return;
+        if (s.site_address) byAddr[s.utility + '|' + norm(s.site_address)] = s.identifier;
+      });
+      function resolveId(util, id, address, site){
+        if (id) return String(id);
+        return byAddr[util + '|' + norm(address)] || byAddr[util + '|' + norm(site)] || '';
+      }
       const groups = { electricity: [], gas: [], water: [] };
       const seen = {};
-      function add(util, id, supplier, address){
-        if (!id) return; const k = util + '|' + id; if (seen[k]) return; seen[k] = 1;
-        groups[util].push({ id: String(id), address: ov[k] || address || '', supplier: supplier || '' });
+      function add(util, rawId, supplier, address, site){
+        const id = resolveId(util, rawId, address, site);
+        // A supply with no identifier we can resolve is still a real supply. Key it on
+        // the address so it appears, rather than vanishing from the customer's list.
+        if (!id && !address && !site) return;
+        const k = util + '|' + (id || 'addr:' + norm(address || site));
+        if (seen[k]) return; seen[k] = 1;
+        groups[util].push({ id: id, address: (id && ov[util + '|' + id]) || address || site || '', supplier: supplier || '' });
       }
       if (bv) {
-        (bv.electricity || []).forEach(function(s){ add('electricity', s.mpan || s.mpr, s.supplier, s.site || s.address); });
-        (bv.gas || []).forEach(function(s){ add('gas', s.mpr || s.mprn || s.mpan, s.supplier, s.site || s.address); });
-        (bv.water || []).forEach(function(s){ add('water', s.spid, s.supplier, s.address || s.site); });
+        (bv.electricity || []).forEach(function(s){ add('electricity', s.mpan || s.mpr, s.supplier, s.address || s.site, s.site); });
+        (bv.gas || []).forEach(function(s){ add('gas', s.mpr || s.mprn || s.mprn_no || s.mpan, s.supplier, s.address || s.site, s.site); });
+        (bv.water || []).forEach(function(s){ add('water', s.spid, s.supplier, s.address || s.site, s.site); });
       }
       const total = groups.electricity.length + groups.gas.length + groups.water.length;
       return { bv: bv, groups: groups, total: total, period: rep ? ((rep.month || '') + ' ' + (rep.year || '')).trim() : '' };
@@ -4116,7 +4136,10 @@
         const title = util.charAt(0).toUpperCase() + util.slice(1);
         const label = idLabel[util] || 'Identifier';
         const rows = list.map(function(s){
-          return '<tr><td class="mono">' + escapeHtml(s.id) + '</td><td>' + escapeHtml(s.address || '—') + '</td><td>' + escapeHtml(s.supplier || '—') + '</td></tr>';
+          const ident = s.id
+            ? escapeHtml(s.id)
+            : '<span style="color:var(--muted);font-style:italic;">not on record</span>';
+          return '<tr><td class="mono">' + ident + '</td><td>' + escapeHtml(s.address || '—') + '</td><td>' + escapeHtml(s.supplier || '—') + '</td></tr>';
         }).join('');
         return '<div class="site-group"><h3>' + title + ' <span style="color:var(--muted);font-weight:600;font-size:13px;">· ' + list.length + ' site' + (list.length === 1 ? '' : 's') + '</span></h3>' +
           '<table class="list"><thead><tr><th>' + label + '</th><th>Site address</th><th>Supplier</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
