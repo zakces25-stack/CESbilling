@@ -187,6 +187,62 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
 .barrow .pc{font-family:var(--font-mono);font-size:var(--t-fig);font-weight:600;min-width:78px;
   text-align:right;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 
+/* ── Stat header + filter bar ───────────────────────────────────────── */
+.statrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(146px,1fr));gap:10px;margin-bottom:18px}
+.statcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);padding:13px 14px}
+.statcard .l{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.statcard .v{font-family:var(--font-mono);font-size:var(--t-fig);font-weight:600;margin-top:5px;
+  letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.1}
+.statcard .s{font-size:11px;color:var(--ink-3);font-weight:600;margin-top:3px}
+
+.filters{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--r-sm);padding:11px 14px;margin-bottom:16px}
+.filters label{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.filters select{font-family:var(--font-body);font-size:var(--t-base);font-weight:600;color:var(--ink);
+  background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-sm);
+  padding:6px 9px;min-height:36px}
+.filters .chk{display:flex;align-items:center;gap:7px;cursor:pointer;font-size:var(--t-base);
+  font-weight:600;color:var(--ink-2);text-transform:none;letter-spacing:0}
+.filters input[type=checkbox]{width:17px;height:17px;accent-color:var(--accent-fill);cursor:pointer}
+.filters .count{margin-left:auto;font-size:var(--t-sm);color:var(--ink-3);font-weight:600}
+
+/* ── Ambient scene ──────────────────────────────────────────────────────
+   A generation landscape behind the page: turbines turning, smoke drifting,
+   a price line climbing. Inline SVG rather than a photograph, so it is a few
+   KB not a few hundred, stays crisp at any size, recolours with the theme and
+   needs no image host inside the CSP.
+
+   IT MUST NEVER COMPETE WITH THE NUMBERS. Fixed behind everything, very low
+   opacity, cards and tables fully opaque on top, motion stopped under
+   prefers-reduced-motion and when the tab is hidden. */
+#scene{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;background:var(--bg)}
+#scene svg{width:100%;height:100%;display:block}
+#scene .sky{opacity:.55}
+#scene .grid{stroke:var(--ink);opacity:.05;stroke-width:1;fill:none}
+#scene .land{fill:var(--ink);opacity:.10}
+#scene .mast{stroke:var(--ink);opacity:.22;fill:none;stroke-width:2.2}
+#scene .pylon{stroke:var(--ink);opacity:.16;fill:none;stroke-width:1.6}
+#scene .blades{transform-origin:center;transform-box:fill-box;animation:spin 7s linear infinite}
+#scene .blades.s2{animation-duration:9.5s}
+#scene .blades.s3{animation-duration:12s}
+#scene .blade{stroke:var(--ink);opacity:.22;stroke-width:2.2;stroke-linecap:round}
+#scene .stack{stroke:var(--ink);opacity:.18;fill:none;stroke-width:2}
+#scene .puff{fill:var(--ink);opacity:0;animation:rise 9s ease-out infinite}
+#scene .bar{fill:var(--accent-fill);opacity:.13}
+#scene .line{fill:none;stroke:var(--accent-fill);stroke-width:2.5;opacity:.20}
+#scene .line.flow{opacity:.42;stroke-dasharray:14 1600;animation:flow 24s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes rise{
+  0%{opacity:0;transform:translateY(0) scale(.6)}
+  15%{opacity:.16}
+  100%{opacity:0;transform:translateY(-190px) scale(2.1)}}
+@keyframes flow{to{stroke-dashoffset:-1614}}
+@media (prefers-reduced-motion:reduce){
+  #scene .blades,#scene .puff,#scene .line.flow{animation:none}
+  #scene .line.flow{opacity:.20}
+  #scene .puff{opacity:.10}}
+#scene.paused .blades,#scene.paused .puff,#scene.paused .line.flow{animation-play-state:paused}
+
 .tbwrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface)}
 table{border-collapse:separate;border-spacing:0;width:100%}
 caption{text-align:left;padding:14px 16px 0;font-size:var(--t-sm);color:var(--ink-3);font-weight:600;
@@ -263,7 +319,7 @@ th:first-child::after,td:first-child::after{content:'';position:absolute;top:0;r
   <div id="bootTxt">Loading your portfolio&hellip;</div>
 </div>
 
-<div id="bgline" aria-hidden="true"></div>
+<div id="scene" aria-hidden="true"></div>
 <div id="app">
   <header id="top">
     <img src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png"
@@ -463,12 +519,12 @@ async function start(){
   const dark=(document.documentElement.getAttribute('data-theme')||'')==='dark'
     ||(!document.documentElement.getAttribute('data-theme')&&matchMedia('(prefers-color-scheme:dark)').matches);
   document.getElementById('themeBtn').textContent=dark?'Light':'Dark';
-  drawBackdrop();
+  drawScene();
   render();
 }
 
 async function cxReload(){
-  try{ await load(); drawBackdrop(); render(); toast('Up to date'); }
+  try{ await load(); drawScene(); render(); toast('Up to date'); }
   catch(e){ toast('Could not refresh — please try again'); }
 }
 
@@ -858,56 +914,108 @@ function subGraphs(b,host){
 }
 
 
-/* ── Ambient backdrop ────────────────────────────────────────────────────
-   Not a decorative pattern: this is the client's OWN forward hedge cover,
-   month by month, from the data already loaded. It is specific to them and to
-   this product, which is the difference between texture and wallpaper.
+/* ── Ambient scene ───────────────────────────────────────────────────────
+   Turbines turning, stacks smoking, and the client's OWN forward hedge-cover
+   line climbing across the horizon. Drawn as inline SVG from data already
+   loaded, so it is specific to them rather than stock wallpaper, costs a few
+   KB, and recolours with the theme.
 
-   Rules it obeys, because a moving background behind financial figures is
-   otherwise a readability and battery problem:
-     · fixed behind everything, z-index -1, pointer-events none
-     · cards and tables are fully opaque, so nothing shows through a number
-     · the travelling highlight is confined to the top chrome band, where
-       there is nothing to read
-     · pauses when the tab is hidden, and does not animate at all under
-       prefers-reduced-motion
-     · aria-hidden — it carries no information a screen reader needs */
-function drawBackdrop(){
-  const host=document.getElementById('bgline'); if(!host) return;
-  const from=nowMonth();
-  const pts=[];
-  for(const b of D.baskets){
-    for(const r of (D.positions[b.id]||[])){
-      const mk=String(r.month).slice(0,10);
-      if(mk<from || r.secured_pct==null) continue;
-      pts.push([mk, Math.max(0,Math.min(1.2,+r.secured_pct))]);
-    }
-  }
-  if(pts.length<4){ host.innerHTML=''; return; }
-  // Average cover per month across their baskets, oldest first.
-  const byM={};
-  for(const [m,v] of pts){ (byM[m] ??= []).push(v); }
-  const keys=Object.keys(byM).sort().slice(0,72);
-  const series=keys.map(k=>byM[k].reduce((a,b)=>a+b,0)/byM[k].length);
-
-  const W=1440,H=760,PAD=60;
-  const step=series.length>1 ? (W+120)/(series.length-1) : W;
-  const y=v=>H*0.72 - v*(H*0.42);
-  const d=series.map((v,i)=>`${i?'L':'M'}${(-60+i*step).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-  const grid=[160,300,440,580].map(v=>`<line x1="0" y1="${v}" x2="${W}" y2="${v}"/>`).join('')
-    + [240,520,800,1080,1360].map(v=>`<line x1="${v}" y1="0" x2="${v}" y2="${H}"/>`).join('');
-
-  host.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-      <g class="grid">${grid}</g>
-      <path class="cover" d="${d}"/>
-      <path class="cover flow" d="${d}"/>
-    </svg>`;
+   Everything sits behind opaque cards at low opacity. Motion stops under
+   prefers-reduced-motion and whenever the tab is hidden. aria-hidden, because
+   it carries nothing a screen reader needs. */
+function turbine(x, baseY, h, cls){
+  const hubY = baseY - h, r = h * 0.62;
+  const blade = a => {
+    const rad = (a - 90) * Math.PI / 180;
+    return `<line class="blade" x1="0" y1="0" x2="${(Math.cos(rad)*r).toFixed(1)}" y2="${(Math.sin(rad)*r).toFixed(1)}"/>`;
+  };
+  return `<g transform="translate(${x},0)">
+      <path class="mast" d="M0,${baseY} L0,${hubY}"/>
+      <g transform="translate(0,${hubY})">
+        <g class="blades ${cls}">${blade(0)}${blade(120)}${blade(240)}</g>
+        <circle class="land" cx="0" cy="0" r="3.4" style="opacity:.3"/>
+      </g>
+    </g>`;
 }
 
-// Stop the animation when nobody is looking at it.
-document.addEventListener('visibilitychange',()=>{
-  const h=document.getElementById('bgline');
-  if(h) h.classList.toggle('paused', document.hidden);
+function stack(x, baseY, h){
+  const topY = baseY - h;
+  let puffs = '';
+  for (let i = 0; i < 4; i++){
+    puffs += `<circle class="puff" cx="${(x + 2 + i * 3)}" cy="${topY - 6}" r="${9 + i * 3}"
+      style="animation-delay:${(i * 2.2).toFixed(1)}s"/>`;
+  }
+  return `<g><path class="stack" d="M${x-9},${baseY} L${x-6},${topY} L${x+6},${topY} L${x+9},${baseY}"/>${puffs}</g>`;
+}
+
+function pylon(x, baseY, h){
+  const t = baseY - h, w = h * 0.30;
+  return `<g class="pylon">
+    <path d="M${x-w},${baseY} L${x-w*0.30},${t} M${x+w},${baseY} L${x+w*0.30},${t}"/>
+    <path d="M${x-w*0.72},${baseY-h*0.34} L${x+w*0.72},${baseY-h*0.34}
+             M${x-w*0.50},${baseY-h*0.62} L${x+w*0.50},${baseY-h*0.62}"/>
+    <path d="M${x-w*0.86},${baseY-h*0.50} L${x+w*0.86},${baseY-h*0.50}"/>
+    <path d="M${x-w*0.62},${t+h*0.12} L${x+w*0.62},${t+h*0.12}"/>
+  </g>`;
+}
+
+function drawScene(){
+  const host = document.getElementById('scene'); if(!host) return;
+  const W = 1440, H = 800, HORIZON = 596;
+
+  // The forward market curve for the commodities this client actually holds.
+  // Cover was the first choice, but a fully-hedged client's cover line is flat
+  // and a flat backdrop is dead weight. The curve moves, it is still their own
+  // data, and it matches the price-chart motif on the login screen.
+  const from = nowMonth(), byM = {};
+  for (const c of ['power','gas']){
+    if (!D.baskets.some(b => b.commodity === c)) continue;
+    for (const m of ((D.curve[c] || {}).months || [])){
+      const mk = m.month ? String(m.month).slice(0,10) : null;
+      if (!mk || mk < from || m.mid == null) continue;
+      (byM[mk] ??= []).push(+m.mid);
+    }
+  }
+  const keys = Object.keys(byM).sort().slice(0, 60);
+  const raw = keys.map(k => byM[k].reduce((a,b)=>a+b,0) / byM[k].length);
+  // Normalise to 0..1 across the visible range so the shape reads regardless of
+  // whether the units are £/MWh or p/th.
+  const lo = Math.min(...raw), hi = Math.max(...raw), span = (hi - lo) || 1;
+  const series = raw.map(v => 0.12 + 0.76 * ((v - lo) / span));
+
+  let line = '', bars = '';
+  if (series.length > 3){
+    const step = (W + 140) / (series.length - 1);
+    const y = v => HORIZON - 40 - v * 300;
+    line = series.map((v,i)=>`${i?'L':'M'}${(-70+i*step).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    bars = series.map((v,i)=>{
+      const bx = -70 + i*step, by = y(v), bh = Math.max(4, HORIZON - by);
+      return `<rect class="bar" x="${(bx-step*0.22).toFixed(1)}" y="${by.toFixed(1)}"
+        width="${(step*0.44).toFixed(1)}" height="${bh.toFixed(1)}"/>`;
+    }).join('');
+  }
+
+  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
+    <g class="grid">
+      ${[140,270,400,530].map(v=>`<line x1="0" y1="${v}" x2="${W}" y2="${v}"/>`).join('')}
+      ${[240,520,800,1080,1360].map(v=>`<line x1="${v}" y1="0" x2="${v}" y2="${HORIZON}"/>`).join('')}
+    </g>
+    ${bars}
+    ${line ? `<path class="line" d="${line}"/><path class="line flow" d="${line}"/>` : ''}
+    ${stack(1046, HORIZON, 132)}${stack(1104, HORIZON, 150)}
+    ${pylon(742, HORIZON, 196)}
+    ${turbine(196, HORIZON, 236, 's1')}
+    ${turbine(410, HORIZON, 176, 's2')}
+    ${turbine(556, HORIZON, 128, 's3')}
+    ${turbine(1268, HORIZON, 204, 's2')}
+    <path class="land" d="M0,${HORIZON} L${W},${HORIZON} L${W},${H} L0,${H} Z"/>
+  </svg>`;
+}
+
+// Do not burn a laptop battery animating something nobody is looking at.
+document.addEventListener('visibilitychange', () => {
+  const h = document.getElementById('scene');
+  if (h) h.classList.toggle('paused', document.hidden);
 });
 
 /* ── reports ─────────────────────────────────────────────────────────── */
