@@ -45,11 +45,12 @@
   --t-fig:clamp(20px, 1.1rem + 0.7vw, 26px);   /* the big figures on a card */
   --t-head:clamp(17px, 0.95rem + 0.5vw, 20px); /* basket / section headings */
 
-  /* Sharp geometry. 12–24px radii on everything is the default look you get
-     when nobody decides; precision instruments have tight corners. One step of
-     3px, doubled. Pills are gone entirely except the toast, which is a pill on
-     purpose because it floats and needs to read as transient. */
-  --r-sm:3px; --r-md:6px; --r-lg:10px;
+  /* Softened a step from the original 3/6/10. Still deliberately short of the
+     12–24px-on-everything zone that reads as a template default, but enough
+     curve that the cards feel handled rather than cut. Moved as a SCALE so the
+     geometry stays consistent: a small box curvier than a large one next to it
+     is the mismatch that reads as unconsidered. */
+  --r-sm:5px; --r-md:10px; --r-lg:14px;
 
   /* Hairline-first. Shadows are reserved for things that genuinely float
      (the toast). Borders carry the structure, which is how print-derived
@@ -176,8 +177,26 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
 .statrow{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:8px;margin-bottom:18px}
 @media (max-width:1180px){.statrow{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media (max-width:640px){.statrow{grid-template-columns:repeat(2,minmax(0,1fr))}}
-.statcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);
-  padding:12px;min-width:0;overflow:hidden}
+.statcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);
+  padding:12px;min-width:0;overflow:hidden;position:relative;
+  transition:border-color .16s ease, box-shadow .16s ease, transform .16s ease}
+/* Ring on the outside plus a slight swell. Scale, not a vertical nudge: the
+   float-up-and-shadow gesture is the AI-default tell the audit flags, and a
+   card that grows in place reads as "this one" without the whole row bobbing.
+   z-index lifts the hovered card over its neighbours as it expands. */
+.statcard:hover{
+  border-color:var(--accent);
+  /* White halo, layered in three stops so it falls off softly instead of
+     stopping at a hard edge. The border stays accent so the highlight still
+     reads as the brand rather than as a generic glow. */
+  box-shadow:0 0 0 1px rgba(255,255,255,.20),
+             0 0 20px 2px rgba(255,255,255,.16),
+             0 0 46px 8px rgba(255,255,255,.07);
+  transform:scale(1.045);
+  z-index:2}
+@media (prefers-reduced-motion:reduce){
+  .statcard{transition:none}
+  .statcard:hover{transform:none}}
 .statcard .l{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
   color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* The figure steps down a size band as the string gets longer, so a nine-figure
@@ -719,7 +738,7 @@ function renderBasket(){
         <div class="s">${isP?'MW open':'th open'}</div></div>
       <div class="statcard"><div class="l">Avg Delivered Rate</div>
         ${statVal(S.avgDr==null?'—':S.avgDr.toFixed(3))}
-        <div class="s">p/kWh incl. non-energy costs</div></div>
+        <div class="s">p/kWh</div></div>
       <div class="statcard"><div class="l">MtM Cost</div>
         ${(()=>{const M=compactMoney(S.mtmCost);return statVal(M.t, M.full, S.mtmCost>0?'pos':S.mtmCost<0?'neg':'');})()}<div class="s">Mark-to-market</div></div>
     </div>
