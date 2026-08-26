@@ -284,14 +284,18 @@ tbody tr:hover td{background:var(--surface-2)}
        flex-cursors topic is gated on is_flex_team() by an RLS policy on
        realtime.messages, so the broker portal's live cursors cannot appear
        here and cannot be subscribed to with this page's key either
-     · its own auth storageKey, so a client session and a broker session can
-       coexist in one browser without clobbering each other
+     · shares the ces-flex-auth storageKey with flex.html, which is the single
+       login page for both audiences and routes clients here after sign-in
    ═══════════════════════════════════════════════════════════════════════ */
 const CX = (() => {
   const SB_URL = 'https://niadffxpxdohglcyagau.supabase.co';   // not `URL` — that shadows the global constructor
   const ANON   = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pYWRmZnhweGRvaGdsY3lhZ2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3Mzc3MTksImV4cCI6MjA5NDMxMzcxOX0.x22Zh9O408PGfcPZ6rgu-a4B7WTbyH8iyT_ysr-IfIs';
   const sb = supabase.createClient(SB_URL, ANON, {
-    auth: { persistSession:true, storageKey:'ces-flexclient-auth', autoRefreshToken:true }
+    // Shared with flex.html on purpose: flex.html is the single login page and
+    // bounces clients here, so the session has to survive the hop. Trade-off —
+    // signing in as a client in this browser replaces any broker session. Use a
+    // private window to hold both at once.
+    auth: { persistSession:true, storageKey:'ces-flex-auth', autoRefreshToken:true }
   });
   return { sb, company:'', customerId:'' };
 })();
@@ -427,7 +431,23 @@ async function load(){
   CX.customerId = (me.data && me.data.customer_id)  || '';
 }
 
+// Mirror of fxRouteClient() in flex.html: a member of staff who lands here goes
+// back to the broker portal rather than being told nothing is shared with them.
+// Needs a NULL customer_id, where flex.html's check needs a non-null one, so the
+// two can't ping-pong. ?r=1 caps it at one hop regardless.
+async function routeStaff(){
+  if (new URLSearchParams(location.search).has('r')) return false;
+  const { data:{ session } } = await CX.sb.auth.getSession();
+  const uid = session && session.user ? session.user.id : null;
+  if (!uid) return false;
+  const { data: prof } = await CX.sb.from('profiles').select('customer_id').eq('id', uid).maybeSingle();
+  if (!prof || prof.customer_id) return false;
+  location.replace('flex.html?r=1');
+  return true;
+}
+
 async function start(){
+  if (await routeStaff()) return;
   try { await load(); }
   catch(e){ console.error(e); denied('error', e && e.message); return; }
   if (!D.baskets.length){ denied('noaccess'); return; }

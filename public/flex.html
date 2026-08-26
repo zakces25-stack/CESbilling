@@ -1693,7 +1693,7 @@ button{transition:all .14s ease}
   </div>
   <div class="fl-card">
     <div class="fl-logo"><img src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png" alt="CES" onerror="this.style.display='none'">
-      <div><h1>CES Flex Portal</h1><div class="fl-sub">Live FDB &middot; flex team sign in</div></div>
+      <div><h1>CES Flex Portal</h1><div class="fl-sub">Flex team &amp; client sign in</div></div>
     </div>
     <div id="flexLoginForm">
       <label>Username</label>
@@ -1710,8 +1710,10 @@ button{transition:all .14s ease}
       <div id="flexLoadSub" style="font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:10.5px;color:#6b7280;margin-top:7px;min-height:14px"></div>
     </div>
     <div id="flexNoAccess" style="display:none;font-size:13.5px;color:#374151;line-height:1.55">
-      You're signed in, but this account doesn't have Flex team access.<br><br>
-      Ask an admin to enable the <b>flex</b> role on your portal profile, then
+      You're signed in, but this account has no flex access &mdash; neither team
+      access nor any baskets shared with it.<br><br>
+      If you're CES staff, ask an admin to enable the <b>flex</b> role on your
+      profile. If you're a client, contact your CES account manager. Then
       <a href="#" onclick="location.reload();return false">reload</a>.
       <br><br><a href="#" onclick="FLEX.sb.auth.signOut().then(()=>location.reload());return false">Sign out</a>
     </div>
@@ -5814,7 +5816,34 @@ document.addEventListener('keydown', e => {
       && e.target && (e.target.id === 'flexUser' || e.target.id === 'flexPass')) flexLogin();
 });
 async function flexReload() { await loadFlexData(); rerenderCurrent(); fxCheckAlerts(); fxToast('Refreshed'); }
+// ── SHARED FRONT DOOR ────────────────────────────────────────────
+// One login page for both audiences. A client signing in here is bounced to
+// flexclient.html before the broker dataset is fetched, so they never pull
+// 1,900 position rows they can't read and never see the "no flex team access"
+// dead end. Runs first in flexStart(), which covers both a fresh sign-in and
+// an existing session on page load.
+//
+// Both pages share the ces-flex-auth storage key so the session survives the
+// hop. The two redirect conditions are mutually exclusive (this one needs a
+// customer_id, flexclient.html's needs a null one), so no loop is possible —
+// the ?r=1 guard is belt and braces in case that ever stops being true.
+async function fxRouteClient(){
+  if (new URLSearchParams(location.search).has('r')) return false;
+  const { data: { session } } = await FLEEX_SAFE();
+  const uid = session && session.user ? session.user.id : null;
+  if (!uid) return false;
+  const { data: prof } = await FLEX.sb.from('profiles').select('customer_id').eq('id', uid).maybeSingle();
+  if (!prof || !prof.customer_id) return false;
+  // A billing-only customer who wandered in here has a customer_id but no flex
+  // baskets. Don't bounce them to a portal that would just say "nothing shared".
+  const { count } = await FLEX.sb.from('flex_client_baskets').select('id', { count:'exact', head:true });
+  if (!count) return false;
+  location.replace('flexclient.html?r=1');
+  return true;
+}
+
 async function flexStart() {
+  if (await fxRouteClient()) return;
   try { await loadFlexData(); }
   catch (e) { console.error(e);
     document.getElementById('flexLoginForm').style.display = 'none';
