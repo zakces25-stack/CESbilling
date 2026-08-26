@@ -2009,19 +2009,33 @@ function fmtVol(n) {
   return s;
 }
 
-// Commodity-aware volume formatter. Single source of truth for every volume
-// shown on the Positions tab, the Seasons tab and the volume graph, so the same
-// number can never appear with two different precisions in two places.
-//   Power (MW)     -> fixed 4 dp
+// Commodity-aware volume DISPLAY PRECISION. This is the front-end rounding rule
+// and the single source of truth for it:
+//   Power (MW)     -> 4 dp
 //   Gas  (th/day)  -> whole numbers (1, 0, -1 ...), per DR 20/08/2026
 // Gas rounds half away from zero so the page agrees with Excel's ROUND, and a
-// negative that rounds to nothing shows as "0" rather than JS's "-0".
+// negative that rounds to nothing becomes 0 rather than JS's -0.
+//
+// IMPORTANT: this is presentation only. Nothing here feeds a calculation.
+// Every stored trade volume, baseload and WAP keeps every decimal the trader
+// entered, and flex_positions does all the maths on those full-precision values
+// server-side. volDisp() is applied at the very last step, on the way to a
+// table cell or a chart data point.
+function volDisp(n, isPower) {
+  if (n == null || isNaN(n)) return null;
+  if (isPower) return Math.round(n * 1e4) / 1e4;          // 4 dp
+  const r = (n < 0 ? -1 : 1) * Math.round(Math.abs(n));   // whole, half away from zero
+  return r === 0 ? 0 : r;                                 // normalise -0 to 0
+}
+
+// Text form of volDisp(). Used by the Positions tab, the Trades tab and the
+// volume chart tooltip, so the same number cannot appear with two different
+// precisions in two places.
 function fmtVolC(n, isPower) {
-  if (n == null || isNaN(n)) return '-';
-  if (isPower) return n.toLocaleString('en-GB', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
-  let r = (n < 0 ? -1 : 1) * Math.round(Math.abs(n));
-  if (r === 0) r = 0;
-  return r.toLocaleString('en-GB');
+  const v = volDisp(n, isPower);
+  if (v == null) return '-';
+  const dp = isPower ? 4 : 0;
+  return v.toLocaleString('en-GB', { minimumFractionDigits: dp, maximumFractionDigits: dp });
 }
 
 function escape(s) {
@@ -2789,6 +2803,7 @@ function renderTrades(basket) {
 
   const pu = basket.unit_price;
   const vu = basket.unit_vol;
+  const isPower = basket.commodity === 'power';
 
   const rows = trades.map(t => {
     const dealClass = (t.deal_type || '').toLowerCase() === 'buy' ? 'buy' : 'sell';
@@ -2797,7 +2812,7 @@ function renderTrades(basket) {
       <td style="font-size:10px;color:var(--grey-500);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escape(t.ref)}">${escape(t.ref)}</td>
       <td>${escape(t.counterparty||'')}</td>
       <td style="white-space:nowrap">${fmtMonth(t.start)} &rarr; ${fmtMonth(t.end)}</td>
-      <td class="td-right">${t.volume != null ? t.volume.toFixed(2) : '-'}</td>
+      <td class="td-right" title="${t.volume != null ? t.volume : ''}">${fmtVolC(t.volume, isPower)}</td>
       <td>${escape(t.product||'')}</td>
       <td class="td-right">${t.strike != null ? t.strike.toFixed(2) : '-'}</td>
       <td class="td-center"><span class="deal-badge ${dealClass}">${escape(t.deal_type||'')}</span></td>
@@ -3122,10 +3137,18 @@ function renderGraphs(basket) {
   });
 
   // ── CHART 3: Volume Position — stacked bars + Secured % line ──
+  // Plot the numbers the Positions tab PRINTS, not the raw view output. The raw
+  // open_vol is baseload_vol - secured_vol at full precision, so a trade entered
+  // with decimals leaves a residue like -0.0001 on a fully-secured month. The
+  // table rounded that to 0 and read fine; the chart plotted it literally and
+  // pushed the y-axis below zero, which is what made the bars look negative.
+  // volDisp() applies the same rounding the table uses, so chart and table now
+  // agree cell for cell. A month that is genuinely over-secured still shows
+  // negative in both places - that is a real position, not a rounding artefact.
   const volMonths   = months.filter(m => (m.baseload_vol || 0) > 0);
   const volLabels   = volMonths.map(m => fmtMonth(m.month));
-  const securedVols = volMonths.map(m => m.secured_vol || 0);
-  const openVols    = volMonths.map(m => m.open_vol    || 0);
+  const securedVols = volMonths.map(m => volDisp(m.secured_vol || 0, isPower));
+  const openVols    = volMonths.map(m => volDisp(m.open_vol    || 0, isPower));
   const securedPcts = volMonths.map(m => (m.secured_pct || 0) * 100);
 
   activeCharts['vol'] = new Chart(document.getElementById('chart-vol'), {
