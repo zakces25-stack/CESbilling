@@ -201,37 +201,39 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
 #scene .land{fill:var(--ink);opacity:.10}
 #scene .mast{stroke:var(--ink);opacity:.22;fill:none;stroke-width:2.2}
 #scene .pylon{stroke:var(--ink);opacity:.16;fill:none;stroke-width:1.6}
-#scene .blades{transform-origin:center;transform-box:fill-box;animation:spin 7s linear infinite}
-#scene .blades.s2{animation-duration:9.5s}
-#scene .blades.s3{animation-duration:12s}
+#scene .hub{fill:var(--ink);opacity:.30}
 #scene .blade{stroke:var(--ink);opacity:.22;stroke-width:2.2;stroke-linecap:round}
 #scene .stack{stroke:var(--ink);opacity:.18;fill:none;stroke-width:2}
 #scene .puff{fill:var(--ink);opacity:0;animation:rise 9s ease-out infinite}
-/* Candles. Body = where the forward curve opened and closed that month, which
-   is real month-on-month movement, not invented OHLC. Wick = the spread across
-   the month's own season, also real. Nothing here is fabricated: a client who
-   screenshots the background and asks what it is gets a truthful answer.
-   Colour follows the BUYER's interest, not the trader's: green when the curve
-   fell (cheaper to buy), red when it rose. */
-#scene .cdl-dn rect{fill:var(--accent-fill);opacity:.20}
-#scene .cdl-up rect{fill:var(--negative-500);opacity:.15}
-#scene .cdl-dn line{stroke:var(--accent-fill);opacity:.22;stroke-width:1.2}
-#scene .cdl-up line{stroke:var(--negative-500);opacity:.17;stroke-width:1.2}
+/* Candles carry their base opacity on the GROUP, not the rect, so the wave can
+   modulate the whole candle without fighting a fixed rect opacity. */
+#scene .cdl{opacity:.20;animation:wave 6s linear infinite;animation-delay:calc(var(--i) * .085s)}
+#scene .cdl-dn rect,#scene .cdl-dn line{fill:var(--accent-fill);stroke:var(--accent-fill)}
+#scene .cdl-up rect,#scene .cdl-up line{fill:var(--negative-500);stroke:var(--negative-500)}
+#scene .cdl line{stroke-width:1.2}
 #scene .vol{fill:var(--ink);opacity:.055}
 #scene .ma{fill:none;stroke:var(--accent-fill);stroke-width:2;opacity:.22;stroke-linejoin:round}
 #scene .ma.flow{opacity:.44;stroke-dasharray:16 1600;animation:flow 24s linear infinite}
 #scene .axis{stroke:var(--ink);opacity:.07;stroke-width:1;stroke-dasharray:3 6}
-@keyframes spin{to{transform:rotate(360deg)}}
 @keyframes rise{
   0%{opacity:0;transform:translateY(0) scale(.6)}
   15%{opacity:.16}
   100%{opacity:0;transform:translateY(-190px) scale(2.1)}}
 @keyframes flow{to{stroke-dashoffset:-1614}}
+/* Mexican wave: each candle brightens a beat after the one to its left, so a
+   pulse of light runs left to right along the curve and then rests. */
+@keyframes wave{
+  0%,70%{opacity:.20}
+  78%{opacity:.72}
+  86%{opacity:.20}
+  100%{opacity:.20}}
 @media (prefers-reduced-motion:reduce){
-  #scene .blades,#scene .puff,#scene .line.flow{animation:none}
-  #scene .line.flow{opacity:.20}
+  #scene .puff,#scene .ma.flow,#scene .cdl{animation:none}
+  #scene .ma.flow{opacity:.22}
+  #scene .cdl{opacity:.20}
   #scene .puff{opacity:.10}}
-#scene.paused .blades,#scene.paused .puff,#scene.paused .line.flow{animation-play-state:paused}
+#scene.paused .puff,#scene.paused .ma.flow,#scene.paused .cdl{animation-play-state:paused}
+#scene.paused animateTransform{display:none}
 
 .tbwrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface)}
 table{border-collapse:separate;border-spacing:0;width:100%}
@@ -902,17 +904,26 @@ function subGraphs(b,host){
    Everything sits behind opaque cards at low opacity. Motion stops under
    prefers-reduced-motion and whenever the tab is hidden. aria-hidden, because
    it carries nothing a screen reader needs. */
-function turbine(x, baseY, h, cls){
-  const hubY = baseY - h, r = h * 0.62;
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function turbine(x, baseY, h, dur){
+  const hubY = baseY - h, r = h * 0.58;
   const blade = a => {
     const rad = (a - 90) * Math.PI / 180;
     return `<line class="blade" x1="0" y1="0" x2="${(Math.cos(rad)*r).toFixed(1)}" y2="${(Math.sin(rad)*r).toFixed(1)}"/>`;
   };
+  // SMIL rotate, not a CSS transform. transform-box:fill-box put the rotation
+  // centre at the bounding-box centre of the three blades, which sits about a
+  // quarter-radius BELOW the hub, so the rotor orbited away from the mast.
+  // `from="0 0 0"` pins it to this group's own origin, which is the hub exactly.
+  const spin = REDUCED ? '' :
+    `<animateTransform attributeName="transform" attributeType="XML" type="rotate"
+       from="0 0 0" to="360 0 0" dur="${dur}s" repeatCount="indefinite"/>`;
   return `<g transform="translate(${x},0)">
       <path class="mast" d="M0,${baseY} L0,${hubY}"/>
       <g transform="translate(0,${hubY})">
-        <g class="blades ${cls}">${blade(0)}${blade(120)}${blade(240)}</g>
-        <circle class="land" cx="0" cy="0" r="3.4" style="opacity:.3"/>
+        <g>${spin}${blade(0)}${blade(120)}${blade(240)}</g>
+        <circle class="hub" cx="0" cy="0" r="3.2"/>
       </g>
     </g>`;
 }
@@ -940,7 +951,9 @@ function pylon(x, baseY, h){
 
 function drawScene(){
   const host = document.getElementById('scene'); if(!host) return;
-  const W = 1440, H = 800, HORIZON = 596;
+  // Roomier viewBox so `slice` cropping on a wide window never reaches the
+  // rotor tips. Content sits well inside the frame with headroom above.
+  const W = 2000, H = 1120, HORIZON = 830;
 
   // The forward market curve for the commodities this client actually holds.
   // Drawn as candles: each body runs from last month's mid to this month's mid,
@@ -960,10 +973,10 @@ function drawScene(){
   let chart = '';
   if (mids.length > 4){
     const lo = Math.min(...mids), hi = Math.max(...mids), span = (hi - lo) || 1;
-    const TOP = 96, BOT = HORIZON - 34;
+    const TOP = 210, BOT = HORIZON - 110;
     const y  = v => BOT - ((v - lo) / span) * (BOT - TOP);
     const step = W / (mids.length - 0.4);
-    const bw = Math.max(3, Math.min(13, step * 0.52));
+    const bw = Math.max(2.5, Math.min(8, step * 0.42));
 
     // Candles
     const candles = mids.map((v,i)=>{
@@ -976,7 +989,7 @@ function drawScene(){
       const wHi = y(Math.max(...pts, open, close)) - 5;
       const wLo = y(Math.min(...pts, open, close)) + 5;
       const cls = close <= open ? 'cdl-dn' : 'cdl-up';   // down = cheaper = good
-      return `<g class="${cls}">`
+      return `<g class="cdl ${cls}" style="--i:${i}">`
         + `<line x1="${x.toFixed(1)}" y1="${wHi.toFixed(1)}" x2="${x.toFixed(1)}" y2="${wLo.toFixed(1)}"/>`
         + `<rect x="${(x-bw/2).toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}"/>`
         + `</g>`;
@@ -1009,16 +1022,16 @@ function drawScene(){
 
   host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
     <g class="grid">
-      ${[140,270,400,530].map(v=>`<line x1="0" y1="${v}" x2="${W}" y2="${v}"/>`).join('')}
-      ${[240,520,800,1080,1360].map(v=>`<line x1="${v}" y1="0" x2="${v}" y2="${HORIZON}"/>`).join('')}
+      ${[190,370,550,730].map(v=>`<line x1="0" y1="${v}" x2="${W}" y2="${v}"/>`).join('')}
+      ${[330,720,1110,1500,1890].map(v=>`<line x1="${v}" y1="0" x2="${v}" y2="${HORIZON}"/>`).join('')}
     </g>
     ${chart}
-    ${stack(1046, HORIZON, 132)}${stack(1104, HORIZON, 150)}
-    ${pylon(742, HORIZON, 196)}
-    ${turbine(196, HORIZON, 236, 's1')}
-    ${turbine(410, HORIZON, 176, 's2')}
-    ${turbine(556, HORIZON, 128, 's3')}
-    ${turbine(1268, HORIZON, 204, 's2')}
+    ${stack(1452, HORIZON, 150)}${stack(1516, HORIZON, 172)}
+    ${pylon(1030, HORIZON, 224)}
+    ${turbine(268, HORIZON, 268, 7)}
+    ${turbine(566, HORIZON, 200, 9.5)}
+    ${turbine(772, HORIZON, 146, 12)}
+    ${turbine(1762, HORIZON, 232, 8.4)}
     <path class="land" d="M0,${HORIZON} L${W},${HORIZON} L${W},${H} L0,${H} Z"/>
   </svg>`;
 }
