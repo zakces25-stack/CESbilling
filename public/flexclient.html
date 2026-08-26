@@ -131,7 +131,7 @@ nav.subtabs{margin-bottom:18px;border-bottom:1px solid var(--line)}
 nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
 
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:18px}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);
+.card{background:var(--surface);/*opaque over backdrop*/border:1px solid var(--line);border-radius:var(--r-md);
   padding:20px}
 .card h3{font-size:var(--t-head);margin-bottom:2px;line-height:1.25}
 
@@ -263,6 +263,7 @@ th:first-child::after,td:first-child::after{content:'';position:absolute;top:0;r
   <div id="bootTxt">Loading your portfolio&hellip;</div>
 </div>
 
+<div id="bgline" aria-hidden="true"></div>
 <div id="app">
   <header id="top">
     <img src="https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png"
@@ -462,11 +463,12 @@ async function start(){
   const dark=(document.documentElement.getAttribute('data-theme')||'')==='dark'
     ||(!document.documentElement.getAttribute('data-theme')&&matchMedia('(prefers-color-scheme:dark)').matches);
   document.getElementById('themeBtn').textContent=dark?'Light':'Dark';
+  drawBackdrop();
   render();
 }
 
 async function cxReload(){
-  try{ await load(); render(); toast('Up to date'); }
+  try{ await load(); drawBackdrop(); render(); toast('Up to date'); }
   catch(e){ toast('Could not refresh — please try again'); }
 }
 
@@ -486,6 +488,56 @@ function render(){
   if(VIEW==='curve')   renderCurve();
 }
 function destroyCharts(){ for(const k in CHARTS){ try{CHARTS[k].destroy();}catch(e){} delete CHARTS[k]; } }
+
+
+/* ── Basket stats: the same eight figures the broker desk sees ───────────
+   Mirrors renderDetailStats() in flex.html. Weighted averages, not simple
+   means: WAP is weighted by secured volume, MtM price and delivered rate by
+   baseload volume. A simple mean across months of unequal size is wrong and
+   would quietly disagree with the desk's own number. */
+function statsOf(rows, b){
+  const isP = b.commodity === 'power';
+  let base=0, sec=0, wapNum=0, wapDen=0, mtmNum=0, mtmDen=0,
+      drNum=0, drDen=0, mtmCost=0, baseMW=0, secMW=0, openMW=0, openTot=0;
+  for(const r of rows||[]){
+    const bt=+(r.baseload_vol_total||0), st=+(r.secured_vol_total||0);
+    base+=bt; sec+=st;
+    baseMW+=+(r.baseload_vol||0); secMW+=+(r.secured_vol||0);
+    openMW+=+(r.open_vol||0);     openTot+=+(r.open_vol_total||0);
+    mtmCost+=+(r.mtm_cost||0);
+    if(r.secured_wap!=null && st>0){ wapNum+=(+r.secured_wap)*st; wapDen+=st; }
+    if(r.mtm_price!=null && bt>0){   mtmNum+=(+r.mtm_price)*bt;   mtmDen+=bt; }
+    if(r.delivered_rate!=null && bt>0){ drNum+=(+r.delivered_rate)*bt; drDen+=bt; }
+  }
+  return {
+    avgWap: wapDen? wapNum/wapDen : null,
+    avgMtm: mtmDen? mtmNum/mtmDen : null,
+    pct:    base?   sec/base      : null,
+    baseCard: isP? baseMW : base,
+    secCard:  isP? secMW  : sec,
+    openCard: isP? openMW : openTot,
+    avgDr:  drDen? drNum/drDen : null,
+    mtmCost, base, sec, isP
+  };
+}
+
+/* Filter state for the Positions tab, mirroring the desk's filter bar. */
+let FLT = { season:'', from:'', to:'', hideHist:false };
+
+function monthsOf(id){
+  return (D.positions[id]||[]).slice().sort((a,b)=>String(a.month)<String(b.month)?-1:1);
+}
+function applyFilters(rows){
+  const now = nowMonth();
+  return rows.filter(r=>{
+    const mk = String(r.month).slice(0,10);
+    if(FLT.hideHist && mk < now) return false;
+    if(FLT.season && r.season !== FLT.season) return false;
+    if(FLT.from && mk < FLT.from) return false;
+    if(FLT.to   && mk > FLT.to)   return false;
+    return true;
+  });
+}
 
 /* ── basket list ─────────────────────────────────────────────────────── */
 // Forward cover = secured vs baseload from the current month on. Settled months
@@ -544,22 +596,36 @@ const SUBS=[['positions','Positions'],['trades','Trades'],['seasons','Seasons'],
 
 function renderBasket(){
   const b=D.baskets.find(x=>x.id===OPEN); if(!b){renderBaskets();return;}
-  const isP=b.commodity==='power'; const c=coverOf(D.positions[b.id]);
+  const isP=b.commodity==='power';
+  const S=statsOf(applyFilters(monthsOf(b.id)), b);
   const el=document.getElementById('v-baskets');
   el.innerHTML=`
     <button class="gbtn noprint" id="backBtn" style="margin-bottom:18px">&larr; All baskets</button>
-    <div class="card" style="margin-bottom:20px">
-      <h3>${esc(b.name)}</h3>
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+      <h3 style="font-size:var(--t-head)">${esc(b.name)}</h3>
       <span class="tag ${isP?'power':'gas'}">${isP?'Electricity':'Gas'}</span>
-      <div class="stats">
-        <div class="stat"><div class="k">Forward cover</div><div class="v">${pct(c.pct)}</div></div>
-        <div class="stat"><div class="k">Secured WAP</div><div class="v">${n2(c.wap)}</div>
-          <div class="u">${esc(b.unit_price||'')}</div></div>
-        <div class="stat"><div class="k">Secured</div><div class="v">${n0(c.sec)}</div>
-          <div class="u">${isP?'MWh':'therms'}</div></div>
-        <div class="stat"><div class="k">Forecast</div><div class="v">${n0(c.base)}</div>
-          <div class="u">${isP?'MWh':'therms'}</div></div>
-      </div>
+    </div>
+    <div class="statrow">
+      <div class="statcard"><div class="l">Avg WAP</div><div class="v">${n2(S.avgWap)}</div>
+        <div class="s">${esc(b.unit_price||'')} secured</div></div>
+      <div class="statcard"><div class="l">Avg MtM Price</div><div class="v">${n2(S.avgMtm)}</div>
+        <div class="s">${esc(b.unit_price||'')} mark-to-market</div></div>
+      <div class="statcard"><div class="l">Secured</div><div class="v">${S.pct==null?'—':(S.pct*100).toFixed(2)+'%'}</div>
+        <div class="s">Forward position</div></div>
+      <div class="statcard"><div class="l">Total Baseload</div>
+        <div class="v">${isP?n4(S.baseCard):n0(S.baseCard)}</div>
+        <div class="s">${isP?'MW total':'th total'}</div></div>
+      <div class="statcard"><div class="l">Secured Vol</div>
+        <div class="v">${isP?n4(S.secCard):n0(S.secCard)}</div>
+        <div class="s">${isP?'MW total secured':'th hedged'}</div></div>
+      <div class="statcard"><div class="l">Open Vol</div>
+        <div class="v">${isP?n4(S.openCard):n0(S.openCard)}</div>
+        <div class="s">${isP?'MW open':'th open'}</div></div>
+      <div class="statcard"><div class="l">Avg Delivered Rate</div>
+        <div class="v">${S.avgDr==null?'—':S.avgDr.toFixed(3)}</div>
+        <div class="s">p/kWh incl. non-energy costs</div></div>
+      <div class="statcard"><div class="l">MtM Cost</div>
+        <div class="v">${signed(S.mtmCost)}</div><div class="s">Mark-to-market</div></div>
     </div>
     <nav class="tabs subtabs" role="tablist" aria-label="Basket detail">
       ${SUBS.map(([k,l])=>`<button role="tab" data-sub="${k}" aria-selected="${k===SUB}">${l}</button>`).join('')}
@@ -580,31 +646,85 @@ function renderSub(){
 }
 
 function subPositions(b,host){
-  const rows=(D.positions[b.id]||[]).slice().sort((x,y)=>String(x.month)<String(y.month)?-1:1);
-  if(!rows.length){host.innerHTML='<div class="empty">No position data for this basket.</div>';return;}
+  const all = monthsOf(b.id);
+  if(!all.length){host.innerHTML='<div class="empty">No position data for this basket.</div>';return;}
+  const rows = applyFilters(all);
   const isP=b.commodity==='power', now=nowMonth();
-  host.innerHTML=`<div class="tbwrap"><table>
-    <caption>Volumes in ${isP?'MWh':'therms'}; rates in ${esc(b.unit_price||'')}.
-      Market price is the live forward curve for that month, or its season where no month price exists.</caption>
-    <thead><tr>
-      <th scope="col">Month</th><th scope="col">Season</th>
-      <th scope="col" class="num">Forecast</th><th scope="col" class="num">Secured</th>
-      <th scope="col" class="num">Cover</th><th scope="col" class="num">Secured WAP</th>
-      <th scope="col" class="num">Open</th><th scope="col" class="num">Market</th>
-      <th scope="col" class="num">Secured cost</th><th scope="col" class="num">Mark to market</th>
-    </tr></thead><tbody>${rows.map(r=>{
-      const mk=String(r.month).slice(0,10);
-      return `<tr${mk===now?' class="cur"':''}>
-        <td>${fmtMonth(r.month)}${mk===now?'<span class="curtag">now</span>':''}</td><td>${esc(r.season||'')}</td>
-        <td class="num">${n0(r.baseload_vol_total)}</td>
-        <td class="num">${n0(r.secured_vol_total)}</td>
-        <td class="num">${pct(r.secured_pct)}</td>
-        <td class="num">${n2(r.secured_wap)}</td>
-        <td class="num">${n0(r.open_vol_total)}</td>
-        <td class="num">${n2(r.market_price)}</td>
-        <td class="num">${money(r.secured_cost)}</td>
-        <td class="num">${signed(r.mtm_cost)}</td></tr>`;}).join('')}
-    </tbody></table></div>`;
+  const seasons=[...new Set(all.map(r=>r.season).filter(Boolean))];
+  const mkeys=[...new Set(all.map(r=>String(r.month).slice(0,10)))].sort();
+  const opt=(v,sel,lab)=>`<option value="${esc(v)}"${v===sel?' selected':''}>${esc(lab)}</option>`;
+
+  host.innerHTML=`
+    <div class="filters">
+      <label for="fSeason">Season</label>
+      <select id="fSeason">${opt('',FLT.season,'All')}${seasons.map(x=>opt(x,FLT.season,x)).join('')}</select>
+      <label for="fFrom">From</label>
+      <select id="fFrom">${opt('',FLT.from,'Earliest')}${mkeys.map(m=>opt(m,FLT.from,fmtMonth(m))).join('')}</select>
+      <label for="fTo">To</label>
+      <select id="fTo">${opt('',FLT.to,'Latest')}${mkeys.map(m=>opt(m,FLT.to,fmtMonth(m))).join('')}</select>
+      <label class="chk" for="fHide"><input type="checkbox" id="fHide"${FLT.hideHist?' checked':''}>Hide historic months</label>
+      <span class="count">${rows.length} of ${all.length} months</span>
+    </div>
+    ${rows.length?`<div class="tbwrap"><table>
+      <caption>Volumes in ${isP?'MW / MWh':'th/d / therms'}; rates in ${esc(b.unit_price||'')}.
+        Market price is the live forward curve for that month, or its season where no month price exists.
+        Delivered rate is the mark-to-market price converted to p/kWh plus that season's non-energy costs.</caption>
+      <thead><tr>
+        <th scope="col">Month</th><th scope="col">Season</th>
+        <th scope="col" class="num">Baseload (${isP?'MW':'th/d'})</th>
+        <th scope="col" class="num">Secured (${isP?'MW':'th/d'})</th>
+        <th scope="col" class="num">WAP</th>
+        <th scope="col" class="num">Secured %</th>
+        <th scope="col" class="num">Sec. cost</th>
+        <th scope="col" class="num">Open (${isP?'MW':'th/d'})</th>
+        <th scope="col" class="num">Mkt price</th>
+        <th scope="col" class="num">Delivered (p/kWh)</th>
+        <th scope="col" class="num">MtM cost</th>
+        <th scope="col" class="num">Next target</th>
+        <th scope="col" class="num">Upper alert</th>
+      </tr></thead><tbody>${rows.map(r=>{
+        const mk=String(r.month).slice(0,10);
+        const t=(D.targets[b.id]||[]).find(x=>String(x.month).slice(0,10)===mk);
+        return `<tr${mk===now?' class="cur"':''}>
+          <td>${fmtMonth(r.month)}${mk===now?'<span class="curtag">now</span>':''}</td>
+          <td>${esc(r.season||'')}</td>
+          <td class="num">${n4(r.baseload_vol)}</td>
+          <td class="num">${n4(r.secured_vol)}</td>
+          <td class="num">${n2(r.secured_wap)}</td>
+          <td class="num">${pct(r.secured_pct)}</td>
+          <td class="num">${money(r.secured_cost)}</td>
+          <td class="num">${n4(r.open_vol)}</td>
+          <td class="num">${n2(r.market_price)}</td>
+          <td class="num">${r.delivered_rate==null?'—':(+r.delivered_rate).toFixed(3)}</td>
+          <td class="num">${signed(r.mtm_cost)}</td>
+          <td class="num">${nextTarget(t)}</td>
+          <td class="num">${t&&t.upper_alert!=null?n2(t.upper_alert):'—'}</td></tr>`;
+      }).join('')}</tbody></table></div>`
+      : '<div class="empty">No months match these filters.</div>'}`;
+
+  const rerun=()=>{
+    FLT.season=document.getElementById('fSeason').value;
+    FLT.from  =document.getElementById('fFrom').value;
+    FLT.to    =document.getElementById('fTo').value;
+    FLT.hideHist=document.getElementById('fHide').checked;
+    renderBasket();   // stat cards recompute against the filtered set, as the desk does
+  };
+  ['fSeason','fFrom','fTo','fHide'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.addEventListener('change',rerun);
+  });
+}
+
+// Lowest tier not yet achieved: the next price this basket is trying to buy at.
+function nextTarget(t){
+  if(!t) return '—';
+  const live=[];
+  for(let i=1;i<=8;i++){
+    const v=t['lower_t'+i], a=t['t'+i+'_achieved'];
+    const hit=a!=null&&String(a).trim()!==''&&String(a).toLowerCase()!=='false';
+    if(v!=null&&!hit) live.push(+v);
+  }
+  if(!live.length) return '<span class="hit">All hit ✓</span>';
+  return n2(Math.max(...live));
 }
 
 function subTrades(b,host){
@@ -736,6 +856,59 @@ function subGraphs(b,host){
       {label:'Forecast',data:rows.map(r=>+(r.baseload_vol_total||0)),backgroundColor:css('--line-strong')||'#c3cad4'}]},
     options:base});
 }
+
+
+/* ── Ambient backdrop ────────────────────────────────────────────────────
+   Not a decorative pattern: this is the client's OWN forward hedge cover,
+   month by month, from the data already loaded. It is specific to them and to
+   this product, which is the difference between texture and wallpaper.
+
+   Rules it obeys, because a moving background behind financial figures is
+   otherwise a readability and battery problem:
+     · fixed behind everything, z-index -1, pointer-events none
+     · cards and tables are fully opaque, so nothing shows through a number
+     · the travelling highlight is confined to the top chrome band, where
+       there is nothing to read
+     · pauses when the tab is hidden, and does not animate at all under
+       prefers-reduced-motion
+     · aria-hidden — it carries no information a screen reader needs */
+function drawBackdrop(){
+  const host=document.getElementById('bgline'); if(!host) return;
+  const from=nowMonth();
+  const pts=[];
+  for(const b of D.baskets){
+    for(const r of (D.positions[b.id]||[])){
+      const mk=String(r.month).slice(0,10);
+      if(mk<from || r.secured_pct==null) continue;
+      pts.push([mk, Math.max(0,Math.min(1.2,+r.secured_pct))]);
+    }
+  }
+  if(pts.length<4){ host.innerHTML=''; return; }
+  // Average cover per month across their baskets, oldest first.
+  const byM={};
+  for(const [m,v] of pts){ (byM[m] ??= []).push(v); }
+  const keys=Object.keys(byM).sort().slice(0,72);
+  const series=keys.map(k=>byM[k].reduce((a,b)=>a+b,0)/byM[k].length);
+
+  const W=1440,H=760,PAD=60;
+  const step=series.length>1 ? (W+120)/(series.length-1) : W;
+  const y=v=>H*0.72 - v*(H*0.42);
+  const d=series.map((v,i)=>`${i?'L':'M'}${(-60+i*step).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const grid=[160,300,440,580].map(v=>`<line x1="0" y1="${v}" x2="${W}" y2="${v}"/>`).join('')
+    + [240,520,800,1080,1360].map(v=>`<line x1="${v}" y1="0" x2="${v}" y2="${H}"/>`).join('');
+
+  host.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <g class="grid">${grid}</g>
+      <path class="cover" d="${d}"/>
+      <path class="cover flow" d="${d}"/>
+    </svg>`;
+}
+
+// Stop the animation when nobody is looking at it.
+document.addEventListener('visibilitychange',()=>{
+  const h=document.getElementById('bgline');
+  if(h) h.classList.toggle('paused', document.hidden);
+});
 
 /* ── reports ─────────────────────────────────────────────────────────── */
 function renderReports(){
