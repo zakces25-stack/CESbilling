@@ -36,21 +36,31 @@
   --shadow-lg:0 12px 28px rgba(22,35,63,.12),0 4px 8px rgba(22,35,63,.06);
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#0d1424; --surface:#141d33; --surface-2:#1a2440;
-  --ink:#eef1f7; --ink-2:#c2c9d6; --ink-3:#9aa4b5;
-  --line:#26314d; --line-strong:#35426a;
-  --green-700:#b6d232; --positive-700:#5fc47a; --negative-500:#f08b81;
-  --negative-600:#f08b81; --info-500:#6fc2dd; --accent:#b6d232;
-  --shadow-sm:0 1px 3px rgba(0,0,0,.4); --shadow-md:0 4px 12px rgba(0,0,0,.45);
-  --shadow-lg:0 14px 32px rgba(0,0,0,.5);}}
+  /* Every colour below is re-stated for dark. The first version missed
+     --info-600 and --green-600, so the Electricity tag rendered at 2.72:1 —
+     unreadable. Measured on the card surface: ink 13.9, ink-2 10.3, ink-3 7.3,
+     info-600 8.7, green-700 9.9, positive-700 8.6, negative-500 7.6. */
+  --bg:#0b1120; --surface:#1b2540; --surface-2:#232f4f;
+  --ink:#f2f5fa; --ink-2:#cdd5e2; --ink-3:#aab4c6;
+  --line:#3d4c73; --line-strong:#55679a;
+  --green-700:#c3dd45; --green-600:#c3dd45; --green-500:#aecb2a;
+  --positive-700:#6fd88c; --negative-500:#ff9d92; --negative-600:#ff9d92;
+  --info-500:#7fd0e8; --info-600:#7fd0e8; --accent:#c3dd45; --accent-fill:#aecb2a;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.45); --shadow-md:0 6px 16px rgba(0,0,0,.5);
+  --shadow-lg:0 16px 36px rgba(0,0,0,.55);}}
 :root[data-theme="dark"]{
-  --bg:#0d1424; --surface:#141d33; --surface-2:#1a2440;
-  --ink:#eef1f7; --ink-2:#c2c9d6; --ink-3:#9aa4b5;
-  --line:#26314d; --line-strong:#35426a;
-  --green-700:#b6d232; --positive-700:#5fc47a; --negative-500:#f08b81;
-  --negative-600:#f08b81; --info-500:#6fc2dd; --accent:#b6d232;
-  --shadow-sm:0 1px 3px rgba(0,0,0,.4); --shadow-md:0 4px 12px rgba(0,0,0,.45);
-  --shadow-lg:0 14px 32px rgba(0,0,0,.5);}
+  /* Every colour below is re-stated for dark. The first version missed
+     --info-600 and --green-600, so the Electricity tag rendered at 2.72:1 —
+     unreadable. Measured on the card surface: ink 13.9, ink-2 10.3, ink-3 7.3,
+     info-600 8.7, green-700 9.9, positive-700 8.6, negative-500 7.6. */
+  --bg:#0b1120; --surface:#1b2540; --surface-2:#232f4f;
+  --ink:#f2f5fa; --ink-2:#cdd5e2; --ink-3:#aab4c6;
+  --line:#3d4c73; --line-strong:#55679a;
+  --green-700:#c3dd45; --green-600:#c3dd45; --green-500:#aecb2a;
+  --positive-700:#6fd88c; --negative-500:#ff9d92; --negative-600:#ff9d92;
+  --info-500:#7fd0e8; --info-600:#7fd0e8; --accent:#c3dd45; --accent-fill:#aecb2a;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.45); --shadow-md:0 6px 16px rgba(0,0,0,.5);
+  --shadow-lg:0 16px 36px rgba(0,0,0,.55);}
 
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -82,7 +92,9 @@ header#top img{height:34px}
   border-radius:var(--r-sm);padding:0 15px}
 .gbtn:hover{border-color:var(--ink-3);color:var(--ink)}
 
-nav.tabs{display:flex;gap:4px;border-bottom:2px solid var(--line);margin-bottom:24px;overflow-x:auto}
+/* Wraps rather than scrolls. overflow-x:auto was painting a scrollbar stub in
+   the corner of the tab row on Windows even with nothing to scroll. */
+nav.tabs{display:flex;flex-wrap:wrap;gap:4px;border-bottom:2px solid var(--line);margin-bottom:24px}
 nav.tabs button{background:none;border:0;border-bottom:3px solid transparent;color:var(--ink-3);
   padding:11px 18px;margin-bottom:-2px;font-size:15.5px;white-space:nowrap}
 nav.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent-fill);font-weight:700}
@@ -94,6 +106,27 @@ nav.subtabs button{font-size:14.5px;padding:9px 15px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);
   box-shadow:var(--shadow-sm);padding:20px}
 .card h3{font-size:17px;margin-bottom:2px}
+
+/* The whole basket card is clickable, not just a small button inside it.
+   Stretched-link pattern: a real <button> in the heading whose ::after covers
+   the card. Keyboard and screen readers get a proper button; the mouse gets the
+   whole card. A <button> wrapping the card would be invalid HTML, since a
+   button may only contain phrasing content. */
+.card.clickable{position:relative;transition:border-color .15s,box-shadow .15s,transform .15s}
+.card.clickable:hover{border-color:var(--accent);box-shadow:var(--shadow-md);transform:translateY(-2px)}
+.card.clickable:has(.stretch:focus-visible){border-color:var(--accent);box-shadow:var(--shadow-md)}
+.stretch{all:unset;cursor:pointer;font:inherit;color:inherit}
+.stretch::after{content:'';position:absolute;inset:0;border-radius:inherit}
+/* Focus ring sits on the button by default so it is never lost. Where :has() is
+   supported the ring moves out to the whole card, which is the real target.
+   Written in this order so a browser without :has() still shows a ring. */
+.stretch:focus-visible{outline:3px solid var(--info-500);outline-offset:2px;border-radius:4px}
+.card.clickable:has(.stretch:focus-visible){outline:3px solid var(--info-500);outline-offset:2px}
+.card.clickable:has(.stretch:focus-visible) .stretch:focus-visible{outline:none}
+@media (prefers-reduced-motion:reduce){.card.clickable{transition:none}.card.clickable:hover{transform:none}}
+.cardgo{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:18px;
+  padding-top:14px;border-top:1px solid var(--line);
+  font-size:14px;font-weight:700;color:var(--accent)}
 .tag{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
   padding:3px 9px;border-radius:999px;border:1px solid var(--line-strong);color:var(--ink-2)}
 .tag.power{border-color:var(--info-500);color:var(--info-600)}
@@ -103,11 +136,14 @@ nav.subtabs button{font-size:14.5px;padding:9px 15px}
 .stat .v{font-family:var(--font-mono);font-size:19px;font-weight:600;margin-top:3px}
 .stat .u{font-size:12.5px;color:var(--ink-3);font-weight:600}
 
-/* Hedge bar is never colour-only: the % is written out beside it. */
-.bar{height:9px;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;overflow:hidden}
+/* Hedge bar is never colour-only: the % is written out beside it, so it still
+   reads in greyscale and for colour-blind users. Cover is the headline number
+   on this card, so it gets headline sizing rather than 13px. */
+.bar{height:12px;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;overflow:hidden}
 .bar>i{display:block;height:100%;background:var(--accent-fill)}
-.barrow{display:flex;align-items:center;gap:10px}
-.barrow .pc{font-family:var(--font-mono);font-size:13.5px;font-weight:600;min-width:52px;text-align:right}
+.barrow{display:flex;align-items:center;gap:12px}
+.barrow .pc{font-family:var(--font-mono);font-size:17px;font-weight:600;min-width:66px;
+  text-align:right;color:var(--ink)}
 
 .tbwrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface)}
 table{border-collapse:collapse;width:100%}
@@ -391,8 +427,8 @@ function renderBaskets(){
   if(!D.baskets.length){el.innerHTML='<div class="empty">No baskets are shared with your account yet.</div>';return;}
   el.innerHTML=`<div class="grid">${D.baskets.map(b=>{
     const c=coverOf(D.positions[b.id]); const isP=b.commodity==='power';
-    return `<article class="card">
-      <h3>${esc(b.name)}</h3>
+    return `<article class="card clickable">
+      <h3><button type="button" class="stretch" data-basket="${esc(b.id)}">${esc(b.name)}</button></h3>
       <span class="tag ${isP?'power':'gas'}">${isP?'Electricity':'Gas'}</span>
       <div style="margin-top:16px">
         <div class="stat"><span class="k">Forward cover</span></div>
@@ -408,7 +444,7 @@ function renderBaskets(){
         <div class="stat"><div class="k">Secured WAP</div><div class="v">${n2(c.wap)}</div>
           <div class="u">${esc(b.unit_price||'')}</div></div>
       </div>
-      <button class="gbtn" style="width:100%;margin-top:18px" data-basket="${esc(b.id)}">Open basket</button>
+      <span class="cardgo">Open basket <span aria-hidden="true">&rarr;</span></span>
     </article>`;}).join('')}</div>`;
   // Delegated listeners rather than onclick="f('...')": an attribute is
   // HTML-decoded before its contents parse as JS, so an escaped quote would
