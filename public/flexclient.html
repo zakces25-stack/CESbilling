@@ -167,12 +167,24 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
   text-align:right;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 
 /* ── Stat header + filter bar ───────────────────────────────────────── */
-.statrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(146px,1fr));gap:10px;margin-bottom:18px}
-.statcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);padding:13px 14px}
-.statcard .l{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
-.statcard .v{font-family:var(--font-mono);font-size:var(--t-fig);font-weight:600;margin-top:5px;
-  letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.1}
-.statcard .s{font-size:11px;color:var(--ink-3);font-weight:600;margin-top:3px}
+.statrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(152px,1fr));gap:10px;margin-bottom:18px}
+.statcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:13px 14px;min-width:0;overflow:hidden}
+.statcard .l{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The figure steps down a size band as the string gets longer, so a nine-figure
+   mark-to-market fits the same box as a two-digit percentage. Truncating a
+   number is never acceptable — it reads as a smaller number rather than as a
+   clipped one — so the type shrinks instead. */
+.statcard .v{font-family:var(--font-mono);font-weight:600;margin-top:5px;
+  letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.1;
+  white-space:nowrap;min-width:0;
+  font-size:var(--t-fig)}
+.statcard .v.len-m{font-size:clamp(17px,.95rem + .45vw,21px)}
+.statcard .v.len-l{font-size:clamp(15px,.85rem + .30vw,18px)}
+.statcard .v.len-x{font-size:clamp(13px,.78rem + .18vw,15.5px);letter-spacing:-.03em}
+.statcard .s{font-size:11px;color:var(--ink-3);font-weight:600;margin-top:3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 .filters{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:var(--surface);
   border:1px solid var(--line);border-radius:var(--r-sm);padding:11px 14px;margin-bottom:16px}
@@ -530,6 +542,34 @@ function render(){
 function destroyCharts(){ for(const k in CHARTS){ try{CHARTS[k].destroy();}catch(e){} delete CHARTS[k]; } }
 
 
+
+// Big money, short string. A mark-to-market can run to nine figures; spelled out
+// in full it does not fit any sensible card. Abbreviated it always does, and the
+// exact figure stays one hover away and is spelled out in full in the tables.
+function compactMoney(v){
+  if(v==null||v==='') return {t:'—', full:'—'};
+  const n=+v, a=Math.abs(n), sign = n>0?'+':n<0?'−':'';
+  const full = (n<0?'−':n>0?'+':'')+'£'+Math.abs(Math.round(n)).toLocaleString('en-GB');
+  // Thresholds sit just below each power so a value that ROUNDS up promotes to
+  // the next unit. Naively testing a>=1e9 renders 999,999,999 as "£1000.00m".
+  let t;
+  if (a>=999.995e6)     t = sign+'£'+(a/1e9).toFixed(2)+'bn';
+  else if (a>=999.5e3)  t = sign+'£'+(a/1e6).toFixed(2)+'m';
+  else if (a>=1e4)      t = sign+'£'+Math.round(a/1e3).toLocaleString('en-GB')+'k';
+  else                  t = sign+'£'+Math.round(a).toLocaleString('en-GB');
+  return {t, full};
+}
+
+// Pick a size band from the rendered length so nothing ever overflows its card.
+function statVal(text, full, cls){
+  const n = String(text).replace(/<[^>]*>/g,'').length;
+  // Boundaries measured against the narrowest card (152px grid minimum, 124px
+  // inner) at ~0.6em per mono glyph: full fits 7, len-m 9, len-l 11, len-x 13.
+  const band = n<=7 ? '' : n<=9 ? ' len-m' : n<=11 ? ' len-l' : ' len-x';
+  const ttl = full && full!==text ? ` title="${esc(full)}"` : '';
+  return `<div class="v${band}${cls?' '+cls:''}"${ttl}>${text}</div>`;
+}
+
 /* ── Basket stats: the same eight figures the broker desk sees ───────────
    Mirrors renderDetailStats() in flex.html. Weighted averages, not simple
    means: WAP is weighted by secured volume, MtM price and delivered rate by
@@ -646,26 +686,26 @@ function renderBasket(){
       <span class="tag ${isP?'power':'gas'}">${isP?'Electricity':'Gas'}</span>
     </div>
     <div class="statrow">
-      <div class="statcard"><div class="l">Avg WAP</div><div class="v">${n2(S.avgWap)}</div>
+      <div class="statcard"><div class="l">Avg WAP</div>${statVal(n2(S.avgWap))}
         <div class="s">${esc(b.unit_price||'')} secured</div></div>
-      <div class="statcard"><div class="l">Avg MtM Price</div><div class="v">${n2(S.avgMtm)}</div>
+      <div class="statcard"><div class="l">Avg MtM Price</div>${statVal(n2(S.avgMtm))}
         <div class="s">${esc(b.unit_price||'')} mark-to-market</div></div>
-      <div class="statcard"><div class="l">Secured</div><div class="v">${S.pct==null?'—':(S.pct*100).toFixed(2)+'%'}</div>
+      <div class="statcard"><div class="l">Secured</div>${statVal(S.pct==null?'—':(S.pct*100).toFixed(2)+'%')}
         <div class="s">Forward position</div></div>
       <div class="statcard"><div class="l">Total Baseload</div>
-        <div class="v">${isP?n4(S.baseCard):n0(S.baseCard)}</div>
+        ${statVal(isP?n4(S.baseCard):n0(S.baseCard))}
         <div class="s">${isP?'MW total':'th total'}</div></div>
       <div class="statcard"><div class="l">Secured Vol</div>
-        <div class="v">${isP?n4(S.secCard):n0(S.secCard)}</div>
+        ${statVal(isP?n4(S.secCard):n0(S.secCard))}
         <div class="s">${isP?'MW total secured':'th hedged'}</div></div>
       <div class="statcard"><div class="l">Open Vol</div>
-        <div class="v">${isP?n4(S.openCard):n0(S.openCard)}</div>
+        ${statVal(isP?n4(S.openCard):n0(S.openCard))}
         <div class="s">${isP?'MW open':'th open'}</div></div>
       <div class="statcard"><div class="l">Avg Delivered Rate</div>
-        <div class="v">${S.avgDr==null?'—':S.avgDr.toFixed(3)}</div>
+        ${statVal(S.avgDr==null?'—':S.avgDr.toFixed(3))}
         <div class="s">p/kWh incl. non-energy costs</div></div>
       <div class="statcard"><div class="l">MtM Cost</div>
-        <div class="v">${signed(S.mtmCost)}</div><div class="s">Mark-to-market</div></div>
+        ${(()=>{const M=compactMoney(S.mtmCost);return statVal(M.t, M.full, S.mtmCost>0?'pos':S.mtmCost<0?'neg':'');})()}<div class="s">Mark-to-market</div></div>
     </div>
     <nav class="tabs subtabs" role="tablist" aria-label="Basket detail">
       ${SUBS.map(([k,l])=>`<button role="tab" data-sub="${k}" aria-selected="${k===SUB}">${l}</button>`).join('')}
