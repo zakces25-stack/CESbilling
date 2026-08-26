@@ -1774,6 +1774,10 @@ button{transition:all .14s ease}
         <button class="main-tab-btn" data-main-tab="notes">Notes</button>
         <button class="main-tab-btn" data-main-tab="necs">NEC's</button>
         <button class="main-tab-btn" data-main-tab="archive">Archive</button>
+        <!-- Client reports: shown only to profiles with flex_reports_admin
+             (Dan, Sarah, Adam). flexStart() unhides it after reading the
+             profile. Cosmetic only — the real gate is the RLS policy. -->
+        <button class="main-tab-btn fx-reports-only" data-main-tab="clientreports" style="display:none">Client Reports</button>
       </div>
       <!-- Portfolio tab -->
       <div class="main-tab-pane active" id="main-tab-portfolio">
@@ -1795,6 +1799,7 @@ button{transition:all .14s ease}
       <div class="main-tab-pane" id="main-tab-notes"></div>
       <div class="main-tab-pane" id="main-tab-necs"></div>
       <div class="main-tab-pane" id="main-tab-archive"></div>
+      <div class="main-tab-pane" id="main-tab-clientreports"></div>
     </div>
 
     <!-- DETAIL -->
@@ -3338,6 +3343,7 @@ function switchMainTab(tabId) {
   if (tabId === 'notes')    fxRenderNotes();
   if (tabId === 'necs')     renderNecs();
   if (tabId === 'archive')  fxRenderArchive();
+  if (tabId === 'clientreports') fxRenderClientReports();
 }
 
 document.addEventListener('click', e => {
@@ -3600,13 +3606,13 @@ function rerenderCurrent(){
   } else {
     renderOverview();
   }
-  ['curves','admin','contacts','orders','notes','necs','archive'].forEach(t=>{
+  ['curves','admin','contacts','orders','notes','necs','archive','clientreports'].forEach(t=>{
     const el=document.getElementById('main-tab-'+t);
     if(!el) return;
     delete el.dataset.rendered; 
     if(el.classList.contains('active')){
       el.innerHTML='';
-      ({curves:renderCurves,admin:renderAdmin,contacts:renderContacts,orders:renderOrders,notes:fxRenderNotes,necs:renderNecs,archive:fxRenderArchive})[t]();
+      ({curves:renderCurves,admin:renderAdmin,contacts:renderContacts,orders:renderOrders,notes:fxRenderNotes,necs:renderNecs,archive:fxRenderArchive,clientreports:fxRenderClientReports})[t]();
     } else { el.innerHTML=''; }
   });
   fxDecorateHeader();
@@ -4232,7 +4238,12 @@ function fxCursorApply(c){
 }
 function fxStartCursors(){
   const layer=document.getElementById('fxCursors');
-  fxCursorCh = FLEX.sb.channel('flex-cursors', { config:{ presence:{ key: FLEX.uid }, broadcast:{ self:false } } });
+  // private:true turns on Realtime authorization for this topic, gated by the
+  // flex_cursors_team_only policy on realtime.messages. Without it, broadcast
+  // payloads are NOT RLS-filtered and this channel leaks the staff username,
+  // the selected basket id and the basket NAME to anyone holding the published
+  // anon key — client accounts included. Needs the matching migration deployed.
+  fxCursorCh = FLEX.sb.channel('flex-cursors', { config:{ private:true, presence:{ key: FLEX.uid }, broadcast:{ self:false } } });
   fxCursorCh.on('broadcast', {event:'cur'}, ({payload:p})=>{
     if(!p || p.id===FLEX.uid) return;
     let c=fxCursors[p.id];
@@ -5818,8 +5829,12 @@ async function flexStart() {
   FLEX.uid = session && session.user ? session.user.id : 'anon';
   FLEX.user = ((session && session.user && session.user.email) || 'user').replace('@portal.cesgb.com','');
   FLEX.color = fxColorFor(FLEX.uid);
-  try { const { data: prof } = await FLEX.sb.from('profiles').select('display_name').eq('id', FLEX.uid).single();
-        FLEX.name = (prof && prof.display_name) || FLEX.user; } catch(e){ FLEX.name = FLEX.user; }
+  try { const { data: prof } = await FLEX.sb.from('profiles').select('display_name,flex_reports_admin').eq('id', FLEX.uid).single();
+        FLEX.name = (prof && prof.display_name) || FLEX.user;
+        FLEX.reportsAdmin = !!(prof && prof.flex_reports_admin); } catch(e){ FLEX.name = FLEX.user; FLEX.reportsAdmin = false; }
+  // The Client Reports tab is a UI convenience only — the real gate is the
+  // can_manage_flex_reports() check in the flex_reports RLS policies.
+  document.querySelectorAll('.fx-reports-only').forEach(el => { el.style.display = FLEX.reportsAdmin ? '' : 'none'; });
   const uEl = document.getElementById('flexChipUser');
   if(uEl) uEl.innerHTML = '<span class="fx-log-dot" style="background:'+FLEX.color+';margin-right:6px"></span>' + escape(FLEX.user);
   renderSidebar(); renderOverview(); fxDecorateHeader();
@@ -5841,6 +5856,183 @@ window._fxTick = (t, n) => {
   (window._fxParts = window._fxParts || []).push(n.toLocaleString('en-GB') + ' ' + _fxTickNames[t]);
   el.textContent = window._fxParts.join(' · ');
 };
+// ── CLIENT REPORTS ───────────────────────────────────────────────
+// Compose the weekly / monthly reports that appear in flexclient.html.
+// Body is plain pasted text; the client portal renders it with white-space
+// preserved and offers print-to-PDF. Tab visibility is cosmetic — every write
+// is gated by can_manage_flex_reports() in the flex_reports RLS policies, so a
+// non-authorised profile that forced the tab open would simply get errors.
+let _fxRepCusts = null;
+
+async function fxRenderClientReports(){
+  const el = document.getElementById('main-tab-clientreports'); if(!el) return;
+  if (el.dataset.rendered) return; el.dataset.rendered = '1';
+  el.innerHTML = `<div class="extra-tab-inner"><div style="padding:12px 2px;color:#6b7280;font-size:12px">Loading client reports…</div></div>`;
+
+  const [{ data:custs, error:cErr }, { data:reps, error:rErr }] = await Promise.all([
+    FLEX.sb.from('flex_report_customers').select('customer_id,company_name,basket_count,report_count').order('company_name'),
+    FLEX.sb.from('flex_reports').select('id,customer_id,kind,title,period_label,report_date,body,published,created_by,updated_at')
+           .order('report_date',{ascending:false})
+  ]);
+  if (cErr || rErr){
+    el.innerHTML = `<div class="extra-tab-inner"><div style="padding:12px 2px;color:#c2453b;font-size:12.5px">Could not load client reports — ${escape((cErr||rErr).message)}</div></div>`;
+    return;
+  }
+  _fxRepCusts = custs || [];
+  const nameOf = id => (( _fxRepCusts.find(c=>c.customer_id===id) || {}).company_name) || id;
+
+  const rows = (reps||[]).map(r=>`<tr>
+      <td>${escape(nameOf(r.customer_id))}</td>
+      <td style="text-transform:capitalize">${escape(r.kind)}</td>
+      <td>${escape(r.title)}</td>
+      <td>${escape(r.period_label||'—')}</td>
+      <td>${fmtDate(r.report_date)}</td>
+      <td class="td-center">${r.published
+          ? '<span class="fx-src live">live</span>'
+          : '<span class="fx-src man">draft</span>'}</td>
+      <td class="td-center" style="white-space:nowrap">
+        <button class="fx-btn" onclick="fxRepEdit('${escape(r.id)}')">&#9998; Edit</button>
+        <button class="fx-btn" onclick="fxRepTogglePublish('${escape(r.id)}',${r.published?'false':'true'})">${r.published?'Unpublish':'Publish'}</button>
+        <button class="fx-btn" onclick="fxRepDelete('${escape(r.id)}')">Delete</button>
+      </td></tr>`).join('');
+
+  window._fxReps = reps || [];
+
+  el.innerHTML = `<div class="extra-tab-inner">
+    <div class="overview-header" style="margin-bottom:12px">
+      <div class="overview-title">Client Reports</div>
+      <div class="overview-sub">Weekly &amp; monthly commentary published to the client flex portal</div>
+    </div>
+    <div class="fx-toolbar" style="margin:0 0 12px;flex-wrap:wrap">
+      <button class="fx-btn green" onclick="fxRepNew()">&#43; New report</button>
+      <span style="font-size:11.5px;color:#6b7280;flex-basis:100%;margin-top:4px">
+        ${_fxRepCusts.length} customer${_fxRepCusts.length===1?'':'s'} set up for the client portal:
+        ${escape(_fxRepCusts.map(c=>c.company_name+' ('+c.basket_count+')').join(' · ')) || 'none yet'}.
+        Only <b>published</b> reports are visible to the client.</span>
+    </div>
+    ${rows ? `<div style="overflow-x:auto"><table class="extra-table"><thead><tr>
+        <th>Customer</th><th>Type</th><th>Title</th><th>Period</th><th>Date</th>
+        <th class="td-center">Status</th><th class="td-center">Actions</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`
+      : `<div style="padding:26px 18px;text-align:center;color:#6b7280;font-size:13px;border:1px dashed #c3cad4;border-radius:10px">
+           No reports yet. Click <b>New report</b> to write the first one.</div>`}
+  </div>`;
+}
+
+function fxRepForm(r){
+  const isNew = !r;
+  r = r || { customer_id:'', kind:'weekly', title:'', period_label:'', body:'',
+             report_date:new Date().toISOString().slice(0,10), published:false };
+  const opts = _fxRepCusts.map(c=>
+    `<option value="${escape(c.customer_id)}"${c.customer_id===r.customer_id?' selected':''}>${escape(c.company_name)}</option>`).join('');
+  // On edit the customer is fixed, not a picker. A dropdown here would default
+  // to the first option whenever the report's customer had dropped off the list
+  // (basket mapping removed), silently moving one client's commentary under
+  // another. The DB enforces this too — customer_id is immutable on update.
+  const custField = isNew
+    ? `<select id="rpCust" style="width:100%;padding:7px;font-size:13px">${opts||'<option value="">— no flex customers set up —</option>'}</select>`
+    : `<div style="padding:7px 0;font-size:13px;font-weight:700">${escape(
+         (( _fxRepCusts.find(c=>c.customer_id===r.customer_id)||{}).company_name) || r.customer_id)}
+       </div><span style="font-size:11px;color:#6b7280">Fixed once created</span>`;
+  return `<h3>${isNew?'New client report':'Edit client report'}</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div><label style="font-size:11.5px;font-weight:700;color:#4b5563;display:block;margin-bottom:4px">Customer</label>
+        ${custField}</div>
+      <div><label style="font-size:11.5px;font-weight:700;color:#4b5563;display:block;margin-bottom:4px">Type</label>
+        <select id="rpKind" style="width:100%;padding:7px;font-size:13px">
+          <option value="weekly"${r.kind==='weekly'?' selected':''}>Weekly</option>
+          <option value="monthly"${r.kind==='monthly'?' selected':''}>Monthly</option></select></div>
+      <div><label style="font-size:11.5px;font-weight:700;color:#4b5563;display:block;margin-bottom:4px">Title</label>
+        <input id="rpTitle" value="${escape(r.title)}" placeholder="Market update" style="width:100%;padding:7px;font-size:13px"></div>
+      <div><label style="font-size:11.5px;font-weight:700;color:#4b5563;display:block;margin-bottom:4px">Period label</label>
+        <input id="rpPeriod" value="${escape(r.period_label||'')}" placeholder="Week 35 · 24–30 Aug 2026" style="width:100%;padding:7px;font-size:13px"></div>
+      <div><label style="font-size:11.5px;font-weight:700;color:#4b5563;display:block;margin-bottom:4px">Report date</label>
+        <input id="rpDate" type="date" value="${escape(String(r.report_date).slice(0,10))}" style="width:100%;padding:7px;font-size:13px"></div>
+      <div style="display:flex;align-items:flex-end;padding-bottom:4px">
+        <label style="font-size:12.5px;font-weight:600;color:#4b5563;display:flex;align-items:center;gap:7px;cursor:pointer">
+          <input id="rpPub" type="checkbox"${r.published?' checked':''} style="width:16px;height:16px">
+          Publish to the client portal</label></div>
+    </div>
+    <label style="font-size:11.5px;font-weight:700;color:#4b5563;display:block;margin:12px 0 4px">Report body — paste your text</label>
+    <textarea id="rpBody" style="min-height:230px;width:100%;font-size:13px;line-height:1.6;font-family:'Source Sans 3',sans-serif" placeholder="Paste the weekly commentary here. Line breaks and blank lines are preserved exactly as you paste them.">${escape(r.body)}</textarea>
+    <div class="fx-err" id="fxMErr"></div>
+    <div class="fx-modal-foot">
+      <button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
+      <button class="fx-btn green" onclick="fxRepSave(${isNew?'null':"'"+escape(r.id)+"'"})">${isNew?'Create report':'Save changes'}</button>
+    </div>`;
+}
+
+function fxRepNew(){
+  if (!_fxRepCusts || !_fxRepCusts.length)
+    return fxToast('No customers are set up for the client portal yet', false);
+  fxModal(fxRepForm(null));
+}
+function fxRepEdit(id){
+  const r = (window._fxReps||[]).find(x=>x.id===id);
+  if (!r) return fxToast('Report not found — refresh and try again', false);
+  fxModal(fxRepForm(r));
+}
+
+// PostgREST returns 204 with no error when RLS filters an UPDATE or DELETE to
+// zero rows, so `!error` is NOT success — a profile without flex_reports_admin
+// would otherwise be told "published" while nothing happened. Every write below
+// asks for the affected rows back and checks the count.
+const FX_REP_BLOCKED = 'Nothing was saved — your account does not have permission to publish client reports.';
+
+async function fxRepSave(id){
+  const title = document.getElementById('rpTitle').value.trim();
+  const body  = document.getElementById('rpBody').value;
+  if (!title)       return fxMErr('Give the report a title.');
+  if (!body.trim()) return fxMErr('The report body is empty.');
+  const rec = {
+    kind:         document.getElementById('rpKind').value,
+    title:        title,
+    period_label: document.getElementById('rpPeriod').value.trim() || null,
+    report_date:  document.getElementById('rpDate').value || new Date().toISOString().slice(0,10),
+    body:         body,
+    published:    document.getElementById('rpPub').checked,
+    updated_by:   FLEX.user, updated_at: new Date().toISOString()
+  };
+  let res;
+  if (id){
+    // customer_id is deliberately not sent — it is immutable on update.
+    res = await FLEX.sb.from('flex_reports').update(rec).eq('id', id).select('id');
+  } else {
+    const cust = document.getElementById('rpCust').value;
+    if (!cust) return fxMErr('Pick a customer.');
+    res = await FLEX.sb.from('flex_reports')
+            .insert(Object.assign({ customer_id: cust, created_by: FLEX.user }, rec)).select('id');
+  }
+  if (res.error) return fxMErr(res.error.message);
+  if (!res.data || !res.data.length) return fxMErr(FX_REP_BLOCKED);
+  fxToast(rec.published ? 'Report saved and published' : 'Report saved as a draft');
+  fxCloseModal(); fxRepRefresh();
+}
+
+async function fxRepTogglePublish(id, pub){
+  const { data, error } = await FLEX.sb.from('flex_reports')
+    .update({ published: pub, updated_by: FLEX.user, updated_at: new Date().toISOString() })
+    .eq('id', id).select('id');
+  if (error) return fxToast(error.message, false);
+  if (!data || !data.length) return fxToast(FX_REP_BLOCKED, false);
+  fxToast(pub ? 'Published — the client can see it now' : 'Unpublished — hidden from the client');
+  fxRepRefresh();
+}
+
+async function fxRepDelete(id){
+  const r = (window._fxReps||[]).find(x=>x.id===id);
+  if (!confirm('Delete "'+((r&&r.title)||'this report')+'"? This cannot be undone.')) return;
+  const { data, error } = await FLEX.sb.from('flex_reports').delete().eq('id', id).select('id');
+  if (error) return fxToast(error.message, false);
+  if (!data || !data.length) return fxToast(FX_REP_BLOCKED, false);
+  fxToast('Report deleted'); fxRepRefresh();
+}
+
+function fxRepRefresh(){
+  const el = document.getElementById('main-tab-clientreports');
+  if (el){ delete el.dataset.rendered; el.innerHTML=''; fxRenderClientReports(); }
+}
+
 function _flDesk(){
   const now = new Date();
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone:'Europe/London', weekday:'short',
