@@ -223,6 +223,14 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
 #scene .pylon{stroke:var(--ink);opacity:.16;fill:none;stroke-width:1.6}
 #scene .hub{fill:var(--ink);opacity:.30}
 #scene .blade{stroke:var(--ink);opacity:.22;stroke-width:2.2;stroke-linecap:round}
+/* Rotors spin via CSS, not SMIL. SMIL inserted through innerHTML picks up the
+   document timeline rather than starting on insertion, which showed as a beat
+   of stillness before they got going. transform-box:view-box makes the inline
+   transform-origin resolve in viewBox units, so each rotor pivots on its exact
+   hub; the blades are drawn at absolute coordinates so no parent transform
+   shifts that pivot. */
+#scene .rotor{transform-box:view-box;animation:spin 8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 #scene .stack{stroke:var(--ink);opacity:.18;fill:none;stroke-width:2}
 #scene .puff{fill:var(--ink);opacity:0;animation:rise 9s ease-out infinite}
 /* Candles carry their base opacity on the GROUP, not the rect, so the wave can
@@ -251,12 +259,12 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
   82%{opacity:.16}
   100%{opacity:.16}}
 @media (prefers-reduced-motion:reduce){
-  #scene .puff,#scene .cdl,#scene .vol{animation:none}
+  #scene .puff,#scene .cdl,#scene .vol,#scene .rotor{animation:none}
   #scene .cdl{opacity:.16}
   #scene .vol{opacity:.10}
   #scene .puff{opacity:.10}}
-#scene.paused .puff,#scene.paused .cdl,#scene.paused .vol{animation-play-state:paused}
-#scene.paused animateTransform{display:none}
+#scene.paused .puff,#scene.paused .cdl,#scene.paused .vol,
+#scene.paused .rotor{animation-play-state:paused}
 
 .tbwrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface)}
 table{border-collapse:separate;border-spacing:0;width:100%}
@@ -523,12 +531,12 @@ async function start(){
   document.getElementById('boot').style.display='none';
   document.getElementById('app').style.display='block';
   document.getElementById('coName').innerHTML = esc(CX.company||'Your portfolio')+'<small>CES flex portal</small>';
-  drawScene();
+  drawSceneChart();
   render();
 }
 
 async function cxReload(){
-  try{ await load(); drawScene(); render(); toast('Up to date'); }
+  try{ await load(); drawSceneChart(); render(); toast('Up to date'); }
   catch(e){ toast('Could not refresh — please try again'); }
 }
 
@@ -955,27 +963,21 @@ function subGraphs(b,host){
    Everything sits behind opaque cards at low opacity. Motion stops under
    prefers-reduced-motion and whenever the tab is hidden. aria-hidden, because
    it carries nothing a screen reader needs. */
-const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
-
 function turbine(x, baseY, h, dur){
   const hubY = baseY - h, r = h * 0.58;
+  // Blades at absolute viewBox coordinates and no wrapping translate, so the
+  // CSS transform-origin below lands exactly on the hub.
   const blade = a => {
     const rad = (a - 90) * Math.PI / 180;
-    return `<line class="blade" x1="0" y1="0" x2="${(Math.cos(rad)*r).toFixed(1)}" y2="${(Math.sin(rad)*r).toFixed(1)}"/>`;
+    return `<line class="blade" x1="${x}" y1="${hubY}"
+      x2="${(x + Math.cos(rad)*r).toFixed(1)}" y2="${(hubY + Math.sin(rad)*r).toFixed(1)}"/>`;
   };
-  // SMIL rotate, not a CSS transform. transform-box:fill-box put the rotation
-  // centre at the bounding-box centre of the three blades, which sits about a
-  // quarter-radius BELOW the hub, so the rotor orbited away from the mast.
-  // `from="0 0 0"` pins it to this group's own origin, which is the hub exactly.
-  const spin = REDUCED ? '' :
-    `<animateTransform attributeName="transform" attributeType="XML" type="rotate"
-       from="0 0 0" to="360 0 0" dur="${dur}s" repeatCount="indefinite"/>`;
-  return `<g transform="translate(${x},0)">
-      <path class="mast" d="M0,${baseY} L0,${hubY}"/>
-      <g transform="translate(0,${hubY})">
-        <g>${spin}${blade(0)}${blade(120)}${blade(240)}</g>
-        <circle class="hub" cx="0" cy="0" r="3.2"/>
+  return `<g>
+      <path class="mast" d="M${x},${baseY} L${x},${hubY}"/>
+      <g class="rotor" style="transform-origin:${x}px ${hubY}px;animation-duration:${dur}s">
+        ${blade(0)}${blade(120)}${blade(240)}
       </g>
+      <circle class="hub" cx="${x}" cy="${hubY}" r="3.2"/>
     </g>`;
 }
 
@@ -1007,15 +1009,36 @@ function pylon(x, baseY, h){
   </g>`;
 }
 
-function drawScene(){
+// Split in two on purpose. The landscape needs no data, so it is painted the
+// moment the script runs and the rotors are already turning while Supabase is
+// still answering. Only the bar field waits for the curve, and it drops into a
+// placeholder that is already on screen.
+const SC = { W:2000, H:1120, HORIZON:830 };
+
+function drawSceneBase(){
   const host = document.getElementById('scene'); if(!host) return;
-  // Roomier viewBox so `slice` cropping on a wide window never reaches the
-  // rotor tips. Content sits well inside the frame with headroom above.
-  const W = 2000, H = 1120, HORIZON = 830;
+  const {W,H,HORIZON} = SC;
+  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
+    <g class="grid">
+      ${[190,370,550,730].map(v=>`<line x1="0" y1="${v}" x2="${W}" y2="${v}"/>`).join('')}
+      ${[330,720,1110,1500,1890].map(v=>`<line x1="${v}" y1="0" x2="${v}" y2="${HORIZON}"/>`).join('')}
+    </g>
+    <g id="sceneChart"></g>
+    ${stack(1452, HORIZON, 150)}${stack(1516, HORIZON, 172)}
+    ${pylon(1030, HORIZON, 224)}
+    ${turbine(268,  HORIZON, 268, 7)}
+    ${turbine(566,  HORIZON, 200, 9.5)}
+    ${turbine(772,  HORIZON, 146, 12)}
+    ${turbine(1762, HORIZON, 232, 8.4)}
+    <path class="land" d="M0,${HORIZON} L${W},${HORIZON} L${W},${H} L0,${H} Z"/>
+  </svg>`;
+}
+
+function drawSceneChart(){
+  const host = document.getElementById('sceneChart'); if(!host) return;
+  const {W,HORIZON} = SC;
 
   // The forward market curve for the commodities this client actually holds.
-  // Drawn as candles: each body runs from last month's mid to this month's mid,
-  // so every mark is real movement in their own curve. No synthetic OHLC.
   const from = nowMonth(), byM = {};
   for (const c of ['power','gas']){
     if (!D.baskets.some(b => b.commodity === c)) continue;
@@ -1027,69 +1050,40 @@ function drawScene(){
   }
   const keys = Object.keys(byM).sort().slice(0, 54);
   const mids = keys.map(k => byM[k].reduce((a,b)=>a+b,0) / byM[k].length);
+  if (mids.length <= 3){ host.innerHTML = ''; return; }
 
-  let chart = '';
-  if (mids.length > 3){
-    // Resample the real curve to a dense bar field. Linear interpolation of a
-    // real series, not invented data: bar N sits between two genuine monthly
-    // mids. Density is what makes the wave read as a wave rather than as a few
-    // scattered blocks.
-    const N = 150;
-    const dense = [];
-    for (let i = 0; i < N; i++){
-      const t = (i / (N - 1)) * (mids.length - 1);
-      const a = Math.floor(t), b = Math.min(mids.length - 1, a + 1), f = t - a;
-      dense.push(mids[a] * (1 - f) + mids[b] * f);
-    }
-
-    const lo = Math.min(...dense), hi = Math.max(...dense), span = (hi - lo) || 1;
-    const TOP = 220, BOT = HORIZON - 150;
-    const y = v => BOT - ((v - lo) / span) * (BOT - TOP);
-    const step = W / N;
-    const bw = Math.max(4, step * 0.62);
-
-    let bars = '', vol = '';
-    for (let i = 0; i < N; i++){
-      const open = i ? dense[i-1] : dense[i], close = dense[i];
-      const x = step * (i + 0.5);
-      const yO = y(open), yC = y(close);
-      // Give every bar real presence: the body spans the move, with a minimum
-      // so a flat stretch still shows as a bar rather than a hairline.
-      const top = Math.min(yO, yC) - 9, h = Math.abs(yC - yO) + 18;
-      const cls = close <= open ? 'cdl-dn' : 'cdl-up';
-      bars += `<g class="cdl ${cls}" style="--i:${i}">`
-            + `<rect x="${(x-bw/2).toFixed(1)}" y="${top.toFixed(1)}"`
-            + ` width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="1"/></g>`;
-      // Volume column along the floor, scaled by how far the curve moved.
-      const mv = Math.abs(close - open);
-      const vh = 8 + (mv / (span / mids.length * 2 || 1)) * 26;
-      vol += `<g class="vol" style="--i:${i}">`
-           + `<rect x="${(x-bw/2).toFixed(1)}" y="${(HORIZON - Math.min(vh,120)).toFixed(1)}"`
-           + ` width="${bw.toFixed(1)}" height="${Math.min(vh,120).toFixed(1)}" rx="1"/></g>`;
-    }
-
-    const axes = [0.25,0.5,0.75].map(f=>{
-      const yy = TOP + (BOT-TOP)*f;
-      return `<line class="axis" x1="0" y1="${yy.toFixed(0)}" x2="${W}" y2="${yy.toFixed(0)}"/>`;
-    }).join('');
-
-    chart = axes + vol + bars;
+  // Resample the real curve to a dense field. Linear interpolation of a real
+  // series, not invented data: bar N sits between two genuine monthly mids.
+  const N = 150, dense = [];
+  for (let i = 0; i < N; i++){
+    const t = (i / (N - 1)) * (mids.length - 1);
+    const a = Math.floor(t), b = Math.min(mids.length - 1, a + 1), f = t - a;
+    dense.push(mids[a] * (1 - f) + mids[b] * f);
   }
+  const lo = Math.min(...dense), hi = Math.max(...dense), span = (hi - lo) || 1;
+  const TOP = 220, BOT = HORIZON - 150;
+  const y = v => BOT - ((v - lo) / span) * (BOT - TOP);
+  const step = W / N, bw = Math.max(4, step * 0.62);
 
-  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
-    <g class="grid">
-      ${[190,370,550,730].map(v=>`<line x1="0" y1="${v}" x2="${W}" y2="${v}"/>`).join('')}
-      ${[330,720,1110,1500,1890].map(v=>`<line x1="${v}" y1="0" x2="${v}" y2="${HORIZON}"/>`).join('')}
-    </g>
-    ${chart}
-    ${stack(1452, HORIZON, 150)}${stack(1516, HORIZON, 172)}
-    ${pylon(1030, HORIZON, 224)}
-    ${turbine(268, HORIZON, 268, 7)}
-    ${turbine(566, HORIZON, 200, 9.5)}
-    ${turbine(772, HORIZON, 146, 12)}
-    ${turbine(1762, HORIZON, 232, 8.4)}
-    <path class="land" d="M0,${HORIZON} L${W},${HORIZON} L${W},${H} L0,${H} Z"/>
-  </svg>`;
+  let bars = '', vol = '';
+  for (let i = 0; i < N; i++){
+    const open = i ? dense[i-1] : dense[i], close = dense[i];
+    const x = step * (i + 0.5), yO = y(open), yC = y(close);
+    const top = Math.min(yO, yC) - 9, h = Math.abs(yC - yO) + 18;
+    bars += `<g class="cdl ${close <= open ? 'cdl-dn' : 'cdl-up'}" style="--i:${i}">`
+          + `<rect x="${(x-bw/2).toFixed(1)}" y="${top.toFixed(1)}"`
+          + ` width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="1"/></g>`;
+    const mv = Math.abs(close - open);
+    const vh = Math.min(8 + (mv / (span / mids.length * 2 || 1)) * 26, 120);
+    vol += `<g class="vol" style="--i:${i}">`
+         + `<rect x="${(x-bw/2).toFixed(1)}" y="${(HORIZON - vh).toFixed(1)}"`
+         + ` width="${bw.toFixed(1)}" height="${vh.toFixed(1)}" rx="1"/></g>`;
+  }
+  const axes = [0.25,0.5,0.75].map(f=>{
+    const yy = TOP + (BOT-TOP)*f;
+    return `<line class="axis" x1="0" y1="${yy.toFixed(0)}" x2="${W}" y2="${yy.toFixed(0)}"/>`;
+  }).join('');
+  host.innerHTML = axes + vol + bars;
 }
 
 // Do not burn a laptop battery animating something nobody is looking at.
@@ -1156,6 +1150,7 @@ function renderCurve(){
         and is not a forward period. Shown for information; it is not a tradeable quote.</p>`;
 }
 
+drawSceneBase();   // turbines turning before the first query returns
 start();
 </script>
 </body></html>
