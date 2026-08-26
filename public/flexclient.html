@@ -12,12 +12,11 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <!-- Tints the browser chrome to match whichever theme the client is in. -->
-<meta name="theme-color" media="(prefers-color-scheme: light)" content="#2f3d7e">
-<meta name="theme-color" media="(prefers-color-scheme: dark)"  content="#0b1120">
+<meta name="theme-color" content="#0b1120">
 <!-- A private client portal has no business in a search index. -->
 <meta name="robots" content="noindex, nofollow">
 <meta name="description" content="Private CES flex portal for client baskets and reports.">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="dark">
 <!-- NOTE on CSP: scheme matching means `https://*.supabase.co` also permits
      wss:// to that host, so this is NOT a websocket block. What keeps the broker
      portal's live cursors out of this page is (a) no realtime code here at all
@@ -37,14 +36,6 @@
   --font-display:'Archivo','Segoe UI',system-ui,sans-serif;
   --font-body:'Source Sans 3','Segoe UI',system-ui,sans-serif;
   --font-mono:'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;
-  --navy-900:#0f1930; --navy-800:#16233f; --navy-700:#1f2d4d;
-  --green-700:#5f7912; --green-600:#7fa017; --green-500:#9fbe1c;
-  --positive-700:#1f6e30; --negative-600:#a63a31; --negative-500:#c2453b;
-  --info-600:#26697f; --info-500:#2e7c9e;
-  --bg:#f4f6f9; --surface:#fff; --surface-2:#f8f9fb;
-  --ink:#16233f; --ink-2:#3a3f47; --ink-3:#5a616b;
-  --line:#dbe0e7; --line-strong:#c3cad4;
-  --accent:var(--green-700); --accent-fill:var(--green-500);
   /* One modular type scale instead of the arbitrary 11.5/12.5/13.5/14.5/15.5
      sizes the first version drifted into. Consistent steps are what makes a
      dense screen scannable. */
@@ -63,32 +54,20 @@
   /* Hairline-first. Shadows are reserved for things that genuinely float
      (the toast). Borders carry the structure, which is how print-derived
      financial layouts read as considered rather than decorated. */
-  --shadow-float:0 10px 30px rgba(11,17,32,.28);
+  /* Dark only. There is no light theme and no toggle: this portal is read in
+     meeting rooms and on laptops, the palette was tuned for dark, and a second
+     theme is a second set of contrast bugs to maintain. Print still renders
+     dark-on-white further down, because a printed report must not be a black page. */
+  --navy-900:#0f1930; --navy-800:#16233f; --navy-700:#1f2d4d;
+  --bg:#0b1120; --surface:#1b2540; --surface-2:#232f4f;
+  --ink:#f2f5fa; --ink-2:#cdd5e2; --ink-3:#aab4c6;
+  --line:#3d4c73; --line-strong:#55679a;
+  --green-700:#c3dd45; --green-600:#c3dd45; --green-500:#aecb2a;
+  --positive-700:#6fd88c; --negative-500:#ff9d92; --negative-600:#ff9d92;
+  --info-500:#7fd0e8; --info-600:#7fd0e8;
+  --accent:#c3dd45; --accent-fill:#aecb2a;
+  --shadow-float:0 10px 30px rgba(0,0,0,.55);
 }
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  /* Every colour below is re-stated for dark. The first version missed
-     --info-600 and --green-600, so the Electricity tag rendered at 2.72:1 —
-     unreadable. Measured on the card surface: ink 13.9, ink-2 10.3, ink-3 7.3,
-     info-600 8.7, green-700 9.9, positive-700 8.6, negative-500 7.6. */
-  --bg:#0b1120; --surface:#1b2540; --surface-2:#232f4f;
-  --ink:#f2f5fa; --ink-2:#cdd5e2; --ink-3:#aab4c6;
-  --line:#3d4c73; --line-strong:#55679a;
-  --green-700:#c3dd45; --green-600:#c3dd45; --green-500:#aecb2a;
-  --positive-700:#6fd88c; --negative-500:#ff9d92; --negative-600:#ff9d92;
-  --info-500:#7fd0e8; --info-600:#7fd0e8; --accent:#c3dd45; --accent-fill:#aecb2a;
-  --shadow-float:0 10px 30px rgba(0,0,0,.55);}}
-:root[data-theme="dark"]{
-  /* Every colour below is re-stated for dark. The first version missed
-     --info-600 and --green-600, so the Electricity tag rendered at 2.72:1 —
-     unreadable. Measured on the card surface: ink 13.9, ink-2 10.3, ink-3 7.3,
-     info-600 8.7, green-700 9.9, positive-700 8.6, negative-500 7.6. */
-  --bg:#0b1120; --surface:#1b2540; --surface-2:#232f4f;
-  --ink:#f2f5fa; --ink-2:#cdd5e2; --ink-3:#aab4c6;
-  --line:#3d4c73; --line-strong:#55679a;
-  --green-700:#c3dd45; --green-600:#c3dd45; --green-500:#aecb2a;
-  --positive-700:#6fd88c; --negative-500:#ff9d92; --negative-600:#ff9d92;
-  --info-500:#7fd0e8; --info-600:#7fd0e8; --accent:#c3dd45; --accent-fill:#aecb2a;
-  --shadow-float:0 10px 30px rgba(0,0,0,.55);}
 
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -228,9 +207,20 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
 #scene .blade{stroke:var(--ink);opacity:.22;stroke-width:2.2;stroke-linecap:round}
 #scene .stack{stroke:var(--ink);opacity:.18;fill:none;stroke-width:2}
 #scene .puff{fill:var(--ink);opacity:0;animation:rise 9s ease-out infinite}
-#scene .bar{fill:var(--accent-fill);opacity:.13}
-#scene .line{fill:none;stroke:var(--accent-fill);stroke-width:2.5;opacity:.20}
-#scene .line.flow{opacity:.42;stroke-dasharray:14 1600;animation:flow 24s linear infinite}
+/* Candles. Body = where the forward curve opened and closed that month, which
+   is real month-on-month movement, not invented OHLC. Wick = the spread across
+   the month's own season, also real. Nothing here is fabricated: a client who
+   screenshots the background and asks what it is gets a truthful answer.
+   Colour follows the BUYER's interest, not the trader's: green when the curve
+   fell (cheaper to buy), red when it rose. */
+#scene .cdl-dn rect{fill:var(--accent-fill);opacity:.20}
+#scene .cdl-up rect{fill:var(--negative-500);opacity:.15}
+#scene .cdl-dn line{stroke:var(--accent-fill);opacity:.22;stroke-width:1.2}
+#scene .cdl-up line{stroke:var(--negative-500);opacity:.17;stroke-width:1.2}
+#scene .vol{fill:var(--ink);opacity:.055}
+#scene .ma{fill:none;stroke:var(--accent-fill);stroke-width:2;opacity:.22;stroke-linejoin:round}
+#scene .ma.flow{opacity:.44;stroke-dasharray:16 1600;animation:flow 24s linear infinite}
+#scene .axis{stroke:var(--ink);opacity:.07;stroke-width:1;stroke-dasharray:3 6}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes rise{
   0%{opacity:0;transform:translateY(0) scale(.6)}
@@ -326,7 +316,6 @@ th:first-child::after,td:first-child::after{content:'';position:absolute;top:0;r
          alt="Commercial Energy Solutions" onerror="this.style.display='none'">
     <div class="co" id="coName">&mdash;<small>CES flex portal</small></div>
     <div class="top-r">
-      <button class="gbtn" id="themeBtn" onclick="cxTheme()" aria-label="Switch between light and dark">Dark</button>
       <button class="gbtn" onclick="cxReload()">Refresh</button>
       <button class="gbtn" onclick="cxSignOut()">Sign out</button>
     </div>
@@ -425,16 +414,9 @@ function fmtLong(s){if(!s)return '—';
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('on');
   clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('on'),2600);}
 
-function cxTheme(){
-  const cur=document.documentElement.getAttribute('data-theme');
-  const dark=cur?cur==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
-  document.documentElement.setAttribute('data-theme',dark?'light':'dark');
-  document.getElementById('themeBtn').textContent=dark?'Dark':'Light';
-  try{localStorage.setItem('ces-flexclient-theme',dark?'light':'dark');}catch(e){}
-  if(OPEN&&SUB==='graphs') renderSub();
-}
-(function(){try{const t=localStorage.getItem('ces-flexclient-theme');
-  if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();
+// Clear the stored theme preference left by the old toggle, so a returning
+// client is not carrying a dead data-theme attribute around.
+try{ localStorage.removeItem('ces-flexclient-theme'); }catch(e){}
 
 // Sign out returns to the one login page rather than stranding the client on a
 // second one. This is the whole point of not having a login form here.
@@ -516,9 +498,6 @@ async function start(){
   document.getElementById('boot').style.display='none';
   document.getElementById('app').style.display='block';
   document.getElementById('coName').innerHTML = esc(CX.company||'Your portfolio')+'<small>CES flex portal</small>';
-  const dark=(document.documentElement.getAttribute('data-theme')||'')==='dark'
-    ||(!document.documentElement.getAttribute('data-theme')&&matchMedia('(prefers-color-scheme:dark)').matches);
-  document.getElementById('themeBtn').textContent=dark?'Light':'Dark';
   drawScene();
   render();
 }
@@ -964,9 +943,8 @@ function drawScene(){
   const W = 1440, H = 800, HORIZON = 596;
 
   // The forward market curve for the commodities this client actually holds.
-  // Cover was the first choice, but a fully-hedged client's cover line is flat
-  // and a flat backdrop is dead weight. The curve moves, it is still their own
-  // data, and it matches the price-chart motif on the login screen.
+  // Drawn as candles: each body runs from last month's mid to this month's mid,
+  // so every mark is real movement in their own curve. No synthetic OHLC.
   const from = nowMonth(), byM = {};
   for (const c of ['power','gas']){
     if (!D.baskets.some(b => b.commodity === c)) continue;
@@ -976,23 +954,57 @@ function drawScene(){
       (byM[mk] ??= []).push(+m.mid);
     }
   }
-  const keys = Object.keys(byM).sort().slice(0, 60);
-  const raw = keys.map(k => byM[k].reduce((a,b)=>a+b,0) / byM[k].length);
-  // Normalise to 0..1 across the visible range so the shape reads regardless of
-  // whether the units are £/MWh or p/th.
-  const lo = Math.min(...raw), hi = Math.max(...raw), span = (hi - lo) || 1;
-  const series = raw.map(v => 0.12 + 0.76 * ((v - lo) / span));
+  const keys = Object.keys(byM).sort().slice(0, 54);
+  const mids = keys.map(k => byM[k].reduce((a,b)=>a+b,0) / byM[k].length);
 
-  let line = '', bars = '';
-  if (series.length > 3){
-    const step = (W + 140) / (series.length - 1);
-    const y = v => HORIZON - 40 - v * 300;
-    line = series.map((v,i)=>`${i?'L':'M'}${(-70+i*step).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-    bars = series.map((v,i)=>{
-      const bx = -70 + i*step, by = y(v), bh = Math.max(4, HORIZON - by);
-      return `<rect class="bar" x="${(bx-step*0.22).toFixed(1)}" y="${by.toFixed(1)}"
-        width="${(step*0.44).toFixed(1)}" height="${bh.toFixed(1)}"/>`;
+  let chart = '';
+  if (mids.length > 4){
+    const lo = Math.min(...mids), hi = Math.max(...mids), span = (hi - lo) || 1;
+    const TOP = 96, BOT = HORIZON - 34;
+    const y  = v => BOT - ((v - lo) / span) * (BOT - TOP);
+    const step = W / (mids.length - 0.4);
+    const bw = Math.max(3, Math.min(13, step * 0.52));
+
+    // Candles
+    const candles = mids.map((v,i)=>{
+      const open = i ? mids[i-1] : v, close = v;
+      const x = step * (i + 0.3);
+      const yO = y(open), yC = y(close);
+      const top = Math.min(yO,yC), h = Math.max(1.5, Math.abs(yC-yO));
+      // Wick: the spread of every curve point sharing this month's season.
+      const pts = byM[keys[i]];
+      const wHi = y(Math.max(...pts, open, close)) - 5;
+      const wLo = y(Math.min(...pts, open, close)) + 5;
+      const cls = close <= open ? 'cdl-dn' : 'cdl-up';   // down = cheaper = good
+      return `<g class="${cls}">`
+        + `<line x1="${x.toFixed(1)}" y1="${wHi.toFixed(1)}" x2="${x.toFixed(1)}" y2="${wLo.toFixed(1)}"/>`
+        + `<rect x="${(x-bw/2).toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}"/>`
+        + `</g>`;
     }).join('');
+
+    // Volume-style bars along the floor, scaled by the size of each move.
+    const moves = mids.map((v,i)=> i ? Math.abs(v - mids[i-1]) : 0);
+    const mMax = Math.max(...moves) || 1;
+    const vol = moves.map((mv,i)=>{
+      const x = step * (i + 0.3), h = 6 + (mv / mMax) * 46;
+      return `<rect class="vol" x="${(x-bw/2).toFixed(1)}" y="${(HORIZON-h).toFixed(1)}"
+        width="${bw.toFixed(1)}" height="${h.toFixed(1)}"/>`;
+    }).join('');
+
+    // 6-month moving average over the top, the way a price panel carries one.
+    const ma = mids.map((_,i)=>{
+      const seg = mids.slice(Math.max(0,i-5), i+1);
+      return seg.reduce((a,b)=>a+b,0) / seg.length;
+    });
+    const maPath = ma.map((v,i)=>`${i?'L':'M'}${(step*(i+0.3)).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+
+    const axes = [0.25,0.5,0.75].map(f=>{
+      const yy = TOP + (BOT-TOP)*f;
+      return `<line class="axis" x1="0" y1="${yy.toFixed(0)}" x2="${W}" y2="${yy.toFixed(0)}"/>`;
+    }).join('');
+
+    chart = axes + vol + candles
+          + `<path class="ma" d="${maPath}"/><path class="ma flow" d="${maPath}"/>`;
   }
 
   host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
@@ -1000,8 +1012,7 @@ function drawScene(){
       ${[140,270,400,530].map(v=>`<line x1="0" y1="${v}" x2="${W}" y2="${v}"/>`).join('')}
       ${[240,520,800,1080,1360].map(v=>`<line x1="${v}" y1="0" x2="${v}" y2="${HORIZON}"/>`).join('')}
     </g>
-    ${bars}
-    ${line ? `<path class="line" d="${line}"/><path class="line flow" d="${line}"/>` : ''}
+    ${chart}
     ${stack(1046, HORIZON, 132)}${stack(1104, HORIZON, 150)}
     ${pylon(742, HORIZON, 196)}
     ${turbine(196, HORIZON, 236, 's1')}
