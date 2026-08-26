@@ -167,9 +167,17 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
   text-align:right;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 
 /* ── Stat header + filter bar ───────────────────────────────────────── */
-.statrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(152px,1fr));gap:10px;margin-bottom:18px}
+/* Eight across on one line, always. auto-fit with a 152px minimum needed
+   8x152 + 7 gaps = 1286px against 1240px of container, so it wrapped and left
+   MtM Cost stranded on a second row. Fixing the COUNT rather than the minimum
+   keeps the row intact; minmax(0,1fr) lets each card shrink below its content
+   width instead of forcing a wrap, and the figure inside steps down a size band
+   to suit. Explicit breakpoints below rather than letting it reflow at random. */
+.statrow{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:8px;margin-bottom:18px}
+@media (max-width:1180px){.statrow{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (max-width:640px){.statrow{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .statcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);
-  padding:13px 14px;min-width:0;overflow:hidden}
+  padding:12px;min-width:0;overflow:hidden}
 .statcard .l{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
   color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* The figure steps down a size band as the string gets longer, so a nine-figure
@@ -180,9 +188,9 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
   letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.1;
   white-space:nowrap;min-width:0;
   font-size:var(--t-fig)}
-.statcard .v.len-m{font-size:clamp(17px,.95rem + .45vw,21px)}
-.statcard .v.len-l{font-size:clamp(15px,.85rem + .30vw,18px)}
-.statcard .v.len-x{font-size:clamp(13px,.78rem + .18vw,15.5px);letter-spacing:-.03em}
+.statcard .v.len-m{font-size:clamp(16px,.9rem + .4vw,20px)}
+.statcard .v.len-l{font-size:clamp(14px,.8rem + .28vw,17px)}
+.statcard .v.len-x{font-size:clamp(12px,.72rem + .16vw,14px);letter-spacing:-.03em}
 .statcard .s{font-size:11px;color:var(--ink-3);font-weight:600;margin-top:3px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
