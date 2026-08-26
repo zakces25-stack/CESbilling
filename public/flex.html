@@ -1841,6 +1841,9 @@ const FLEX = (() => {
   return { sb };
 })();
 function _num(x) { return (x === null || x === undefined || x === '') ? null : +x; }
+// Month clock lives with the other month helpers: fxNowMonth() / fxNextMonth() /
+// fxPrevMonth(), further down. Everything month-sensitive reads those, so the whole
+// portal rolls over together on the 1st.
 async function _fetchAll(table, cols, orderCols) {
   const out = [];
   for (let from = 0; ; from += 1000) {
@@ -1925,8 +1928,11 @@ function fxBuildData(){
     for (let n = 1; n <= 8; n++) { row['lower_t'+n] = _num(t['lower_t'+n]); row['t'+n+'_achieved'] = t['t'+n+'_achieved']; row['t'+n+'_kind'] = t['t'+n+'_kind'] || null; }
     (byT[t.basket_id] ??= []).push(row);
   }
-  const _nowM = new Date().toISOString().slice(0,8)+'01';
-  const _grp = (f, pt) => curves.filter(c => c.commodity === f && c.period_type === pt && (pt !== 'month' || !c.month || c.month >= _nowM))
+  // Forward curve = UPCOMING months only. The current month is spot / day-ahead, not a
+  // forward period, so it drops out of the curve the moment we roll into it and lives on
+  // in "Full market curve data" below. Rolls on its own — no month is hard-coded anywhere.
+  const _fwdFromM = fxNextMonth();
+  const _grp = (f, pt) => curves.filter(c => c.commodity === f && c.period_type === pt && (pt !== 'month' || !c.month || c.month >= _fwdFromM))
       .map(c => ({ period: c.period_label, month: c.month, mid: _num(c.mid), pct_chg: _num(c.pct_chg) }));
   const _cu = curves.map(c=>c.updated_at).filter(Boolean).sort().pop();
   const _cuTxt = _cu ? new Date(_cu).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : null;
@@ -2659,7 +2665,7 @@ function renderPositionsTable(rows, basket) {
     const ua = getUpperAlertForMonth(basket, m.month);
     const uaCell = `<td class="td-center">${ua != null ? ua : '—'}</td>`;
 
-    const nowM = new Date().toISOString().slice(0,8)+'01';
+    const nowM = fxNowMonth();
     let rowCls;
     if (m.month === nowM) rowCls = 'fx-row-current';
     else if (alertCls) rowCls = alertCls;              // a hit target colours the WHOLE row and beats future/hedged shading
@@ -4441,6 +4447,7 @@ function fxMonthShift(monthIso, delta){   // '2026-07-01', +1 -> '2026-08-01'
 function fxMonthISO(d){ return fxMonthKey(d.getFullYear(), d.getMonth()+1); }
 function fxNowMonth(){ const d=new Date(); return fxMonthKey(d.getFullYear(), d.getMonth()+1); }
 function fxPrevMonth(){ const d=new Date(); return fxMonthKey(d.getFullYear(), d.getMonth()); }
+function fxNextMonth(){ const d=new Date(); return fxMonthKey(d.getFullYear(), d.getMonth()+2); }   // first month of the forward curve
 
 // ── RENAME / ARCHIVE ─────────────────────────────────────────────
 function fxRenameModal(){
@@ -5282,7 +5289,7 @@ renderCurves = function(){
   el.innerHTML=`<div class="extra-tab-inner" id="fxCurvesInner">
     ${section('NBP Gas Forward Curve','p/th',C.gas)}
     ${section('UK Power Forward Curve','£/MWh',C.power)}
-    <p style="font-size:11px;color:var(--grey-400);text-align:right;margin:0;">Marex indicative forward curve — last updated ${C.last_updated || '—'}. Basket market prices pull live: month first, then season.</p>
+    <p style="font-size:11px;color:var(--grey-400);text-align:right;margin:0;">Marex indicative forward curve — last updated ${C.last_updated || '—'}. Upcoming months only, from ${fmtMonth(fxNextMonth())} — ${fmtMonth(fxNowMonth())} is the current delivery month and has rolled into <b>Full market curve data</b> below. Basket market prices pull live: month first, then season.</p>
     <details id="fxPrevCurve" ontoggle="if(this.open)fxRenderFullCurve()" style="margin-top:24px;">
       <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:12px;padding:15px 18px;border:2px solid var(--navy,#2f3d7e);border-radius:12px;background:linear-gradient(90deg,#eef1fb,#f6f8fe);color:var(--navy,#2f3d7e);font-weight:800;font-size:15px;user-select:none;box-shadow:0 2px 10px rgba(47,61,126,.10);">
         <span style="font-size:20px;line-height:1;">&#128202;</span>
@@ -5359,7 +5366,7 @@ async function fxRenderFullCurve(){
   data.forEach(r=>{ const k=String(r.month).slice(0,10); (byM[k]=byM[k]||{month:k,quarter:r.quarter,season:r.season})[r.commodity]=r.mid; });
   const months=Object.keys(byM).sort();   // oldest first
   if(!months.length){ body.innerHTML='<div style="padding:10px 2px;color:#6b7280;font-size:12px;">No curve data yet.</div>'; return; }
-  const nowKey=new Date().toISOString().slice(0,8)+'01';
+  const nowKey=fxNowMonth();   // same month clock the forward curve uses, so the two always agree on the roll
   const manualFrom=await fxManualFromMonth(true);   // self-advancing boundary (start of furthest imported season)
   // Live Marex value for a month: month mid where available, else the season mid — mirrors how positions resolve market price.
   const marexMid=(commodity,monthKey,seasonLabel)=>{
@@ -5843,6 +5850,31 @@ function _flDesk(){
   if (clock) clock.textContent = 'UK ' + get('hour') + ':' + get('minute') + ':' + get('second');
 }
 setInterval(_flDesk, 1000); _flDesk();
+
+// ── MONTH ROLLOVER WATCH ─────────────────────────────────────────
+// The portal is left open for days at a time, so the roll can't rely on a page refresh.
+// Poll fxNowMonth() (a cheap string compare) and, the moment it changes, drop the
+// cached curve state and pull a fresh set. The current month then falls out of the
+// forward curve on its own and appears in Full market curve data as a manual/settled row.
+// visibilitychange + focus cover a laptop that was asleep over the 1st, where timers stall.
+let _fxMonthNow = fxNowMonth();
+function fxCheckMonthRollover(){
+  const k = fxNowMonth();
+  if (k === _fxMonthNow) return;
+  if (typeof fxHolding === 'function' && fxHolding()) return;   // mid-edit — retry on the next tick
+  _fxMonthNow  = k;
+  _fxFullCurve = null;          // full curve re-fetches
+  _fxManualFrom = null;         // manual-region boundary re-derives
+  const cv = document.getElementById('main-tab-curves');
+  if (cv) delete cv.dataset.rendered;
+  const pc = document.getElementById('fxPrevCurve');
+  if (pc && pc.open) { try { fxRenderFullCurve(); } catch(_){} }
+  try { fxToast('New month — ' + fmtMonth(k) + ' has rolled into the full market curve data'); } catch(_){}
+  fxScheduleReload();           // full reload + rerenderCurrent()
+}
+setInterval(fxCheckMonthRollover, 30000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) fxCheckMonthRollover(); });
+addEventListener('focus', fxCheckMonthRollover);
 function fxInitChipDrag(){
   const chip = document.getElementById('flexChip');
   if (!chip) return;
