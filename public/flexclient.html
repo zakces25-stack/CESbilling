@@ -207,32 +207,35 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
 #scene .puff{fill:var(--ink);opacity:0;animation:rise 9s ease-out infinite}
 /* Candles carry their base opacity on the GROUP, not the rect, so the wave can
    modulate the whole candle without fighting a fixed rect opacity. */
-#scene .cdl{opacity:.20;animation:wave 6s linear infinite;animation-delay:calc(var(--i) * .085s)}
-#scene .cdl-dn rect,#scene .cdl-dn line{fill:var(--accent-fill);stroke:var(--accent-fill)}
-#scene .cdl-up rect,#scene .cdl-up line{fill:var(--negative-500);stroke:var(--negative-500)}
-#scene .cdl line{stroke-width:1.2}
-#scene .vol{fill:var(--ink);opacity:.055}
-#scene .ma{fill:none;stroke:var(--accent-fill);stroke-width:2;opacity:.22;stroke-linejoin:round}
-#scene .ma.flow{opacity:.44;stroke-dasharray:16 1600;animation:flow 24s linear infinite}
+/* Dense bar field. Base opacity lives on the GROUP so the wave can modulate the
+   whole bar; the delay is proportional to its index, so a pulse of light runs
+   left to right and then rests. No trend line: it competed with the bars and
+   the bars are the point. */
+#scene .cdl{opacity:.16;animation:wave 5.5s linear infinite;animation-delay:calc(var(--i) * .026s)}
+#scene .cdl-dn rect{fill:var(--accent-fill)}
+#scene .cdl-up rect{fill:var(--negative-500)}
+#scene .vol{opacity:.10;animation:wave 5.5s linear infinite;animation-delay:calc(var(--i) * .026s)}
+#scene .vol rect{fill:var(--ink)}
 #scene .axis{stroke:var(--ink);opacity:.07;stroke-width:1;stroke-dasharray:3 6}
 @keyframes rise{
-  0%{opacity:0;transform:translateY(0) scale(.6)}
-  15%{opacity:.16}
-  100%{opacity:0;transform:translateY(-190px) scale(2.1)}}
+  0%  {opacity:0;   transform:translate(0,0) scale(.35)}
+  12% {opacity:.20}
+  55% {opacity:.13; transform:translate(26px,-150px) scale(1.5)}
+  100%{opacity:0;   transform:translate(64px,-330px) scale(2.9)}}
 @keyframes flow{to{stroke-dashoffset:-1614}}
 /* Mexican wave: each candle brightens a beat after the one to its left, so a
    pulse of light runs left to right along the curve and then rests. */
 @keyframes wave{
-  0%,70%{opacity:.20}
-  78%{opacity:.72}
-  86%{opacity:.20}
-  100%{opacity:.20}}
+  0%,62%{opacity:.16}
+  72%{opacity:.85}
+  82%{opacity:.16}
+  100%{opacity:.16}}
 @media (prefers-reduced-motion:reduce){
-  #scene .puff,#scene .ma.flow,#scene .cdl{animation:none}
-  #scene .ma.flow{opacity:.22}
-  #scene .cdl{opacity:.20}
+  #scene .puff,#scene .cdl,#scene .vol{animation:none}
+  #scene .cdl{opacity:.16}
+  #scene .vol{opacity:.10}
   #scene .puff{opacity:.10}}
-#scene.paused .puff,#scene.paused .ma.flow,#scene.paused .cdl{animation-play-state:paused}
+#scene.paused .puff,#scene.paused .cdl,#scene.paused .vol{animation-play-state:paused}
 #scene.paused animateTransform{display:none}
 
 .tbwrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface)}
@@ -930,12 +933,19 @@ function turbine(x, baseY, h, dur){
 
 function stack(x, baseY, h){
   const topY = baseY - h;
+  // Six puffs on staggered delays, all born at the chimney mouth. The rise
+  // keyframe drifts them right as they climb, so the column reads as smoke
+  // leaving the stack rather than as circles appearing beside it.
   let puffs = '';
-  for (let i = 0; i < 4; i++){
-    puffs += `<circle class="puff" cx="${(x + 2 + i * 3)}" cy="${topY - 6}" r="${9 + i * 3}"
-      style="animation-delay:${(i * 2.2).toFixed(1)}s"/>`;
+  const N = 6, dur = 11;
+  for (let i = 0; i < N; i++){
+    const jitter = ((i % 3) - 1) * 2.5;          // slight spread at the mouth
+    puffs += `<circle class="puff" cx="${(x + jitter).toFixed(1)}" cy="${(topY - 4).toFixed(1)}"
+      r="${(7 + (i % 3) * 2.5).toFixed(1)}"
+      style="animation-delay:${(i * dur / N).toFixed(2)}s;animation-duration:${dur}s"/>`;
   }
-  return `<g><path class="stack" d="M${x-9},${baseY} L${x-6},${topY} L${x+6},${topY} L${x+9},${baseY}"/>${puffs}</g>`;
+  return `<g><path class="stack" d="M${x-11},${baseY} L${x-7},${topY} L${x+7},${topY} L${x+11},${baseY}"/>
+    <path class="stack" d="M${x-9},${topY+7} L${x+9},${topY+7}"/>${puffs}</g>`;
 }
 
 function pylon(x, baseY, h){
@@ -971,53 +981,51 @@ function drawScene(){
   const mids = keys.map(k => byM[k].reduce((a,b)=>a+b,0) / byM[k].length);
 
   let chart = '';
-  if (mids.length > 4){
-    const lo = Math.min(...mids), hi = Math.max(...mids), span = (hi - lo) || 1;
-    const TOP = 210, BOT = HORIZON - 110;
-    const y  = v => BOT - ((v - lo) / span) * (BOT - TOP);
-    const step = W / (mids.length - 0.4);
-    const bw = Math.max(2.5, Math.min(8, step * 0.42));
+  if (mids.length > 3){
+    // Resample the real curve to a dense bar field. Linear interpolation of a
+    // real series, not invented data: bar N sits between two genuine monthly
+    // mids. Density is what makes the wave read as a wave rather than as a few
+    // scattered blocks.
+    const N = 150;
+    const dense = [];
+    for (let i = 0; i < N; i++){
+      const t = (i / (N - 1)) * (mids.length - 1);
+      const a = Math.floor(t), b = Math.min(mids.length - 1, a + 1), f = t - a;
+      dense.push(mids[a] * (1 - f) + mids[b] * f);
+    }
 
-    // Candles
-    const candles = mids.map((v,i)=>{
-      const open = i ? mids[i-1] : v, close = v;
-      const x = step * (i + 0.3);
+    const lo = Math.min(...dense), hi = Math.max(...dense), span = (hi - lo) || 1;
+    const TOP = 220, BOT = HORIZON - 150;
+    const y = v => BOT - ((v - lo) / span) * (BOT - TOP);
+    const step = W / N;
+    const bw = Math.max(4, step * 0.62);
+
+    let bars = '', vol = '';
+    for (let i = 0; i < N; i++){
+      const open = i ? dense[i-1] : dense[i], close = dense[i];
+      const x = step * (i + 0.5);
       const yO = y(open), yC = y(close);
-      const top = Math.min(yO,yC), h = Math.max(1.5, Math.abs(yC-yO));
-      // Wick: the spread of every curve point sharing this month's season.
-      const pts = byM[keys[i]];
-      const wHi = y(Math.max(...pts, open, close)) - 5;
-      const wLo = y(Math.min(...pts, open, close)) + 5;
-      const cls = close <= open ? 'cdl-dn' : 'cdl-up';   // down = cheaper = good
-      return `<g class="cdl ${cls}" style="--i:${i}">`
-        + `<line x1="${x.toFixed(1)}" y1="${wHi.toFixed(1)}" x2="${x.toFixed(1)}" y2="${wLo.toFixed(1)}"/>`
-        + `<rect x="${(x-bw/2).toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}"/>`
-        + `</g>`;
-    }).join('');
-
-    // Volume-style bars along the floor, scaled by the size of each move.
-    const moves = mids.map((v,i)=> i ? Math.abs(v - mids[i-1]) : 0);
-    const mMax = Math.max(...moves) || 1;
-    const vol = moves.map((mv,i)=>{
-      const x = step * (i + 0.3), h = 6 + (mv / mMax) * 46;
-      return `<rect class="vol" x="${(x-bw/2).toFixed(1)}" y="${(HORIZON-h).toFixed(1)}"
-        width="${bw.toFixed(1)}" height="${h.toFixed(1)}"/>`;
-    }).join('');
-
-    // 6-month moving average over the top, the way a price panel carries one.
-    const ma = mids.map((_,i)=>{
-      const seg = mids.slice(Math.max(0,i-5), i+1);
-      return seg.reduce((a,b)=>a+b,0) / seg.length;
-    });
-    const maPath = ma.map((v,i)=>`${i?'L':'M'}${(step*(i+0.3)).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+      // Give every bar real presence: the body spans the move, with a minimum
+      // so a flat stretch still shows as a bar rather than a hairline.
+      const top = Math.min(yO, yC) - 9, h = Math.abs(yC - yO) + 18;
+      const cls = close <= open ? 'cdl-dn' : 'cdl-up';
+      bars += `<g class="cdl ${cls}" style="--i:${i}">`
+            + `<rect x="${(x-bw/2).toFixed(1)}" y="${top.toFixed(1)}"`
+            + ` width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="1"/></g>`;
+      // Volume column along the floor, scaled by how far the curve moved.
+      const mv = Math.abs(close - open);
+      const vh = 8 + (mv / (span / mids.length * 2 || 1)) * 26;
+      vol += `<g class="vol" style="--i:${i}">`
+           + `<rect x="${(x-bw/2).toFixed(1)}" y="${(HORIZON - Math.min(vh,120)).toFixed(1)}"`
+           + ` width="${bw.toFixed(1)}" height="${Math.min(vh,120).toFixed(1)}" rx="1"/></g>`;
+    }
 
     const axes = [0.25,0.5,0.75].map(f=>{
       const yy = TOP + (BOT-TOP)*f;
       return `<line class="axis" x1="0" y1="${yy.toFixed(0)}" x2="${W}" y2="${yy.toFixed(0)}"/>`;
     }).join('');
 
-    chart = axes + vol + candles
-          + `<path class="ma" d="${maPath}"/><path class="ma flow" d="${maPath}"/>`;
+    chart = axes + vol + bars;
   }
 
   host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
