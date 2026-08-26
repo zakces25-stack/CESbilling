@@ -50,10 +50,20 @@
      dense screen scannable. */
   --t-xs:12px; --t-sm:13px; --t-base:14px; --t-md:16px;
   --t-lg:18px; --t-xl:22px; --t-2xl:28px;
-  --r-sm:8px; --r-md:12px; --r-lg:16px;
-  --shadow-sm:0 1px 3px rgba(22,35,63,.08),0 1px 2px rgba(22,35,63,.04);
-  --shadow-md:0 4px 10px rgba(22,35,63,.08),0 2px 4px rgba(22,35,63,.05);
-  --shadow-lg:0 12px 28px rgba(22,35,63,.12),0 4px 8px rgba(22,35,63,.06);
+  /* Fluid display sizes. Fixed px everywhere is a tell that nobody tuned it. */
+  --t-fig:clamp(20px, 1.1rem + 0.7vw, 26px);   /* the big figures on a card */
+  --t-head:clamp(17px, 0.95rem + 0.5vw, 20px); /* basket / section headings */
+
+  /* Sharp geometry. 12–24px radii on everything is the default look you get
+     when nobody decides; precision instruments have tight corners. One step of
+     3px, doubled. Pills are gone entirely except the toast, which is a pill on
+     purpose because it floats and needs to read as transient. */
+  --r-sm:3px; --r-md:6px; --r-lg:10px;
+
+  /* Hairline-first. Shadows are reserved for things that genuinely float
+     (the toast). Borders carry the structure, which is how print-derived
+     financial layouts read as considered rather than decorated. */
+  --shadow-float:0 10px 30px rgba(11,17,32,.28);
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   /* Every colour below is re-stated for dark. The first version missed
@@ -66,8 +76,7 @@
   --green-700:#c3dd45; --green-600:#c3dd45; --green-500:#aecb2a;
   --positive-700:#6fd88c; --negative-500:#ff9d92; --negative-600:#ff9d92;
   --info-500:#7fd0e8; --info-600:#7fd0e8; --accent:#c3dd45; --accent-fill:#aecb2a;
-  --shadow-sm:0 1px 3px rgba(0,0,0,.45); --shadow-md:0 6px 16px rgba(0,0,0,.5);
-  --shadow-lg:0 16px 36px rgba(0,0,0,.55);}}
+  --shadow-float:0 10px 30px rgba(0,0,0,.55);}}
 :root[data-theme="dark"]{
   /* Every colour below is re-stated for dark. The first version missed
      --info-600 and --green-600, so the Electricity tag rendered at 2.72:1 —
@@ -79,14 +88,13 @@
   --green-700:#c3dd45; --green-600:#c3dd45; --green-500:#aecb2a;
   --positive-700:#6fd88c; --negative-500:#ff9d92; --negative-600:#ff9d92;
   --info-500:#7fd0e8; --info-600:#7fd0e8; --accent:#c3dd45; --accent-fill:#aecb2a;
-  --shadow-sm:0 1px 3px rgba(0,0,0,.45); --shadow-md:0 6px 16px rgba(0,0,0,.5);
-  --shadow-lg:0 16px 36px rgba(0,0,0,.55);}
+  --shadow-float:0 10px 30px rgba(0,0,0,.55);}
 
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-body);
   font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
-h1,h2,h3{font-family:var(--font-display);font-weight:800;letter-spacing:-.01em;margin:0}
+h1,h2,h3{font-family:var(--font-display);font-weight:800;letter-spacing:-.022em;margin:0}
 a{color:var(--accent)}
 button,.btn{min-height:44px;font-family:var(--font-body);font-size:var(--t-md);font-weight:600;cursor:pointer}
 :focus-visible{outline:3px solid var(--info-500);outline-offset:2px;border-radius:4px}
@@ -124,17 +132,28 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
 
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:18px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);
-  box-shadow:var(--shadow-sm);padding:20px}
-.card h3{font-size:var(--t-lg);margin-bottom:2px}
+  padding:20px}
+.card h3{font-size:var(--t-head);margin-bottom:2px;line-height:1.25}
 
 /* The whole basket card is clickable, not just a small button inside it.
    Stretched-link pattern: a real <button> in the heading whose ::after covers
    the card. Keyboard and screen readers get a proper button; the mouse gets the
    whole card. A <button> wrapping the card would be invalid HTML, since a
    button may only contain phrasing content. */
-.card.clickable{position:relative;transition:border-color .15s,box-shadow .15s,transform .15s}
-.card.clickable:hover{border-color:var(--accent);box-shadow:var(--shadow-md);transform:translateY(-2px)}
-.card.clickable:has(.stretch:focus-visible){border-color:var(--accent);box-shadow:var(--shadow-md)}
+/* Deliberately NOT the float-up-on-hover pattern (a small negative vertical
+   nudge plus a bigger soft shadow). That is the most recognisable AI-default
+   interaction on the web, and on a card showing someone's energy spend it reads
+   as decoration. Instead the card grows an accent rule down its leading edge:
+   a print gesture, cheap to render, and it points at what you are about to open. */
+.card.clickable{position:relative;overflow:hidden;
+  transition:border-color .18s ease, background-color .18s ease}
+.card.clickable::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:var(--accent);transform:scaleY(0);transform-origin:top;
+  transition:transform .18s ease}
+.card.clickable:hover{border-color:var(--line-strong);background:var(--surface-2)}
+.card.clickable:hover::before{transform:scaleY(1)}
+.card.clickable:has(.stretch:focus-visible){border-color:var(--line-strong)}
+.card.clickable:has(.stretch:focus-visible)::before{transform:scaleY(1)}
 .stretch{all:unset;cursor:pointer;font:inherit;color:inherit}
 .stretch::after{content:'';position:absolute;inset:0;border-radius:inherit}
 /* Focus ring sits on the button by default so it is never lost. Where :has() is
@@ -143,27 +162,30 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
 .stretch:focus-visible{outline:3px solid var(--info-500);outline-offset:2px;border-radius:4px}
 .card.clickable:has(.stretch:focus-visible){outline:3px solid var(--info-500);outline-offset:2px}
 .card.clickable:has(.stretch:focus-visible) .stretch:focus-visible{outline:none}
-@media (prefers-reduced-motion:reduce){.card.clickable{transition:none}.card.clickable:hover{transform:none}}
+@media (prefers-reduced-motion:reduce){
+  .card.clickable,.card.clickable::before{transition:none}
+  .card.clickable:hover::before{transform:scaleY(1)}}
 .cardgo{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:18px;
   padding-top:14px;border-top:1px solid var(--line);
   font-size:var(--t-base);font-weight:700;color:var(--accent)}
-.tag{display:inline-block;font-size:var(--t-xs);font-weight:700;letter-spacing:.05em;text-transform:uppercase;
-  padding:3px 9px;border-radius:999px;border:1px solid var(--line-strong);color:var(--ink-2)}
+.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  padding:3px 8px;border-radius:var(--r-sm);border:1px solid currentColor;color:var(--ink-2)}
 .tag.power{border-color:var(--info-500);color:var(--info-600)}
 .tag.gas{border-color:var(--green-600);color:var(--green-700)}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(122px,1fr));gap:14px;margin-top:16px}
-.stat .k{font-size:var(--t-xs);font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3)}
-.stat .v{font-family:var(--font-mono);font-size:var(--t-lg);font-weight:600;margin-top:3px}
+.stat .k{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.stat .v{font-family:var(--font-mono);font-size:var(--t-fig);font-weight:600;margin-top:4px;
+  letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.15}
 .stat .u{font-size:var(--t-xs);color:var(--ink-3);font-weight:600}
 
 /* Hedge bar is never colour-only: the % is written out beside it, so it still
    reads in greyscale and for colour-blind users. Cover is the headline number
    on this card, so it gets headline sizing rather than 13px. */
-.bar{height:12px;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.bar{height:10px;background:var(--surface-2);border:1px solid var(--line);border-radius:2px;overflow:hidden}
 .bar>i{display:block;height:100%;background:var(--accent-fill)}
 .barrow{display:flex;align-items:center;gap:12px}
-.barrow .pc{font-family:var(--font-mono);font-size:var(--t-lg);font-weight:600;min-width:66px;
-  text-align:right;color:var(--ink)}
+.barrow .pc{font-family:var(--font-mono);font-size:var(--t-fig);font-weight:600;min-width:78px;
+  text-align:right;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 
 .tbwrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface)}
 table{border-collapse:separate;border-spacing:0;width:100%}
@@ -171,8 +193,8 @@ caption{text-align:left;padding:14px 16px 0;font-size:var(--t-sm);color:var(--in
   max-width:80ch;white-space:normal;line-height:1.5}
 th,td{padding:11px 14px;font-size:var(--t-base);border-bottom:1px solid var(--line);
   text-align:left;white-space:nowrap}
-thead th{position:sticky;top:0;background:var(--surface-2);font-size:var(--t-xs);font-weight:700;
-  letter-spacing:.04em;text-transform:uppercase;color:var(--ink-2);z-index:2}
+thead th{position:sticky;top:0;background:var(--surface-2);font-size:11px;font-weight:700;
+  letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2);z-index:2}
 tbody tr:last-child td{border-bottom:0}
 /* Zebra striping. Dense financial rows are hard to track across 10 columns with
    hover alone, and hover does nothing on touch. */
@@ -205,10 +227,10 @@ th:first-child::after,td:first-child::after{content:'';position:absolute;top:0;r
 
 .rlist{display:flex;flex-direction:column;gap:12px}
 .ritem{display:flex;align-items:center;gap:16px;background:var(--surface);border:1px solid var(--line);
-  border-radius:var(--r-md);padding:16px 18px;text-align:left;width:100%;box-shadow:var(--shadow-sm)}
-.ritem:hover{border-color:var(--line-strong);box-shadow:var(--shadow-md)}
-.kind{font-size:var(--t-xs);font-weight:700;letter-spacing:.06em;text-transform:uppercase;
-  padding:4px 10px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line-strong);color:var(--ink-2)}
+  border-radius:var(--r-md);padding:16px 18px;text-align:left;width:100%;}
+.ritem:hover{border-color:var(--line-strong);}
+.kind{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  padding:4px 9px;border-radius:var(--r-sm);background:transparent;border:1px solid var(--line-strong);color:var(--ink-2)}
 .ritem .ti{flex:1;min-width:0}
 .ritem .ti b{display:block;font-size:var(--t-md);font-weight:700}
 .ritem .ti span{font-size:var(--t-sm);color:var(--ink-3)}
@@ -218,7 +240,7 @@ th:first-child::after,td:first-child::after{content:'';position:absolute;top:0;r
   background:var(--surface);border:1px dashed var(--line-strong);border-radius:var(--r-md)}
 #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(140%);
   background:var(--navy-800);color:#fff;padding:12px 20px;border-radius:999px;font-size:var(--t-base);
-  font-weight:600;box-shadow:var(--shadow-lg);transition:transform .22s;z-index:200;max-width:90vw}
+  font-weight:600;box-shadow:var(--shadow-float);transition:transform .22s;z-index:200;max-width:90vw}
 #toast.on{transform:translateX(-50%) translateY(0)}
 
 @media print{
