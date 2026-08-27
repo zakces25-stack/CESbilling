@@ -174,8 +174,12 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
    keeps the row intact; minmax(0,1fr) lets each card shrink below its content
    width instead of forcing a wrap, and the figure inside steps down a size band
    to suit. Explicit breakpoints below rather than letting it reflow at random. */
-.statrow{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:8px;margin-bottom:18px}
-@media (max-width:1180px){.statrow{grid-template-columns:repeat(4,minmax(0,1fr))}}
+/* Seven equal cards, then a wider one. MtM Cost carries a full unabbreviated
+   figure like −£37,064,105, which will not fit an eighth of the row, so it gets
+   1.75 tracks instead of one. */
+.statrow{display:grid;grid-template-columns:repeat(7,minmax(0,1fr)) minmax(0,1.75fr);
+  gap:8px;margin-bottom:18px}
+@media (max-width:1180px){.statrow{grid-template-columns:repeat(3,minmax(0,1fr)) minmax(0,1.5fr)}}
 @media (max-width:640px){.statrow{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .statcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);
   padding:12px;min-width:0;overflow:hidden;position:relative;
@@ -210,6 +214,13 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
 .statcard .v.len-m{font-size:clamp(16px,.9rem + .4vw,20px)}
 .statcard .v.len-l{font-size:clamp(14px,.8rem + .28vw,17px)}
 .statcard .v.len-x{font-size:clamp(12px,.72rem + .16vw,14px);letter-spacing:-.03em}
+/* The MtM card gets 1.75 tracks, so ~213px of inner width instead of ~111px.
+   The length bands are calibrated for the narrow cards, so inside the wide one
+   every band shifts up a step: an unabbreviated −£37,064,105 renders at full
+   size rather than being needlessly shrunk. */
+.statcard.wide .v.len-m,
+.statcard.wide .v.len-l{font-size:var(--t-fig)}
+.statcard.wide .v.len-x{font-size:clamp(16px,.9rem + .4vw,20px);letter-spacing:-.02em}
 .statcard .s{font-size:11px;color:var(--ink-3);font-weight:600;margin-top:3px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
@@ -376,12 +387,10 @@ th:first-child::after,td:first-child::after{content:'';position:absolute;top:0;r
   <nav class="tabs" role="tablist" aria-label="Sections">
     <button role="tab" id="tab-baskets" aria-selected="true"  onclick="cxTab('baskets')">Baskets</button>
     <button role="tab" id="tab-reports" aria-selected="false" onclick="cxTab('reports')">Reports</button>
-    <button role="tab" id="tab-curve"   aria-selected="false" onclick="cxTab('curve')">Market curve</button>
   </nav>
 
   <section id="v-baskets" role="tabpanel" aria-labelledby="tab-baskets"></section>
   <section id="v-reports" role="tabpanel" aria-labelledby="tab-reports" hidden></section>
-  <section id="v-curve"   role="tabpanel" aria-labelledby="tab-curve"   hidden></section>
 </div>
 
 <div id="toast" role="status" aria-live="polite"></div>
@@ -562,7 +571,7 @@ async function cxReload(){
 /* ── nav ─────────────────────────────────────────────────────────────── */
 function cxTab(v){
   VIEW=v;
-  for(const k of ['baskets','reports','curve']){
+  for(const k of ['baskets','reports']){
     document.getElementById('tab-'+k).setAttribute('aria-selected',String(k===v));
     document.getElementById('v-'+k).hidden=(k!==v);
   }
@@ -572,27 +581,17 @@ function render(){
   destroyCharts();
   if(VIEW==='baskets') OPEN?renderBasket():renderBaskets();
   if(VIEW==='reports') renderReports();
-  if(VIEW==='curve')   renderCurve();
 }
 function destroyCharts(){ for(const k in CHARTS){ try{CHARTS[k].destroy();}catch(e){} delete CHARTS[k]; } }
 
 
 
-// Big money, short string. A mark-to-market can run to nine figures; spelled out
-// in full it does not fit any sensible card. Abbreviated it always does, and the
-// exact figure stays one hover away and is spelled out in full in the tables.
-function compactMoney(v){
-  if(v==null||v==='') return {t:'—', full:'—'};
-  const n=+v, a=Math.abs(n), sign = n>0?'+':n<0?'−':'';
-  const full = (n<0?'−':n>0?'+':'')+'£'+Math.abs(Math.round(n)).toLocaleString('en-GB');
-  // Thresholds sit just below each power so a value that ROUNDS up promotes to
-  // the next unit. Naively testing a>=1e9 renders 999,999,999 as "£1000.00m".
-  let t;
-  if (a>=999.995e6)     t = sign+'£'+(a/1e9).toFixed(2)+'bn';
-  else if (a>=999.5e3)  t = sign+'£'+(a/1e6).toFixed(2)+'m';
-  else if (a>=1e4)      t = sign+'£'+Math.round(a/1e3).toLocaleString('en-GB')+'k';
-  else                  t = sign+'£'+Math.round(a).toLocaleString('en-GB');
-  return {t, full};
+// Mark-to-market in full, never abbreviated. CES want the whole figure on the
+// card, so the card is widened to suit rather than the number shortened.
+function fullMoney(v){
+  if(v==null||v==='') return '—';
+  const n=+v;
+  return (n<0?'−':n>0?'+':'')+'£'+Math.abs(Math.round(n)).toLocaleString('en-GB');
 }
 
 // Pick a size band from the rendered length so nothing ever overflows its card.
@@ -739,8 +738,8 @@ function renderBasket(){
       <div class="statcard"><div class="l">Avg Delivered Rate</div>
         ${statVal(S.avgDr==null?'—':S.avgDr.toFixed(3))}
         <div class="s">p/kWh</div></div>
-      <div class="statcard"><div class="l">MtM Cost</div>
-        ${(()=>{const M=compactMoney(S.mtmCost);return statVal(M.t, M.full, S.mtmCost>0?'pos':S.mtmCost<0?'neg':'');})()}<div class="s">Mark-to-market</div></div>
+      <div class="statcard wide"><div class="l">MtM Cost</div>
+        ${statVal(fullMoney(S.mtmCost), null, S.mtmCost>0?'pos':S.mtmCost<0?'neg':'')}<div class="s">Mark-to-market</div></div>
     </div>
     <nav class="tabs subtabs" role="tablist" aria-label="Basket detail">
       ${SUBS.map(([k,l])=>`<button role="tab" data-sub="${k}" aria-selected="${k===SUB}">${l}</button>`).join('')}
@@ -933,43 +932,100 @@ function subSites(b,host){
 
 function subGraphs(b,host){
   const rows=(D.positions[b.id]||[]).slice().sort((x,y)=>String(x.month)<String(y.month)?-1:1);
-  if(!rows.length){host.innerHTML='<div class="empty">No data to chart for this basket.</div>';return;}
+  const flt=applyFilters(rows);
+  if(!flt.length){host.innerHTML='<div class="empty">No data to chart for this basket.</div>';return;}
+  const isP=b.commodity==='power', pu=b.unit_price||'';
+  // Same four charts, same order and same colours as the trading desk sees, so
+  // a client and their account manager are looking at the same picture.
   host.innerHTML=`
-    <div class="chartbox"><h4>Hedge cover by month</h4><div class="cwrap"><canvas id="cCover"></canvas></div></div>
-    <div class="chartbox"><h4>Secured WAP vs market price (${esc(b.unit_price||'')})</h4>
-      <div class="cwrap"><canvas id="cPrice"></canvas></div></div>
-    <div class="chartbox"><h4>Volume: secured vs forecast</h4><div class="cwrap"><canvas id="cVol"></canvas></div></div>`;
+    <div class="chartbox"><h4>MtM Cost by Month (£)</h4><div class="cwrap"><canvas id="cMtm"></canvas></div></div>
+    <div class="chartbox"><h4>Cost by Month (£)</h4><div class="cwrap"><canvas id="cCost"></canvas></div></div>
+    <div class="chartbox"><h4>Volume Position (${esc(isP?'MW':'th/d')})</h4><div class="cwrap"><canvas id="cVol"></canvas></div></div>
+    <div class="chartbox"><h4>Price Performance (${esc(pu)})</h4><div class="cwrap"><canvas id="cPrice"></canvas></div></div>`;
   if(typeof Chart==='undefined'){
     host.innerHTML='<div class="empty">Charts could not load. The tables on the other tabs show the same figures.</div>';
     return;
   }
+
   const css=k=>getComputedStyle(document.documentElement).getPropertyValue(k).trim();
-  const ink=css('--ink-2')||'#3a3f47', grid=css('--line')||'#dbe0e7';
-  const labels=rows.map(r=>fmtMonth(r.month));
+  const GREEN='#AAC91F', PURPLE='#7c7fd0', AMBER='#e8a33d';
+  const ink=css('--ink-2')||'#cdd5e2', grid=css('--line')||'#3d4c73';
   Chart.defaults.color=ink; Chart.defaults.font.family="'Source Sans 3',sans-serif";
-  const base={responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-    scales:{x:{grid:{color:grid}},y:{grid:{color:grid},beginAtZero:true}}};
+  const labels=flt.map(r=>fmtMonth(r.month));
+  const xs={ticks:{font:{size:10},maxRotation:45,color:ink},grid:{color:grid}};
+  const base={responsive:true,maintainAspectRatio:false,
+    interaction:{mode:'index',intersect:false},
+    plugins:{legend:{display:true,position:'top'}}};
+  const money=v=>v==null?'-':'£'+Math.round(v).toLocaleString('en-GB');
 
-  CHARTS.cover=new Chart(document.getElementById('cCover'),{type:'bar',
-    data:{labels,datasets:[{label:'Cover %',data:rows.map(r=>r.secured_pct==null?null:+(r.secured_pct)*100,),
-      backgroundColor:css('--accent-fill')||'#9fbe1c'}]},
-    options:Object.assign({},base,{scales:{x:{grid:{color:grid}},
-      y:{grid:{color:grid},beginAtZero:true,ticks:{callback:v=>v+'%'}}}})});
+  // 1. MtM cost bars with the MtM price over the top.
+  CHARTS.mtm=new Chart(document.getElementById('cMtm'),{type:'bar',
+    data:{labels,datasets:[
+      {label:'MtM Cost (£)',data:flt.map(r=>r.mtm_cost!=null?+r.mtm_cost:0),
+       backgroundColor:GREEN,borderWidth:0,yAxisID:'y',order:2},
+      {label:`MtM Price (${pu})`,type:'line',
+       data:flt.map(r=>(r.mtm_price!=null&&r.mtm_price>0)?+r.mtm_price:null),
+       yAxisID:'y1',borderColor:PURPLE,backgroundColor:PURPLE,borderWidth:2.5,
+       pointRadius:3,spanGaps:false,tension:.15,fill:false,order:1}]},
+    options:Object.assign({},base,{
+      plugins:Object.assign({},base.plugins,{tooltip:{callbacks:{label:c=>
+        c.dataset.yAxisID==='y1'
+          ? `${c.dataset.label}: ${c.parsed.y!=null?c.parsed.y.toFixed(2):'-'}`
+          : `MtM Cost: ${money(c.parsed.y)}`}}}),
+      scales:{x:xs,
+        y:{title:{display:true,text:'Cost (£)',color:ink},ticks:{color:ink},grid:{color:grid}},
+        y1:{type:'linear',position:'right',title:{display:true,text:pu,color:ink},
+            ticks:{color:ink},grid:{drawOnChartArea:false}}}})});
 
+  // 2. Secured vs residual cost, stacked.
+  CHARTS.cost=new Chart(document.getElementById('cCost'),{type:'bar',
+    data:{labels,datasets:[
+      {label:'Secured Cost (£)',data:flt.map(r=>r.secured_cost!=null?+r.secured_cost:0),
+       backgroundColor:GREEN,borderWidth:0,stack:'cost'},
+      {label:'Residual Cost (£)',data:flt.map(r=>r.residual_cost!=null?Math.abs(+r.residual_cost):0),
+       backgroundColor:PURPLE,borderWidth:0,stack:'cost'}]},
+    options:Object.assign({},base,{
+      plugins:Object.assign({},base.plugins,{tooltip:{callbacks:{label:c=>
+        `${c.dataset.label}: ${money(c.parsed.y)}`}}}),
+      scales:{x:xs,y:{stacked:true,title:{display:true,text:'Cost (£)',color:ink},
+        ticks:{color:ink},grid:{color:grid}}}})});
+
+  // 3. Secured + open volume stacked, with cover % on the right axis.
+  const vm=flt.filter(r=>(+r.baseload_vol||0)>0);
+  CHARTS.vol=new Chart(document.getElementById('cVol'),{type:'bar',
+    data:{labels:vm.map(r=>fmtMonth(r.month)),datasets:[
+      {label:'Secured Vol',data:vm.map(r=>+(r.secured_vol||0)),
+       backgroundColor:GREEN,borderWidth:0,stack:'vol',order:2},
+      {label:'Open Vol',data:vm.map(r=>+(r.open_vol||0)),
+       backgroundColor:PURPLE,borderWidth:0,stack:'vol',order:2},
+      {label:'Secured %',type:'line',data:vm.map(r=>(+(r.secured_pct||0))*100),
+       yAxisID:'y2',borderColor:AMBER,backgroundColor:AMBER,borderWidth:2.5,
+       pointRadius:2,fill:false,tension:.15,order:1}]},
+    options:Object.assign({},base,{
+      scales:{x:xs,
+        y:{stacked:true,title:{display:true,text:isP?'MW':'th/d',color:ink},
+           ticks:{color:ink},grid:{color:grid}},
+        y2:{type:'linear',position:'right',min:0,suggestedMax:100,
+            title:{display:true,text:'%',color:ink},
+            ticks:{color:ink,callback:v=>v+'%'},grid:{drawOnChartArea:false}}}})});
+
+  // 4. Price performance: what was paid against what the market did.
   CHARTS.price=new Chart(document.getElementById('cPrice'),{type:'line',
     data:{labels,datasets:[
-      {label:'Secured WAP',data:rows.map(r=>r.secured_wap==null?null:+r.secured_wap),
-       borderColor:css('--info-500')||'#2e7c9e',backgroundColor:'transparent',tension:.25,spanGaps:true},
-      {label:'Market',data:rows.map(r=>r.market_price==null?null:+r.market_price),
-       borderColor:css('--negative-500')||'#c2453b',backgroundColor:'transparent',
-       borderDash:[5,4],tension:.25,spanGaps:true}]},
-    options:Object.assign({},base,{scales:{x:{grid:{color:grid}},y:{grid:{color:grid},beginAtZero:false}}})});
-
-  CHARTS.vol=new Chart(document.getElementById('cVol'),{type:'bar',
-    data:{labels,datasets:[
-      {label:'Secured',data:rows.map(r=>+(r.secured_vol_total||0)),backgroundColor:css('--accent-fill')||'#9fbe1c'},
-      {label:'Forecast',data:rows.map(r=>+(r.baseload_vol_total||0)),backgroundColor:css('--line-strong')||'#c3cad4'}]},
-    options:base});
+      {label:'Secured WAP',data:flt.map(r=>(r.secured_wap!=null&&r.secured_wap>0)?+r.secured_wap:null),
+       borderColor:PURPLE,backgroundColor:PURPLE,borderWidth:2.5,pointRadius:3,
+       spanGaps:false,tension:.15,fill:false},
+      {label:'Market Price',data:flt.map(r=>(r.market_price!=null&&r.market_price>0)?+r.market_price:null),
+       borderColor:AMBER,backgroundColor:AMBER,borderWidth:2,borderDash:[5,4],
+       pointRadius:2,spanGaps:false,tension:.15,fill:false},
+      {label:'MtM Price',data:flt.map(r=>(r.mtm_price!=null&&r.mtm_price>0)?+r.mtm_price:null),
+       borderColor:GREEN,backgroundColor:GREEN,borderWidth:2,pointRadius:2,
+       spanGaps:false,tension:.15,fill:false}]},
+    options:Object.assign({},base,{
+      plugins:Object.assign({},base.plugins,{tooltip:{callbacks:{label:c=>
+        `${c.dataset.label}: ${c.parsed.y!=null?c.parsed.y.toFixed(2):'-'}`}}}),
+      scales:{x:xs,y:{title:{display:true,text:pu,color:ink},
+        ticks:{color:ink},grid:{color:grid}}}})});
 }
 
 
@@ -1148,26 +1204,8 @@ function openReport(id){
   window.scrollTo({top:0,behavior:'smooth'});
 }
 
-/* ── market curve ────────────────────────────────────────────────────── */
-function renderCurve(){
-  const el=document.getElementById('v-curve');
-  const have=[...new Set(D.baskets.map(b=>b.commodity))];
-  const row=(label,rows)=>!rows||!rows.length?'':`
-    <div class="tbwrap" style="margin-top:14px"><table>
-      <thead><tr><th scope="col">${label}</th>${rows.map(r=>
-        `<th scope="col" class="num">${esc(r.month?fmtMonth(r.month):r.label)}</th>`).join('')}</tr></thead>
-      <tbody><tr><th scope="row">Mid</th>${rows.map(r=>`<td class="num">${n2(r.mid)}</td>`).join('')}</tr></tbody>
-    </table></div>`;
-  const block=(t,u,d)=>`<section class="card" style="margin-bottom:20px">
-      <h3>${t} <span style="font-weight:600;color:var(--ink-3);font-size:var(--t-base)">(${u})</span></h3>
-      ${row('Months',d.months)}${row('Quarters',d.quarters)}${row('Seasons',d.seasons)}${row('Annuals',d.annuals)}
-    </section>`;
-  el.innerHTML=(have.includes('power')?block('UK Power Forward Curve','£/MWh',D.curve.power):'')
-    +(have.includes('gas')?block('NBP Gas Forward Curve','p/th',D.curve.gas):'')
-    +`<p style="font-size:var(--t-sm);color:var(--ink-3);max-width:74ch">
-        Indicative forward curve, upcoming months only. The current delivery month prices day-ahead
-        and is not a forward period. Shown for information; it is not a tradeable quote.</p>`;
-}
+/* The Market curve TAB was removed at CES's request. D.curve is still loaded
+   and still used: drawSceneChart() draws the ambient backdrop from it. */
 
 drawSceneBase();   // turbines turning before the first query returns
 start();

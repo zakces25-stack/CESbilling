@@ -3022,7 +3022,7 @@ function renderGraphs(basket) {
   const TITLE_COLOR = '#1f2d4d';
   const TICK_COLOR  = '#3a3f47';
 
-  // Chart order: MtM Cost, Cost by Month, Volume Position, Price History
+  // Chart order: MtM Cost, Cost by Month, Volume Position, Price Performance
   document.getElementById('tab-graphs').innerHTML = `
     <div id="graphs-filter-bar-container">${buildFilterBarHtml(basket, 'graphs')}</div>
     <div style="display:flex;flex-direction:column;gap:20px;padding:16px;">
@@ -3039,7 +3039,7 @@ function renderGraphs(basket) {
         <div style="position:relative;height:300px;"><canvas id="chart-vol" height="300"></canvas></div>
       </div>
       <div class="chart-block">
-        <div class="chart-title">Price History (${escape(pu)})</div>
+        <div class="chart-title">Price Performance (${escape(pu)})</div>
         <div style="position:relative;height:300px;"><canvas id="chart-price" height="300"></canvas></div>
       </div>
     </div>`;
@@ -3223,7 +3223,7 @@ function renderGraphs(basket) {
     }
   });
 
-  // ── CHART 4: Price History — WAP (purple), Market Price (amber), MtM Price (lime) ──
+  // ── CHART 4: Price Performance — WAP (purple), Market Price (amber), MtM Price (lime) ──
   const securedWap  = months.map(m => (m.secured_wap  != null && m.secured_wap  > 0) ? m.secured_wap  : null);
   const marketPrice = months.map(m => (m.market_price != null && m.market_price > 0) ? m.market_price : null);
   const mtmPrice    = months.map(m => (m.mtm_price    != null && m.mtm_price    > 0) ? m.mtm_price    : null);
