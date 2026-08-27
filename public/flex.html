@@ -1601,13 +1601,6 @@ button{transition:all .14s ease}
 .fx-tick{border:1.5px solid #c9cedb;background:#fff;border-radius:999px;width:22px;height:22px;font-size:12px;line-height:1;cursor:pointer;color:#9aa1ad;vertical-align:middle;margin-left:5px}
 .fx-tick:hover{border-color:#1d9e75;color:#1d9e75}
 .fx-tick.on{background:#1d9e75;border-color:#1d9e75;color:#fff}
-/* a tick the rule owns: still green, but visibly not yours to click */
-.fx-tick-auto{cursor:default;border-style:dashed}
-.fx-tick-auto:hover{border-color:#1d9e75;color:#fff}
-/* the rule, shown under a target column heading */
-.fx-rule-chip{margin-top:3px;font-size:9.5px;font-weight:700;letter-spacing:.3px;color:#0f6e56;background:#eaf6f1;border:1px solid #cfe9df;border-radius:999px;padding:1px 6px;display:inline-block;text-transform:none;font-family:var(--font-mono)}
-/* marks an achieved cell that ticked itself */
-.fx-auto-tag{margin-left:5px;font-size:8.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;opacity:.62;font-family:inherit}
 /* draggable session chip */
 .fx-grip{cursor:grab;user-select:none;opacity:.55;font-size:14px;line-height:1;padding-right:2px;letter-spacing:-1px}
 #flexChip:hover .fx-grip{opacity:.9}
@@ -1873,7 +1866,7 @@ async function _fetchAll(table, cols, orderCols) {
 }
 // Table registry — key → [tableName, columns, orderCols]. Lets us refetch a subset (scoped reload) instead of everything.
 const FX_TABLES = {
-  baskets:    ['flex_baskets','id,name,commodity,unit_vol,unit_price,is_ces,sort_order,archived,target_labels,epsp,target_kinds,target_count,target_rules',['sort_order']],
+  baskets:    ['flex_baskets','id,name,commodity,unit_vol,unit_price,is_ces,sort_order,archived,target_labels,epsp,target_kinds,target_count',['sort_order']],
   positions:  ['flex_positions','basket_id,month,days,season,baseload_vol,secured_vol,secured_wap,baseload_vol_total,secured_vol_total,secured_pct,secured_cost,open_vol,open_vol_total,open_pct,market_price,mkt_source,residual_cost,mtm_cost,mtm_price',['basket_id','month']],
   trades:     ['flex_trades','id,basket_id,trade_ref,trade_date,counterparty,start_date,end_date,volume,product,strike,deal_type,cost',['basket_id','id']],
   targets:    ['flex_targets','basket_id,month,lower_t1,t1_achieved,lower_t2,t2_achieved,lower_t3,t3_achieved,lower_t4,t4_achieved,lower_t5,t5_achieved,lower_t6,t6_achieved,lower_t7,t7_achieved,lower_t8,t8_achieved,upper_alert,t1_kind,t2_kind,t3_kind,t4_kind,t5_kind,t6_kind,t7_kind,t8_kind',['basket_id','month']],
@@ -1957,7 +1950,7 @@ function fxBuildData(){
   const mkB = b => ({
       id: b.id, name: b.name, commodity: b.commodity, unit_vol: b.unit_vol,
       unit_price: b.unit_price, is_ces: !!b.is_ces, sort_order: b.sort_order,
-      archived: !!b.archived, target_labels: b.target_labels || null, epsp: !!b.epsp, target_kinds: b.target_kinds || null, target_count: (b.target_count != null ? b.target_count : null), target_rules: b.target_rules || null,
+      archived: !!b.archived, target_labels: b.target_labels || null, epsp: !!b.epsp, target_kinds: b.target_kinds || null, target_count: (b.target_count != null ? b.target_count : null),
       months: byM[b.id] || [], targets: byT[b.id] || [], target_trades: byTT[b.id] || [],
       trades: byG[b.id] || [], seasons: []
     });
@@ -2362,7 +2355,8 @@ function getNextTargetForMonth(basket, monthStr) {
   const numT = fxTierCount(basket);
   for (let i = 1; i <= numT; i++) {
     const price = t[`lower_t${i}`];
-    if (price != null && !fxIsAchieved(basket, t, i)) {
+    const achieved = t[`t${i}_achieved`];
+    if (price != null && achieved !== 'Yes') {
       return { price };
     }
   }
@@ -2496,107 +2490,14 @@ function fxTargetKind(t, i) {
   return (t && t['t' + i + '_kind'] === 'advisory') ? 'advisory' : 'authorised';
 }
 
-// ── AUTO-ACHIEVEMENT: volume rules per target column ──────────────
-// A target column can carry a VOLUME rule, stored per basket in
-// flex_baskets.target_rules (index 0 = T1, mirroring target_labels). The rule says how
-// much volume that target is meant to secure, so achievement is derived from the
-// month's real secured volume instead of being ticked by hand:
-//
-//   volume      — a flat amount in the basket's own unit (0.1 MW / 100 th/d)
-//   percent     — a share of that month's baseload (20%)
-//   open        — everything still open: met at 100% secured
-//   open_minus  — everything except `amount`, i.e. leave `amount` open
-//   none        — no rule; the manual tick is the only way to mark it achieved
-//
-// Columns are CUMULATIVE. Two 0.1 MW targets mean 0.1 MW secured achieves T1 only and
-// 0.2 MW achieves both, so each column's requirement stacks on the ones before it.
-// `open` and `open_minus` are absolute caps rather than increments, so they set the
-// cumulative requirement outright instead of adding to it.
-//
-// Nothing here writes to the database. Achievement is computed at render time from
-// flex_positions, which means it follows the position: delete a trade and a target that
-// is no longer covered goes back to pending on its own. A manual tick still overrides
-// upward for anything the volume maths cannot see.
-const FX_RULE_TYPES = ['none', 'volume', 'percent', 'open', 'open_minus'];
-
-function fxTargetRule(basket, i) {
-  const r = (basket && basket.target_rules && basket.target_rules[i - 1]) || null;
-  const type = (r && FX_RULE_TYPES.indexOf(r.type) !== -1) ? r.type : 'none';
-  const amount = (r && r.amount != null && !isNaN(+r.amount)) ? +r.amount : null;
-  return { type: type, amount: amount };
-}
-
-// Short human form of a rule — column headers and the modal preview.
-function fxRuleLabel(basket, i) {
-  const r = fxTargetRule(basket, i), u = (basket && basket.unit_vol) || '';
-  if (r.type === 'volume')     return r.amount != null ? fmtVol(r.amount) + ' ' + u : null;
-  if (r.type === 'percent')    return r.amount != null ? fmtVol(r.amount) + '%' : null;
-  if (r.type === 'open')       return 'All open';
-  if (r.type === 'open_minus') return r.amount != null ? 'All but ' + fmtVol(r.amount) + ' ' + u : null;
-  return null;
-}
-
-// Cumulative secured volume (in the basket's unit) that column `i` requires in month `m`.
-// null = not evaluable: column i carries no rule, an amount is missing, or there is no
-// baseload to measure a share against.
-function fxRequiredSecured(basket, m, i) {
-  if (fxTargetRule(basket, i).type === 'none') return null;
-  const base = (m && m.baseload_vol != null) ? m.baseload_vol : null;
-  let cum = 0;
-  for (let n = 1; n <= i; n++) {
-    const r = fxTargetRule(basket, n);
-    if (r.type === 'none') continue;
-    if (r.type === 'volume') {
-      if (r.amount == null) return null;
-      cum += r.amount;
-    } else if (r.type === 'percent') {
-      if (r.amount == null || base == null) return null;
-      cum += base * r.amount / 100;
-    } else if (r.type === 'open') {
-      if (base == null) return null;
-      cum = base;
-    } else if (r.type === 'open_minus') {
-      if (r.amount == null || base == null) return null;
-      cum = Math.max(0, base - r.amount);
-    }
-  }
-  return cum;
-}
-
-// Compare at the precision the Positions tab displays, so a target can never read as
-// missed because of a rounding tail nobody can see on screen.
-function fxVolMeets(basket, have, need) {
-  if (have == null || need == null) return false;
-  const isPower = basket && basket.commodity === 'power';
-  const h = volDisp(have, isPower), n = volDisp(need, isPower);
-  if (h == null || n == null) return false;
-  return h >= n - (isPower ? 1e-9 : 0);
-}
-
-// true / false when a rule governs this column, null when it is manual-only.
-function fxAutoAchieved(basket, t, i) {
-  if (!basket || !t) return null;
-  const m = (basket.months || []).find(x => x.month === t.month);
-  if (!m) return null;
-  const need = fxRequiredSecured(basket, m, i);
-  if (need == null) return null;
-  return fxVolMeets(basket, m.secured_vol, need);
-}
-
-// Single source of truth for "is this target achieved?". A manual tick always wins.
-function fxIsAchieved(basket, t, i) {
-  if (t && t['t' + i + '_achieved'] === 'Yes') return true;
-  return fxAutoAchieved(basket, t, i) === true;
-}
-
-
 function getNextUnachievedTarget(basket, monthStr) {
   const t = (basket.targets || []).find(t => t.month === monthStr);
   if (!t) return null;
   const n = fxTierCount(basket);
   for (let i = 1; i <= n; i++) {
     const price = t['lower_t' + i];
-    if (price != null && !fxIsAchieved(basket, t, i)) return { price };
+    const done  = t['t' + i + '_achieved'];
+    if (price != null && done !== 'Yes') return { price };
   }
   return null;
 }
@@ -2619,8 +2520,8 @@ function fxRowAlert(basket, m) {
   let belowAny = false, belowAuth = false, hitPrice = null;
   if (t) {
     for (let i = 1; i <= n; i++) {
-      const price = t['lower_t' + i];
-      if (price != null && !fxIsAchieved(basket, t, i) && mp < price) {
+      const price = t['lower_t' + i], done = t['t' + i + '_achieved'];
+      if (price != null && done !== 'Yes' && mp < price) {
         belowAny = true;
         if (hitPrice == null || price < hitPrice) hitPrice = price;
         if (fxTargetKind(t, i) === 'authorised') belowAuth = true;
@@ -3056,17 +2957,11 @@ function renderTargets(basket) {
     let tds = `<td>${fmtMonth(t.month)}</td><td class="td-right">${mp}</td>`;
     for (let i = 1; i <= numT; i++) {
       const price = t[`lower_t${i}`];
-      const autoAch = fxAutoAchieved(basket, t, i);
-      const achieved = (t[`t${i}_achieved`] === 'Yes') || autoAch === true;
+      const achieved = t[`t${i}_achieved`];
       if (price == null) {
         tds += `<td class="td-center" style="color:var(--grey-200)">—</td>`;
-      } else if (achieved) {
-        // Say WHICH way it was achieved — an auto tick the user cannot explain is worse
-        // than no auto tick at all.
-        const _atip = autoAch === true
-          ? `Achieved automatically — secured volume meets ${escape(fxRuleLabel(basket, i) || 'this column\'s rule')}`
-          : 'Target achieved — ticked by hand';
-        tds += `<td class="achieved-cell td-center" style="background:var(--green-500);color:var(--navy-900);font-weight:700;font-size:12px;font-family:var(--font-mono);" title="${_atip}">${price} &#10003;${autoAch === true ? '<span class="fx-auto-tag">auto</span>' : ''}</td>`;
+      } else if (achieved === 'Yes') {
+        tds += `<td class="achieved-cell td-center" style="background:var(--green-500);color:var(--navy-900);font-weight:700;font-size:12px;font-family:var(--font-mono);" title="Target achieved">${price} &#10003;</td>`;
       } else if (!isCur && mpNum != null && mpNum < price) {
         // Hit: market has reached this buy target — colour the cell by its designation
         const advisory = fxTargetKind(t, i) === 'advisory';
@@ -5631,17 +5526,18 @@ renderTargets = function(basket){
   for(let n=1;n<=numT;n++){
     const th=ths[1+n]; if(!th) continue;
     const lbl=(basket.target_labels&&basket.target_labels[n-1])||('T'+n);
-    // The rule is shown in the header in BOTH modes — a reader needs to know why a cell
-    // ticked itself without having to enter edit mode to find out.
-    const rlbl=fxRuleLabel(basket,n);
-    const rchip=rlbl?`<div class="fx-rule-chip" title="Achievement rule — cumulative secured volume through ${escape(lbl)}">${escape(rlbl)}</div>`:'';
-    if(!EDIT){ th.innerHTML=escape(lbl)+rchip; continue; }
+    if(!EDIT){ th.textContent=lbl; continue; }
     const tgts=basket.targets||[];
     const colKind=(tgts.length && tgts.every(t=>fxTargetKind(t,n)==='advisory')) ? 'advisory' : 'authorised';
-    th.innerHTML=`<span class="fx-tlabel" style="cursor:pointer;text-decoration:underline dotted #9aa1ad" title="Click to name this column and set its achievement rule">${escape(lbl)}</span> `
-      +`<button class="fx-kindcell fx-kindcol ${colKind==='advisory'?'adv':'auth'}" title="Set every target in this column to ${colKind==='advisory'?'Authorised (red)':'Advisory (purple)'}">${colKind==='advisory'?'Adv':'Auth'}</button>`
-      +rchip;
-    th.querySelector('.fx-tlabel').onclick=()=>{ fxTargetRuleModal(basket, n); };
+    th.innerHTML=`<span class="fx-tlabel" style="cursor:pointer;text-decoration:underline dotted #9aa1ad" title="Click to rename this target column">${escape(lbl)}</span> `
+      +`<button class="fx-kindcell fx-kindcol ${colKind==='advisory'?'adv':'auth'}" title="Set every target in this column to ${colKind==='advisory'?'Authorised (red)':'Advisory (purple)'}">${colKind==='advisory'?'Adv':'Auth'}</button>`;
+    th.querySelector('.fx-tlabel').onclick=()=>{ if(th.querySelector('input')) return;
+      fxCellInputText(th, lbl, async v=>{
+        const labels=(basket.target_labels||Array.from({length:8},(_,i)=>'T'+(i+1))).slice();
+        labels[n-1]=v||('T'+n);
+        await fxWrite(FLEX.sb.from('flex_baskets').update({target_labels:labels, updated_by:FLEX.user}).eq('id',basket.id),'Column renamed');
+      });
+    };
     th.querySelector('.fx-kindcol').onclick=(e)=>{ e.stopPropagation();
       const nk=colKind==='advisory'?'authorised':'advisory'; const key='t'+n+'_kind';
       (basket.targets||[]).forEach(t=>{
@@ -5660,7 +5556,7 @@ renderTargets = function(basket){
       + ` <button class="fx-btn" onclick="fxTargetWapModal(currentBasket)" title="Model the WAP and delivered rate if these targets were struck">&#931; Targeted WAPs${(basket.target_trades||[]).length?' ('+basket.target_trades.length+')':''}</button>`
       + (numT<8? ` <button class="fx-btn" onclick="fxAddTargetCol(currentBasket)" title="Show another target tier">+ Add target column</button>` : '')
       + (numT>1? ` <button class="fx-btn danger" onclick="fxRemTargetCol(currentBasket)" title="Hide the last target tier">&minus; Remove last column</button>` : '')
-      + ` <span style="font-size:11px;color:#6b7280">Click a column name to rename it and set its volume rule &middot; click a price to edit &middot; tick the circle to mark achieved &middot; tap each cell's Auth/Adv tag to set red/purple &middot; or use a column header's Auth/Adv chip to set the whole column &middot; changes stage until you Apply</span>`
+      + ` <span style="font-size:11px;color:#6b7280">Click a name to rename &middot; click a price to edit &middot; tick the circle to mark achieved &middot; tap each cell's Auth/Adv tag to set red/purple &middot; or use a column header's Auth/Adv chip to set the whole column &middot; changes stage until you Apply</span>`
       + (_pend? ` <button class="fx-btn" style="background:var(--green-500);color:var(--navy-900);font-weight:800" onclick="fxApplyTargets(currentBasket)">&#10003; Apply ${_pend} change${_pend>1?'s':''}</button> <button class="fx-btn danger" onclick="fxDiscardTargets(currentBasket)">Discard</button>` : '');
     el.insertBefore(bar, el.firstChild);
     const targets=basket.targets||[];
@@ -5669,15 +5565,10 @@ renderTargets = function(basket){
       const t=targets[i]; if(!t) return;
       for(let n=1;n<=numT;n++){
         const cell=tr.cells[1+n]; if(!cell) continue;
-        const price=t['lower_t'+n];
-        const manualAch=t['t'+n+'_achieved']==='Yes';
-        const autoAch=fxAutoAchieved(basket,t,n);
-        const ach=manualAch||autoAch===true;
+        const price=t['lower_t'+n], ach=t['t'+n+'_achieved']==='Yes';
         const ckind=fxTargetKind(t,n);
-        const tickTitle = autoAch===true ? 'Set by this column\'s volume rule — nothing to tick'
-                        : (manualAch ? 'Achieved — click to untick' : 'Click to mark achieved');
         cell.innerHTML=`<span class="fx-tprice" style="cursor:pointer;text-decoration:underline dotted #9aa1ad;font-family:var(--font-mono)">${price!=null?price:'—'}</span>
-          <button class="fx-tick${ach?' on':''}${autoAch===true?' fx-tick-auto':''}" title="${tickTitle}">${ach?'&#10003;':'&#9711;'}</button>
+          <button class="fx-tick${ach?' on':''}" title="${ach?'Achieved — click to untick':'Click to mark achieved'}">${ach?'&#10003;':'&#9711;'}</button>
           <button class="fx-kindcell ${ckind==='advisory'?'adv':'auth'}" title="This target is ${ckind==='advisory'?'Advisory (purple)':'Authorised (red)'} — click to switch">${ckind==='advisory'?'Adv':'Auth'}</button>`;
         cell.querySelector('.fx-tprice').onclick=(e)=>{
           e.stopPropagation();
@@ -5688,9 +5579,8 @@ renderTargets = function(basket){
         };
         cell.querySelector('.fx-tick').onclick=async (e)=>{
           e.stopPropagation();
-          if(autoAch===true){ fxToast('This column is set by its volume rule', false); return; }
           if(price==null){ fxToast('Set a price first', false); return; }
-          const patch={}; patch['t'+n+'_achieved']=manualAch?null:'Yes';
+          const patch={}; patch['t'+n+'_achieved']=ach?null:'Yes';
           fxStageTarget(basket, t, patch);
         };
         cell.querySelector('.fx-kindcell').onclick=(e)=>{
@@ -5729,7 +5619,7 @@ function fxTTFromTargets(b){
   const numT = fxTierCount(b), cut = fxNowMonth();
   const rows = (b.targets || []).filter(t => t.month > cut).sort((x, y) => x.month < y.month ? -1 : 1);
   if (!rows.length) return [];
-  const sig = t => { const o = []; for (let i = 1; i <= numT; i++){ const p = t['lower_t'+i]; if (p != null && !fxIsAchieved(b, t, i)) o.push(p); } return o; };
+  const sig = t => { const o = []; for (let i = 1; i <= numT; i++){ const p = t['lower_t'+i]; if (p != null && t['t'+i+'_achieved'] !== 'Yes') o.push(p); } return o; };
   const groups = []; let cur = null;
   for (const t of rows){
     const sg = sig(t), key = sg.join('|');
@@ -5895,125 +5785,6 @@ async function fxRemTargetCol(b){
   await fxWrite(FLEX.sb.from('flex_baskets').update({target_count:n-1, updated_by:FLEX.user}).eq('id',b.id), 'Removed last target column');
 }
 
-
-// ── TARGET COLUMN EDITOR: name + achievement rule ────────────────
-// Opened from a target column header. Sets the column's name and, optionally, the
-// volume rule that decides achievement for every month in that column. Name and rule
-// save together in one write to flex_baskets.
-let FX_TR_B = null, FX_TR_N = 0;
-
-function fxTargetRuleModal(basket, n){
-  const b = basket || currentBasket; if(!b) return;
-  FX_TR_B = b; FX_TR_N = n;
-  const lbl = (b.target_labels && b.target_labels[n-1]) || ('T'+n);
-  const r   = fxTargetRule(b, n);
-  const opt = (v, txt) => `<option value="${v}"${r.type===v?' selected':''}>${txt}</option>`;
-  fxModal(`<h3>Target column ${n} &mdash; ${escape(b.name)}</h3>
-  <div style="font-size:12px;color:#4b5563;margin:-8px 0 12px">Give the column a name and, if you want, a volume rule. With a rule set, each month ticks itself as soon as its secured volume meets the rule &mdash; you only tick by hand for the exceptions. Rules are cumulative: this column counts the volume required by the columns before it as well.</div>
-  <div class="fx-grid">
-    <div class="fx-field" style="grid-column:span 2"><label>Column name</label><input id="fTR_name" value="${escape(lbl)}" placeholder="T${n}"></div>
-    <div class="fx-field" style="grid-column:span 2"><label>Mark achieved when</label>
-      <select id="fTR_type">
-        ${opt('none','Ticked by hand (no rule)')}
-        ${opt('volume','A set volume is secured')}
-        ${opt('percent','A percentage of baseload is secured')}
-        ${opt('open','Everything open is secured (100%)')}
-        ${opt('open_minus','Everything is secured except a set amount')}
-      </select></div>
-    <div class="fx-field" id="fTR_amtWrap" style="grid-column:span 2"><label id="fTR_amtLbl">Amount</label>
-      <input id="fTR_amt" type="number" step="any" value="${r.amount!=null?r.amount:''}"></div>
-  </div>
-  <div id="fTR_prev"></div>
-  <div class="fx-err" id="fxMErr"></div>
-  <div class="fx-modal-foot"><button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
-  <button class="fx-btn green" onclick="fxTargetRuleSave()">Save column</button></div>`);
-  document.getElementById('fTR_type').onchange = fxTargetRuleSync;
-  document.getElementById('fTR_amt').oninput   = fxTargetRulePreview;
-  fxTargetRuleSync();
-}
-
-// Show the amount field only for the rule types that need one, and label it in the
-// basket's own unit so nobody has to guess whether 100 means MW, therms or per cent.
-function fxTargetRuleSync(){
-  const b = FX_TR_B; if(!b) return;
-  const type = document.getElementById('fTR_type').value;
-  const wrap = document.getElementById('fTR_amtWrap');
-  const lab  = document.getElementById('fTR_amtLbl');
-  const needsAmt = (type === 'volume' || type === 'percent' || type === 'open_minus');
-  wrap.style.display = needsAmt ? '' : 'none';
-  if (type === 'percent')         lab.textContent = 'Percentage of baseload (%)';
-  else if (type === 'open_minus') lab.textContent = 'Volume to leave open (' + (b.unit_vol||'') + ')';
-  else                            lab.textContent = 'Volume to secure (' + (b.unit_vol||'') + ')';
-  fxTargetRulePreview();
-}
-
-// The draft basket used for previewing: this column's pending rule laid over the saved
-// rules for the columns before it, so the cumulative maths shown is the real maths.
-function fxTRDraft(){
-  const b = FX_TR_B, n = FX_TR_N;
-  const type = document.getElementById('fTR_type').value;
-  const amount = fxNum(document.getElementById('fTR_amt').value);
-  const rules = [];
-  for (let i = 1; i <= 8; i++) rules.push(fxTargetRule(b, i));
-  rules[n-1] = { type: type, amount: (type === 'none' || type === 'open') ? null : amount };
-  return { type: type, amount: amount, shim: Object.assign({}, b, { target_rules: rules }) };
-}
-
-// Live "what would this do" table, in the spirit of an Excel conditional-formatting
-// preview: every upcoming month, what it needs, what it has, and how it would land.
-function fxTargetRulePreview(){
-  const el = document.getElementById('fTR_prev'); if(!el) return;
-  const b = FX_TR_B, n = FX_TR_N, d = fxTRDraft();
-  if (d.type === 'none'){
-    el.innerHTML = `<div style="font-size:12px;color:#9aa1ad;padding:12px 0">No rule &mdash; this column stays manual. Ticks already saved against it are kept.</div>`;
-    return;
-  }
-  const isPower = b.commodity === 'power';
-  const cut = fxNowMonth();
-  const rows = (b.targets || []).filter(t => t.month >= cut).slice(0, 14).map(t => {
-    const m = (b.months || []).find(x => x.month === t.month);
-    const need = fxRequiredSecured(d.shim, m, n);
-    const have = m ? m.secured_vol : null;
-    const ok = fxVolMeets(b, have, need);
-    const manual = t['t'+n+'_achieved'] === 'Yes';
-    const verdict = need == null
-      ? '<span style="color:#9aa1ad">Not evaluable</span>'
-      : (ok ? '<span style="color:#0f6e56;font-weight:700">&#10003; Achieved</span>'
-            : '<span style="color:#9aa1ad">Pending</span>');
-    const note = (manual && !ok) ? ' <span style="color:#6b7280">&middot; ticked by hand</span>' : '';
-    return `<tr><td>${fmtMonth(t.month)}</td>
-      <td class="td-right">${m && m.baseload_vol != null ? fmtVolC(m.baseload_vol, isPower) : '-'}</td>
-      <td class="td-right">${fmtVolC(have, isPower)}</td>
-      <td class="td-right">${need != null ? fmtVolC(need, isPower) : '&mdash;'}</td>
-      <td>${verdict}${note}</td></tr>`;
-  }).join('');
-  el.innerHTML = rows
-    ? `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#4b5563;margin:16px 0 0">Preview &mdash; cumulative secured volume needed through this column</div>
-       <div class="fx-preview" style="max-height:250px"><table class="fx-tt-table">
-       <thead><tr><th>Month</th><th class="td-right">Baseload</th><th class="td-right">Secured</th><th class="td-right">Needs</th><th>Result</th></tr></thead>
-       <tbody>${rows}</tbody></table></div>`
-    : `<div style="font-size:12px;color:#9aa1ad;padding:12px 0">No target rows from this month onward to preview.</div>`;
-}
-
-async function fxTargetRuleSave(){
-  const b = FX_TR_B, n = FX_TR_N; if(!b) return;
-  const name = (document.getElementById('fTR_name').value || '').trim();
-  const type = document.getElementById('fTR_type').value;
-  const amount = fxNum(document.getElementById('fTR_amt').value);
-  const needsAmt = (type === 'volume' || type === 'percent' || type === 'open_minus');
-  if (needsAmt && (amount == null || amount < 0)){ fxMErr('Enter an amount for this rule type.'); return; }
-  if (type === 'percent' && amount > 100){ fxMErr('A percentage of baseload cannot be above 100.'); return; }
-  const labels = (b.target_labels || Array.from({length:8}, (_,i) => 'T'+(i+1))).slice();
-  labels[n-1] = name || ('T'+n);
-  const rules = [];
-  for (let i = 1; i <= 8; i++) rules.push(fxTargetRule(b, i));
-  rules[n-1] = { type: type, amount: needsAmt ? amount : null };
-  const ok = await fxWrite(
-    FLEX.sb.from('flex_baskets').update({ target_labels: labels, target_rules: rules, updated_by: FLEX.user }).eq('id', b.id),
-    'Target column saved');
-  if (ok) fxCloseModal();
-}
-
 // ── BOOT ─────────────────────────────────────────────────────────
 window._flexTsToken = null;
 window._flexTsOk = t => { window._flexTsToken = t; };
@@ -6129,7 +5900,7 @@ async function fxRenderClientReports(){
 
   const [{ data:custs, error:cErr }, { data:reps, error:rErr }] = await Promise.all([
     FLEX.sb.from('flex_report_customers').select('customer_id,company_name,basket_count,report_count').order('company_name'),
-    FLEX.sb.from('flex_reports').select('id,customer_id,kind,title,period_label,report_date,body,published,created_by,updated_at')
+    FLEX.sb.from('flex_reports').select('id,customer_id,kind,title,period_label,report_date,body,published,created_by,updated_at,pdf_path,pdf_name,pdf_size')
            .order('report_date',{ascending:false})
   ]);
   if (cErr || rErr){
@@ -6145,6 +5916,9 @@ async function fxRenderClientReports(){
       <td>${escape(r.title)}</td>
       <td>${escape(r.period_label||'—')}</td>
       <td>${fmtDate(r.report_date)}</td>
+      <td class="td-center">${r.pdf_path
+        ? '<span class="fx-src live" title="'+escape(r.pdf_name||'report.pdf')+'">PDF</span>'
+        : '<span style="color:#9aa1ad">&mdash;</span>'}</td>
       <td class="td-center">${r.published
           ? '<span class="fx-src live">live</span>'
           : '<span class="fx-src man">draft</span>'}</td>
@@ -6169,7 +5943,7 @@ async function fxRenderClientReports(){
         Only <b>published</b> reports are visible to the client.</span>
     </div>
     ${rows ? `<div style="overflow-x:auto"><table class="extra-table"><thead><tr>
-        <th>Customer</th><th>Type</th><th>Title</th><th>Period</th><th>Date</th>
+        <th>Customer</th><th>Type</th><th>Title</th><th>Period</th><th>Date</th><th class="td-center">PDF</th>
         <th class="td-center">Status</th><th class="td-center">Actions</th></tr></thead>
         <tbody>${rows}</tbody></table></div>`
       : `<div style="padding:26px 18px;text-align:center;color:#6b7280;font-size:13px;border:1px dashed #c3cad4;border-radius:10px">
@@ -6210,6 +5984,15 @@ function fxRepForm(r){
         <label style="font-size:12.5px;font-weight:600;color:#4b5563;display:flex;align-items:center;gap:7px;cursor:pointer">
           <input id="rpPub" type="checkbox"${r.published?' checked':''} style="width:16px;height:16px">
           Publish to the client portal</label></div>
+    </div>
+    <label style="font-size:11.5px;font-weight:700;color:#4b5563;display:block;margin:12px 0 4px">PDF attachment — what the client actually downloads</label>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 11px;border:1px dashed #c3cad4;border-radius:8px;background:#fafbfc">
+      <input id="rpPdf" type="file" accept="application/pdf" style="font-size:12.5px">
+      <span style="font-size:11.5px;color:#4b5563">${r.pdf_path
+        ? '\u{1F4C4} ' + escape(r.pdf_name||'report.pdf')
+          + (r.pdf_size ? ' ('+Math.max(1,Math.round(r.pdf_size/1024))+' KB)' : '')
+          + ' \u2014 attached. Choosing a new file replaces it.'
+        : 'None attached \u2014 without a PDF the client sees no download button.'}</span>
     </div>
     <label style="font-size:11.5px;font-weight:700;color:#4b5563;display:block;margin:12px 0 4px">Report body — paste your text</label>
     <textarea id="rpBody" style="min-height:230px;width:100%;font-size:13px;line-height:1.6;font-family:'Source Sans 3',sans-serif" placeholder="Paste the weekly commentary here. Line breaks and blank lines are preserved exactly as you paste them.">${escape(r.body)}</textarea>
@@ -6254,15 +6037,36 @@ async function fxRepSave(id){
   let res;
   if (id){
     // customer_id is deliberately not sent — it is immutable on update.
-    res = await FLEX.sb.from('flex_reports').update(rec).eq('id', id).select('id');
+    res = await FLEX.sb.from('flex_reports').update(rec).eq('id', id).select('id,customer_id');
   } else {
     const cust = document.getElementById('rpCust').value;
     if (!cust) return fxMErr('Pick a customer.');
     res = await FLEX.sb.from('flex_reports')
-            .insert(Object.assign({ customer_id: cust, created_by: FLEX.user }, rec)).select('id');
+            .insert(Object.assign({ customer_id: cust, created_by: FLEX.user }, rec))
+            .select('id,customer_id');
   }
   if (res.error) return fxMErr(res.error.message);
   if (!res.data || !res.data.length) return fxMErr(FX_REP_BLOCKED);
+  const saved = res.data[0];
+
+  // The PDF goes up AFTER the row exists, because the object path is keyed on the
+  // report id: {customer_id}/{report_id}.pdf. That first segment is the tenant key
+  // the storage read policy checks, so it must be the customer, not the uploader.
+  const _f = (document.getElementById('rpPdf') || {}).files;
+  if (_f && _f[0]){
+    const file = _f[0];
+    if (file.type !== 'application/pdf') return fxMErr('That attachment is not a PDF.');
+    if (file.size > 25 * 1024 * 1024)    return fxMErr('That PDF is over 25 MB.');
+    const path = saved.customer_id + '/' + saved.id + '.pdf';
+    const up = await FLEX.sb.storage.from('flex-reports')
+      .upload(path, file, { contentType: 'application/pdf', upsert: true });
+    if (up.error) return fxMErr('Report saved, but the PDF upload failed: ' + up.error.message);
+    const pf = await FLEX.sb.from('flex_reports')
+      .update({ pdf_path: path, pdf_name: file.name, pdf_size: file.size,
+                updated_by: FLEX.user, updated_at: new Date().toISOString() })
+      .eq('id', saved.id).select('id');
+    if (pf.error) return fxMErr('PDF uploaded, but linking it failed: ' + pf.error.message);
+  }
   fxToast(rec.published ? 'Report saved and published' : 'Report saved as a draft');
   fxCloseModal(); fxRepRefresh();
 }
@@ -6280,6 +6084,12 @@ async function fxRepTogglePublish(id, pub){
 async function fxRepDelete(id){
   const r = (window._fxReps||[]).find(x=>x.id===id);
   if (!confirm('Delete "'+((r&&r.title)||'this report')+'"? This cannot be undone.')) return;
+  // Remove the object first. If the row goes and the upload lingers, nothing
+  // points at the file any more and it sits in the bucket forever.
+  if (r && r.pdf_path){
+    const rm = await FLEX.sb.storage.from('flex-reports').remove([r.pdf_path]);
+    if (rm.error) console.warn('PDF not removed:', rm.error.message);
+  }
   const { data, error } = await FLEX.sb.from('flex_reports').delete().eq('id', id).select('id');
   if (error) return fxToast(error.message, false);
   if (!data || !data.length) return fxToast(FX_REP_BLOCKED, false);

@@ -343,7 +343,18 @@ th:first-child::after,td:first-child::after{content:'';position:absolute;top:0;r
 .ritem .ti{flex:1;min-width:0}
 .ritem .ti b{display:block;font-size:var(--t-md);font-weight:700}
 .ritem .ti span{font-size:var(--t-sm);color:var(--ink-3)}
-.rbody{white-space:pre-wrap;font-size:var(--t-md);line-height:1.68;color:var(--ink);max-width:74ch}
+/* Centred reading column. The body used to carry max-width:74ch with no auto
+   margin, which pinned a narrow measure to the left of a full-width card and
+   left a lake of empty space on the right. The WRAPPER holds the measure now,
+   and it is centred. */
+.reportwrap{max-width:820px;margin:0 auto}
+.rbody{white-space:pre-wrap;font-size:var(--t-md);line-height:1.68;color:var(--ink)}
+/* The PDF button is the one affirmative action on this screen, so it carries the
+   accent rather than sitting grey and anonymous at the far right. */
+.gbtn.pdf{border-color:var(--accent);color:var(--accent);font-weight:700}
+.gbtn.pdf:hover{background:color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color:var(--accent);color:var(--accent)}
+.rmeta{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px}
 
 .empty{padding:40px 20px;text-align:center;color:var(--ink-3);font-size:var(--t-md);
   background:var(--surface);border:1px dashed var(--line-strong);border-radius:var(--r-md)}
@@ -496,7 +507,7 @@ async function load(){
     CX.sb.from('flex_client_targets').select('*').order('month'),
     CX.sb.from('flex_client_sites').select('*').order('mpxn'),
     CX.sb.from('flex_client_curves').select('commodity,period_type,period_label,month,mid,updated_at'),
-    CX.sb.from('flex_reports').select('id,kind,title,period_label,report_date,body')
+    CX.sb.from('flex_reports').select('id,kind,title,period_label,report_date,body,pdf_path,pdf_name,pdf_size')
          .eq('published',true).order('report_date',{ascending:false}),
     CX.sb.from('customers').select('customer_id,company_name').maybeSingle()
   ]);
@@ -1182,25 +1193,39 @@ function renderReports(){
 function openReport(id){
   const r=D.reports.find(x=>x.id===id); if(!r) return;
   const el=document.getElementById('v-reports');
-  el.innerHTML=`<button class="gbtn noprint" id="rBack" style="margin-bottom:18px">&larr; All reports</button>
+  const hasPdf = !!r.pdf_path;
+  el.innerHTML=`<div class="reportwrap">
+    <button class="gbtn noprint" id="rBack" style="margin-bottom:18px">&larr; All reports</button>
     <article class="card">
-      <div style="display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap">
-        <div style="flex:1;min-width:220px">
-          <span class="kind">${esc(r.kind)} report</span>
-          <h2 style="font-size:var(--t-xl);margin:8px 0 4px">${esc(r.title)}</h2>
-          <div style="font-size:var(--t-sm);color:var(--ink-3);font-weight:600">
-            ${esc(r.period_label||'')}${r.period_label?' · ':''}${fmtLong(r.report_date)}</div>
-        </div>
-        <button class="gbtn noprint" id="rPdf">Download PDF</button>
-      </div>
+      <span class="kind">${esc(r.kind)} report</span>
+      <h2 style="font-size:var(--t-xl);margin:8px 0 4px">${esc(r.title)}</h2>
+      <div style="font-size:var(--t-sm);color:var(--ink-3);font-weight:600">
+        ${esc(r.period_label||'')}${r.period_label?' · ':''}${fmtLong(r.report_date)}</div>
+      ${hasPdf ? `<div class="rmeta noprint">
+          <button class="gbtn pdf" id="rPdf">&darr; Download PDF</button>
+          <span style="font-size:var(--t-sm);color:var(--ink-3)">${esc(r.pdf_name||'report.pdf')}${
+            r.pdf_size?' · '+Math.max(1,Math.round(r.pdf_size/1024))+' KB':''}</span>
+        </div>` : ''}
       <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
       <div class="rbody">${esc(r.body)}</div>
-    </article>`;
+    </article></div>`;
   document.getElementById('rBack').addEventListener('click',renderReports);
-  // Pasted text, so the browser's own PDF writer is the right tool: selectable
-  // text, real pagination, nothing extra loaded into the page.
-  document.getElementById('rPdf').addEventListener('click',()=>{
-    toast('Choose "Save as PDF" in the print dialog'); setTimeout(()=>window.print(),500);});
+
+  // The real PDF CES attached, fetched through a short-lived signed URL. Not a
+  // print-to-PDF of this page: the client gets the document CES actually wrote.
+  const btn=document.getElementById('rPdf');
+  if(btn) btn.addEventListener('click',async ()=>{
+    btn.disabled=true; const was=btn.innerHTML; btn.innerHTML='Preparing&hellip;';
+    try{
+      const { data, error } = await CX.sb.storage.from('flex-reports')
+        .createSignedUrl(r.pdf_path, 120, { download: r.pdf_name || 'report.pdf' });
+      if(error||!data||!data.signedUrl) throw new Error(error?error.message:'no url');
+      location.href = data.signedUrl;
+    }catch(e){
+      console.error(e);
+      toast('That PDF could not be fetched. Please contact your CES account manager.');
+    }finally{ btn.disabled=false; btn.innerHTML=was; }
+  });
   window.scrollTo({top:0,behavior:'smooth'});
 }
 
