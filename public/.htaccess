@@ -36,6 +36,26 @@
     Header set Cache-Control "public, max-age=86400"
   </FilesMatch>
 
+  # Service worker — MUST override the 30-day .js rule above (last match
+  # wins). If this file is ever cached, installed sales apps can never
+  # receive an update: the browser re-fetches sales-sw.js to detect one.
+  <FilesMatch "^sales-sw\.js$">
+    Header set Cache-Control "no-cache, max-age=0, must-revalidate"
+  </FilesMatch>
+
+  # Sales app manifest — 1 hour, not 30 days, so changes to the installed
+  # app's identity (start_url, icons) roll out same-day.
+  <FilesMatch "^sales\.webmanifest$">
+    Header set Cache-Control "public, max-age=3600, must-revalidate"
+  </FilesMatch>
+
+</IfModule>
+
+# ───── 1b. MIME type for web app manifests ─────────────────────────────
+# Stock Apache doesn't map .webmanifest, so without this it ships as
+# text/plain and the gzip rule for application/manifest+json never fires.
+<IfModule mod_mime.c>
+  AddType application/manifest+json .webmanifest
 </IfModule>
 
 # ───── 2. Gzip compression ─────────────────────────────────────────────
