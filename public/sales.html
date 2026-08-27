@@ -1796,19 +1796,6 @@
       </main>
     </div>
   </div>
-  <!-- NEC calculator overlay — embedded; per-MPAN state saved to Supabase (meters.nec_state) -->
-  <div id="necOverlay" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(20,29,69,0.45);align-items:stretch;justify-content:center;">
-    <div style="background:#fff;margin:20px;border-radius:10px;display:flex;flex-direction:column;width:100%;max-width:1500px;overflow:hidden;box-shadow:0 12px 48px rgba(0,0,0,0.35);">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 18px;border-bottom:1.5px solid var(--border);flex:0 0 auto;">
-        <strong id="necTitle" style="font-size:15px;color:var(--navy);">NEC Calculator</strong>
-        <div style="display:flex;align-items:center;gap:14px;">
-          <span id="necSaved" style="font-size:12px;color:var(--ok,#3a7a24);font-weight:700;"></span>
-          <button class="btn-secondary" style="padding:6px 14px;" onclick="closeNec()">Close</button>
-        </div>
-      </div>
-      <iframe id="necFrame" title="NEC Calculator" style="border:0;flex:1 1 auto;width:100%;min-height:0;"></iframe>
-    </div>
-  </div>
   <!-- In-portal AI billing assistant (shown on the customer dashboard only) -->
   <div id="asstWrap" style="display:none;">
     <button id="asstFab" onclick="toggleAssistant()" aria-label="Ask BillWise by CES" title="Ask BillWise about your bills">
@@ -2905,54 +2892,11 @@
           '<td>' + escapeHtml(m.area_code || '—') + '</td>' +
           '<td>' + escapeHtml(m.llfc || '—') + '</td>' +
           _bkCedCell(m.contract_end_date) +
-          '<td style="white-space:nowrap;"><button class="btn-secondary" style="padding:4px 8px;font-size:11.5px;margin-right:3px;" onclick="bkEditMeter(\'' + m.id + '\')">Edit</button><button class="btn-danger" style="padding:4px 8px;font-size:11.5px;margin-right:3px;" onclick="bkDeleteMeter(\'' + m.id + '\')">Del</button><button class="btn-secondary" style="padding:4px 8px;font-size:11.5px;" onclick="openNecForMeter(\'' + encodeURIComponent(m.id) + '\')">NEC</button></td>' +
+          '<td style="white-space:nowrap;"><button class="btn-secondary" style="padding:4px 8px;font-size:11.5px;margin-right:3px;" onclick="bkEditMeter(\'' + m.id + '\')">Edit</button><button class="btn-danger" style="padding:4px 8px;font-size:11.5px;" onclick="bkDeleteMeter(\'' + m.id + '\')">Del</button></td>' +
         '</tr>';
       }).join('');
       table.innerHTML = head + '<tbody>' + rows + '</tbody>';
     }
-    function openNecForMeter(meterIdEnc) {
-      var id = decodeURIComponent(meterIdEnc);
-      var m = (window._bkMeters||[]).find(function(x){ return x.id===id; });
-      if (!m) { alert('Meter not found — please refresh and try again.'); return; }
-      window._necMeterId = id;
-      var q = [];
-      if (m.area_code != null && m.area_code !== '') q.push('area=' + encodeURIComponent(m.area_code));
-      if (m.llfc != null && m.llfc !== '')           q.push('llfc=' + encodeURIComponent(m.llfc));
-      if (m.agreed_kva != null && m.agreed_kva !== '') q.push('kva=' + encodeURIComponent(m.agreed_kva));
-      if (m.mpan) q.push('mpan=' + encodeURIComponent(m.mpan));
-      var t = document.getElementById('necTitle'); if (t) t.textContent = 'NEC Calculator — ' + (m.mpan || '');
-      var sv = document.getElementById('necSaved'); if (sv) sv.textContent = '';
-      document.getElementById('necFrame').src = 'nec.html?' + q.join('&');
-      document.getElementById('necOverlay').style.display = 'flex';
-      document.body.style.overflow = 'hidden';
-    }
-    function closeNec() {
-      var ov = document.getElementById('necOverlay'); var fr = document.getElementById('necFrame');
-      if (ov) ov.style.display = 'none';
-      if (fr) fr.src = 'about:blank';
-      document.body.style.overflow = '';
-      window._necMeterId = null;
-    }
-    // Bridge between the embedded NEC calculator (iframe) and Supabase: load this
-    // MPAN's saved state when the calc signals ready, and persist on every change.
-    window.addEventListener('message', async function(ev) {
-      var d = ev.data || {};
-      if (!d.type || !window._necMeterId) return;
-      if (d.type === 'nec-ready') {
-        try {
-          var r = await sb.from('meters').select('nec_state').eq('id', window._necMeterId).single();
-          var st = (r.data && r.data.nec_state) ? r.data.nec_state : null;
-          var fr = document.getElementById('necFrame');
-          if (fr && fr.contentWindow) fr.contentWindow.postMessage({ type: 'nec-restore', state: st }, '*');
-        } catch (e) { console.error('NEC restore load:', e); }
-      } else if (d.type === 'nec-save') {
-        try {
-          await sb.from('meters').update({ nec_state: d.state }).eq('id', window._necMeterId);
-          var ind = document.getElementById('necSaved');
-          if (ind) { ind.textContent = 'Saved ✓'; setTimeout(function(){ if (ind) ind.textContent = ''; }, 1500); }
-        } catch (e) { console.error('NEC save:', e); }
-      }
-    });
     // ───── BROKER: MANAGE METERS (manual CRUD + Excel import, per customer) ─────
     function bkToggleMeterForm() {
       var f = document.getElementById('bkMeterForm'); if (!f) return;
