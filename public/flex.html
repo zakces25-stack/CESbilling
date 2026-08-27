@@ -1610,6 +1610,8 @@ button{transition:all .14s ease}
 .fx-auto-tag{margin-left:5px;font-size:8.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;opacity:.62;font-family:inherit}
 /* a month whose targets are all achieved — the achieved cells keep their stronger green */
 .fx-trow-hit > td{background:#e9f6ee}
+/* preview: this month's requirement was pulled in to its baseload */
+.fx-cap-tag{margin-left:5px;font-size:8.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#8a6d1f;background:#fdf4e0;border:1px solid #efdfb4;border-radius:999px;padding:0 5px}
 /* draggable session chip */
 .fx-grip{cursor:grab;user-select:none;opacity:.55;font-size:14px;line-height:1;padding-right:2px;letter-spacing:-1px}
 #flexChip:hover .fx-grip{opacity:.9}
@@ -2533,12 +2535,13 @@ function fxRuleLabel(basket, i) {
   return null;
 }
 
-// Cumulative secured volume (in the basket's unit) that column `i` requires in month `m`.
+// Cumulative requirement for column `i` BEFORE the baseload cap. Split out from
+// fxRequiredSecured so the rule preview can show when a rule has been pulled in, rather
+// than silently displaying a number that differs from what was typed.
 // null = not evaluable: column i carries no rule, an amount is missing, or there is no
 // baseload to measure a share against.
-function fxRequiredSecured(basket, m, i) {
+function fxRequiredRaw(basket, i, base) {
   if (fxTargetRule(basket, i).type === 'none') return null;
-  const base = (m && m.baseload_vol != null) ? m.baseload_vol : null;
   let cum = 0;
   for (let n = 1; n <= i; n++) {
     const r = fxTargetRule(basket, n);
@@ -2558,6 +2561,22 @@ function fxRequiredSecured(basket, m, i) {
     }
   }
   return cum;
+}
+
+// Cumulative secured volume (in the basket's unit) that column `i` requires in month `m`.
+function fxRequiredSecured(basket, m, i) {
+  const base = (m && m.baseload_vol != null) ? m.baseload_vol : null;
+  // No baseload to hedge means no meaningful test — better "not evaluable" than every
+  // target ticking green on a month that carries no volume.
+  if (base != null && !(base > 0)) return null;
+  const raw = fxRequiredRaw(basket, i, base);
+  if (raw == null) return null;
+  // A month can never secure more than its own baseload, so a requirement above it is
+  // unsatisfiable by construction: a 0.1 MW-per-tranche ladder asks 0.3 MW of a 0.25 MW
+  // meter, and that last target would sit pending forever — dragging the month out of
+  // "all hit" and putting its alert back on Positions. Capping means a full hedge always
+  // finishes the ladder, while the earlier rungs keep their real thresholds.
+  return (base != null) ? Math.min(raw, base) : raw;
 }
 
 // Compare at the precision the Positions tab displays, so a target can never read as
@@ -6013,13 +6032,19 @@ function fxTargetRulePreview(){
   // are still missing before you commit the rule.
   const mons = (b.months || []).filter(m => m.month > cut)
                  .slice().sort((x, y) => x.month < y.month ? -1 : 1);
-  let nHit = 0, nEval = 0;
+  let nHit = 0, nEval = 0, nCapped = 0;
   const rows = mons.map(m => {
     const t = (b.targets || []).find(x => x.month === m.month) || null;
     const need = fxRequiredSecured(d.shim, m, n);
     const have = m.secured_vol;
     const ok = fxVolMeets(b, have, need);
     if (need != null){ nEval++; if (ok) nHit++; }
+    // Flag the months where the ladder asks for more than the meter can take, so the
+    // capped figure never looks like a typo.
+    const _base = m.baseload_vol != null ? m.baseload_vol : null;
+    const _raw  = fxRequiredRaw(d.shim, n, _base);
+    const capped = (need != null && _raw != null && _base != null && _raw > _base);
+    if (capped) nCapped++;
     const manual = !!(t && t['t'+n+'_achieved'] === 'Yes');
     let verdict;
     if (!t)                verdict = '<span style="color:#c8cdd8">No target row</span>';
@@ -6030,7 +6055,7 @@ function fxTargetRulePreview(){
     return `<tr><td>${fmtMonth(m.month)}</td>
       <td class="td-right">${m.baseload_vol != null ? fmtVolC(m.baseload_vol, isPower) : '-'}</td>
       <td class="td-right">${fmtVolC(have, isPower)}</td>
-      <td class="td-right">${need != null ? fmtVolC(need, isPower) : '&mdash;'}</td>
+      <td class="td-right">${need != null ? fmtVolC(need, isPower) : '&mdash;'}${capped ? '<span class="fx-cap-tag" title="This column asks for more than the month\'s baseload, so it is capped — a full hedge achieves it">capped</span>' : ''}</td>
       <td>${verdict}${note}</td></tr>`;
   }).join('');
   el.innerHTML = rows
@@ -6040,7 +6065,8 @@ function fxTargetRulePreview(){
        </div>
        <div class="fx-preview" style="max-height:340px"><table class="fx-tt-table">
        <thead><tr><th>Month</th><th class="td-right">Baseload</th><th class="td-right">Secured</th><th class="td-right">Needs</th><th>Result</th></tr></thead>
-       <tbody>${rows}</tbody></table></div>`
+       <tbody>${rows}</tbody></table></div>
+       ${nCapped ? `<div style="font-size:11.5px;color:#6b7280;margin-top:7px">${nCapped} month${nCapped === 1 ? '' : 's'} need${nCapped === 1 ? 's' : ''} less than this column asks for, because the requirement exceeds the baseload. Those are capped at 100% secured &mdash; a full hedge achieves them.</div>` : ''}`
     : `<div style="font-size:12px;color:#9aa1ad;padding:12px 0">No tradable months in this basket to preview.</div>`;
 }
 
