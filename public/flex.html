@@ -1608,6 +1608,8 @@ button{transition:all .14s ease}
 .fx-rule-chip{margin-top:3px;font-size:9.5px;font-weight:700;letter-spacing:.3px;color:#0f6e56;background:#eaf6f1;border:1px solid #cfe9df;border-radius:999px;padding:1px 6px;display:inline-block;text-transform:none;font-family:var(--font-mono)}
 /* marks an achieved cell that ticked itself */
 .fx-auto-tag{margin-left:5px;font-size:8.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;opacity:.62;font-family:inherit}
+/* a month whose targets are all achieved — the achieved cells keep their stronger green */
+.fx-trow-hit > td{background:#e9f6ee}
 /* draggable session chip */
 .fx-grip{cursor:grab;user-select:none;opacity:.55;font-size:14px;line-height:1;padding-right:2px;letter-spacing:-1px}
 #flexChip:hover .fx-grip{opacity:.9}
@@ -2366,12 +2368,7 @@ function getNextTargetForMonth(basket, monthStr) {
       return { price };
     }
   }
-  // Check if all non-null are achieved
-  let anyNonNull = false;
-  for (let i = 1; i <= numT; i++) {
-    if (t[`lower_t${i}`] != null) { anyNonNull = true; break; }
-  }
-  return anyNonNull ? { allHit: true } : null;
+  return fxAllTargetsHit(basket, monthStr) ? { allHit: true } : null;
 }
 
 function getUpperAlertForMonth(basket, monthStr) {
@@ -2589,6 +2586,32 @@ function fxIsAchieved(basket, t, i) {
   return fxAutoAchieved(basket, t, i) === true;
 }
 
+// Every target that actually carries a PRICE for this month is achieved. Columns left
+// blank are skipped, so a basket using only T1 and T2 counts as complete on those two
+// even where T3 is empty for the period. A month with no priced target at all returns
+// false — nothing was ever asked of it, so it cannot be "done".
+function fxAllTargetsHit(basket, monthStr) {
+  const t = (basket.targets || []).find(x => x.month === monthStr);
+  if (!t) return false;
+  const n = fxTierCount(basket);
+  let priced = 0;
+  for (let i = 1; i <= n; i++) {
+    if (t['lower_t' + i] == null) continue;
+    priced++;
+    if (!fxIsAchieved(basket, t, i)) return false;
+  }
+  return priced > 0;
+}
+
+// Months the targets tab will show: tradable ones only. The current month is already
+// spot and anything before it has settled, so neither can still be traded to a target.
+// Reads the live month clock rather than a value fixed at load, so the tab sheds a month
+// on its own the moment the 1st ticks over.
+function fxVisibleTargets(basket) {
+  const cut = fxNowMonth();
+  return (basket.targets || []).filter(t => t.month > cut);
+}
+
 
 function getNextUnachievedTarget(basket, monthStr) {
   const t = (basket.targets || []).find(t => t.month === monthStr);
@@ -2614,6 +2637,12 @@ function fxRowAlert(basket, m) {
   const mp = m.market_price;
   if (!mp) return null;
   if (m.month === fxNowMonth()) return null; // current month always uses day-ahead pricing — never let an alert fire
+  // Every target set for this month has been achieved: there is nothing left to buy, so
+  // there is nothing to warn about. An upper alert on a finished month is noise, and this
+  // is what lets such a month lose its colour without anyone having to clear the alert by
+  // hand. Suppression is deliberately total — it also silences an unhit lower target,
+  // because "all targets achieved" already says the month is done.
+  if (fxAllTargetsHit(basket, m.month)) return null;
   const t = (basket.targets || []).find(x => x.month === m.month);
   const n = fxTierCount(basket);
   let belowAny = false, belowAuth = false, hitPrice = null;
@@ -3030,10 +3059,15 @@ function renderSeasons(basket) {
 
 // ── TARGETS ───────────────────────────────────────────────────────
 function renderTargets(basket) {
-  const targets = basket.targets || [];
+  const targets = fxVisibleTargets(basket);
 
   if (targets.length === 0) {
-    document.getElementById('tab-targets').innerHTML = '<div class="no-targets">No active targets for this basket.</div>';
+    // Distinguish "never had any" from "all of them have rolled into the past", or the
+    // tab looks broken on a basket whose targets were simply all delivered.
+    const _had = (basket.targets || []).length > 0;
+    document.getElementById('tab-targets').innerHTML = '<div class="no-targets">' + (_had
+      ? 'No targets for any tradable month. Past and current months are no longer shown here.'
+      : 'No active targets for this basket.') + '</div>';
     return;
   }
 
@@ -3087,7 +3121,10 @@ function renderTargets(basket) {
       tds += `<td class="td-right fx-twap${warn}"${tip}>${sc && sc.wap != null ? sc.wap.toFixed(2) : dash}</td>`
            + `<td class="td-right fx-twap${warn}">${sc && sc.deliv != null ? sc.deliv.toFixed(3) : dash}</td>`;
     }
-    return `<tr>${tds}</tr>`;
+    // Whole row goes green once every target set for the month is achieved. Reads far
+    // faster than checking each cell, and matches the alert being dropped on Positions.
+    const _rowHit = fxAllTargetsHit(basket, t.month);
+    return `<tr${_rowHit ? ' class="fx-trow-hit" title="Every target set for this month is achieved"' : ''}>${tds}</tr>`;
   }).join('');
 
   document.getElementById('tab-targets').innerHTML = `
@@ -5663,7 +5700,7 @@ renderTargets = function(basket){
       + ` <span style="font-size:11px;color:#6b7280">Click a column name to rename it and set its volume rule &middot; click a price to edit &middot; tick the circle to mark achieved &middot; tap each cell's Auth/Adv tag to set red/purple &middot; or use a column header's Auth/Adv chip to set the whole column &middot; changes stage until you Apply</span>`
       + (_pend? ` <button class="fx-btn" style="background:var(--green-500);color:var(--navy-900);font-weight:800" onclick="fxApplyTargets(currentBasket)">&#10003; Apply ${_pend} change${_pend>1?'s':''}</button> <button class="fx-btn danger" onclick="fxDiscardTargets(currentBasket)">Discard</button>` : '');
     el.insertBefore(bar, el.firstChild);
-    const targets=basket.targets||[];
+    const targets=fxVisibleTargets(basket);   // MUST match the rows _renderTargets drew — this maps cells to months by index
     const tbody=el.querySelector('tbody');
     if(tbody) [...tbody.rows].forEach((tr,i)=>{
       const t=targets[i]; if(!t) return;
@@ -5970,29 +6007,41 @@ function fxTargetRulePreview(){
   }
   const isPower = b.commodity === 'power';
   const cut = fxNowMonth();
-  const rows = (b.targets || []).filter(t => t.month >= cut).slice(0, 14).map(t => {
-    const m = (b.months || []).find(x => x.month === t.month);
+  // Every tradable month in the BASKET, not a sample and not only the months that happen
+  // to have a target row yet — a curve running years out has to show all of it, and the
+  // panel scrolls. Months with no target row are listed too, so it is obvious where rows
+  // are still missing before you commit the rule.
+  const mons = (b.months || []).filter(m => m.month > cut)
+                 .slice().sort((x, y) => x.month < y.month ? -1 : 1);
+  let nHit = 0, nEval = 0;
+  const rows = mons.map(m => {
+    const t = (b.targets || []).find(x => x.month === m.month) || null;
     const need = fxRequiredSecured(d.shim, m, n);
-    const have = m ? m.secured_vol : null;
+    const have = m.secured_vol;
     const ok = fxVolMeets(b, have, need);
-    const manual = t['t'+n+'_achieved'] === 'Yes';
-    const verdict = need == null
-      ? '<span style="color:#9aa1ad">Not evaluable</span>'
-      : (ok ? '<span style="color:#0f6e56;font-weight:700">&#10003; Achieved</span>'
-            : '<span style="color:#9aa1ad">Pending</span>');
+    if (need != null){ nEval++; if (ok) nHit++; }
+    const manual = !!(t && t['t'+n+'_achieved'] === 'Yes');
+    let verdict;
+    if (!t)                verdict = '<span style="color:#c8cdd8">No target row</span>';
+    else if (need == null) verdict = '<span style="color:#9aa1ad">Not evaluable</span>';
+    else if (ok)           verdict = '<span style="color:#0f6e56;font-weight:700">&#10003; Achieved</span>';
+    else                   verdict = '<span style="color:#9aa1ad">Pending</span>';
     const note = (manual && !ok) ? ' <span style="color:#6b7280">&middot; ticked by hand</span>' : '';
-    return `<tr><td>${fmtMonth(t.month)}</td>
-      <td class="td-right">${m && m.baseload_vol != null ? fmtVolC(m.baseload_vol, isPower) : '-'}</td>
+    return `<tr><td>${fmtMonth(m.month)}</td>
+      <td class="td-right">${m.baseload_vol != null ? fmtVolC(m.baseload_vol, isPower) : '-'}</td>
       <td class="td-right">${fmtVolC(have, isPower)}</td>
       <td class="td-right">${need != null ? fmtVolC(need, isPower) : '&mdash;'}</td>
       <td>${verdict}${note}</td></tr>`;
   }).join('');
   el.innerHTML = rows
-    ? `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#4b5563;margin:16px 0 0">Preview &mdash; cumulative secured volume needed through this column</div>
-       <div class="fx-preview" style="max-height:250px"><table class="fx-tt-table">
+    ? `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:16px 0 0;flex-wrap:wrap">
+         <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#4b5563">Preview &mdash; cumulative secured volume needed through this column</div>
+         <div style="font-size:11px;color:#6b7280">${mons.length} month${mons.length === 1 ? '' : 's'} &middot; ${nHit} of ${nEval} would be achieved</div>
+       </div>
+       <div class="fx-preview" style="max-height:340px"><table class="fx-tt-table">
        <thead><tr><th>Month</th><th class="td-right">Baseload</th><th class="td-right">Secured</th><th class="td-right">Needs</th><th>Result</th></tr></thead>
        <tbody>${rows}</tbody></table></div>`
-    : `<div style="font-size:12px;color:#9aa1ad;padding:12px 0">No target rows from this month onward to preview.</div>`;
+    : `<div style="font-size:12px;color:#9aa1ad;padding:12px 0">No tradable months in this basket to preview.</div>`;
 }
 
 async function fxTargetRuleSave(){
