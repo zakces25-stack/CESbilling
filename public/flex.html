@@ -1108,11 +1108,14 @@ tr.fx-alert-adv td:first-child{ border-left:4px solid var(--advisory-500); font-
    colour and not a row/background treatment: it must never read as an alert state,
    because nothing on the row was calculated from this number. */
 td.fx-te-cell{ color:#a4560f; }
-#fxMktSrc{ display:inline-flex; border:1.5px solid #d8dbe4; border-radius:999px; overflow:hidden; background:#fff; }
-#fxMktSrc button{ border:0; background:transparent; font:inherit; font-size:12px; font-weight:700; color:#5a6488;
-  padding:6px 14px; cursor:pointer; line-height:1.2; }
-#fxMktSrc button[aria-pressed="true"]{ background:var(--navy,#2f3d7e); color:#fff; }
-#fxMktSrc button:focus-visible{ outline:2px solid var(--navy,#2f3d7e); outline-offset:-2px; }
+.fx-mkt-src{ display:inline-flex; border:1.5px solid #d8dbe4; border-radius:999px; overflow:hidden; background:#fff; }
+.fx-mkt-src button{ border:0; background:transparent; font:inherit; font-size:12px; font-weight:700; color:#5a6488;
+  padding:6px 14px; cursor:pointer; line-height:1.2; white-space:nowrap; }
+.fx-mkt-src button[aria-pressed="true"]{ background:var(--navy,#2f3d7e); color:#fff; }
+.fx-mkt-src button:focus-visible{ outline:2px solid var(--navy,#2f3d7e); outline-offset:-2px; }
+/* In the positions filter bar the switch sits at the far right, over its own column. */
+.pos-filter-bar .fx-mkt-wrap{ margin-left:auto; display:inline-flex; align-items:center; gap:8px; }
+.pos-filter-bar .fx-mkt-wrap .fx-mkt-src button{ padding:5px 12px; font-size:11.5px; }
 #fxPrevCurve > summary::-webkit-details-marker{display:none}
 #fxPrevCurve > summary::marker{content:""}
 #fxPrevCurve > summary:hover{filter:brightness(.98)}
@@ -2307,6 +2310,13 @@ function buildFilterBarHtml(basket, scope) {
         ${allMonths.map(m => `<option value="${m.month}"${m.month===toVal?' selected':''}>${fmtMonth(m.month)}</option>`).join('')}
       </select>
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" ${posHideHistoric?'checked':''} onchange="onHideHistoricChange(this.checked)"> Hide historic months</label>
+      ${scope === 'pos' ? `<span class="fx-mkt-wrap">
+        <label style="margin:0" title="Which price is printed in the Mkt price column. Display only — costs, MtM, delivered rate, targets and alerts always calculate from Marex.">Mkt price</label>
+        <span class="fx-mkt-src" role="group" aria-label="Which market price is shown in the Mkt price column">
+          <button type="button" aria-pressed="${FX_MKT_SRC === 'te' ? 'false' : 'true'}" onclick="fxSetMktSrc('marex')">Marex</button>
+          <button type="button" aria-pressed="${FX_MKT_SRC === 'te' ? 'true' : 'false'}" onclick="fxSetMktSrc('te')">TotalEnergies</button>
+        </span>
+      </span>` : ''}
     </div>`;
 }
 
@@ -2754,6 +2764,12 @@ function fxSetMktSrc(v){
   FX_MKT_SRC = next;
   try { localStorage.setItem('fx-mkt-src', FX_MKT_SRC); } catch(e) {}
   rerenderCurrent();
+  // Switching to TE with nothing imported looks like a broken button, so say so
+  // rather than letting every month quietly fall back and read as "nothing happened".
+  const _teCount = ['gas','power'].reduce((n,f) =>
+    n + Object.values((DATA && DATA.te && DATA.te[f]) || {}).filter(v => v != null).length, 0);
+  if (FX_MKT_SRC === 'te' && !_teCount)
+    return fxToast('No TotalEnergies curve imported yet — every month is still showing Marex. Import one on the Mkt prices tab.', false);
   fxToast(FX_MKT_SRC === 'te'
     ? 'Showing TotalEnergies prices — display only, no figure below them has changed'
     : 'Showing Marex prices');
@@ -5508,7 +5524,7 @@ renderCurves = function(){
   bar.innerHTML=`
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 12px">
       <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#4b5563">Market prices shown</span>
-      <div id="fxMktSrc" role="group" aria-label="Which market price is displayed on screen">
+      <div id="fxMktSrc" class="fx-mkt-src" role="group" aria-label="Which market price is displayed on screen">
         <button type="button" aria-pressed="${_te?'false':'true'}" onclick="fxSetMktSrc('marex')">Marex</button>
         <button type="button" aria-pressed="${_te?'true':'false'}" onclick="fxSetMktSrc('te')">TotalEnergies</button>
       </div>
