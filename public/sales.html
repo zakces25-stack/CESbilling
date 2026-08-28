@@ -10,31 +10,9 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
-  <link rel="apple-touch-icon" sizes="180x180" href="/sales-apple-touch-icon.png">
-  <!-- Sales-specific manifest: Add to Home Screen from this page installs the
-       "CES Sales" app, which opens the mobile shell at /sales-app.html. -->
-  <link rel="manifest" href="/sales.webmanifest">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
   <meta name="theme-color" content="#2f3d7e">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="CES Sales">
-  <!-- iOS launch screens for the installed app (read at install time from this page) -->
-  <link rel="apple-touch-startup-image" media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="/sales-splash-640x1136.png" />
-  <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="/sales-splash-750x1334.png" />
-  <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/sales-splash-1242x2208.png" />
-  <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/sales-splash-1125x2436.png" />
-  <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="/sales-splash-828x1792.png" />
-  <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/sales-splash-1242x2688.png" />
-  <link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/sales-splash-1170x2532.png" />
-  <link rel="apple-touch-startup-image" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/sales-splash-1179x2556.png" />
-  <link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/sales-splash-1284x2778.png" />
-  <link rel="apple-touch-startup-image" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/sales-splash-1290x2796.png" />
-  <link rel="apple-touch-startup-image" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/sales-splash-1206x2622.png" />
-  <link rel="apple-touch-startup-image" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/sales-splash-1320x2868.png" />
-  <link rel="apple-touch-startup-image" media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="/sales-splash-1536x2048.png" />
-  <link rel="apple-touch-startup-image" media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="/sales-splash-1668x2388.png" />
-  <link rel="apple-touch-startup-image" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="/sales-splash-2048x2732.png" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -4883,6 +4861,54 @@
       if (ov != null && ov !== '' && kwh) return (Number(ov) || 0) / 100 * kwh;
       return Math.max(0, (Number(k.billing_total)||0) - (Number(k.consultancy)||0));
     }
+    // ── Guard rails on the hand-typed avg-commission override ──────────────────────
+    // contract_billing_eff is a GENERATED column that obeys uplift_override outright, so a
+    // mistyped rate silently rewrites the month's contract billing and every chart, the
+    // leaderboard and the month-end report that read it. Aug-2026: 0.13 was typed against a
+    // calculated 0.91, which put contract billing at 7,977 instead of 55,665.
+    // _skOverrideCalc returns the rate the figures actually work out to, in p/kWh.
+    function _skOverrideCalc(billing, consultancy, kwh){
+      kwh = Number(kwh) || 0;
+      if(!kwh) return null;
+      return Math.max(0, (Number(billing)||0) - (Number(consultancy)||0)) / kwh * 100;
+    }
+    var _SK_OV_TOL = 0.25;   // more than 25% off the calculation and we ask
+    function _skOverrideHint(prefix){
+      var host = document.getElementById(prefix + 'uplift_hint'); if(!host) return;
+      var g = function(id){ return parseFloat((document.getElementById(prefix + id)||{}).value) || 0; };
+      var kwh = g('total_kwh'), calc = _skOverrideCalc(g('billing_total'), g('consultancy'), kwh);
+      if(calc == null){ host.textContent = ''; return; }
+      var contract = Math.max(0, g('billing_total') - g('consultancy'));
+      var ovEl = document.getElementById(prefix + 'uplift_override');
+      var raw = ovEl ? String(ovEl.value == null ? '' : ovEl.value).trim() : '';
+      if(raw === ''){
+        host.style.color = 'var(--muted)';
+        host.textContent = 'Calculated: ' + calc.toFixed(2) + 'p/kWh \u2014 contract billing ' + _skMoney(contract) + ' (billing less consultancy / direct).';
+        return;
+      }
+      var ov = parseFloat(raw) || 0, off = calc > 0 && Math.abs(ov - calc) > calc * _SK_OV_TOL;
+      host.style.color = off ? '#b5340f' : '#2f7d4f';
+      host.textContent = (off ? '\u26A0 ' : '\u2713 ') + 'Override ' + ov.toFixed(2) + 'p/kWh replaces the calculated '
+        + calc.toFixed(2) + 'p/kWh \u2014 contract billing ' + _skMoney(ov/100*kwh) + ' instead of ' + _skMoney(contract) + '.'
+        + (off ? ' That is a big gap \u2014 check it is intended, or clear the box to use the calculation.' : '');
+    }
+    // Returns a confirm() message when the override is materially adrift, else null.
+    function _skOverrideWarning(rec){
+      if(!rec || rec.uplift_override == null || rec.uplift_override === '') return null;
+      var kwh = Number(rec.total_kwh) || 0;
+      var calc = _skOverrideCalc(rec.billing_total, rec.consultancy, kwh);
+      if(calc == null || calc <= 0) return null;
+      var ov = Number(rec.uplift_override) || 0;
+      if(Math.abs(ov - calc) <= calc * _SK_OV_TOL) return null;
+      var contract = Math.max(0, (Number(rec.billing_total)||0) - (Number(rec.consultancy)||0));
+      return 'Check the avg commission override.\n\n'
+        + 'You have entered ' + ov.toFixed(2) + 'p/kWh, but these figures calculate to ' + calc.toFixed(2) + 'p/kWh.\n\n'
+        + 'The override REPLACES the calculation. Saving this sets contract billing to '
+        + _skMoney(ov/100*kwh) + ' instead of ' + _skMoney(contract) + ', and that figure feeds the '
+        + 'leaderboard, every uplift chart and the month-end report.\n\n'
+        + 'Leave the override blank to use the calculated ' + calc.toFixed(2) + 'p/kWh.\n\n'
+        + 'Save the override anyway?';
+    }
     function _skHasOverride(k){
       if (!k) return false;
       if (k._has_override != null) return !!k._has_override;
@@ -4986,10 +5012,13 @@
       sel.innerHTML = _SK.reps.map(function(r){ return '<option value="' + r.id + '">' + escapeHtml(r.name) + '</option>'; }).join('');
     }
     function _skEntryFieldsHtml(prefix, skipNotes, withOverride){
+      // The three fields the calculated rate is built from re-run the hint as they change.
+      var _ovWatch = { billing_total:1, consultancy:1, total_kwh:1 };
       return _SK_FIELDS.map(function(f){
-        return '<div class="form-group"><label>' + f[1] + '</label><input type="number" step="any" id="' + prefix + f[0] + '"></div>';
+        var hook = (withOverride && _ovWatch[f[0]]) ? ' oninput="_skOverrideHint(\'' + prefix + '\')"' : '';
+        return '<div class="form-group"><label>' + f[1] + '</label><input type="number" step="any" id="' + prefix + f[0] + '"' + hook + '></div>';
       }).join('')
-      + (withOverride ? '<div class="form-group"><label>Avg commission override (p/kWh) <span style="font-weight:600;color:var(--muted);text-transform:none;">&mdash; leave blank to calculate</span></label><input type="number" step="0.01" min="0" id="' + prefix + 'uplift_override' + '" placeholder="calculated"></div>' : '')
+      + (withOverride ? '<div class="form-group"><label>Avg commission override (p/kWh) <span style="font-weight:600;color:var(--muted);text-transform:none;">&mdash; leave blank to calculate</span></label><input type="number" step="0.01" min="0" id="' + prefix + 'uplift_override' + '" placeholder="calculated" oninput="_skOverrideHint(\'' + prefix + '\')"><div id="' + prefix + 'uplift_hint" style="font-size:11.5px;font-weight:700;margin-top:5px;line-height:1.4;"></div></div>' : '')
       + (skipNotes ? '' : '<div class="form-group" style="grid-column:1/-1"><label>Notes</label><input type="text" id="' + prefix + 'notes"></div>');
     }
     function _skFillEntry(prefix, k){
@@ -4998,6 +5027,7 @@
       var ov = document.getElementById(prefix + 'uplift_override');
       if(ov) ov.value = (k.uplift_override != null ? k.uplift_override : '');
       var n = document.getElementById(prefix + 'notes'); if(n) n.value = k.notes || '';
+      _skOverrideHint(prefix);
     }
     function _skReadEntry(prefix, repId, key){
       var rec = { rep_id:repId, period:key, updated_at:new Date().toISOString() };
@@ -5277,9 +5307,12 @@
         // headline block
         ws.mergeCells(1,1,1,nCols);
         var t=ws.getCell(1,1); t.value='CES Sales KPIs — '+mlab; t.font={bold:true,size:16,color:{argb:WHITE}}; t.alignment={vertical:'middle',horizontal:'left'}; t.fill={type:'pattern',pattern:'solid',fgColor:{argb:NAVY}}; ws.getRow(1).height=30;
-        var pkB=0,pkK=0; reps.forEach(function(r){ pkB+=_meVal(effByRep[r.id],'billing_total'); pkK+=_meVal(effByRep[r.id],'total_kwh'); });
+        // The headline uplift must match the __uplift column in the table below it:
+        // contract billing (net of consultancy, override-aware) / kWh. Dividing raw
+        // billing_total printed a different rate in the header to the one in the rows.
+        var pkB=0,pkK=0,pkC=0; reps.forEach(function(r){ pkB+=_meVal(effByRep[r.id],'billing_total'); pkK+=_meVal(effByRep[r.id],'total_kwh'); pkC+=_skContractBill(effByRep[r.id]); });
         ws.mergeCells(2,1,2,nCols);
-        var s=ws.getCell(2,1); s.value='Team billing '+_skMoney(pkB)+'    ·    avg uplift '+_skNum(pkK?pkB/pkK*100:0,2)+'p/kWh    ·    compared against '+plab; s.font={size:11,color:{argb:'FF4A4E5C'}}; s.alignment={horizontal:'left'}; ws.getRow(2).height=18;
+        var s=ws.getCell(2,1); s.value='Team billing '+_skMoney(pkB)+'    ·    avg uplift '+_skNum(pkK?pkC/pkK*100:0,2)+'p/kWh    ·    compared against '+plab; s.font={size:11,color:{argb:'FF4A4E5C'}}; s.alignment={horizontal:'left'}; ws.getRow(2).height=18;
         ws.mergeCells(3,1,3,nCols);
         var st=ws.getCell(3,1);
         if(missing.length){ st.value='DRAFT — awaiting submission from: '+missing.map(function(r){return r.name;}).join(', '); st.font={size:10.5,bold:true,color:{argb:'FF8A6D00'}}; st.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFDF3E7'}}; }
@@ -5341,7 +5374,9 @@
         ws2.addRow([]);
         var h2=ws2.addRow(['Month','Team Billing (£)','Avg Uplift (p/kWh)']); h2.eachCell(function(cell){ cell.font={bold:true,color:{argb:WHITE}}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:NAVY}}; cell.alignment={horizontal:'left'}; cell.border={bottom:thin}; });
         var teamByMonth=[], teamUpByMonth=[], prevB=null;
-        months.forEach(function(p){ var b=0,kw=0; _SK.eff.forEach(function(e){ if(e.period===p){ b+=Number(e.billing_total)||0; kw+=Number(e.total_kwh)||0; } }); var up=kw?b/kw*100:0, lab=_skPeriodLabel(p);
+        // b = raw billing for the money column; cb = contract billing for the uplift,
+        // so this sheet agrees with the on-screen teamUpByMonth series.
+        months.forEach(function(p){ var b=0,kw=0,cb=0; _SK.eff.forEach(function(e){ if(e.period===p){ b+=Number(e.billing_total)||0; cb+=_skContractBill(e); kw+=Number(e.total_kwh)||0; } }); var up=kw?cb/kw*100:0, lab=_skPeriodLabel(p);
           teamByMonth.push({label:lab,val:b}); teamUpByMonth.push({label:lab,val:up});
           var rr=ws2.addRow([lab,b,up]); rr.getCell(2).numFmt='£#,##0'; rr.getCell(3).numFmt='0.00'; rr.eachCell(function(cell){ cell.border={bottom:thin}; });
           if(prevB!==null && prevB>0 && b<prevB*0.85){ rr.getCell(2).font={bold:true,color:{argb:RED}}; rr.getCell(2).fill={type:'pattern',pattern:'solid',fgColor:{argb:REDBG}}; }
@@ -5398,6 +5433,8 @@
       var key = _skMonthKey('skKpiPeriod');
       if(!repId || !key){ safeAlert('Pick a rep and a month.', null); return; }
       var rec = _skReadEntry('sk_', repId, key);
+      var ovWarn = _skOverrideWarning(rec);
+      if(ovWarn && !window.confirm(ovWarn)) return;
       var resp = await sb.from('broker_kpis').upsert(rec, { onConflict:'rep_id,period' });
       if(resp.error){ safeAlert('Could not save these figures.', resp.error); return; }
       logAction('save_broker_kpi', null, { rep_id:repId, period:key });
@@ -5766,7 +5803,7 @@
       panels.push(_skChartPanel('🌱 New business vs retained', _skStackBars(hist.map(function(h){ return { label:_skPeriodLabel(h.period), retained:Math.max(0,(Number(h.billing_total)||0)-(Number(h.new_business_gbp)||0)), newbiz:Number(h.new_business_gbp)||0 }; }))));
       var avg = _skTeamAvgByMonth();
       panels.push(_skChartPanel('🏆 You vs team average', _skGroupBars(hist.map(function(h){ return { label:_skPeriodLabel(h.period), a:Number(h.billing_total)||0, b:avg[h.period]||0 }; }), 'You', 'Team avg')));
-      panels.push(_skChartPanel('⚡ Average uplift (p/kWh)', _skColBars(hist.map(function(h){ return { label:_skPeriodLabel(h.period), val:(Number(h.total_kwh)||0) ? (Number(h.billing_total)||0)/(Number(h.total_kwh)||0)*100 : 0 }; }), { color:'#7a5cc0', dp:2, unit:'p/kWh' })));
+      panels.push(_skChartPanel('⚡ Average uplift (p/kWh)', _skColBars(hist.map(function(h){ return { label:_skPeriodLabel(h.period), val:(Number(h.total_kwh)||0) ? _skContractBill(h)/(Number(h.total_kwh)||0)*100 : 0 }; }), { color:'#7a5cc0', dp:2, unit:'p/kWh' })));
       panels.push(_skChartPanel('🎯 % to target — ' + _skPeriodLabel(key), _skGauge(tgt > 0 ? (Number(k.billing_total)||0)/tgt*100 : 0)));
       if(gridHost) gridHost.innerHTML = panels.join('');
     }
@@ -7161,6 +7198,8 @@
       var rec=_skReadEntry('lead_', rep, key);
       var lr=document.getElementById('lead_lost_reason'); rec.lost_reason=(lr && lr.value.trim())? lr.value.trim() : null;
       if(((Number(rec.lost_customers)||0)>0 || (Number(rec.lost_meters)||0)>0) && !rec.lost_reason){ safeAlert('You entered lost customers/meters — please add the reason why.', null); if(lr && lr.focus) lr.focus(); return; }
+      var ovWarn=_skOverrideWarning(rec);
+      if(ovWarn && !window.confirm(ovWarn)) return;
       var resp=await sb.from('broker_kpis').upsert(rec, { onConflict:'rep_id,period' });
       if(resp.error){ safeAlert('Could not save these figures.', resp.error); return; }
       var nm={}; (_SK.reps||[]).forEach(function(r){ nm[r.id]=r.name; });
