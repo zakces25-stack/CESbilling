@@ -5510,7 +5510,7 @@
     var _SK_FIELDS = [
       ['billing_total', 'Billing total (£, annual equivalent — include consultancy / direct £)'],
       ['long_term_total', 'Long term total (£)'],
-      ['consultancy', 'Consultancy / direct sales (£) · shared saving, metering, fixed fees — excluded from uplift'],
+      ['consultancy', 'Consultancy / direct sales (£) · shared saving, metering, fixed fees — recorded, included in billing total'],
       ['total_kwh', 'Total kWh'],
       ['new_business_gbp', 'Total new business (£)'],
       ['new_business_kwh', 'Total new business (kWh)'],
@@ -5527,8 +5527,10 @@
     function _skMoney(n){ return '£' + (Number(n)||0).toLocaleString('en-GB', { maximumFractionDigits:0 }); }
     function _skNum(n, dp){ return (Number(n)||0).toLocaleString('en-GB', { minimumFractionDigits:dp||0, maximumFractionDigits:dp||0 }); }
     function _skUplift(bill, kwh){ kwh = Number(kwh)||0; if(!kwh) return '—'; return ((Number(bill)||0)/kwh*100).toFixed(2); }
-    // Contract billing = billing minus consultancy/direct £ (shared savings, metering, fixed fees).
-    // Direct sales carry no kWh, so they must never dilute or inflate the average uplift.
+    // Billing behind the average commission rate. From 28 Aug 2026 this is BILLING TOTAL:
+    // consultancy / direct sales are no longer deducted. Mirrors the broker_kpis
+    // .contract_billing_eff generated column exactly — change both together or the portal
+    // and the emailed month-end report will disagree.
     function _skContractBill(k){
       k = k || {};
       // Aggregates arrive with a pre-summed, override-aware value.
@@ -5536,7 +5538,7 @@
       // A manual override from the Head of Sales replaces the arithmetic entirely.
       var ov = k.uplift_override, kwh = Number(k.total_kwh) || 0;
       if (ov != null && ov !== '' && kwh) return (Number(ov) || 0) / 100 * kwh;
-      return Math.max(0, (Number(k.billing_total)||0) - (Number(k.consultancy)||0));
+      return Math.max(0, Number(k.billing_total)||0);
     }
     // ── Guard rails on the hand-typed avg-commission override ──────────────────────
     // contract_billing_eff is a GENERATED column that obeys uplift_override outright, so a
@@ -5544,10 +5546,12 @@
     // leaderboard and the month-end report that read it. Aug-2026: 0.13 was typed against a
     // calculated 0.91, which put contract billing at 7,977 instead of 55,665.
     // _skOverrideCalc returns the rate the figures actually work out to, in p/kWh.
+    // Rate the figures work out to, in p/kWh: billing total / kWh. Consultancy is not
+    // deducted (28 Aug 2026) — kept as an argument so the call sites stay readable.
     function _skOverrideCalc(billing, consultancy, kwh){
       kwh = Number(kwh) || 0;
       if(!kwh) return null;
-      return Math.max(0, (Number(billing)||0) - (Number(consultancy)||0)) / kwh * 100;
+      return Math.max(0, Number(billing)||0) / kwh * 100;
     }
     var _SK_OV_TOL = 0.25;   // more than 25% off the calculation and we ask
     function _skOverrideHint(prefix){
@@ -5555,18 +5559,18 @@
       var g = function(id){ return parseFloat((document.getElementById(prefix + id)||{}).value) || 0; };
       var kwh = g('total_kwh'), calc = _skOverrideCalc(g('billing_total'), g('consultancy'), kwh);
       if(calc == null){ host.textContent = ''; return; }
-      var contract = Math.max(0, g('billing_total') - g('consultancy'));
+      var contract = Math.max(0, g('billing_total'));
       var ovEl = document.getElementById(prefix + 'uplift_override');
       var raw = ovEl ? String(ovEl.value == null ? '' : ovEl.value).trim() : '';
       if(raw === ''){
         host.style.color = 'var(--muted)';
-        host.textContent = 'Calculated: ' + calc.toFixed(2) + 'p/kWh \u2014 contract billing ' + _skMoney(contract) + ' (billing less consultancy / direct).';
+        host.textContent = 'Calculated: ' + calc.toFixed(2) + 'p/kWh \u2014 billing total ' + _skMoney(contract) + ' \u00f7 kWh.';
         return;
       }
       var ov = parseFloat(raw) || 0, off = calc > 0 && Math.abs(ov - calc) > calc * _SK_OV_TOL;
       host.style.color = off ? '#b5340f' : '#2f7d4f';
       host.textContent = (off ? '\u26A0 ' : '\u2713 ') + 'Override ' + ov.toFixed(2) + 'p/kWh replaces the calculated '
-        + calc.toFixed(2) + 'p/kWh \u2014 contract billing ' + _skMoney(ov/100*kwh) + ' instead of ' + _skMoney(contract) + '.'
+        + calc.toFixed(2) + 'p/kWh \u2014 billing behind the rate ' + _skMoney(ov/100*kwh) + ' instead of ' + _skMoney(contract) + '.'
         + (off ? ' That is a big gap \u2014 check it is intended, or clear the box to use the calculation.' : '');
     }
     // Returns a confirm() message when the override is materially adrift, else null.
@@ -5577,10 +5581,10 @@
       if(calc == null || calc <= 0) return null;
       var ov = Number(rec.uplift_override) || 0;
       if(Math.abs(ov - calc) <= calc * _SK_OV_TOL) return null;
-      var contract = Math.max(0, (Number(rec.billing_total)||0) - (Number(rec.consultancy)||0));
+      var contract = Math.max(0, Number(rec.billing_total)||0);
       return 'Check the avg commission override.\n\n'
         + 'You have entered ' + ov.toFixed(2) + 'p/kWh, but these figures calculate to ' + calc.toFixed(2) + 'p/kWh.\n\n'
-        + 'The override REPLACES the calculation. Saving this sets contract billing to '
+        + 'The override REPLACES the calculation. Saving this sets the billing behind the rate to '
         + _skMoney(ov/100*kwh) + ' instead of ' + _skMoney(contract) + ', and that figure feeds the '
         + 'leaderboard, every uplift chart and the month-end report.\n\n'
         + 'Leave the override blank to use the calculated ' + calc.toFixed(2) + 'p/kWh.\n\n'
@@ -5817,7 +5821,7 @@
       {k:'long_term_total',label:'Long Term',fmt:'money',flag:true},
       {k:'consultancy',label:'Consultancy / Direct',fmt:'money',flag:false},
       {k:'total_kwh',label:'Total kWh',fmt:'int',flag:true},
-      {k:'__uplift',label:'Avg commission (p/kWh, contracts)',fmt:'uplift',flag:true},
+      {k:'__uplift',label:'Avg commission (p/kWh)',fmt:'uplift',flag:true},
       {k:'lost_customers',label:'Lost Customers',fmt:'int',flag:false},
       {k:'lost_kwh',label:'Lost kWh',fmt:'int',flag:false},
       {k:'new_business_gbp',label:'New Business £',fmt:'money',flag:true},
@@ -6230,7 +6234,7 @@
         _skCard('Billing this month', _skMoney(k.billing_total)) +
         _skCard('% to target', pct, tgt > 0 ? ('Target ' + _skMoney(tgt)) : 'No target set') +
         _skCard('New business', _skMoney(k.new_business_gbp)) +
-        _skCard('Avg uplift (contracts)', _skUplift(_skContractBill(k), k.total_kwh) + ' p/kWh', 'excl. consultancy / direct £') +
+        _skCard('Avg uplift', _skUplift(_skContractBill(k), k.total_kwh) + ' p/kWh', 'billing total ÷ kWh') +
         (comm ? _skCard('Commission (month)', _skMoney(comm.commission), 'Private to you') : '');
       renderMyTrend();
     }
