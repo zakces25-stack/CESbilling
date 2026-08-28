@@ -434,11 +434,21 @@ const CX = (() => {
   return { sb, company:'' };
 })();
 
-let D = { baskets:[], positions:{}, trades:{}, targets:{}, sites:{}, curve:{}, reports:[] };
+let D = { baskets:[], positions:{}, trades:{}, targets:{}, sites:{}, curve:{}, te:{gas:{},power:{}}, reports:[] };
 let VIEW = 'baskets', OPEN = null, SUB = 'positions';
 const CHARTS = {};
 
 /* ── helpers ─────────────────────────────────────────────────────────── */
+/* Market price shown to a customer. TotalEnergies for that exact month; where they
+   have not priced a month — a season they skipped, a curve that stops short — that
+   month alone falls back to the price already on the position row. Display only:
+   it is never fed back into a total, an average, a cost or a comparison. */
+function cxMktPrice(basket, row){
+  const t = (D.te && D.te[basket && basket.commodity]) || {};
+  const v = t[String(row.month).slice(0,10)];
+  if (v != null) return +v;
+  return (row.market_price == null) ? null : +row.market_price;
+}
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const n2 = v => v==null||v===''?'—':(+v).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});
 const n0 = v => v==null||v===''?'—':Math.round(+v).toLocaleString('en-GB');
@@ -500,18 +510,22 @@ function bootMsg(html){ document.getElementById('bootTxt').innerHTML = html; }
 
 /* ── load ────────────────────────────────────────────────────────────── */
 async function load(){
-  const [bk,ps,tr,tg,st,cv,rp,me] = await Promise.all([
+  const [bk,ps,tr,tg,st,cv,te,rp,me] = await Promise.all([
     CX.sb.from('flex_client_baskets').select('id,name,commodity,unit_vol,unit_price').order('name'),
     CX.sb.from('flex_client_positions').select('*').order('month'),
     CX.sb.from('flex_client_trades').select('*').order('trade_date'),
     CX.sb.from('flex_client_targets').select('*').order('month'),
     CX.sb.from('flex_client_sites').select('*').order('mpxn'),
     CX.sb.from('flex_client_curves').select('commodity,period_type,period_label,month,mid,updated_at'),
+    CX.sb.from('flex_client_te_curves').select('commodity,month,mid').order('month'),
     CX.sb.from('flex_reports').select('id,kind,title,period_label,report_date,body,pdf_path,pdf_name,pdf_size')
          .eq('published',true).order('report_date',{ascending:false}),
     CX.sb.from('customers').select('customer_id,company_name').maybeSingle()
   ]);
   for(const r of [bk,ps,tr,tg,st,cv,rp]) if(r.error) throw new Error(r.error.message);
+  // A missing or unreadable TotalEnergies curve must never take the portal down —
+  // it degrades to the Marex figure the positions view already carries.
+  if(te.error) console.warn('supplier curve unavailable:', te.error.message);
 
   D.baskets = bk.data||[];
   const by = (rows,key)=>{const o={};for(const r of (rows||[]))(o[r[key]] ??= []).push(r);return o;};
@@ -528,6 +542,12 @@ async function load(){
     gas:  {months:grp('gas','month'),  quarters:grp('gas','quarter'),  seasons:grp('gas','season'),  annuals:grp('gas','annual')},
     power:{months:grp('power','month'),quarters:grp('power','quarter'),seasons:grp('power','season'),annuals:grp('power','annual')}
   };
+  // Supplier (TotalEnergies) curve, keyed month → mid. This is the only market price a
+  // customer is shown. It is DISPLAY ONLY: every figure beside it on this page — secured
+  // cost, mark-to-market, delivered rate, secured %, targets — arrives already calculated
+  // from flex_client_positions, which resolves off Marex and is not touched by any of this.
+  D.te = {gas:{}, power:{}};
+  for(const r of (te.data||[])) if(D.te[r.commodity] && r.month) D.te[r.commodity][String(r.month).slice(0,10)] = (r.mid==null?null:+r.mid);
   D.reports = rp.data||[];
   if(me.error) console.warn('company name unavailable:', me.error.message);
   CX.company = (me.data && me.data.company_name) || '';
@@ -792,7 +812,7 @@ function subPositions(b,host){
     </div>
     ${rows.length?`<div class="tbwrap"><table>
       <caption>Volumes in ${isP?'MW / MWh':'th/d / therms'}; rates in ${esc(b.unit_price||'')}.
-        Market price is the live forward curve for that month, or its season where no month price exists.
+        Market price is your supplier's indicative forward price for that month.
         Delivered rate is the mark-to-market price converted to p/kWh plus that season's non-energy costs.</caption>
       <thead><tr>
         <th scope="col">Month</th><th scope="col">Season</th>
@@ -819,7 +839,7 @@ function subPositions(b,host){
           <td class="num">${pct(r.secured_pct)}</td>
           <td class="num">${money(r.secured_cost)}</td>
           <td class="num">${n4(r.open_vol)}</td>
-          <td class="num">${n2(r.market_price)}</td>
+          <td class="num">${n2(cxMktPrice(b,r))}</td>
           <td class="num">${r.delivered_rate==null?'—':(+r.delivered_rate).toFixed(3)}</td>
           <td class="num">${signed(r.mtm_cost)}</td>
           <td class="num">${nextTarget(t)}</td>
@@ -1026,7 +1046,7 @@ function subGraphs(b,host){
       {label:'Secured WAP',data:flt.map(r=>(r.secured_wap!=null&&r.secured_wap>0)?+r.secured_wap:null),
        borderColor:PURPLE,backgroundColor:PURPLE,borderWidth:2.5,pointRadius:3,
        spanGaps:false,tension:.15,fill:false},
-      {label:'Market Price',data:flt.map(r=>(r.market_price!=null&&r.market_price>0)?+r.market_price:null),
+      {label:'Market Price',data:flt.map(r=>{const v=cxMktPrice(b,r);return (v!=null&&v>0)?v:null;}),
        borderColor:AMBER,backgroundColor:AMBER,borderWidth:2,borderDash:[5,4],
        pointRadius:2,spanGaps:false,tension:.15,fill:false},
       {label:'MtM Price',data:flt.map(r=>(r.mtm_price!=null&&r.mtm_price>0)?+r.mtm_price:null),
@@ -1126,12 +1146,23 @@ function drawSceneChart(){
 
   // The forward market curve for the commodities this client actually holds.
   const from = nowMonth(), byM = {};
+  // Same rule as the Mkt price column: the supplier's curve, Marex only for the months
+  // the supplier has not priced. The backdrop is normalised to its own min/max so no
+  // absolute figure is legible, but its SHAPE should still be the curve the client is shown.
   for (const c of ['power','gas']){
     if (!D.baskets.some(b => b.commodity === c)) continue;
+    const te = (D.te && D.te[c]) || {}, seen = new Set();
     for (const m of ((D.curve[c] || {}).months || [])){
       const mk = m.month ? String(m.month).slice(0,10) : null;
-      if (!mk || mk < from || m.mid == null) continue;
-      (byM[mk] ??= []).push(+m.mid);
+      if (!mk || mk < from) continue;
+      const v = (te[mk] != null) ? te[mk] : m.mid;
+      if (v == null) continue;
+      seen.add(mk);
+      (byM[mk] ??= []).push(+v);
+    }
+    for (const mk of Object.keys(te)){          // supplier months beyond the Marex forward list
+      if (mk < from || seen.has(mk) || te[mk] == null) continue;
+      (byM[mk] ??= []).push(+te[mk]);
     }
   }
   const keys = Object.keys(byM).sort().slice(0, 54);

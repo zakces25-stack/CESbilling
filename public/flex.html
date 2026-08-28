@@ -1104,6 +1104,15 @@ tr.fx-alert-auth:hover td{ background:rgba(194,69,59,.32)!important; }
 tr.fx-alert-adv:hover td{ background:rgba(124,58,237,.28)!important; }
 tr.fx-alert-auth td:first-child{ border-left:4px solid var(--negative-500); font-weight:700; }
 tr.fx-alert-adv td:first-child{ border-left:4px solid var(--advisory-500); font-weight:700; }
+/* A Mkt price cell showing the TotalEnergies indicative figure. Deliberately a text
+   colour and not a row/background treatment: it must never read as an alert state,
+   because nothing on the row was calculated from this number. */
+td.fx-te-cell{ color:#a4560f; }
+#fxMktSrc{ display:inline-flex; border:1.5px solid #d8dbe4; border-radius:999px; overflow:hidden; background:#fff; }
+#fxMktSrc button{ border:0; background:transparent; font:inherit; font-size:12px; font-weight:700; color:#5a6488;
+  padding:6px 14px; cursor:pointer; line-height:1.2; }
+#fxMktSrc button[aria-pressed="true"]{ background:var(--navy,#2f3d7e); color:#fff; }
+#fxMktSrc button:focus-visible{ outline:2px solid var(--navy,#2f3d7e); outline-offset:-2px; }
 #fxPrevCurve > summary::-webkit-details-marker{display:none}
 #fxPrevCurve > summary::marker{content:""}
 #fxPrevCurve > summary:hover{filter:brightness(.98)}
@@ -1608,10 +1617,6 @@ button{transition:all .14s ease}
 .fx-rule-chip{margin-top:3px;font-size:9.5px;font-weight:700;letter-spacing:.3px;color:#0f6e56;background:#eaf6f1;border:1px solid #cfe9df;border-radius:999px;padding:1px 6px;display:inline-block;text-transform:none;font-family:var(--font-mono)}
 /* marks an achieved cell that ticked itself */
 .fx-auto-tag{margin-left:5px;font-size:8.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;opacity:.62;font-family:inherit}
-/* a month whose targets are all achieved — the achieved cells keep their stronger green */
-.fx-trow-hit > td{background:#e9f6ee}
-/* preview: this month's requirement was pulled in to its baseload */
-.fx-cap-tag{margin-left:5px;font-size:8.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#8a6d1f;background:#fdf4e0;border:1px solid #efdfb4;border-radius:999px;padding:0 5px}
 /* draggable session chip */
 .fx-grip{cursor:grab;user-select:none;opacity:.55;font-size:14px;line-height:1;padding-right:2px;letter-spacing:-1px}
 #flexChip:hover .fx-grip{opacity:.9}
@@ -1882,6 +1887,9 @@ const FX_TABLES = {
   trades:     ['flex_trades','id,basket_id,trade_ref,trade_date,counterparty,start_date,end_date,volume,product,strike,deal_type,cost',['basket_id','id']],
   targets:    ['flex_targets','basket_id,month,lower_t1,t1_achieved,lower_t2,t2_achieved,lower_t3,t3_achieved,lower_t4,t4_achieved,lower_t5,t5_achieved,lower_t6,t6_achieved,lower_t7,t7_achieved,lower_t8,t8_achieved,upper_alert,t1_kind,t2_kind,t3_kind,t4_kind,t5_kind,t6_kind,t7_kind,t8_kind',['basket_id','month']],
   curves:     ['flex_curves','id,commodity,period_type,period_label,month,mid,pct_chg,updated_at',['id']],
+  // TotalEnergies indicative curve. DISPLAY ONLY — it is never joined into flex_positions
+  // and never feeds a cost, MtM, delivered rate, target or alert on any portal.
+  teCurves:   ['flex_te_curves','commodity,month,mid,updated_at',['commodity','month']],
   orders:     ['flex_firm_orders','id,commodity,basket_name,period,volume,price',['id']],
   contacts:   ['flex_contacts','id,supplier,note,details',['id']],
   deadlines:  ['flex_sefe_deadlines','id,period,last_trading,deadline',['id']],
@@ -1917,7 +1925,7 @@ function fxBuildData(){
         curves=RAW.curves||[], orders=RAW.orders||[], contacts=RAW.contacts||[], deadlines=RAW.deadlines||[],
         admin=RAW.admin||[], meta=RAW.meta||[], notes=RAW.notes||[], adminCells=RAW.adminCells||[],
         adminCols=RAW.adminCols||[], adminMonths=RAW.adminMonths||[], sites=RAW.sites||[], necs=RAW.necs||[],
-        targetTrades=RAW.targetTrades||[];
+        targetTrades=RAW.targetTrades||[], teCurves=RAW.teCurves||[];
   const byM = {}, byT = {}, byG = {}, byTT = {};
   for (const t of targetTrades) (byTT[t.basket_id] ??= []).push({
     id: t.id, label: t.label || null,
@@ -1955,6 +1963,13 @@ function fxBuildData(){
   const _cu = curves.map(c=>c.updated_at).filter(Boolean).sort().pop();
   const _cuTxt = _cu ? new Date(_cu).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : null;
   const curveOf = f => ({ months: _grp(f,'month'), quarters: _grp(f,'quarter'), seasons: _grp(f,'season'), annuals: _grp(f,'annual') });
+  // TotalEnergies curve, keyed month → mid. A month present with a null mid means TE sent
+  // no price for it; the display then falls back to the Marex figure for THAT MONTH ONLY.
+  // Months only — TE send no quarter/season/annual periods. Nothing here is ever used in a
+  // calculation; see fxDisplayMkt().
+  const teOf = f => { const o = {}; for (const r of teCurves) if (r.commodity === f && r.month) o[String(r.month).slice(0,10)] = _num(r.mid); return o; };
+  const _teu = teCurves.map(c => c.updated_at).filter(Boolean).sort().pop();
+  const _teuTxt = _teu ? new Date(_teu).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : null;
   const ordersOf = f => orders.filter(o => o.commodity === f)
       .map(o => ({ basket: o.basket_name, period: o.period, volume: _num(o.volume), price: o.price }));
   const seedMeta = (meta.find(m => m.key === 'seed') || {}).value || {};
@@ -1974,6 +1989,7 @@ function fxBuildData(){
       edited_at: n.updated_at, edited_by: n.updated_by })),
     adminCells: adminCells.map(c => ({ id: c.id, row_id: c.row_id, month: c.month, vals: c.vals || {} })),
     curves: { gas: curveOf('gas'), power: curveOf('power'), last_updated: _cuTxt },
+    te:     { gas: teOf('gas'),    power: teOf('power'),    last_updated: _teuTxt },
     admin: { month_labels: seedMeta.admin_month_labels || [],
       months_list: (adminMonths||[]).map(r => String(r.month).slice(0,10)).sort(),
       month_label_map: Object.fromEntries((adminMonths||[]).map(r => [String(r.month).slice(0,10), r.label || null])),
@@ -2370,7 +2386,12 @@ function getNextTargetForMonth(basket, monthStr) {
       return { price };
     }
   }
-  return fxAllTargetsHit(basket, monthStr) ? { allHit: true } : null;
+  // Check if all non-null are achieved
+  let anyNonNull = false;
+  for (let i = 1; i <= numT; i++) {
+    if (t[`lower_t${i}`] != null) { anyNonNull = true; break; }
+  }
+  return anyNonNull ? { allHit: true } : null;
 }
 
 function getUpperAlertForMonth(basket, monthStr) {
@@ -2535,13 +2556,12 @@ function fxRuleLabel(basket, i) {
   return null;
 }
 
-// Cumulative requirement for column `i` BEFORE the baseload cap. Split out from
-// fxRequiredSecured so the rule preview can show when a rule has been pulled in, rather
-// than silently displaying a number that differs from what was typed.
+// Cumulative secured volume (in the basket's unit) that column `i` requires in month `m`.
 // null = not evaluable: column i carries no rule, an amount is missing, or there is no
 // baseload to measure a share against.
-function fxRequiredRaw(basket, i, base) {
+function fxRequiredSecured(basket, m, i) {
   if (fxTargetRule(basket, i).type === 'none') return null;
+  const base = (m && m.baseload_vol != null) ? m.baseload_vol : null;
   let cum = 0;
   for (let n = 1; n <= i; n++) {
     const r = fxTargetRule(basket, n);
@@ -2561,22 +2581,6 @@ function fxRequiredRaw(basket, i, base) {
     }
   }
   return cum;
-}
-
-// Cumulative secured volume (in the basket's unit) that column `i` requires in month `m`.
-function fxRequiredSecured(basket, m, i) {
-  const base = (m && m.baseload_vol != null) ? m.baseload_vol : null;
-  // No baseload to hedge means no meaningful test — better "not evaluable" than every
-  // target ticking green on a month that carries no volume.
-  if (base != null && !(base > 0)) return null;
-  const raw = fxRequiredRaw(basket, i, base);
-  if (raw == null) return null;
-  // A month can never secure more than its own baseload, so a requirement above it is
-  // unsatisfiable by construction: a 0.1 MW-per-tranche ladder asks 0.3 MW of a 0.25 MW
-  // meter, and that last target would sit pending forever — dragging the month out of
-  // "all hit" and putting its alert back on Positions. Capping means a full hedge always
-  // finishes the ladder, while the earlier rungs keep their real thresholds.
-  return (base != null) ? Math.min(raw, base) : raw;
 }
 
 // Compare at the precision the Positions tab displays, so a target can never read as
@@ -2605,32 +2609,6 @@ function fxIsAchieved(basket, t, i) {
   return fxAutoAchieved(basket, t, i) === true;
 }
 
-// Every target that actually carries a PRICE for this month is achieved. Columns left
-// blank are skipped, so a basket using only T1 and T2 counts as complete on those two
-// even where T3 is empty for the period. A month with no priced target at all returns
-// false — nothing was ever asked of it, so it cannot be "done".
-function fxAllTargetsHit(basket, monthStr) {
-  const t = (basket.targets || []).find(x => x.month === monthStr);
-  if (!t) return false;
-  const n = fxTierCount(basket);
-  let priced = 0;
-  for (let i = 1; i <= n; i++) {
-    if (t['lower_t' + i] == null) continue;
-    priced++;
-    if (!fxIsAchieved(basket, t, i)) return false;
-  }
-  return priced > 0;
-}
-
-// Months the targets tab will show: tradable ones only. The current month is already
-// spot and anything before it has settled, so neither can still be traded to a target.
-// Reads the live month clock rather than a value fixed at load, so the tab sheds a month
-// on its own the moment the 1st ticks over.
-function fxVisibleTargets(basket) {
-  const cut = fxNowMonth();
-  return (basket.targets || []).filter(t => t.month > cut);
-}
-
 
 function getNextUnachievedTarget(basket, monthStr) {
   const t = (basket.targets || []).find(t => t.month === monthStr);
@@ -2656,12 +2634,6 @@ function fxRowAlert(basket, m) {
   const mp = m.market_price;
   if (!mp) return null;
   if (m.month === fxNowMonth()) return null; // current month always uses day-ahead pricing — never let an alert fire
-  // Every target set for this month has been achieved: there is nothing left to buy, so
-  // there is nothing to warn about. An upper alert on a finished month is noise, and this
-  // is what lets such a month lose its colour without anyone having to clear the alert by
-  // hand. Suppression is deliberately total — it also silences an unhit lower target,
-  // because "all targets achieved" already says the month is done.
-  if (fxAllTargetsHit(basket, m.month)) return null;
   const t = (basket.targets || []).find(x => x.month === m.month);
   const n = fxTierCount(basket);
   let belowAny = false, belowAuth = false, hitPrice = null;
@@ -2767,6 +2739,39 @@ function fxTargetScenario(basket, m, necMap, trades){
   return { wap, mtm, deliv, over, addTot, newTot, baseTot, pct: baseTot > 0 ? newTot / baseTot : null };
 }
 
+// ── MARKET PRICE DISPLAY SOURCE (Marex | TotalEnergies) ──────────
+// TotalEnergies send an indicative curve we show to customers because it is the
+// supplier's own view of their price. It is DISPLAY ONLY. Marex stays the single
+// priced input to every calculation on this portal — secured/residual cost, MtM,
+// delivered rate, target hits, row alerts, basket alerts, notifications and every
+// export all read m.market_price, which is Marex-resolved and untouched by this
+// switch. The only thing FX_MKT_SRC changes is which number is printed on screen.
+let FX_MKT_SRC = 'marex';
+try { if (localStorage.getItem('fx-mkt-src') === 'te') FX_MKT_SRC = 'te'; } catch(e) {}
+function fxSetMktSrc(v){
+  const next = (v === 'te') ? 'te' : 'marex';
+  if (next === FX_MKT_SRC) return;
+  FX_MKT_SRC = next;
+  try { localStorage.setItem('fx-mkt-src', FX_MKT_SRC); } catch(e) {}
+  rerenderCurrent();
+  fxToast(FX_MKT_SRC === 'te'
+    ? 'Showing TotalEnergies prices — display only, no figure below them has changed'
+    : 'Showing Marex prices');
+}
+// TE price for one exact month, or null when TE left it blank / never sent it.
+function fxTePrice(commodity, monthIso){
+  const t = (DATA && DATA.te && DATA.te[commodity]) || {};
+  const v = t[String(monthIso).slice(0,10)];
+  return (v == null) ? null : v;
+}
+// What the Mkt price column prints. Falls back to Marex per missing month, never
+// per missing file — a gap in the TE curve only affects the months it actually covers.
+function fxDisplayMkt(basket, m){
+  if (FX_MKT_SRC !== 'te') return { v: m.market_price, te: false };
+  const v = fxTePrice(basket.commodity, m.month);
+  return (v != null) ? { v: v, te: true } : { v: m.market_price, te: false };
+}
+
 function renderPositionsTable(rows, basket) {
   const pu = basket.unit_price;
   const isPower = basket.commodity === 'power';
@@ -2797,7 +2802,8 @@ function renderPositionsTable(rows, basket) {
   const tDr = _drVals.length ? _drVals.reduce((a,b)=>a+b,0)/_drVals.length : null;
 
   const tableRows = rows.map(m => {
-    const alert = currentBasket ? fxRowAlert(currentBasket, m) : null;
+    const alert = currentBasket ? fxRowAlert(currentBasket, m) : null;   // always Marex — fxRowAlert reads m.market_price
+    const _dm = fxDisplayMkt(basket, m);                                 // printed price only
     const alertCls = alert ? (alert.kind === 'authorised' ? 'fx-alert-auth' : 'fx-alert-adv') : '';
     const alertTitle = alert ? ` title="${alert.label}"` : '';
     const pct = m.secured_pct || 0;
@@ -2838,7 +2844,7 @@ function renderPositionsTable(rows, basket) {
       </td>
       <td class="td-right">${fmtFull(m.secured_cost)}</td>
       <td class="td-right">${fmtVolC(m[volField_open], isPower)}</td>
-      <td class="td-right">${m.market_price ? m.market_price.toFixed(2) : '-'}</td>
+      <td class="td-right${_dm.te ? ' fx-te-cell' : ''}">${_dm.v ? _dm.v.toFixed(2) : '-'}</td>
       <td class="td-right">${(function(){ const dr=fxDeliveredRate(basket,m,_necMap); return dr!=null? dr.toFixed(3) : '<span style="color:#c8cdd8">—</span>'; })()}</td>
       <td class="td-right ${mtmClass}">${m.mtm_cost != null ? fmtFull(m.mtm_cost) : '-'}</td>
       ${ntCell}
@@ -3078,15 +3084,10 @@ function renderSeasons(basket) {
 
 // ── TARGETS ───────────────────────────────────────────────────────
 function renderTargets(basket) {
-  const targets = fxVisibleTargets(basket);
+  const targets = basket.targets || [];
 
   if (targets.length === 0) {
-    // Distinguish "never had any" from "all of them have rolled into the past", or the
-    // tab looks broken on a basket whose targets were simply all delivered.
-    const _had = (basket.targets || []).length > 0;
-    document.getElementById('tab-targets').innerHTML = '<div class="no-targets">' + (_had
-      ? 'No targets for any tradable month. Past and current months are no longer shown here.'
-      : 'No active targets for this basket.') + '</div>';
+    document.getElementById('tab-targets').innerHTML = '<div class="no-targets">No active targets for this basket.</div>';
     return;
   }
 
@@ -3140,10 +3141,7 @@ function renderTargets(basket) {
       tds += `<td class="td-right fx-twap${warn}"${tip}>${sc && sc.wap != null ? sc.wap.toFixed(2) : dash}</td>`
            + `<td class="td-right fx-twap${warn}">${sc && sc.deliv != null ? sc.deliv.toFixed(3) : dash}</td>`;
     }
-    // Whole row goes green once every target set for the month is achieved. Reads far
-    // faster than checking each cell, and matches the alert being dropped on Positions.
-    const _rowHit = fxAllTargetsHit(basket, t.month);
-    return `<tr${_rowHit ? ' class="fx-trow-hit" title="Every target set for this month is achieved"' : ''}>${tds}</tr>`;
+    return `<tr>${tds}</tr>`;
   }).join('');
 
   document.getElementById('tab-targets').innerHTML = `
@@ -3861,8 +3859,17 @@ renderPositionsTable = function(rows, basket){
   [...tbody.rows].forEach((tr,i)=>{
     const m = rows[i]; if(!m) return;
     const mktCell = tr.cells[8];
-    if (mktCell && m.mkt_source){
-      mktCell.title = 'Live from market curves — ' + m.mkt_source + (m.mkt_source==='stated'?' (no curve period covers this month yet)':' price');
+    const dm = fxDisplayMkt(basket, m);
+    if (mktCell && dm.te){
+      // Showing TotalEnergies. The Marex source annotation would be wrong here, and so
+      // would any hint that this figure drove the row's colour — it did not.
+      mktCell.title = 'TotalEnergies indicative price for ' + fmtMonth(m.month)
+        + ' — display only. Every figure on this row is still calculated from Marex '
+        + (m.market_price != null ? m.market_price.toFixed(2) : 'n/a') + '.';
+      mktCell.innerHTML += '<sup style="font-size:8px;color:#c26a1f;margin-left:2px" aria-hidden="true">TE</sup>';
+    } else if (mktCell && m.mkt_source){
+      mktCell.title = (FX_MKT_SRC === 'te' ? 'No TotalEnergies price for this month — showing Marex. ' : '')
+        + 'Live from market curves — ' + m.mkt_source + (m.mkt_source==='stated'?' (no curve period covers this month yet)':' price');
       if (m.mkt_source !== 'month') mktCell.innerHTML += `<sup style="font-size:8px;color:#8a92a6;margin-left:2px">${m.mkt_source==='season'?'S':'·'}</sup>`;
     }
     if (EDIT) fxMakeCellEditable(tr.cells[2], m.baseload_vol, v=>fxUpdMonth(basket, m, 'baseload_vol', v));
@@ -4468,7 +4475,7 @@ function fxLogRowHtml(r, fresh){
 // Collapse a burst (bulk import / many small edits) into one general line instead of every value.
 function fxLogFriendlyScope(r){
   if(r.basket_id){ const b=(BASKETS||[]).concat((DATA&&DATA.archived)||[]).find(x=>x.id===r.basket_id); if(b) return b.name; }
-  const map={flex_curve_history:'the market curve',flex_curves:'the market curve',flex_targets:'targets',flex_basket_months:'baseload volumes',flex_trades:'trades',flex_sites:'sites',flex_necs:'NECs',flex_admin_cells:'the admin schedule',flex_admin_schedule:'the admin schedule',flex_baskets:'baskets',flex_notes:'notes',flex_contacts:'contacts',flex_firm_orders:'firm orders'};
+  const map={flex_curve_history:'the market curve',flex_curves:'the market curve',flex_te_curves:'the TotalEnergies curve',flex_targets:'targets',flex_basket_months:'baseload volumes',flex_trades:'trades',flex_sites:'sites',flex_necs:'NECs',flex_admin_cells:'the admin schedule',flex_admin_schedule:'the admin schedule',flex_baskets:'baskets',flex_notes:'notes',flex_contacts:'contacts',flex_firm_orders:'firm orders'};
   return map[r.table_name]||(r.table_name||'the portal');
 }
 function fxLogGroupRowHtml(r,n){
@@ -4575,7 +4582,7 @@ function fxScopeFor(t){
 function fxStartRealtime(){
   const ch = FLEX.sb.channel('flex-data');
   ['flex_trades','flex_basket_months','flex_targets','flex_curves','flex_firm_orders','flex_baskets','flex_notes','flex_admin_cells','flex_contacts','flex_admin_schedule',
-   'flex_admin_months','flex_admin_columns','flex_target_trades']
+   'flex_admin_months','flex_admin_columns','flex_target_trades','flex_te_curves']
     .forEach(t=> ch.on('postgres_changes',{event:'*',schema:'public',table:t}, ()=> fxScheduleReload(fxScopeFor(t))));
   ch.on('postgres_changes',{event:'INSERT',schema:'public',table:'flex_audit'}, p=> fxLogPush(p.new));
   ch.subscribe();
@@ -5458,12 +5465,34 @@ renderCurves = function(){
   const section=(title,unit,d)=>`<div class="extra-section" style="margin-bottom:16px">
       <div class="extra-section-title">${title} (${unit})</div>
       ${hrow('Months',d.months,true)}${hrow('Quarters',d.quarters)}${hrow('Seasons',d.seasons)}${hrow('Annuals',d.annuals)}</div>`;
+  // TotalEnergies is months-only — they send no quarter, season or annual periods.
+  // A month held with no price is shown as a gap, because that is exactly what the
+  // client portal falls back to Marex on.
+  const teSection=(title,unit,f)=>{
+    const t=(DATA.te&&DATA.te[f])||{}, fwd=fxNextMonth();
+    const keys=Object.keys(t).filter(k=>k>=fwd).sort();
+    const blanks=keys.filter(k=>t[k]==null).length;
+    const body = keys.length
+      ? `<div style="margin-top:14px;overflow-x:auto"><table class="fx-htable">
+          <thead><tr><th class="rowlbl">Months</th>${keys.map(k=>`<th>${escape(fmtMonth(k))}</th>`).join('')}</tr></thead>
+          <tbody><tr><td class="rowlbl">Mid</td>${keys.map(k=>t[k]!=null
+            ? `<td>${t[k].toFixed(2)}</td>`
+            : `<td style="color:#b91c1c;font-weight:700" title="TotalEnergies sent no price for this month — the client portal shows the Marex price for this month only">&mdash;</td>`).join('')}</tr></tbody></table></div>`
+          + (blanks ? `<div style="font-size:11.5px;color:#b91c1c;margin-top:6px">${blanks} month${blanks>1?'s':''} with no TotalEnergies price &mdash; ${blanks>1?'those months fall':'that month falls'} back to Marex on the client portal.</div>` : '')
+      : `<div style="margin-top:12px;font-size:12.5px;color:#6b7280">No TotalEnergies prices imported for this commodity yet &mdash; use <b>Import TotalEnergies curve</b> above.</div>`;
+    return `<div class="extra-section" style="margin-bottom:16px"><div class="extra-section-title">${title} (${unit})</div>${body}</div>`;
+  };
   const _fxMoOpts=[['01','Jan'],['02','Feb'],['03','Mar'],['04','Apr'],['05','May'],['06','Jun'],['07','Jul'],['08','Aug'],['09','Sep'],['10','Oct'],['11','Nov'],['12','Dec']].map(function(m){return '<option value="'+m[0]+'">'+m[1]+'</option>';}).join('');
   let _fxYrOpts=''; for(let _y=2021;_y<=2032;_y++) _fxYrOpts+='<option value="'+_y+'">'+_y+'</option>';
+  const _te = (FX_MKT_SRC === 'te');
   el.innerHTML=`<div class="extra-tab-inner" id="fxCurvesInner">
-    ${section('NBP Gas Forward Curve','p/th',C.gas)}
-    ${section('UK Power Forward Curve','£/MWh',C.power)}
-    <p style="font-size:11px;color:var(--grey-400);text-align:right;margin:0;">Marex indicative forward curve — last updated ${C.last_updated || '—'}. Upcoming months only, from ${fmtMonth(fxNextMonth())} — ${fmtMonth(fxNowMonth())} is the current delivery month and has rolled into <b>Full market curve data</b> below. Basket market prices pull live: month first, then season.</p>
+    ${_te
+      ? teSection('NBP Gas &mdash; TotalEnergies indicative','p/th','gas')
+        + teSection('UK Power &mdash; TotalEnergies indicative','£/MWh','power')
+        + `<p style="font-size:11px;color:var(--grey-400);text-align:right;margin:0;">TotalEnergies indicative curve — last imported ${(DATA.te && DATA.te.last_updated) || '—'}. <b>Display only.</b> Every basket cost, mark-to-market, delivered rate, target and alert on this portal is still calculated from Marex; switch back above to see the Marex figures.</p>`
+      : section('NBP Gas Forward Curve','p/th',C.gas)
+        + section('UK Power Forward Curve','£/MWh',C.power)
+        + `<p style="font-size:11px;color:var(--grey-400);text-align:right;margin:0;">Marex indicative forward curve — last updated ${C.last_updated || '—'}. Upcoming months only, from ${fmtMonth(fxNextMonth())} — ${fmtMonth(fxNowMonth())} is the current delivery month and has rolled into <b>Full market curve data</b> below. Basket market prices pull live: month first, then season.</p>`}
     <details id="fxPrevCurve" ontoggle="if(this.open)fxRenderFullCurve()" style="margin-top:24px;">
       <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:12px;padding:15px 18px;border:2px solid var(--navy,#2f3d7e);border-radius:12px;background:linear-gradient(90deg,#eef1fb,#f6f8fe);color:var(--navy,#2f3d7e);font-weight:800;font-size:15px;user-select:none;box-shadow:0 2px 10px rgba(47,61,126,.10);">
         <span style="font-size:20px;line-height:1;">&#128202;</span>
@@ -5474,9 +5503,17 @@ renderCurves = function(){
       <div id="fxPrevCurveBody"></div>
     </details>
   </div>`;
-  // Marex dropzone + manual edit buttons
+  // Source toggle + Marex dropzone + TotalEnergies dropzone + manual edit buttons
   const bar=document.createElement('div'); bar.id='fxCurveBar'; bar.style.cssText='padding:0 0 12px';
   bar.innerHTML=`
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 12px">
+      <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#4b5563">Market prices shown</span>
+      <div id="fxMktSrc" role="group" aria-label="Which market price is displayed on screen">
+        <button type="button" aria-pressed="${_te?'false':'true'}" onclick="fxSetMktSrc('marex')">Marex</button>
+        <button type="button" aria-pressed="${_te?'true':'false'}" onclick="fxSetMktSrc('te')">TotalEnergies</button>
+      </div>
+      <span style="font-size:11.5px;color:#6b7280;flex:1;min-width:280px">Changes the printed figure on this tab and the <b>Mkt price</b> column only. Costs, mark-to-market, delivered rate, targets and alerts always calculate from Marex, whichever is selected.</span>
+    </div>
     <div id="fxDrop" style="border:2px dashed #aac91f;border-radius:13px;background:#fbfdf3;padding:16px 18px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:all .15s">
       <div style="font-size:26px">&#128229;</div>
       <div style="flex:1">
@@ -5488,6 +5525,17 @@ renderCurves = function(){
         <button class="fx-btn" onclick="event.stopPropagation();fxCurveModal('gas')">&#9998; Gas (manual)</button>
       </div>
       <input type="file" id="fxDropInput" accept=".xlsx,.xls" style="display:none">
+    </div>
+    <div id="fxTeDrop" style="border:2px dashed #e0a44a;border-radius:13px;background:#fffaf1;padding:16px 18px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:all .15s;margin-top:10px">
+      <div style="font-size:14px;font-weight:900;color:#a4560f;border:2px solid #e0a44a;border-radius:8px;padding:5px 8px;line-height:1">TE</div>
+      <div style="flex:1">
+        <div style="font-weight:800;font-size:13.5px;color:#141a3c">Import TotalEnergies curve</div>
+        <div style="font-size:11.5px;color:#6b7280">The supplier&rsquo;s own indicative prices &mdash; this is what customers see on the client portal. <b>Display only:</b> it changes no cost, mark-to-market, delivered rate, target or alert anywhere. Leave a month blank and that month alone falls back to Marex.</div>
+      </div>
+      <div class="fx-toolbar" style="margin:0">
+        <button class="fx-btn" onclick="event.stopPropagation();fxTeTemplate()">&#8623; Blank template (6 years)</button>
+      </div>
+      <input type="file" id="fxTeDropInput" accept=".xlsx,.xls" style="display:none">
     </div>`;
   const inner=document.getElementById('fxCurvesInner');
   inner.insertBefore(bar, inner.firstChild);
@@ -5498,7 +5546,153 @@ renderCurves = function(){
   ;['dragover','dragenter'].forEach(ev=>dz.addEventListener(ev, e=>{e.preventDefault();dz.style.background='#f0f6d8';}));
   ;['dragleave','drop'].forEach(ev=>dz.addEventListener(ev, e=>{e.preventDefault();dz.style.background='#fbfdf3';}));
   dz.addEventListener('drop', e=>{ const f=e.dataTransfer.files && e.dataTransfer.files[0]; if(f) fxParseMarex(f); });
+  const tz=document.getElementById('fxTeDrop'), tin=document.getElementById('fxTeDropInput');
+  tz.addEventListener('click', ()=>tin.click());
+  tin.addEventListener('change', ()=>{ if(tin.files[0]) fxParseTe(tin.files[0]); tin.value=''; });
+  ;['dragover','dragenter'].forEach(ev=>tz.addEventListener(ev, e=>{e.preventDefault();tz.style.background='#fdf1dd';}));
+  ;['dragleave','drop'].forEach(ev=>tz.addEventListener(ev, e=>{e.preventDefault();tz.style.background='#fffaf1';}));
+  tz.addEventListener('drop', e=>{ const f=e.dataTransfer.files && e.dataTransfer.files[0]; if(f) fxParseTe(f); });
 };
+
+// ── TOTALENERGIES CURVE: template, parse, preview, apply ─────────
+// Everything below writes to flex_te_curves and nowhere else. It must never call
+// flex_apply_curve, touch flex_basket_months.market_price or write flex_curve_history.
+// Month value accepted as a real date, an Excel serial, "Oct-26" or "2026-10-01".
+function fxTeMonth(v){
+  const iso = fxIsoMonth(v);
+  if (iso) return iso;
+  if (v == null) return null;
+  const s = String(v).trim(); if (!s) return null;
+  let m = /^([A-Za-z]{3,9})[-\s/]?(\d{2,4})$/.exec(s);
+  if (m){
+    const mo = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(m[1].slice(0,3).toLowerCase());
+    if (mo >= 0){ let y = +m[2]; if (y < 100) y += 2000; return y + '-' + String(mo+1).padStart(2,'0') + '-01'; }
+  }
+  m = /^(\d{4})[-/](\d{1,2})/.exec(s);
+  if (m) return m[1] + '-' + String(+m[2]).padStart(2,'0') + '-01';
+  m = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/.exec(s);   // dd/mm/yyyy
+  if (m) return m[3] + '-' + String(+m[2]).padStart(2,'0') + '-01';
+  return null;
+}
+function fxTeNum(raw){
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === 'number') return isFinite(raw) ? +raw.toFixed(4) : null;
+  const s = String(raw).replace(/[£,\s]/g,'').trim();
+  if (s === '') return null;
+  return isNaN(+s) ? null : +(+s).toFixed(4);
+}
+// Blocks are located by their header ("Gas Price (p/th)" / "Power Price (£/MWh)"), with
+// the month column immediately to the header's left — the layout TotalEnergies send and
+// the one the blank template writes. Falls back to fixed A/B + E/F if headers are absent.
+function fxTeExtract(buf){
+  const wb = XLSX.read(buf, {type:'array', cellDates:true});
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  if (!ws) return null;
+  fxNormRange(ws);
+  const aoa = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
+  const findHdr = re => {
+    for (let r = 0; r < Math.min(aoa.length, 30); r++){
+      const row = aoa[r] || [];
+      for (let c = 0; c < row.length; c++) if (re.test(String(row[c] || ''))) return {row:r, col:c};
+    }
+    return null;
+  };
+  const readBlock = (dateCol, valCol, fromRow) => {
+    const out = [], seen = new Set();
+    for (let r = fromRow; r < aoa.length; r++){
+      const row = aoa[r] || [];
+      const iso = fxTeMonth(row[dateCol]);
+      if (!iso || seen.has(iso)) continue;
+      seen.add(iso);
+      out.push({ month: iso, mid: fxTeNum(row[valCol]) });
+    }
+    return out;
+  };
+  const gh = findHdr(/gas\s*price/i), ph = findHdr(/power\s*price|elec\w*\s*price/i);
+  let gas  = (gh && gh.col >= 1) ? readBlock(gh.col - 1, gh.col, gh.row + 1) : null;
+  let power= (ph && ph.col >= 1) ? readBlock(ph.col - 1, ph.col, ph.row + 1) : null;
+  if ((!gas || !gas.length) && (!power || !power.length)){
+    gas   = readBlock(0, 1, 0);   // A months, B gas
+    power = readBlock(4, 5, 0);   // E months, F power
+  }
+  gas = gas || []; power = power || [];
+  if (!gas.length && !power.length) return null;
+  return { gas, power };
+}
+let fxTe = null;
+async function fxParseTe(file){
+  if(!/\.xlsx?$/i.test(file.name)) return fxToast('Not an Excel file', false);
+  if(typeof XLSX === 'undefined') return fxToast('Spreadsheet reader not loaded — check connection and reload', false);
+  let res;
+  try { res = fxTeExtract(new Uint8Array(await file.arrayBuffer())); }
+  catch(e){ console.error(e); return fxToast('Could not read that file', false); }
+  if(!res) return fxToast('No month column found in that file — use the blank template, or check the sheet layout', false);
+  fxTe = { gas: res.gas, power: res.power, fname: file.name };
+  const blk = (title, unit, rows) => {
+    const priced = rows.filter(r => r.mid != null).length, blank = rows.length - priced;
+    if(!rows.length) return `<div style="flex:1;min-width:260px"><div style="font-weight:800;font-size:13px;color:#141a3c">${title}</div>
+      <div style="font-size:12px;color:#6b7280;margin-top:6px">Nothing found for this commodity — it will be left exactly as it is.</div></div>`;
+    return `<div style="flex:1;min-width:260px">
+      <div style="font-weight:800;font-size:13px;color:#141a3c;margin-bottom:2px">${title}</div>
+      <div style="font-size:11.5px;color:#4b5563;margin-bottom:4px">${fmtMonth(rows[0].month)} → ${fmtMonth(rows[rows.length-1].month)} ·
+        <b>${priced}</b> priced${blank ? ` · <b style="color:#b91c1c">${blank} blank</b> → falls back to Marex` : ''}</div>
+      <div class="fx-preview"><table><thead><tr><th>Month</th><th>Mid (${unit})</th></tr></thead><tbody>
+      ${rows.map(r => `<tr><td>${escape(fmtMonth(r.month))}</td><td>${r.mid != null ? r.mid.toFixed(2) : '<span style="color:#b91c1c">blank</span>'}</td></tr>`).join('')}
+      </tbody></table></div></div>`;
+  };
+  const totalBlank = fxTe.gas.filter(r=>r.mid==null).length + fxTe.power.filter(r=>r.mid==null).length;
+  fxModal(`<h3>TotalEnergies curve &mdash; ${escape(file.name)}</h3>
+  <p style="font-size:12px;color:#4b5563;margin:0 0 4px"><b>Display only.</b> This updates what customers see as the market price, and what you see when the switch above is set to TotalEnergies. It changes no cost, mark-to-market, delivered rate, target or alert &mdash; those stay on Marex.</p>
+  <p style="font-size:12px;color:${totalBlank ? '#b91c1c' : '#4b5563'};margin:0 0 10px">${totalBlank
+    ? `${totalBlank} month(s) in this file have no price. Those months will be stored as blank and the client portal will show the Marex price for them — clearing any TotalEnergies figure previously held for those months.`
+    : 'Every month in this file has a price.'} Months not present in the file are left untouched.</p>
+  <div style="display:flex;gap:16px;flex-wrap:wrap">${blk('NBP Gas (p/th)','p/th',fxTe.gas)}${blk('UK Power (£/MWh)','£/MWh',fxTe.power)}</div>
+  <div class="fx-err" id="fxMErr"></div>
+  <div class="fx-modal-foot">
+    <button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
+    <button class="fx-btn green" onclick="fxTeApply()">Import TotalEnergies curve</button>
+  </div>`);
+}
+async function fxTeApply(){
+  if(!fxTe) return;
+  const btns=document.querySelectorAll('#fxModal .fx-btn'); btns.forEach(b=>b.disabled=true);
+  let n=0;
+  for(const fuel of ['gas','power']){
+    const rows = fxTe[fuel] || [];
+    if(!rows.length) continue;
+    const {error} = await FLEX.sb.rpc('flex_apply_te_curve',
+      { p_commodity: fuel, p_entries: rows.map(r => ({ month: r.month, mid: r.mid })) });
+    if(error){ btns.forEach(b=>b.disabled=false); return fxMErr(fuel+': '+error.message); }
+    n += rows.length;
+  }
+  fxToast(n + ' TotalEnergies month(s) imported — display only, no calculations changed');
+  fxTe=null; fxCloseModal(); fxScheduleReload(['flex_te_curves']);
+}
+// Blank template: 72 months (6 years) from next month, rolling — same layout
+// TotalEnergies send, so their own file imports without editing.
+async function fxTeTemplate(){
+  if(typeof ExcelJS === 'undefined') return fxToast('Excel engine not loaded — reload the page', false);
+  const start = fxNextMonth(), sy = +start.slice(0,4), sm = +start.slice(5,7);
+  const end = fxMonthKey(sy, sm + 71);
+  const wb = new ExcelJS.Workbook(), ws = wb.addWorksheet('Sheet1');
+  ws.columns=[{width:12},{width:19},{width:3},{width:3},{width:12},{width:21}];
+  ws.getCell('B2').value='Gas Price (p/th)';      ws.getCell('B2').font={bold:true};
+  ws.getCell('F2').value='Power Price (£/MWh)';   ws.getCell('F2').font={bold:true};
+  for(let i=0;i<72;i++){
+    const k = fxMonthKey(sy, sm + i), r = 3 + i;
+    // Midday UTC, never local midnight. ExcelJS converts to UTC on write, so a
+    // local-midnight Date under BST lands at 23:00 the previous day and the whole
+    // template comes back a month early (measured: Sep-26 → Aug-26, six months
+    // collapsing into duplicates). Noon leaves 12 hours of slack either way.
+    const d = new Date(Date.UTC(+k.slice(0,4), +k.slice(5,7) - 1, 1, 12, 0, 0));
+    ws.getCell('A'+r).value=d; ws.getCell('A'+r).numFmt='dd/mm/yyyy';
+    ws.getCell('E'+r).value=d; ws.getCell('E'+r).numFmt='dd/mm/yyyy';
+    ws.getCell('B'+r).numFmt='0.00'; ws.getCell('F'+r).numFmt='0.00';
+  }
+  fxDownloadBlob(await wb.xlsx.writeBuffer(),
+    'TotalEnergies curve template '+start.slice(0,7)+' to '+end.slice(0,7)+'.xlsx');
+  fxToast('Template downloaded — '+fmtMonth(start)+' to '+fmtMonth(end)+'. Leave a month blank where TotalEnergies have not priced it.');
+}
 // ── Previous (historic) market curve data — months before today, rolls automatically ──
 function fxQLabel(q){ if(!q) return '\u2014'; var m=/^Q(\d)(\d{2})$/.exec(String(q)); return m ? ('Q'+m[1]+'-'+m[2]) : q; }
 // (live market-price curve graph removed — the "Previous market curve data" table below still uses flex_curve_history)
@@ -5719,7 +5913,7 @@ renderTargets = function(basket){
       + ` <span style="font-size:11px;color:#6b7280">Click a column name to rename it and set its volume rule &middot; click a price to edit &middot; tick the circle to mark achieved &middot; tap each cell's Auth/Adv tag to set red/purple &middot; or use a column header's Auth/Adv chip to set the whole column &middot; changes stage until you Apply</span>`
       + (_pend? ` <button class="fx-btn" style="background:var(--green-500);color:var(--navy-900);font-weight:800" onclick="fxApplyTargets(currentBasket)">&#10003; Apply ${_pend} change${_pend>1?'s':''}</button> <button class="fx-btn danger" onclick="fxDiscardTargets(currentBasket)">Discard</button>` : '');
     el.insertBefore(bar, el.firstChild);
-    const targets=fxVisibleTargets(basket);   // MUST match the rows _renderTargets drew — this maps cells to months by index
+    const targets=basket.targets||[];
     const tbody=el.querySelector('tbody');
     if(tbody) [...tbody.rows].forEach((tr,i)=>{
       const t=targets[i]; if(!t) return;
@@ -6026,48 +6220,29 @@ function fxTargetRulePreview(){
   }
   const isPower = b.commodity === 'power';
   const cut = fxNowMonth();
-  // Every tradable month in the BASKET, not a sample and not only the months that happen
-  // to have a target row yet — a curve running years out has to show all of it, and the
-  // panel scrolls. Months with no target row are listed too, so it is obvious where rows
-  // are still missing before you commit the rule.
-  const mons = (b.months || []).filter(m => m.month > cut)
-                 .slice().sort((x, y) => x.month < y.month ? -1 : 1);
-  let nHit = 0, nEval = 0, nCapped = 0;
-  const rows = mons.map(m => {
-    const t = (b.targets || []).find(x => x.month === m.month) || null;
+  const rows = (b.targets || []).filter(t => t.month >= cut).slice(0, 14).map(t => {
+    const m = (b.months || []).find(x => x.month === t.month);
     const need = fxRequiredSecured(d.shim, m, n);
-    const have = m.secured_vol;
+    const have = m ? m.secured_vol : null;
     const ok = fxVolMeets(b, have, need);
-    if (need != null){ nEval++; if (ok) nHit++; }
-    // Flag the months where the ladder asks for more than the meter can take, so the
-    // capped figure never looks like a typo.
-    const _base = m.baseload_vol != null ? m.baseload_vol : null;
-    const _raw  = fxRequiredRaw(d.shim, n, _base);
-    const capped = (need != null && _raw != null && _base != null && _raw > _base);
-    if (capped) nCapped++;
-    const manual = !!(t && t['t'+n+'_achieved'] === 'Yes');
-    let verdict;
-    if (!t)                verdict = '<span style="color:#c8cdd8">No target row</span>';
-    else if (need == null) verdict = '<span style="color:#9aa1ad">Not evaluable</span>';
-    else if (ok)           verdict = '<span style="color:#0f6e56;font-weight:700">&#10003; Achieved</span>';
-    else                   verdict = '<span style="color:#9aa1ad">Pending</span>';
+    const manual = t['t'+n+'_achieved'] === 'Yes';
+    const verdict = need == null
+      ? '<span style="color:#9aa1ad">Not evaluable</span>'
+      : (ok ? '<span style="color:#0f6e56;font-weight:700">&#10003; Achieved</span>'
+            : '<span style="color:#9aa1ad">Pending</span>');
     const note = (manual && !ok) ? ' <span style="color:#6b7280">&middot; ticked by hand</span>' : '';
-    return `<tr><td>${fmtMonth(m.month)}</td>
-      <td class="td-right">${m.baseload_vol != null ? fmtVolC(m.baseload_vol, isPower) : '-'}</td>
+    return `<tr><td>${fmtMonth(t.month)}</td>
+      <td class="td-right">${m && m.baseload_vol != null ? fmtVolC(m.baseload_vol, isPower) : '-'}</td>
       <td class="td-right">${fmtVolC(have, isPower)}</td>
-      <td class="td-right">${need != null ? fmtVolC(need, isPower) : '&mdash;'}${capped ? '<span class="fx-cap-tag" title="This column asks for more than the month\'s baseload, so it is capped — a full hedge achieves it">capped</span>' : ''}</td>
+      <td class="td-right">${need != null ? fmtVolC(need, isPower) : '&mdash;'}</td>
       <td>${verdict}${note}</td></tr>`;
   }).join('');
   el.innerHTML = rows
-    ? `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:16px 0 0;flex-wrap:wrap">
-         <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#4b5563">Preview &mdash; cumulative secured volume needed through this column</div>
-         <div style="font-size:11px;color:#6b7280">${mons.length} month${mons.length === 1 ? '' : 's'} &middot; ${nHit} of ${nEval} would be achieved</div>
-       </div>
-       <div class="fx-preview" style="max-height:340px"><table class="fx-tt-table">
+    ? `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#4b5563;margin:16px 0 0">Preview &mdash; cumulative secured volume needed through this column</div>
+       <div class="fx-preview" style="max-height:250px"><table class="fx-tt-table">
        <thead><tr><th>Month</th><th class="td-right">Baseload</th><th class="td-right">Secured</th><th class="td-right">Needs</th><th>Result</th></tr></thead>
-       <tbody>${rows}</tbody></table></div>
-       ${nCapped ? `<div style="font-size:11.5px;color:#6b7280;margin-top:7px">${nCapped} month${nCapped === 1 ? '' : 's'} need${nCapped === 1 ? 's' : ''} less than this column asks for, because the requirement exceeds the baseload. Those are capped at 100% secured &mdash; a full hedge achieves them.</div>` : ''}`
-    : `<div style="font-size:12px;color:#9aa1ad;padding:12px 0">No tradable months in this basket to preview.</div>`;
+       <tbody>${rows}</tbody></table></div>`
+    : `<div style="font-size:12px;color:#9aa1ad;padding:12px 0">No target rows from this month onward to preview.</div>`;
 }
 
 async function fxTargetRuleSave(){
