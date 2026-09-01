@@ -5392,12 +5392,16 @@
     async function ccxOpen(){
       if (!_ccx.bound) { _ccx.bound = true; _ccxBind(); }
       _ccxChartLib();
-      var r = await sb.from('customers').select('customer_id, company_name').contains('portal_scope', ['carbon']).order('company_name');
+      // billing OR carbon — filtering on 'carbon' alone matched nothing, because
+      // that scope box has never been ticked for any customer. See loadCarbonConfig.
+      var r = await sb.from('customers').select('customer_id, company_name').overlaps('portal_scope', ['billing','carbon']).order('company_name');
       var sel = document.getElementById('ccxCustSel');
-      if (sel && !r.error) {
+      if (sel && r.error) { console.error('Carbon console customer list:', r.error); sel.innerHTML = '<option value="">Could not load customers — see console</option>'; }
+      else if (sel && !(r.data||[]).length) { sel.innerHTML = '<option value="">No billing or carbon customers found</option>'; }
+      else if (sel) {
         var cur = sel.value;
         sel.innerHTML = '<option value="">Select a customer…</option>' +
-          (r.data||[]).map(function(c){ return '<option value="' + escapeHtml(c.customer_id) + '">' + escapeHtml(c.company_name) + '</option>'; }).join('');
+          r.data.map(function(c){ return '<option value="' + escapeHtml(c.customer_id) + '">' + escapeHtml(c.company_name) + '</option>'; }).join('');
         if (cur) sel.value = cur;
       }
     }
@@ -9971,12 +9975,29 @@
         });
       } catch (e) { console.error('Carbon factors load:', e); }
 
-      // Populate customer dropdown
+      // Populate customer dropdown.
+      // This used to filter on portal_scope containing 'carbon' ALONE, and nobody
+      // has ever ticked the Carbon box in Admin → Customers — so the query matched
+      // zero rows and the dropdown held nothing but its placeholder. Meanwhile the
+      // customer-facing Carbon Reporting nav item is NOT gated on that scope: every
+      // billing customer sees it. Match that reality — billing OR carbon, the same
+      // set custScopeToggle's own customer list uses.
       try {
-        const { data: custs } = await sb.from('customers').select('customer_id, company_name').contains('portal_scope', ['carbon']).order('company_name');
+        const { data: custs, error: cErr } = await sb.from('customers')
+          .select('customer_id, company_name')
+          .overlaps('portal_scope', ['billing', 'carbon'])
+          .order('company_name');
         const sel = document.getElementById('carbonCustomerSel');
-        sel.innerHTML = '<option value="">Select a customer…</option>' +
-          (custs || []).map(function(c) { return '<option value="' + escapeHtml(c.customer_id) + '">' + escapeHtml(c.company_name) + '</option>'; }).join('');
+        if (cErr) {
+          // Never fail silently again — an empty dropdown looked like a dead control.
+          console.error('Carbon customer list:', cErr);
+          sel.innerHTML = '<option value="">Could not load customers — see console</option>';
+        } else if (!(custs || []).length) {
+          sel.innerHTML = '<option value="">No billing or carbon customers found</option>';
+        } else {
+          sel.innerHTML = '<option value="">Select a customer…</option>' +
+            custs.map(function(c) { return '<option value="' + escapeHtml(c.customer_id) + '">' + escapeHtml(c.company_name) + '</option>'; }).join('');
+        }
       } catch (e) { console.error('Customer list:', e); }
     }
 
@@ -10015,6 +10036,11 @@
       const seen = new Set();
       const meters = [];
       (udata || []).forEach(function(r) {
+        // customer_meter_config has a CHECK constraint allowing only electricity
+        // and gas, and the carbon report only covers those two. A water row here
+        // would make saveCarbonMeters' upsert fail for the WHOLE batch, so keep
+        // them out of the table rather than out of the error log.
+        if (r.utility !== 'electricity' && r.utility !== 'gas') return;
         const k = r.meter_id + '|' + r.utility;
         if (!seen.has(k)) { seen.add(k); meters.push(r); }
       });
