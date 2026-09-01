@@ -488,6 +488,14 @@
       cursor: pointer;
     }
     .usage-filters .sites-list label small { color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 11.5px; }
+    /* What's behind a site row: a site is grouped on its postcode, so one row
+       can be several MPANs plus an MPRN. */
+    .usage-filters .sites-list .site-mix {
+      margin-left: auto; flex: 0 0 auto; white-space: nowrap; cursor: help;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.2px; color: var(--navy);
+      background: rgba(47,61,126,0.08); border: 1px solid rgba(47,61,126,0.18);
+      border-radius: 999px; padding: 1px 8px;
+    }
     .usage-filters .util-checks { display: flex; gap: 14px; }
     .usage-filters .util-check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); text-transform: none; letter-spacing: 0; }
     .usage-filters .filter-side { display: flex; flex-direction: column; gap: 10px; }
@@ -4772,9 +4780,15 @@
     }
 
     // ───── SITE LEAGUE TABLE (customer page) ─────
-    // Maps each meter identifier (MPAN / SPID) to its physical site, so a site's
-    // electricity + water roll up into one ranked row. Unmapped meters fall back
-    // to their own identifier (works for any customer; this map is Blank Table's).
+    // A league row is a physical SITE, so a site's electricity + gas + water
+    // roll up into one ranked row. The site NAME comes from the bills
+    // themselves (bv_summary .site) — see _lgSite below.
+    //
+    // LEAGUE_SITE_MAP is an OVERRIDE only, for customers whose bills name the
+    // same site differently per utility. Blank Table is one: its electricity
+    // rows carry a full street address while its water rows carry just a town,
+    // so without the override the two would never meet in one row. Never rely
+    // on this map to supply names — an unmapped meter must still show a name.
     var LEAGUE_SITE_MAP = {
       '1050002996278':'Cambridge', '3017246973':'Cambridge',
       '1050002609531':'Wisbech', '3021220002':'Wisbech',
@@ -4791,7 +4805,27 @@
     function _lgN(v){ v = Number(v); return isFinite(v) ? v : 0; }
     function _lgMoney(v){ return '£' + _lgN(v).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
     function _lgNum(v, d){ d = d || 0; return _lgN(v).toLocaleString('en-GB', { minimumFractionDigits: d, maximumFractionDigits: d }); }
-    function _lgSite(id){ return LEAGUE_SITE_MAP[id] || id; }
+    // Group key for a site name — case/punctuation-insensitive, so "Unit 2, X"
+    // and "Unit 2 X" are one site rather than two.
+    function _lgKey(s){ return String(s == null ? '' : s).toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim(); }
+    // Identity of a bv_summary row. GAS ROWS CARRY NO METER NUMBER in bv_summary
+    // (only a site string), so gas falls back to its site as its identity.
+    // Without this fallback every gas row was dropped on the `if (!id) return`
+    // guard, which is why gas read 0.0 kWh / £0.00 in the league table and why
+    // the comparison page said "No meters for this utility yet".
+    function _lgRowId(s){
+      var id = s.mpan || s.mpr || s.mprn || s.spid;
+      if (id) return String(id);
+      var k = _lgKey(s.site || s.address);
+      return k ? 'SITE:' + k : '';
+    }
+    // Display name for a meter: explicit override first, then the site printed
+    // on the bill, and only then the bare identifier as a last resort.
+    function _lgSite(id, rawSite){
+      if (LEAGUE_SITE_MAP[id]) return LEAGUE_SITE_MAP[id];
+      var s = String(rawSite == null ? '' : rawSite).replace(/\s+/g, ' ').trim();
+      return s || String(id);
+    }
     function _lgYmInput(ym){ return String(Math.floor(ym/100)) + '-' + ('0' + (ym%100)).slice(-2); }
     function _lgInYm(v){ if(!v) return null; var p = v.split('-'); return parseInt(p[0],10)*100 + parseInt(p[1],10); }
     function _lgYmLabel(ym){ var mn=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return mn[ym%100] + ' ' + Math.floor(ym/100); }
@@ -4802,18 +4836,39 @@
           .eq('customer_id', cid).eq('report_type', 'bill_validation')
           .order('year', { ascending: true }).order('month_num', { ascending: true });
         var reports = (res.data || []).filter(function(r){ return r.bv_summary; });
+        // Pass 1 — pin ONE canonical site name per meter. The address text on a
+        // bill varies month to month (postcode present one month and missing the
+        // next, "FOOT ASYLUM" vs "Foot Asylum", truncated variants). Taking the
+        // fullest variant seen keeps one meter to one league row instead of
+        // splitting it across several near-identical rows.
+        var bestSite = {};
+        reports.forEach(function(r){
+          var bv = r.bv_summary || {};
+          ['electricity','gas','water'].forEach(function(u){
+            (bv[u] || []).forEach(function(s){
+              var id = _lgRowId(s); if (!id) return;
+              var nm = _lgSite(id, s.site || s.address);
+              if (!bestSite[id] || nm.length > bestSite[id].length) bestSite[id] = nm;
+            });
+          });
+        });
         var L = { months: [], records: [], latestYm: null };
         reports.forEach(function(r){
           var ym = (r.year||0)*100 + (r.month_num||0);
           L.months.push(ym);
           var bv = r.bv_summary || {}; var wm3 = bv.water_m3 || {};
           var rec = { ym: ym, elec: {}, gas: {}, water: {} };
-          (bv.electricity || []).forEach(function(s){ var id = s.mpan || s.mpr; if(!id) return;
-            rec.elec[id] = { kwh: _lgN(s.cur_kwh), cost: _lgN(s.total != null ? s.total : s.cur_cost) }; });
-          (bv.gas || []).forEach(function(s){ var id = s.mpr || s.mprn || s.mpan; if(!id) return;
-            rec.gas[id] = { kwh: _lgN(s.cur_kwh), cost: _lgN(s.total != null ? s.total : s.cur_cost) }; });
-          (bv.water || []).forEach(function(s){ var id = s.spid; if(!id) return;
-            rec.water[id] = { m3: _lgN(wm3[id]), cost: _lgN(s.total != null ? s.total : s.cur_cost) }; });
+          // Additive: two rows in one month can share an identity (two gas
+          // meters billed at the same address), and they must sum, not overwrite.
+          function add(bucket, s, usage) {
+            var id = _lgRowId(s); if (!id) return;
+            var b = bucket[id] || (bucket[id] = { usage: 0, cost: 0, site: bestSite[id] || _lgSite(id, s.site || s.address) });
+            b.usage += _lgN(usage);
+            b.cost  += _lgN(s.total != null ? s.total : s.cur_cost);
+          }
+          (bv.electricity || []).forEach(function(s){ add(rec.elec,  s, s.cur_kwh); });
+          (bv.gas         || []).forEach(function(s){ add(rec.gas,   s, s.cur_kwh); });
+          (bv.water       || []).forEach(function(s){ add(rec.water, s, wm3[s.spid]); });
           L.records.push(rec);
         });
         L.latestYm = L.months.length ? L.months[L.months.length - 1] : null;
@@ -4840,18 +4895,18 @@
       var latest = null;
       for (var i = 0; i < L.records.length; i++) { if (L.records[i].ym === L.latestYm) { latest = L.records[i]; break; } }
       if (latest) {
-        Object.keys(latest.elec).forEach(function(id){ liveSites[_lgSite(id)] = true; });
-        Object.keys(latest.gas || {}).forEach(function(id){ liveSites[_lgSite(id)] = true; });
-        Object.keys(latest.water).forEach(function(id){ liveSites[_lgSite(id)] = true; });
+        ['elec','gas','water'].forEach(function(u){
+          Object.keys(latest[u] || {}).forEach(function(id){ liveSites[_lgKey(latest[u][id].site)] = true; });
+        });
       }
       // Aggregate live sites over [fromYm, toYm]
       var sites = {};
-      function ensure(name){ if(!sites[name]) sites[name] = { name:name, elecKwh:0, gasKwh:0, waterM3:0, elecCost:0, gasCost:0, waterCost:0, hasElec:false, hasGas:false, hasWater:false }; return sites[name]; }
+      function ensure(name){ var k = _lgKey(name); if(!sites[k]) sites[k] = { name:name, elecKwh:0, gasKwh:0, waterM3:0, elecCost:0, gasCost:0, waterCost:0, hasElec:false, hasGas:false, hasWater:false }; return sites[k]; }
       L.records.forEach(function(r){
         if (r.ym < fromYm || r.ym > toYm) return;
-        Object.keys(r.elec).forEach(function(id){ var nm=_lgSite(id); if(!liveSites[nm]) return; var s=ensure(nm); s.elecKwh += r.elec[id].kwh; s.elecCost += r.elec[id].cost; s.hasElec = true; });
-        Object.keys(r.gas || {}).forEach(function(id){ var nm=_lgSite(id); if(!liveSites[nm]) return; var s=ensure(nm); s.gasKwh += r.gas[id].kwh; s.gasCost += r.gas[id].cost; s.hasGas = true; });
-        Object.keys(r.water).forEach(function(id){ var nm=_lgSite(id); if(!liveSites[nm]) return; var s=ensure(nm); s.waterM3 += r.water[id].m3; s.waterCost += r.water[id].cost; s.hasWater = true; });
+        Object.keys(r.elec).forEach(function(id){ var d=r.elec[id]; if(!liveSites[_lgKey(d.site)]) return; var s=ensure(d.site); s.elecKwh += d.usage; s.elecCost += d.cost; s.hasElec = true; });
+        Object.keys(r.gas || {}).forEach(function(id){ var d=r.gas[id]; if(!liveSites[_lgKey(d.site)]) return; var s=ensure(d.site); s.gasKwh += d.usage; s.gasCost += d.cost; s.hasGas = true; });
+        Object.keys(r.water).forEach(function(id){ var d=r.water[id]; if(!liveSites[_lgKey(d.site)]) return; var s=ensure(d.site); s.waterM3 += d.usage; s.waterCost += d.cost; s.hasWater = true; });
       });
       var rows = Object.keys(sites).map(function(k){ return sites[k]; });
       if (util === 'electricity') rows = rows.filter(function(s){ return s.hasElec; });
@@ -4904,10 +4959,24 @@
           C.data[r.id] = {};
           ['electricity','gas','water'].forEach(function(u){
             (bv[u] || []).forEach(function(s){
-              const id = s.mpan || s.mpr || s.spid; if (!id) return;
-              if (!C.meters[id]) C.meters[id] = { id: id, site: (s.site || s.address || id), utility: u };
-              const usage = (u === 'water') ? (wm3[id] != null ? wm3[id] : null) : (s.cur_kwh != null ? s.cur_kwh : null);
-              C.data[r.id][id] = { usage: usage, cost: (s.total != null ? s.total : null), day: (s.day_kwh != null ? s.day_kwh : null), night: (s.night_kwh != null ? s.night_kwh : null) };
+              // _lgRowId falls back to the site string when the row carries no
+              // meter number — which is EVERY gas row, because bv_summary's gas
+              // entries have no MPRN. The old `s.mpan || s.mpr || s.spid` guard
+              // dropped all of them, so the Gas picker was always empty.
+              const id = _lgRowId(s); if (!id) return;
+              const label = String(s.site || s.address || id).replace(/\s+/g, ' ').trim();
+              const hasMeterNo = !!(s.mpan || s.mpr || s.mprn || s.spid);
+              if (!C.meters[id]) C.meters[id] = { id: id, site: label, utility: u, hasMeterNo: hasMeterNo };
+              // The address text varies month to month — keep the fullest one.
+              else if (label.length > String(C.meters[id].site).length) C.meters[id].site = label;
+              const usage = (u === 'water') ? (wm3[s.spid] != null ? wm3[s.spid] : null) : (s.cur_kwh != null ? s.cur_kwh : null);
+              // Additive, so two rows sharing one identity sum instead of the
+              // last one silently winning.
+              const cell = C.data[r.id][id] || (C.data[r.id][id] = { usage: null, cost: null, day: null, night: null });
+              if (usage != null)       cell.usage = (cell.usage || 0) + usage;
+              if (s.total != null)     cell.cost  = (cell.cost  || 0) + s.total;
+              if (s.day_kwh != null)   cell.day   = (cell.day   || 0) + s.day_kwh;
+              if (s.night_kwh != null) cell.night = (cell.night || 0) + s.night_kwh;
             });
           });
         });
@@ -4970,9 +5039,15 @@
       var ids = Object.keys(C.meters).filter(function(id){ return util === 'all' || C.meters[id].utility === util; });
       ids.sort(function(a,b){ return C.meters[a].site.localeCompare(C.meters[b].site); });
       if (!ids.length) { box.innerHTML = '<span style="color:var(--muted);font-size:13px;">No meters for this utility yet.</span>'; return; }
+      // Two meters can sit at the same address — show the meter number on those
+      // so the checkboxes can be told apart.
+      var dupe = {};
+      ids.forEach(function(id){ var k = C.meters[id].site; dupe[k] = (dupe[k] || 0) + 1; });
       var all = '<label class="cmp-meter"><input type="checkbox" id="cmpAllSites" onchange="cmpToggleAll(this.checked)" /> <strong>All sites</strong></label>';
       box.innerHTML = all + ids.map(function(id){
-        return '<label class="cmp-meter"><input type="checkbox" data-cmp-id="' + escapeHtml(id) + '" onchange="cmpSiteToggle()" /> ' + escapeHtml(C.meters[id].site) + '</label>';
+        var m = C.meters[id];
+        var suffix = (dupe[m.site] > 1 && m.hasMeterNo) ? ' <small style="color:var(--muted);font-family:\'JetBrains Mono\',monospace;">· ' + escapeHtml(id) + '</small>' : '';
+        return '<label class="cmp-meter"><input type="checkbox" data-cmp-id="' + escapeHtml(id) + '" onchange="cmpSiteToggle()" /> ' + escapeHtml(m.site) + suffix + '</label>';
       }).join('');
     }
     function cmpToggleAll(on) {
@@ -10376,6 +10451,35 @@
     let _usageSites = [];   // [{site_name, site_postcode, key}]
     let _usageRows  = [];   // last fetched dataset
     let _usageMeterSiteKey = {};  // "<utility>|<normMeter>" -> canonical site key (set in loadUsageReport)
+    let _usageSiteMix = {};       // canonical site key -> { electricity: [meterIds], gas: [...] }
+
+    // "6 electricity + 1 gas meters" pill for a site row, with the actual
+    // MPANs / MPRNs on hover. A site row is a postcode, so it routinely covers
+    // several meters — showing only the address left customers unable to tell
+    // which of their supplies a tick actually included.
+    const _UTIL_LABEL = { electricity: 'electricity', gas: 'gas', water: 'water' };
+    function _usageMixBadge(siteKey) {
+      const mix = _usageSiteMix[siteKey];
+      if (!mix) return '';
+      const order = ['electricity', 'gas', 'water'];
+      const parts = [], tips = [];
+      let total = 0;
+      order.forEach(function(u){
+        const ids = mix[u]; if (!ids || !ids.length) return;
+        total += ids.length;
+        parts.push(ids.length + ' ' + (_UTIL_LABEL[u] || u));
+        tips.push((_UTIL_LABEL[u] || u) + ': ' + ids.join(', '));
+      });
+      Object.keys(mix).forEach(function(u){          // any utility added later
+        if (order.indexOf(u) !== -1) return;
+        total += mix[u].length;
+        parts.push(mix[u].length + ' ' + u);
+        tips.push(u + ': ' + mix[u].join(', '));
+      });
+      if (!parts.length) return '';
+      const label = parts.join(' + ') + (total === 1 ? ' meter' : ' meters');
+      return '<span class="site-mix" title="' + escapeHtml(tips.join('\n')) + '">' + escapeHtml(label) + '</span>';
+    }
 
     // ── De-duplication helpers ───────────────────────────────────────────────
     // The same physical meter can appear under slightly different site strings
@@ -10480,9 +10584,18 @@
       });
       const seen = new Set();
       const sites = [];
+      // Sites are grouped on the postcode, so ONE row here can cover several
+      // meters — six MPANs and an MPRN all sit at SK4 2HD for Chesire Data.
+      // Count what's behind each row so the customer can see what they're
+      // ticking instead of guessing from the address alone.
+      _usageSiteMix = {};
       Object.keys(meterSites).forEach(function(mk){
         const s = meterSites[mk];
         const key = _siteKey(s.site_name, s.site_postcode);
+        const util = mk.split('|')[0];
+        const meterId = mk.slice(util.length + 1);
+        const mix = _usageSiteMix[key] || (_usageSiteMix[key] = {});
+        (mix[util] || (mix[util] = [])).push(meterId);
         if (seen.has(key)) return;
         seen.add(key);
         sites.push({ site_name: s.site_name, site_postcode: s.site_postcode, key: key });
@@ -10502,7 +10615,8 @@
       }
       list.innerHTML = sites.map(function(s, i) {
         return '<label><input type="checkbox" class="site-cb" value="' + escapeHtml(s.key) + '" checked /> ' +
-               escapeHtml(s.site_name) + ' <small>· ' + escapeHtml(s.site_postcode) + '</small></label>';
+               escapeHtml(s.site_name) + ' <small>· ' + escapeHtml(s.site_postcode) + '</small>' +
+               _usageMixBadge(s.key) + '</label>';
       }).join('');
 
       // Default date range = the full span we have
