@@ -9565,15 +9565,19 @@
       return flatpickr(el, { dateFormat:'d M Y', minDate:minD, maxDate:maxD, defaultDate:defD, disableMobile:true, onChange:onPick });
     }
     function _hhdInitPicker(site, preserve){
-      var lo=site.first_day, hi=site.last_day_with_data||site.last_day;
+      // "Available" means days that actually carry readings, not just days we hold a row for.
+      // A meter that came online part-way through (Yew Street: rows from Aug 2025, first real
+      // reading Feb 2026) would otherwise open on a wall of empty days, and the caption below
+      // would name the wrong date as the start of its data.
+      var lo=site.first_day_with_data||site.first_day, hi=site.last_day_with_data||site.last_day;
       var to, from;
       if(preserve && _hhd.from && _hhd.to){
         // keep the range the user already chose, clamped to this site's available data
         from=_hhd.from; to=_hhd.to;
         if(from<lo) from=lo; if(to>hi) to=hi;
-        if(from>hi || to<lo || from>to){ to=hi; from=_hhdAddDays(hi,-29); if(from<lo) from=lo; }  // no overlap → sensible default
+        if(from>hi || to<lo || from>to){ to=hi; from=lo; }  // no overlap → whole available range
       } else {
-        to=hi; from=_hhdAddDays(hi,-29); if(from<lo) from=lo;
+        to=hi; from=lo;  // open on everything we hold for this site, not a trailing 30 days
       }
       _hhd.from=from; _hhd.to=to;
       var cap=document.getElementById('hhdRangeCap');
@@ -9762,9 +9766,9 @@
       var curMpan=(document.getElementById('hhdSite')||{}).value||'';
       var from=_hhd.from, to=_hhd.to;
       var gLo=null, gHi=null;
-      _hhd.sites.forEach(function(s){ var h=s.last_day_with_data||s.last_day; if(!gLo||s.first_day<gLo)gLo=s.first_day; if(!gHi||h>gHi)gHi=h; });
+      _hhd.sites.forEach(function(s){ var l=s.first_day_with_data||s.first_day, h=s.last_day_with_data||s.last_day; if(!gLo||l<gLo)gLo=l; if(!gHi||h>gHi)gHi=h; });
       var siteRow=function(s){
-        var lo=s.first_day, hi=s.last_day_with_data||s.last_day, hasData=Number(s.days_with_data)>0;
+        var lo=s.first_day_with_data||s.first_day, hi=s.last_day_with_data||s.last_day, hasData=Number(s.days_with_data)>0;
         var checked=(s.mpan===curMpan && hasData)?' checked':'';
         var avail = hasData ? ('data to '+new Date(hi+'T00:00:00').toLocaleDateString('en-GB')) : 'no data';
         return '<div class="hhdx-row">'
@@ -9818,7 +9822,7 @@
         var zip=new JSZip(), made=0, empty=0;
         for(var k=0;k<checks.length;k++){
           var mpan=checks[k].dataset.mpan, s=_hhdSite(mpan); if(!s) continue;
-          var lo=s.first_day, hi=s.last_day_with_data||s.last_day, f=gf, t=gt;
+          var lo=s.first_day_with_data||s.first_day, hi=s.last_day_with_data||s.last_day, f=gf, t=gt;
           if(perSite){ var rr=document.querySelector('#hhdExportModal .hhdx-srange[data-mpan="'+CSS.escape(mpan)+'"]'); if(rr){ f=rr.querySelector('.hhdx-sfrom').value; t=rr.querySelector('.hhdx-sto').value; } }
           f=_hhdClamp(f,lo,hi); t=_hhdClamp(t,lo,hi); if(f>t){ var tm=f; f=t; t=tm; }
           if(status) status.textContent='Building '+(s.site_name||mpan)+'  ('+(k+1)+' of '+checks.length+')…';
