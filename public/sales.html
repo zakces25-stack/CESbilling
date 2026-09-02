@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' blob: https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' data: blob: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com; frame-src 'self' blob: data: https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' blob: https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' data: blob: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com https://api.simplylookupadmin.co.uk; frame-src 'self' blob: data: https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self';" />
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <title>CES Sales Portal</title>
@@ -1896,10 +1896,17 @@
 
           <!-- ── list of this broker's COTs ── -->
           <div id="cotListWrap" style="display:none;">
-            <div class="card" style="overflow-x:auto;">
-              <table class="data-table" id="cotListTable"><tbody><tr><td class="empty-state">Loading…</td></tr></tbody></table>
+            <div class="card" style="padding:0;overflow-x:auto;">
+              <table class="usage-table" id="cotListTable"><tbody><tr><td class="empty-state">Loading…</td></tr></tbody></table>
+            </div>
+            <div class="card" style="margin-top:14px;font-size:12.5px;">
+              <strong style="font-size:13px;">What the statuses mean</strong>
+              <div id="cotStatusLegend" style="margin-top:10px;"></div>
             </div>
           </div>
+
+          <!-- ── one COT in full ── -->
+          <div id="cotDetailWrap" style="display:none;"></div>
 
           <datalist id="cotSupplierList"></datalist>
 
@@ -7517,7 +7524,8 @@
     }
 
     var _cot = { cid: null, cname: '', source: 'manual', meters: [], picked: {}, manual: [], seq: 0,
-                 rd: {}, files: { proof: [], extra: [] }, busy: false, searchT: null };
+                 rd: {}, files: { proof: [], extra: [] }, busy: false, searchT: null,
+                 done: false, list: [] };
 
     function cotInit(){
       if (!_cot._booted) {
@@ -7534,21 +7542,25 @@
       }
       cotShowForm();
     }
+    function cotPane(which){
+      var f = document.getElementById('cotFormWrap'), l = document.getElementById('cotListWrap'),
+          d = document.getElementById('cotDetailWrap');
+      if (f) f.style.display = which === 'form' ? '' : 'none';
+      if (l) l.style.display = which === 'list' ? '' : 'none';
+      if (d) d.style.display = which === 'detail' ? '' : 'none';
+      document.getElementById('cotBtnList').style.display = which === 'form' ? '' : 'none';
+      document.getElementById('cotBtnNew').style.display = which === 'form' ? 'none' : '';
+      document.getElementById('cotHeading').textContent =
+        which === 'form' ? 'Submit a COT' : (which === 'list' ? 'My COT requests' : 'COT request');
+    }
     function cotShowForm(){
-      document.getElementById('cotFormWrap').style.display = '';
-      document.getElementById('cotListWrap').style.display = 'none';
-      document.getElementById('cotBtnList').style.display = '';
-      document.getElementById('cotBtnNew').style.display = 'none';
-      document.getElementById('cotHeading').textContent = 'Submit a COT';
+      _cot.done = false;
+      var o = document.getElementById('cotOk'), x = document.getElementById('cotErr');
+      if (o) o.style.display = 'none'; if (x) x.style.display = 'none';
+      cotPane('form');
+      cotPreflight();
     }
-    function cotShowList(){
-      document.getElementById('cotFormWrap').style.display = 'none';
-      document.getElementById('cotListWrap').style.display = '';
-      document.getElementById('cotBtnList').style.display = 'none';
-      document.getElementById('cotBtnNew').style.display = '';
-      document.getElementById('cotHeading').textContent = 'My COT requests';
-      cotLoadList();
-    }
+    function cotShowList(){ cotPane('list'); cotLoadList(); }
 
     // ── 1. customer type-ahead ───────────────────────────────────────────────────────
     function cotCustSearch(){
@@ -8020,13 +8032,17 @@
     // ── preflight: advisory, never blocks except where a supplier truly will ─────────
     function cotPreflight(){
       var el = document.getElementById('cotPreflight');
+      if (!el) return { stop: [], warn: [] };
+      // Guard every lookup. cotPreflight is reachable from cotShowForm, cotInit, the field
+      // handlers and the submit's finally block, so it must not assume a rendered form.
+      function fv(id){ var e = document.getElementById(id); return e ? (e.value || '') : ''; }
       var sel = cotSelectedMeters();
-      var name = (document.getElementById('cotCustInput').value || '').trim();
+      var name = fv('cotCustInput').trim();
       var stop = [], warn = [];
       if (!name) stop.push('a customer name');
       if (!sel.length) stop.push('at least one meter');
-      if (!document.getElementById('cotRepresenting').value) stop.push('whether our customer is incoming or outgoing');
-      if (!document.getElementById('cotChangeover').value) stop.push('the changeover date');
+      if (!fv('cotRepresenting')) stop.push('whether our customer is incoming or outgoing');
+      if (!fv('cotChangeover')) stop.push('the changeover date');
       if (!_cot.files.proof.length) warn.push('No proof of occupation attached. Suppliers reject on this more than anything else. If there genuinely is no lease, say why in the notes and submit anyway.');
       // connected party
       var inc = (document.getElementById('cotIncoming') || {}).value || '';
@@ -8042,7 +8058,8 @@
       if (stop.length) html += '<div class="card" style="border-left:3px solid #9b2226;padding:12px 14px;margin:0 0 8px;font-size:12.5px;">Still needed: ' + stop.join(', ') + '.</div>';
       warn.forEach(function(w){ html += '<div class="card" style="border-left:3px solid #b5840a;padding:12px 14px;margin:0 0 8px;font-size:12.5px;">' + w + '</div>'; });
       el.innerHTML = html;
-      document.getElementById('cotSubmitBtn').disabled = stop.length > 0 || _cot.busy;
+      var btn = document.getElementById('cotSubmitBtn');
+      if (btn) btn.disabled = stop.length > 0 || _cot.busy;
       return { stop: stop, warn: warn };
     }
 
@@ -8126,17 +8143,44 @@
           if (typeof logAction === 'function') logAction('cot_submitted', row.customer_id || row.customer_name_raw, { ref: ins.data.ref, supplier: g.display, meters: mrows.length });
         }
 
-        cotMsg('ok', 'Submitted as ' + refs.join(', ') + '. It is with cot@cesgb.com now — you can follow it under “My COT requests”.');
-        cotResetForm(false);
+        cotResetForm(true);
+        cotShowDone(refs);
       } catch (e) {
         console.error('cot submit', e);
         cotMsg('err', 'Could not submit: ' + ((e && e.message) || 'unknown error') + '. Nothing was sent — please try again.');
       } finally {
         _cot.busy = false;
         btn.textContent = 'Submit COT request';
-        cotPreflight();
+        // Only re-run preflight if we are still ON the form. After a successful submit the
+        // form is deliberately empty, and preflight on an empty form paints a red "Still
+        // needed" card under the confirmation, which reads as a failure.
+        if (!_cot.done) cotPreflight();
       }
     }
+
+    // Confirmation panel. Replaces the form rather than sitting under a reset one.
+    function cotShowDone(refs){
+      _cot.done = true;
+      cotPane('detail');
+      document.getElementById('cotHeading').textContent = 'COT submitted';
+      var many = refs.length > 1;
+      document.getElementById('cotDetailWrap').innerHTML =
+        '<div class="card" style="border-left:4px solid #1b7a3d;">' +
+          '<h3 style="font-size:16px;font-weight:800;margin-bottom:8px;color:#1b7a3d;">' +
+            '&#10003; Submitted' + (many ? ' as ' + refs.length + ' requests' : '') + '</h3>' +
+          '<p style="font-size:13px;margin-bottom:6px;">' +
+            (many ? 'Your selection covered more than one supplier, so it went in as one request per supplier: '
+                  : 'Your reference is ') +
+            '<strong>' + refs.map(function(r){ return escapeHtml(r); }).join(', ') + '</strong>.</p>' +
+          '<p style="font-size:12.5px;color:var(--muted);margin-bottom:16px;">' +
+            'Nothing has gone to the supplier. A person at cot@cesgb.com picks it up, checks the pack ' +
+            'and sends it on. Anything missing will come back to you and the status will change to ' +
+            '“Waiting on you”.</p>' +
+          '<button class="btn-primary" style="width:auto;padding:10px 18px;" onclick="cotShowList()">View my COT requests</button>' +
+          '<button class="btn-secondary" style="width:auto;padding:10px 18px;margin-left:8px;" onclick="cotNewAfterDone()">Submit another</button>' +
+        '</div>';
+    }
+    function cotNewAfterDone(){ cotShowForm(); }
     function cotMsg(kind, text){
       var ok = document.getElementById('cotOk'), er = document.getElementById('cotErr');
       ok.style.display = 'none'; er.style.display = 'none';
@@ -8165,36 +8209,290 @@
     var COT_STATUS_COLOUR = { 'New': '#243b8f', 'Reviewing': '#5b4bb5', 'Waiting on you': '#b5840a',
       'Ready': '#0d6a72', 'With the supplier': '#1b7a3d', 'Supplier queried': '#b5840a',
       'Needs a human': '#9b2226', 'Done': '#4a5578', 'Cancelled': '#8a8f9f' };
+    // Plain English, and honest about what actually moves a status today.
+    var COT_STATUS_HELP = [
+      ['New', 'Submitted and sitting in the queue at cot@cesgb.com. Nothing has gone to the supplier.'],
+      ['Reviewing', 'Being checked against that supplier\'s requirements.'],
+      ['Waiting on you', 'Something is missing. What is needed is shown on the request.'],
+      ['Ready', 'The pack is complete and about to go to the supplier.'],
+      ['With the supplier', 'Sent. Waiting for them to action it.'],
+      ['Supplier queried', 'The supplier has come back wanting more.'],
+      ['Needs a human', 'Stopped for a person to look at, usually a connected-party case or a supplier we cannot route automatically.'],
+      ['Done', 'The supplier has confirmed the change of tenancy.'],
+      ['Cancelled', 'Withdrawn.']
+    ];
+    function cotStatusPill(s, gate){
+      var col = COT_STATUS_COLOUR[s] || '#4a5578';
+      return '<span style="display:inline-block;background:' + col + ';color:#fff;font-size:11px;font-weight:800;' +
+             'padding:3px 9px;border-radius:4px;white-space:nowrap;">' + escapeHtml(s || '') + '</span>' +
+             (gate ? ' <span style="font-size:11px;font-weight:800;color:var(--muted);">' + escapeHtml(gate) + '</span>' : '');
+    }
+    function cotRenderLegend(){
+      var el = document.getElementById('cotStatusLegend'); if (!el) return;
+      el.innerHTML = COT_STATUS_HELP.map(function(p){
+        return '<div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:7px;">' +
+               '<div style="min-width:130px;">' + cotStatusPill(p[0]) + '</div>' +
+               '<div style="color:var(--muted);">' + escapeHtml(p[1]) + '</div></div>';
+      }).join('') +
+      '<div style="margin-top:12px;padding-top:10px;border-top:1px solid #e6e9f4;color:var(--muted);">' +
+      'Statuses after “New” are set by whoever handles the request at cot@cesgb.com. Until the ' +
+      'automated review is switched on, everything you submit stays on “New” until a person moves it.</div>';
+    }
+
     async function cotLoadList(){
       var t = document.getElementById('cotListTable');
-      t.innerHTML = '<tbody><tr><td class="empty-state">Loading…</td></tr></tbody>';
+      cotRenderLegend();
+      t.innerHTML = '<tbody><tr><td class="empty-state" style="padding:22px;">Loading…</td></tr></tbody>';
       var r = await sb.from('cot_requests')
         .select('id, ref, customer_name_raw, supplier_raw, representing, changeover_date, status, gate, outstanding, urgent, created_at')
         .order('created_at', { ascending: false }).limit(200);
-      if (r.error) { console.error('cot list', r.error); t.innerHTML = '<tbody><tr><td class="empty-state">Could not load your COT requests.</td></tr></tbody>'; return; }
+      if (r.error) { console.error('cot list', r.error); t.innerHTML = '<tbody><tr><td class="empty-state" style="padding:22px;">Could not load your COT requests.</td></tr></tbody>'; return; }
       var rows = r.data || [];
-      if (!rows.length) { t.innerHTML = '<tbody><tr><td class="empty-state">No COT requests yet. Submit one and it will appear here.</td></tr></tbody>'; return; }
+      _cot.list = rows;
+      if (!rows.length) { t.innerHTML = '<tbody><tr><td class="empty-state" style="padding:22px;">No COT requests yet. Submit one and it will appear here.</td></tr></tbody>'; return; }
       var ids = rows.map(function(x){ return x.id; });
       var mc = await sb.from('cot_meters').select('cot_id, identifier, utility').in('cot_id', ids);
       var byCot = {};
       (mc.data || []).forEach(function(m){ (byCot[m.cot_id] = byCot[m.cot_id] || []).push(m); });
-      t.innerHTML = '<thead><tr><th>Ref</th><th>Customer</th><th>Supplier</th><th>Meters</th>' +
-        '<th>Changeover</th><th>Status</th><th>Outstanding</th></tr></thead><tbody>' +
+      t.innerHTML =
+        '<thead><tr><th>Ref</th><th>Customer</th><th>Supplier</th><th>Meters</th>' +
+        '<th>Changeover</th><th>Submitted</th><th>Status</th><th></th></tr></thead><tbody>' +
         rows.map(function(c){
           var ms = byCot[c.id] || [];
-          var col = COT_STATUS_COLOUR[c.status] || '#4a5578';
-          return '<tr>' +
-            '<td style="white-space:nowrap;font-weight:800;">' + escapeHtml(c.ref || '—') +
-              (c.urgent ? ' <span style="color:#9b2226;">&#9873;</span>' : '') + '</td>' +
-            '<td>' + escapeHtml(c.customer_name_raw || '') + '</td>' +
-            '<td>' + escapeHtml(c.supplier_raw || '—') + '</td>' +
-            '<td style="font-size:12px;">' + (ms.length ? ms.map(function(m){ return escapeHtml(m.identifier); }).join('<br>') : '—') + '</td>' +
-            '<td style="white-space:nowrap;">' + (c.changeover_date ? fmtDateUK(c.changeover_date) : '—') + '</td>' +
-            '<td style="white-space:nowrap;"><span style="display:inline-block;background:' + col + ';color:#fff;font-size:11px;font-weight:800;padding:3px 8px;border-radius:4px;">' + escapeHtml(c.status || '') + '</span>' +
-              (c.gate ? ' <span style="font-size:11px;font-weight:800;color:var(--muted);">' + escapeHtml(c.gate) + '</span>' : '') + '</td>' +
-            '<td style="font-size:12px;">' + escapeHtml(c.outstanding || '') + '</td>' +
-          '</tr>';
+          var first = ms.length ? ms[0].identifier : '';
+          var more = ms.length > 1 ? ' <span style="color:var(--muted);">+' + (ms.length - 1) + ' more</span>' : '';
+          return '<tr style="cursor:pointer;" onclick="cotOpen(\'' + c.id + '\')">' +
+            '<td style="font-weight:800;">' + escapeHtml(c.ref || '—') +
+              (c.urgent ? ' <span title="Urgent: deemed or out of contract" style="color:#9b2226;">&#9873;</span>' : '') + '</td>' +
+            '<td style="white-space:normal;min-width:170px;">' + escapeHtml(c.customer_name_raw || '') + '</td>' +
+            '<td style="white-space:normal;min-width:130px;">' + escapeHtml(c.supplier_raw || '—') + '</td>' +
+            '<td style="font-family:ui-monospace,Menlo,monospace;font-size:12px;">' +
+              (first ? escapeHtml(first) + more : '—') + '</td>' +
+            '<td>' + (c.changeover_date ? fmtDateUK(c.changeover_date) : '—') + '</td>' +
+            '<td style="color:var(--muted);">' + (c.created_at ? fmtDateUK(String(c.created_at).slice(0, 10)) : '—') + '</td>' +
+            '<td>' + cotStatusPill(c.status, c.gate) + '</td>' +
+            '<td style="text-align:right;color:var(--navy);font-weight:800;">View &rarr;</td>' +
+          '</tr>' +
+          (c.outstanding
+            ? '<tr onclick="cotOpen(\'' + c.id + '\')" style="cursor:pointer;"><td colspan="8" style="white-space:normal;padding-top:0;' +
+              'border-bottom:1px solid var(--line);font-size:12.5px;color:#b5840a;">' +
+              '<strong>Needed:</strong> ' + escapeHtml(c.outstanding) + '</td></tr>'
+            : '');
         }).join('') + '</tbody>';
+    }
+
+    // ── one COT in full, with edit / cancel / delete ─────────────────────────────────
+    var _cotD = { row: null, meters: [], files: [], editing: false };
+    function cotEditable(status){ return status === 'New' || status === 'Waiting on you'; }
+
+    async function cotOpen(id){
+      cotPane('detail');
+      var w = document.getElementById('cotDetailWrap');
+      w.innerHTML = '<div class="card"><div class="empty-state">Loading…</div></div>';
+      var r = await sb.from('cot_requests').select('*').eq('id', id).single();
+      if (r.error || !r.data) { w.innerHTML = '<div class="card"><div class="empty-state">Could not open that request.</div></div>'; return; }
+      var m = await sb.from('cot_meters').select('*').eq('cot_id', id).order('utility').order('identifier');
+      var f = await sb.storage.from('cot-documents').list(id, { limit: 100 });
+      _cotD = { row: r.data, meters: m.data || [], files: (f.data || []), editing: false };
+      cotRenderDetail();
+    }
+
+    function cotFld(label, val, opts){
+      if (!val && !(opts && opts.always)) return '';
+      return '<div style="min-width:190px;flex:1;margin-bottom:12px;">' +
+        '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.45px;color:var(--muted);margin-bottom:3px;">' +
+          escapeHtml(label) + '</div>' +
+        '<div style="font-size:13.5px;">' + (val ? escapeHtml(String(val)) : '<span style="color:var(--muted);">not given</span>') + '</div></div>';
+    }
+    function cotIn(id, label, val, type){
+      return '<div class="form-group" style="min-width:190px;flex:1;"><label>' + escapeHtml(label) + '</label>' +
+        '<input type="' + (type || 'text') + '" id="' + id + '" value="' + escapeHtml(val == null ? '' : String(val)) + '" /></div>';
+    }
+
+    function cotRenderDetail(){
+      var c = _cotD.row, ed = _cotD.editing;
+      var can = cotEditable(c.status);
+      var help = (COT_STATUS_HELP.find(function(p){ return p[0] === c.status; }) || ['', ''])[1];
+      var w = document.getElementById('cotDetailWrap');
+
+      var head =
+        '<div class="card" style="margin-bottom:16px;">' +
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;">' +
+            '<div>' +
+              '<div style="font-size:20px;font-weight:800;color:var(--navy);">' + escapeHtml(c.ref || '') +
+                (c.urgent ? ' <span style="color:#9b2226;font-size:14px;">&#9873; urgent</span>' : '') + '</div>' +
+              '<div style="font-size:14px;font-weight:700;margin-top:2px;">' + escapeHtml(c.customer_name_raw || '') +
+                (c.customer_id ? '' : ' <span style="font-size:11.5px;font-weight:600;color:#b5840a;">(typed in, not on your portfolio)</span>') + '</div>' +
+            '</div>' +
+            '<div style="text-align:right;">' + cotStatusPill(c.status, c.gate) +
+              '<div style="font-size:12px;color:var(--muted);margin-top:6px;max-width:280px;">' + escapeHtml(help) + '</div></div>' +
+          '</div>' +
+          (c.outstanding ? '<div style="margin-top:14px;border-left:3px solid #b5840a;background:#fffaf0;padding:11px 14px;font-size:13px;">' +
+            '<strong>Still needed:</strong> ' + escapeHtml(c.outstanding) + '</div>' : '') +
+          (c.ai_summary ? '<div style="margin-top:14px;border-left:3px solid #243b8f;background:#f7f9ff;padding:11px 14px;font-size:13px;white-space:pre-wrap;">' +
+            escapeHtml(c.ai_summary) + '</div>' : '') +
+          '<div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;">' +
+            '<button class="btn-secondary" style="width:auto;padding:8px 16px;" onclick="cotShowList()">&larr; Back to my requests</button>' +
+            (can && !ed ? '<button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="cotEditStart()">Edit</button>' : '') +
+            (ed ? '<button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="cotEditSave()">Save changes</button>' +
+                  '<button class="btn-secondary" style="width:auto;padding:8px 16px;" onclick="cotEditCancel()">Discard</button>' : '') +
+            (can && !ed ? '<button class="btn-secondary" style="width:auto;padding:8px 16px;color:#9b2226;border-color:#e5b8ba;" onclick="cotCancelRequest()">Cancel this COT</button>' : '') +
+            ((c.status === 'New' || c.status === 'Cancelled') && !ed
+              ? '<button class="btn-secondary" style="width:auto;padding:8px 16px;color:#9b2226;border-color:#e5b8ba;" onclick="cotDeleteRequest()">Delete permanently</button>' : '') +
+          '</div>' +
+          (!can && !ed ? '<div style="margin-top:12px;font-size:12.5px;color:var(--muted);">This request has been picked up, so it can no longer be edited here. Reply to cot@cesgb.com with any change.</div>' : '') +
+          '<div id="cotDetailMsg" style="margin-top:12px;"></div>' +
+        '</div>';
+
+      var det = ed
+        ? '<div class="card" style="margin-bottom:16px;"><h3 style="font-size:14px;font-weight:800;margin-bottom:14px;">The change</h3>' +
+            '<div style="display:flex;gap:14px;flex-wrap:wrap;">' +
+              '<div class="form-group" style="min-width:190px;flex:1;"><label>Our customer is</label><select id="edRep">' +
+                ['incoming|Incoming (moving in)', 'outgoing|Outgoing (moving out)', 'both|Both (group restructure)'].map(function(o){
+                  var p = o.split('|'); return '<option value="' + p[0] + '"' + (c.representing === p[0] ? ' selected' : '') + '>' + p[1] + '</option>'; }).join('') +
+              '</select></div>' +
+              cotIn('edDate', 'Changeover date', c.changeover_date || '', 'date') +
+            '</div>' +
+            '<div style="display:flex;gap:14px;flex-wrap:wrap;">' + cotIn('edIn', 'Incoming party', c.incoming_party) + cotIn('edOut', 'Outgoing party', c.outgoing_party) + cotIn('edCo', 'Company number', c.company_number) + '</div>' +
+            '<div style="display:flex;gap:14px;flex-wrap:wrap;">' + cotIn('edSite', 'Site address', c.site_address) + cotIn('edPc', 'Postcode', c.postcode) + '</div>' +
+            '<div style="display:flex;gap:14px;flex-wrap:wrap;">' + cotIn('edFwd', 'Forwarding address', c.forwarding_address) + '</div>' +
+            '<div style="display:flex;gap:14px;flex-wrap:wrap;">' + cotIn('edLName', 'Landlord name', c.landlord_name) + cotIn('edLContact', 'Landlord contact', c.landlord_contact) + '</div>' +
+            '<div style="display:flex;gap:14px;flex-wrap:wrap;">' + cotIn('edLAddr', 'Landlord address', c.landlord_address) + '</div>' +
+            '<div class="form-group"><label>Notes</label><textarea id="edNotes" rows="3">' + escapeHtml(c.additional_info || '') + '</textarea></div>' +
+            '<label style="display:flex;align-items:center;gap:9px;font-size:13px;font-weight:700;color:var(--navy);cursor:pointer;">' +
+              '<input type="checkbox" id="edUrgent"' + (c.urgent ? ' checked' : '') + ' /> Urgent: on deemed or out-of-contract rates</label>' +
+            '<div style="margin-top:10px;">' + cotIn('edUrgentWhy', 'Rate situation', c.urgent_reason) + '</div>' +
+          '</div>'
+        : '<div class="card" style="margin-bottom:16px;"><h3 style="font-size:14px;font-weight:800;margin-bottom:14px;">The change</h3>' +
+            '<div style="display:flex;flex-wrap:wrap;gap:0 24px;">' +
+              cotFld('Supplier', c.supplier_raw, { always: true }) +
+              cotFld('Our customer is', c.representing ? (c.representing.charAt(0).toUpperCase() + c.representing.slice(1)) : '', { always: true }) +
+              cotFld('Changeover date', c.changeover_date ? fmtDateUK(c.changeover_date) : '', { always: true }) +
+              cotFld('Incoming party', c.incoming_party) + cotFld('Outgoing party', c.outgoing_party) +
+              cotFld('Company number', c.company_number) +
+              cotFld('Site address', c.site_address) + cotFld('Postcode', c.postcode) +
+              cotFld('Forwarding address', c.forwarding_address) +
+              cotFld('Landlord', c.landlord_name) + cotFld('Landlord contact', c.landlord_contact) +
+              cotFld('Landlord address', c.landlord_address) +
+              (c.urgent ? cotFld('Urgent because', c.urgent_reason || 'deemed / out of contract', { always: true }) : '') +
+            '</div>' +
+            (c.additional_info ? '<div style="margin-top:6px;"><div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.45px;color:var(--muted);margin-bottom:3px;">Notes</div>' +
+              '<div style="font-size:13.5px;white-space:pre-wrap;">' + escapeHtml(c.additional_info) + '</div></div>' : '') +
+          '</div>';
+
+      var mrows = _cotD.meters.map(function(m){
+        var labels = COT_READS[m.rate_structure] || COT_READS.single;
+        var reads = [m.read1, m.read2, m.read3, m.read4, m.read5];
+        var body = ed
+          ? '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;">' +
+              labels.map(function(lab, j){
+                return '<div class="form-group" style="margin:0;min-width:105px;flex:1;"><label style="font-size:11px;">' + escapeHtml(lab) + '</label>' +
+                  '<input type="text" inputmode="numeric" id="edR_' + m.id + '_' + (j + 1) + '" value="' + escapeHtml(reads[j] || '') + '" /></div>'; }).join('') +
+              '<div class="form-group" style="margin:0;min-width:130px;"><label style="font-size:11px;">Read date</label>' +
+                '<input type="date" id="edRD_' + m.id + '" value="' + escapeHtml(m.read_date || '') + '" /></div>' +
+            '</div>' +
+            '<div class="form-group" style="margin:10px 0 0;"><label style="font-size:11px;">Site address</label>' +
+              '<input type="text" id="edMA_' + m.id + '" value="' + escapeHtml(m.site_address || '') + '" /></div>' +
+            (_cotD.meters.length > 1 ? '<button class="btn-secondary" style="width:auto;padding:4px 12px;font-size:12px;margin-top:10px;color:#9b2226;border-color:#e5b8ba;" onclick="cotDeleteMeter(\'' + m.id + '\')">Remove this meter</button>' : '')
+          : '<div style="margin-top:8px;font-size:13px;">' +
+              labels.map(function(lab, j){ return '<span style="display:inline-block;margin-right:18px;"><span style="color:var(--muted);font-size:11.5px;">' +
+                escapeHtml(lab) + '</span> <strong>' + escapeHtml(reads[j] || '—') + '</strong></span>'; }).join('') +
+              (m.read_date ? '<span style="display:inline-block;margin-right:18px;"><span style="color:var(--muted);font-size:11.5px;">on</span> <strong>' + fmtDateUK(m.read_date) + '</strong></span>' : '') +
+            '</div>' +
+            (m.site_address ? '<div style="margin-top:6px;font-size:12.5px;color:var(--muted);">' + escapeHtml(m.site_address) + '</div>' : '');
+        return '<div style="border:1px solid #e6e9f4;border-radius:10px;padding:12px 14px;margin-bottom:10px;">' +
+          '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' + cotUtilBadge(m.utility) +
+            '<span style="font-family:ui-monospace,Menlo,monospace;font-weight:700;">' + escapeHtml(m.identifier) + '</span>' +
+            '<span style="font-size:11.5px;color:var(--muted);">' + escapeHtml(m.identifier_type) +
+              (m.supply_type ? ' · ' + escapeHtml(m.supply_type) : '') +
+              (m.source === 'manual' ? ' · typed in' : '') +
+              (m.supplier_key ? '' : ' · supplier not in our matrix') + '</span></div>' +
+          body + '</div>';
+      }).join('');
+
+      var files = '<div class="card" style="margin-bottom:16px;"><h3 style="font-size:14px;font-weight:800;margin-bottom:10px;">Documents attached (' + _cotD.files.length + ')</h3>' +
+        (_cotD.files.length
+          ? _cotD.files.map(function(f){
+              return '<div style="font-size:13px;margin-bottom:5px;">&#128196; <a href="#" onclick="cotOpenFile(\'' + escapeHtml(f.name).replace(/'/g, "\\'") + '\');return false;" style="font-weight:700;">' +
+                     escapeHtml(f.name) + '</a> <span style="color:var(--muted);font-size:12px;">' +
+                     (f.metadata && f.metadata.size ? (f.metadata.size / 1048576).toFixed(1) + ' MB' : '') + '</span></div>'; }).join('')
+          : '<div style="font-size:13px;color:#b5840a;">Nothing attached. Suppliers reject on missing proof of occupation more than anything else.</div>') +
+        '</div>';
+
+      w.innerHTML = head + det +
+        '<div class="card" style="margin-bottom:16px;"><h3 style="font-size:14px;font-weight:800;margin-bottom:14px;">Meters (' + _cotD.meters.length + ')</h3>' + mrows + '</div>' +
+        files;
+    }
+
+    async function cotOpenFile(name){
+      var r = await sb.storage.from('cot-documents').createSignedUrl(_cotD.row.id + '/' + name, 120);
+      if (r.error || !r.data) { cotDetailMsg('err', 'Could not open that file.'); return; }
+      window.open(r.data.signedUrl, '_blank', 'noopener');
+    }
+    function cotDetailMsg(kind, text){
+      var el = document.getElementById('cotDetailMsg'); if (!el) return;
+      el.innerHTML = '<div style="border-left:3px solid ' + (kind === 'ok' ? '#1b7a3d' : '#9b2226') +
+        ';background:' + (kind === 'ok' ? '#f4fbf6' : '#fdf5f5') + ';padding:10px 14px;font-size:13px;">' + escapeHtml(text) + '</div>';
+    }
+    function cotEditStart(){ _cotD.editing = true; cotRenderDetail(); }
+    function cotEditCancel(){ _cotD.editing = false; cotRenderDetail(); }
+
+    async function cotEditSave(){
+      var c = _cotD.row;
+      function v(id){ var e = document.getElementById(id); return e ? (e.value || '').trim() || null : null; }
+      var patch = {
+        representing: v('edRep'), changeover_date: v('edDate'),
+        incoming_party: v('edIn'), outgoing_party: v('edOut'), company_number: v('edCo'),
+        site_address: v('edSite'), postcode: v('edPc'), forwarding_address: v('edFwd'),
+        landlord_name: v('edLName'), landlord_contact: v('edLContact'), landlord_address: v('edLAddr'),
+        additional_info: v('edNotes'),
+        urgent: !!(document.getElementById('edUrgent') || {}).checked,
+        urgent_reason: v('edUrgentWhy')
+      };
+      var up = await sb.from('cot_requests').update(patch).eq('id', c.id);
+      if (up.error) { console.error('cot edit', up.error); cotDetailMsg('err', 'Could not save: ' + up.error.message); return; }
+      for (var i = 0; i < _cotD.meters.length; i++) {
+        var m = _cotD.meters[i];
+        var mp = { read_date: v('edRD_' + m.id), site_address: v('edMA_' + m.id) };
+        for (var j = 1; j <= 5; j++) mp['read' + j] = v('edR_' + m.id + '_' + j);
+        var r2 = await sb.from('cot_meters').update(mp).eq('id', m.id);
+        if (r2.error) { console.error('cot meter edit', r2.error); cotDetailMsg('err', 'Could not save a meter: ' + r2.error.message); return; }
+      }
+      if (typeof logAction === 'function') logAction('cot_edited', c.customer_id || c.customer_name_raw, { ref: c.ref });
+      await cotOpen(c.id);
+      cotDetailMsg('ok', 'Saved.');
+    }
+
+    async function cotDeleteMeter(mid){
+      if (!confirm('Remove this meter from the request?')) return;
+      var r = await sb.from('cot_meters').delete().eq('id', mid);
+      if (r.error) { cotDetailMsg('err', 'Could not remove that meter: ' + r.error.message); return; }
+      await cotOpen(_cotD.row.id);
+    }
+
+    async function cotCancelRequest(){
+      var c = _cotD.row;
+      if (!confirm('Cancel ' + c.ref + '? The record stays so there is a trail, but nobody will action it.')) return;
+      var r = await sb.from('cot_requests').update({ status: 'Cancelled' }).eq('id', c.id);
+      if (r.error) { cotDetailMsg('err', 'Could not cancel: ' + r.error.message); return; }
+      if (typeof logAction === 'function') logAction('cot_cancelled', c.customer_id || c.customer_name_raw, { ref: c.ref });
+      await cotOpen(c.id);
+      cotDetailMsg('ok', 'Cancelled.');
+    }
+
+    async function cotDeleteRequest(){
+      var c = _cotD.row;
+      if (!confirm('Delete ' + c.ref + ' and its attachments permanently? This cannot be undone.')) return;
+      // Storage does NOT cascade with the row, so the files go first.
+      if (_cotD.files.length) {
+        var paths = _cotD.files.map(function(f){ return c.id + '/' + f.name; });
+        var sr = await sb.storage.from('cot-documents').remove(paths);
+        if (sr.error) { cotDetailMsg('err', 'Could not remove the attachments, so nothing was deleted: ' + sr.error.message); return; }
+      }
+      var r = await sb.from('cot_requests').delete().eq('id', c.id);   // cot_meters cascades
+      if (r.error) { cotDetailMsg('err', 'Could not delete: ' + r.error.message); return; }
+      if (typeof logAction === 'function') logAction('cot_deleted', c.customer_id || c.customer_name_raw, { ref: c.ref });
+      cotShowList();
     }
 
     async function refreshAdminStats() {
