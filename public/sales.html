@@ -1950,10 +1950,12 @@
                 </div>
               </div>
               <div id="cotPartiesWrap"></div>
+              <div id="cotSiteFinder" style="max-width:520px;"></div>
               <div style="display:flex;gap:14px;flex-wrap:wrap;">
                 <div class="form-group" style="min-width:220px;flex:2;"><label>Site address</label><input type="text" id="cotSiteAddress" placeholder="Used on the supplier form" /></div>
                 <div class="form-group" style="min-width:120px;flex:1;"><label>Postcode</label><input type="text" id="cotPostcode" /></div>
               </div>
+              <div id="cotFwdFinder" style="max-width:520px;"></div>
               <div class="form-group" style="max-width:520px;">
                 <label>Forwarding address for the outgoing party's final bill</label>
                 <input type="text" id="cotForwarding" placeholder="EDF ask for this on every COT" />
@@ -1985,6 +1987,7 @@
                 <div class="form-group" style="min-width:200px;flex:1;"><label>Landlord name <span style="font-weight:400;color:var(--muted);">(optional)</span></label><input type="text" id="cotLandlordName" /></div>
                 <div class="form-group" style="min-width:200px;flex:1;"><label>Landlord contact <span style="font-weight:400;color:var(--muted);">(optional)</span></label><input type="text" id="cotLandlordContact" placeholder="Phone or email" /></div>
               </div>
+              <div id="cotLandlordFinder" style="max-width:520px;"></div>
               <div class="form-group"><label>Landlord address <span style="font-weight:400;color:var(--muted);">(optional)</span></label><input type="text" id="cotLandlordAddress" /></div>
               <div class="form-group"><label>Notes for whoever handles this</label><textarea id="cotNotes" rows="3" placeholder="Anything the supplier will ask that isn't covered above. If there is no lease, say why here."></textarea></div>
               <label style="display:flex;align-items:flex-start;gap:10px;font-size:13px;font-weight:700;color:var(--navy);cursor:pointer;">
@@ -7514,13 +7517,19 @@
     }
 
     var _cot = { cid: null, cname: '', source: 'manual', meters: [], picked: {}, manual: [], seq: 0,
-                 files: { proof: [], extra: [] }, busy: false, searchT: null };
+                 rd: {}, files: { proof: [], extra: [] }, busy: false, searchT: null };
 
     function cotInit(){
       if (!_cot._booted) {
         _cot._booted = true;
         var dl = document.getElementById('cotSupplierList');
         if (dl) dl.innerHTML = COT_SUPPLIERS.map(function(s){ return '<option value="' + escapeHtml(s.d) + '"></option>'; }).join('');
+        var f1 = document.getElementById('cotSiteFinder');
+        if (f1) f1.innerHTML = cotAddrBox('site', 'Find the site address by postcode');
+        var f2 = document.getElementById('cotFwdFinder');
+        if (f2) f2.innerHTML = cotAddrBox('fwd', 'Find the forwarding address by postcode');
+        var f3 = document.getElementById('cotLandlordFinder');
+        if (f3) f3.innerHTML = cotAddrBox('landlord', 'Find the landlord address by postcode');
         cotResetForm(true);
       }
       cotShowForm();
@@ -7630,6 +7639,134 @@
                       five_rate: ['R1', 'R2', 'R3', 'R4', 'R5'], gas: ['Read'], water: ['Supply water', 'Waste water'] };
     var COT_IDTYPE = { electricity: 'MPAN', gas: 'MPRN', water: 'SPID' };
 
+    // ── reads, dates and per-meter addresses live in STATE, not the DOM ──────────────
+    // Ticking another meter or changing a utility re-renders the block. If these values
+    // only existed as input elements, that re-render would silently wipe what the broker
+    // had already typed.
+    function cotRd(key){
+      if (!_cot.rd[key]) _cot.rd[key] = { reads: [], date: '', addr: '', postcode: '' };
+      return _cot.rd[key];
+    }
+    function cotRdSet(key, i, v){ cotRd(key).reads[i] = v; }          // no re-render: keeps focus
+    function cotRdDate(key, v){ cotRd(key).date = v; }
+    function cotRdAddr(key, v){ cotRd(key).addr = v; }
+    // Always return exactly n slots. Filling only the second box (waste water, say) must
+    // still land in read2, so the array is built by index rather than sliced — a sliced
+    // sparse array shortens and shifts everything after the gap.
+    function cotReadArr(key, n){
+      var rd = cotRd(key), a = [];
+      for (var j = 0; j < n; j++) a.push(String(rd.reads[j] == null ? '' : rd.reads[j]).trim());
+      return a;
+    }
+
+    // ── SimplyPostcode address finder ───────────────────────────────────────────────
+    // https://www.simplypostcode.com/openapi
+    // This key is domain-locked at SimplyPostcode ("Invalid Domain Origin" from anywhere
+    // else), which is the only reason it is safe to ship in a public page. If the domain
+    // lock is ever removed from the account, this key becomes public and must be rotated.
+    var COT_ADDR_BASE = 'https://api.simplylookupadmin.co.uk/full_v3';
+    var COT_ADDR_KEY  = '2dc0dbbc-3af7-454e-9842-e4948b1b7c84';
+    var _cotAF = { t: {}, q: {}, hits: {} };
+
+    // Royal Mail licence terms require identifying the user on a user-based licence,
+    // 8 chars minimum. The broker's auth uid is a 36-char GUID.
+    function cotAddrUser(){ return (currentUser && currentUser.userId) ? currentUser.userId : ''; }
+
+    function cotAddrBox(slot, label){
+      return '<div class="form-group" style="margin:0 0 10px;position:relative;">' +
+        '<label style="font-size:11px;">' + escapeHtml(label || 'Find address by postcode') + '</label>' +
+        '<input type="text" id="cotAF_' + slot + '" autocomplete="off" placeholder="Postcode, or postcode + house name or number" ' +
+          'oninput="cotAddrSearch(\'' + slot + '\')" onkeydown="if(event.key===\'Escape\')cotAddrClose(\'' + slot + '\')" />' +
+        '<div id="cotAR_' + slot + '" style="display:none;position:absolute;z-index:50;left:0;right:0;top:100%;background:#fff;' +
+          'border:1px solid #c7cde8;border-radius:8px;box-shadow:0 8px 24px rgba(20,30,80,.14);max-height:260px;overflow-y:auto;"></div>' +
+        '<div id="cotAM_' + slot + '" style="font-size:11.5px;color:var(--muted);margin-top:3px;"></div>' +
+      '</div>';
+    }
+    function cotAddrClose(slot){
+      var b = document.getElementById('cotAR_' + slot); if (b) { b.style.display = 'none'; b.innerHTML = ''; }
+    }
+    function cotAddrSearch(slot){
+      clearTimeout(_cotAF.t[slot]);
+      // 300ms after the last keystroke, per the vendor's own guidance. Each call is a
+      // billed lookup, so do not fire on every key.
+      _cotAF.t[slot] = setTimeout(function(){ cotAddrSearchNow(slot); }, 300);
+    }
+    async function cotAddrSearchNow(slot){
+      var inp = document.getElementById('cotAF_' + slot); if (!inp) return;
+      var q = (inp.value || '').trim();
+      var box = document.getElementById('cotAR_' + slot), msg = document.getElementById('cotAM_' + slot);
+      if (!box || !msg) return;
+      if (q.length < 3) { cotAddrClose(slot); msg.textContent = ''; return; }
+      var qid = (_cotAF.q[slot] = (_cotAF.q[slot] || 0) + 1);
+      msg.textContent = 'Searching…';
+      try {
+        var url = COT_ADDR_BASE + '/getaddresslist?data_api_Key=' + encodeURIComponent(COT_ADDR_KEY) +
+                  '&query=' + encodeURIComponent(q) + '&queryid=' + qid +
+                  (cotAddrUser() ? '&userid=' + encodeURIComponent(cotAddrUser()) : '');
+        var r = await fetch(url);
+        var j = await r.json();
+        if (qid !== _cotAF.q[slot]) return;              // overtaken by a newer keystroke
+        if (j.processResult === false) { msg.textContent = ''; return; }
+        if (j.errormessage) { cotAddrClose(slot); msg.textContent = String(j.errormessage); return; }
+        var rows = j.results || [];
+        _cotAF.hits[slot] = rows;
+        if (!rows.length) { cotAddrClose(slot); msg.textContent = 'No addresses found. Type it in by hand.'; return; }
+        // Never inject the API's HTML. options=B is deliberately not requested, and every
+        // line is escaped before it reaches the DOM.
+        box.innerHTML = rows.map(function(x, i){
+          return '<div style="padding:8px 12px;cursor:pointer;font-size:12.5px;border-bottom:1px solid #f0f2f9;"' +
+                 ' onmousedown="cotAddrPick(\'' + slot + '\',' + i + ')">' + escapeHtml(x.Line || '') + '</div>';
+        }).join('');
+        box.style.display = '';
+        msg.textContent = j.instructionsTxt ? String(j.instructionsTxt) : (rows.length + ' found');
+      } catch (e) {
+        console.error('address lookup', e);
+        cotAddrClose(slot);
+        msg.textContent = 'Address lookup unavailable — type the address in by hand.';
+      }
+    }
+    async function cotAddrPick(slot, i){
+      var row = (_cotAF.hits[slot] || [])[i]; if (!row) return;
+      var msg = document.getElementById('cotAM_' + slot);
+      cotAddrClose(slot);
+      if (msg) msg.textContent = 'Fetching address…';
+      try {
+        var url = COT_ADDR_BASE + '/getselectedaddress?data_api_Key=' + encodeURIComponent(COT_ADDR_KEY) +
+                  '&id=' + encodeURIComponent(row.ID) +
+                  (cotAddrUser() ? '&userid=' + encodeURIComponent(cotAddrUser()) : '');
+        var r = await fetch(url);
+        var j = await r.json();
+        if (j.error || !j.found) { if (msg) msg.textContent = String(j.licenseStatus || j.errormessage || 'Could not fetch that address.'); return; }
+        var lines = [j.organisation, j.line1, j.line2, j.line3, j.town, j.county]
+                      .map(function(x){ return String(x || '').trim(); }).filter(Boolean);
+        cotAddrApply(slot, lines.join(', '), String(j.postcode || '').trim());
+        if (msg) msg.textContent = '';
+        var inp = document.getElementById('cotAF_' + slot); if (inp) inp.value = '';
+      } catch (e) {
+        console.error('address fetch', e);
+        if (msg) msg.textContent = 'Could not fetch that address — type it in by hand.';
+      }
+    }
+    // Where each finder writes its result.
+    function cotAddrApply(slot, addr, postcode){
+      function put(id, v){ var e = document.getElementById(id); if (e && v) e.value = v; }
+      if (slot === 'site') { put('cotSiteAddress', addr); put('cotPostcode', postcode); }
+      else if (slot === 'fwd') { put('cotForwarding', addr + (postcode ? ', ' + postcode : '')); }
+      else if (slot === 'landlord') { put('cotLandlordAddress', addr + (postcode ? ', ' + postcode : '')); }
+      else if (slot.indexOf('pm_') === 0) {
+        var id = slot.slice(3), rd = cotRd('p:' + id);
+        rd.addr = addr; rd.postcode = postcode;
+        var m = _cot.meters.find(function(x){ return x.id === id; });
+        if (m) { m.site_address = addr; }
+        cotRenderMeterPick();
+      } else if (slot.indexOf('mm_') === 0) {
+        var k = slot.slice(3), r2 = _cot.manual.find(function(x){ return x.k === k; });
+        if (r2) { r2.site_address = addr; r2.postcode = postcode; }
+        cotRenderManualMeters();
+      }
+      cotPreflight();
+    }
+
     function cotUtilBadge(u){
       var c = u === 'electricity' ? '#243b8f' : (u === 'gas' ? '#8a5a12' : '#0d6a72');
       var t = u === 'electricity' ? 'ELEC' : (u === 'gas' ? 'GAS' : 'WATER');
@@ -7651,11 +7788,13 @@
       }
       wrap.innerHTML = _cot.meters.map(function(m, i){
         var on = !!_cot.picked[m.id];
+        var rd = cotRd('p:' + m.id);
         var labels = COT_READS[m.rate_structure] || COT_READS.single;
         var reads = labels.map(function(lab, j){
           return '<div class="form-group" style="margin:0;min-width:110px;flex:1;"><label style="font-size:11px;">' + escapeHtml(lab) +
                  (m.utility === 'water' ? ' <span style="font-weight:400;color:var(--muted);">(optional)</span>' : '') +
-                 '</label><input type="text" inputmode="numeric" id="cotPR_' + m.id + '_' + j + '" /></div>';
+                 '</label><input type="text" inputmode="numeric" value="' + escapeHtml(rd.reads[j] || '') +
+                 '" oninput="cotRdSet(\'p:' + m.id + '\',' + j + ',this.value)" /></div>';
         }).join('');
         var rateSel = m.utility === 'electricity'
           ? '<div class="form-group" style="margin:0;min-width:170px;"><label style="font-size:11px;">Rate structure</label>' +
@@ -7675,9 +7814,14 @@
             '</span>' +
           '</label>' +
           (on ? '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;">' + rateSel + reads +
-                '<div class="form-group" style="margin:0;min-width:130px;"><label style="font-size:11px;">Read date</label><input type="date" id="cotPD_' + m.id + '" /></div>' +
+                '<div class="form-group" style="margin:0;min-width:130px;"><label style="font-size:11px;">Read date</label>' +
+                  '<input type="date" value="' + escapeHtml(rd.date || '') + '" onchange="cotRdDate(\'p:' + m.id + '\',this.value)" /></div>' +
                 '</div>' +
-                (m.site_address ? '' : '<div class="form-group" style="margin:10px 0 0;"><label style="font-size:11px;">Site address for this meter</label><input type="text" id="cotPA_' + m.id + '" placeholder="Not on file — please type it" /></div>')
+                (m.site_address
+                  ? ''
+                  : '<div style="margin-top:10px;">' + cotAddrBox('pm_' + m.id, 'Site address not on file — find it by postcode') +
+                    '<div class="form-group" style="margin:0;"><label style="font-size:11px;">Site address for this meter</label>' +
+                      '<input type="text" value="' + escapeHtml(rd.addr || '') + '" oninput="cotRdAddr(\'p:' + m.id + '\',this.value)" placeholder="Or type it in" /></div></div>')
              : '') +
           '</div>';
       }).join('');
@@ -7695,7 +7839,7 @@
     // plain 9-10 digit numbers and pattern-matching calls those gas MPRNs.
     function cotAddManualMeter(){
       _cot.manual.push({ k: 'm' + (++_cot.seq), utility: 'electricity', identifier: '', supplier: '',
-                         rate_structure: 'single', site_address: '' });
+                         rate_structure: 'single', site_address: '', postcode: '' });
       cotRenderManualMeters(); cotPreflight();
     }
     function cotRemoveManualMeter(k){
@@ -7721,6 +7865,7 @@
       var wrap = document.getElementById('cotManualMeters');
       if (!_cot.manual.length) { wrap.innerHTML = ''; return; }
       wrap.innerHTML = _cot.manual.map(function(r){
+        var rdm = cotRd('m:' + r.k);
         var labels = COT_READS[r.rate_structure] || COT_READS.single;
         var vr = cotIdentValid(r.utility, r.identifier);
         var res = r.supplier ? cotResolveSupplier(r.supplier) : null;
@@ -7757,40 +7902,45 @@
             labels.map(function(lab, j){
               return '<div class="form-group" style="margin:0;min-width:110px;flex:1;"><label style="font-size:11px;">' + escapeHtml(lab) +
                      (r.utility === 'water' ? ' <span style="font-weight:400;color:var(--muted);">(optional)</span>' : '') +
-                     '</label><input type="text" inputmode="numeric" id="cotMR_' + r.k + '_' + j + '" /></div>'; }).join('') +
-            '<div class="form-group" style="margin:0;min-width:130px;"><label style="font-size:11px;">Read date</label><input type="date" id="cotMD_' + r.k + '" /></div>' +
+                     '</label><input type="text" inputmode="numeric" value="' + escapeHtml(rdm.reads[j] || '') +
+                     '" oninput="cotRdSet(\'m:' + r.k + '\',' + j + ',this.value)" /></div>'; }).join('') +
+            '<div class="form-group" style="margin:0;min-width:130px;"><label style="font-size:11px;">Read date</label>' +
+              '<input type="date" value="' + escapeHtml(rdm.date || '') + '" onchange="cotRdDate(\'m:' + r.k + '\',this.value)" /></div>' +
           '</div>' +
-          '<div class="form-group" style="margin:10px 0 0;"><label style="font-size:11px;">Site address for this meter</label>' +
-            '<input type="text" value="' + escapeHtml(r.site_address) + '" oninput="cotManualField(\'' + r.k + '\',\'site_address\',this.value)" /></div>' +
+          '<div style="margin-top:10px;">' + cotAddrBox('mm_' + r.k, 'Find this site by postcode') +
+            '<div class="form-group" style="margin:0;"><label style="font-size:11px;">Site address for this meter</label>' +
+              '<input type="text" value="' + escapeHtml(r.site_address) + '" oninput="cotManualField(\'' + r.k + '\',\'site_address\',this.value)" placeholder="Or type it in" /></div></div>' +
           '</div>';
       }).join('');
     }
 
-    // Every selected meter, picker + manual, in one shape.
+    // Every selected meter, picker + manual, in one shape. Reads come from state, so a
+    // re-render between typing and submitting cannot lose them.
     function cotSelectedMeters(){
       var out = [];
       _cot.meters.forEach(function(m){
         if (!_cot.picked[m.id]) return;
-        var labels = COT_READS[m.rate_structure] || COT_READS.single;
-        var reads = labels.map(function(_, j){ var e = document.getElementById('cotPR_' + m.id + '_' + j); return e ? (e.value || '').trim() : ''; });
-        var da = document.getElementById('cotPD_' + m.id);
-        var aa = document.getElementById('cotPA_' + m.id);
+        var rd = cotRd('p:' + m.id);
+        var n = (COT_READS[m.rate_structure] || COT_READS.single).length;
         out.push({ source: 'picker', meter_id: m.id, utility: m.utility, identifier: m.identifier,
                    identifier_type: COT_IDTYPE[m.utility], supplier_raw: m.supplier,
-                   supply_type: m.supply_type || null, rate_structure: m.rate_structure, reads: reads,
-                   read_date: da && da.value ? da.value : null,
-                   site_address: m.site_address || (aa ? (aa.value || '').trim() : '') });
+                   supply_type: m.supply_type || null, rate_structure: m.rate_structure,
+                   reads: cotReadArr('p:' + m.id, n),
+                   read_date: rd.date || null,
+                   site_address: m.site_address || rd.addr || '',
+                   postcode: rd.postcode || '' });
       });
       _cot.manual.forEach(function(r){
         if (!String(r.identifier || '').trim()) return;
-        var labels = COT_READS[r.rate_structure] || COT_READS.single;
-        var reads = labels.map(function(_, j){ var e = document.getElementById('cotMR_' + r.k + '_' + j); return e ? (e.value || '').trim() : ''; });
-        var da = document.getElementById('cotMD_' + r.k);
+        var rd = cotRd('m:' + r.k);
+        var n = (COT_READS[r.rate_structure] || COT_READS.single).length;
         out.push({ source: 'manual', meter_id: null, utility: r.utility,
                    identifier: String(r.identifier).replace(/\s+/g, '').toUpperCase(),
                    identifier_type: COT_IDTYPE[r.utility], supplier_raw: r.supplier || '',
-                   supply_type: null, rate_structure: r.rate_structure, reads: reads,
-                   read_date: da && da.value ? da.value : null, site_address: r.site_address || '' });
+                   supply_type: null, rate_structure: r.rate_structure,
+                   reads: cotReadArr('m:' + r.k, n),
+                   read_date: rd.date || null, site_address: r.site_address || '',
+                   postcode: r.postcode || '' });
       });
       return out;
     }
@@ -7959,7 +8109,7 @@
                      read1: m.reads[0] || null, read2: m.reads[1] || null, read3: m.reads[2] || null,
                      read4: m.reads[3] || null, read5: m.reads[4] || null,
                      read_date: m.read_date, site_address: m.site_address || null,
-                     postcode: (document.getElementById('cotPostcode').value || '').trim() || null };
+                     postcode: m.postcode || (document.getElementById('cotPostcode').value || '').trim() || null };
           });
           var mi = await sb.from('cot_meters').insert(mrows);
           if (mi.error) throw mi.error;
@@ -7996,7 +8146,9 @@
     }
     function cotResetForm(silent){
       _cot.cid = null; _cot.cname = ''; _cot.source = 'manual';
-      _cot.meters = []; _cot.picked = {}; _cot.manual = []; _cot.files = { proof: [], extra: [] };
+      _cot.meters = []; _cot.picked = {}; _cot.manual = []; _cot.rd = {};
+      _cot.files = { proof: [], extra: [] };
+      _cotAF.hits = {}; _cotAF.q = {};
       ['cotCustInput','cotChangeover','cotSiteAddress','cotPostcode','cotForwarding',
        'cotLandlordName','cotLandlordAddress','cotLandlordContact','cotNotes','cotUrgentReason']
         .forEach(function(id){ var e = document.getElementById(id); if (e) e.value = ''; });
