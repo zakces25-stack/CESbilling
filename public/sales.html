@@ -1502,6 +1502,7 @@
           <div class="nav-item" id="bkNavAnalytics" onclick="brokerNav('analytics')">Analytical Data</div>
           <div class="nav-item" id="bkNavProjects" onclick="brokerNav('projects')">My Projects</div>
           <div class="nav-item" id="bkNavCust" onclick="brokerNav('customers')">My Portfolio</div>
+          <div class="nav-item" id="bkNavCot" onclick="brokerNav('cot')">COT Submission</div>
           <div class="nav-item" id="bkNavLead" onclick="brokerNav('lead')" style="display:none;">Team admin</div>
           <div class="nav-item" id="bkNavCeo" onclick="brokerNav('ceo')" style="display:none;">Company view</div>
         </div>
@@ -1533,6 +1534,7 @@
             <label style="display:flex;align-items:center;gap:10px;font-size:13px;color:var(--navy);font-weight:800;">Viewing month
               <select id="bxMonth" onchange="brokerRenderMine()" style="width:auto;font-weight:800;font-size:14px;padding:9px 14px;border:2px solid var(--navy);border-radius:8px;color:var(--navy);background:#fff;cursor:pointer;"></select>
             </label>
+            <button class="btn-primary" style="width:auto;padding:10px 18px;font-weight:800;" onclick="brokerNav('cot')">Submit a COT</button>
           </div>
           <div id="bxLinkWarn"></div>
 
@@ -1882,6 +1884,125 @@
             <table class="usage-table" id="brokerMetersTable"></table>
           </div>
         </div>
+        <!-- View: COT Submission (Change of Tenancy) -->
+        <div id="brokerCotView" style="display:none;">
+          <div class="section-head" style="align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;">
+            <h2 id="cotHeading">Submit a COT</h2>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn-secondary" id="cotBtnList" style="width:auto;padding:8px 16px;" onclick="cotShowList()">My COT requests</button>
+              <button class="btn-primary" id="cotBtnNew" style="width:auto;padding:8px 16px;display:none;" onclick="cotShowForm()">+ New COT</button>
+            </div>
+          </div>
+
+          <!-- ── list of this broker's COTs ── -->
+          <div id="cotListWrap" style="display:none;">
+            <div class="card" style="overflow-x:auto;">
+              <table class="data-table" id="cotListTable"><tbody><tr><td class="empty-state">Loading…</td></tr></tbody></table>
+            </div>
+          </div>
+
+          <datalist id="cotSupplierList"></datalist>
+
+          <!-- ── the submission form ── -->
+          <div id="cotFormWrap">
+            <div class="success-box" id="cotOk" style="display:none;"></div>
+            <div class="error-box" id="cotErr" style="display:none;"></div>
+
+            <!-- 1. Customer -->
+            <div class="card" style="margin-bottom:16px;">
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">1. Customer</h3>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Start typing. Anyone on your portfolio will appear below. If they are not there, just type the name and carry on.</p>
+              <div class="form-group" style="max-width:520px;margin-bottom:8px;position:relative;">
+                <label>Company name</label>
+                <input type="text" id="cotCustInput" autocomplete="off" placeholder="Start typing a company name…"
+                       oninput="cotCustSearch()" onfocus="cotCustSearch()" />
+                <div id="cotCustResults" style="display:none;position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #c7cde8;border-radius:8px;box-shadow:0 8px 24px rgba(20,30,80,.14);max-height:280px;overflow-y:auto;"></div>
+              </div>
+              <div id="cotCustState" style="font-size:12.5px;font-weight:700;"></div>
+            </div>
+
+            <!-- 2. Meters -->
+            <div class="card" style="margin-bottom:16px;">
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">2. Meters going through the COT</h3>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Tick the meters on file, or add any that are missing. Meter serial numbers are not needed.</p>
+              <div id="cotMeterPick"><div class="empty-state" style="padding:14px;">Pick a customer first, or add a meter manually below.</div></div>
+              <div id="cotManualMeters"></div>
+              <button class="btn-secondary" style="width:auto;padding:9px 16px;margin-top:12px;" onclick="cotAddManualMeter()">+ Add a meter that isn't listed</button>
+              <div id="cotSupplierNote" style="margin-top:14px;"></div>
+            </div>
+
+            <!-- 3. The change -->
+            <div class="card" style="margin-bottom:16px;">
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:14px;">3. The change</h3>
+              <div style="display:flex;gap:14px;flex-wrap:wrap;">
+                <div class="form-group" style="min-width:220px;flex:1;">
+                  <label>Our customer is</label>
+                  <select id="cotRepresenting" onchange="cotRenderParties()">
+                    <option value="">— select —</option>
+                    <option value="incoming">Incoming (moving in)</option>
+                    <option value="outgoing">Outgoing (moving out)</option>
+                    <option value="both">Both (group restructure)</option>
+                  </select>
+                </div>
+                <div class="form-group" style="min-width:200px;flex:1;">
+                  <label>Changeover date</label>
+                  <input type="date" id="cotChangeover" />
+                </div>
+              </div>
+              <div id="cotPartiesWrap"></div>
+              <div style="display:flex;gap:14px;flex-wrap:wrap;">
+                <div class="form-group" style="min-width:220px;flex:2;"><label>Site address</label><input type="text" id="cotSiteAddress" placeholder="Used on the supplier form" /></div>
+                <div class="form-group" style="min-width:120px;flex:1;"><label>Postcode</label><input type="text" id="cotPostcode" /></div>
+              </div>
+              <div class="form-group" style="max-width:520px;">
+                <label>Forwarding address for the outgoing party's final bill</label>
+                <input type="text" id="cotForwarding" placeholder="EDF ask for this on every COT" />
+              </div>
+            </div>
+
+            <!-- 4. Evidence -->
+            <div class="card" style="margin-bottom:16px;">
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">4. Proof of occupation</h3>
+              <p style="font-size:12.5px;color:var(--navy);font-weight:700;margin-bottom:4px;">Signed by BOTH parties, every page.</p>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Lease, TR1 / transfer deed, licence to occupy, or a solicitor's completion letter. This is the single biggest cause of supplier rejections. If there is genuinely no lease (an acquisition, say) explain it in section 5 and submit anyway.</p>
+              <label class="btn-primary" style="width:auto;padding:9px 14px;cursor:pointer;display:inline-block;">&#8679; Attach proof of occupation
+                <input type="file" id="cotProofFiles" multiple accept=".pdf,.jpg,.jpeg,.png,.heic,.tif,.tiff,.doc,.docx" style="display:none;" onchange="cotFileList('proof')" />
+              </label>
+              <div id="cotProofList" style="font-size:12.5px;margin-top:10px;"></div>
+              <div style="border-top:1px solid #e6e9f4;margin:18px 0 14px;"></div>
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Anything else to attach</h3>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Optional. A newer LOA, a supplier form the customer has already signed, meter photos. We hold 1,386 LOAs, so do not go hunting for one — we look it up and only come back to you on a miss.</p>
+              <label class="btn-secondary" style="width:auto;padding:9px 14px;cursor:pointer;display:inline-block;">&#8679; Attach other documents
+                <input type="file" id="cotExtraFiles" multiple style="display:none;" onchange="cotFileList('extra')" />
+              </label>
+              <div id="cotExtraList" style="font-size:12.5px;margin-top:10px;"></div>
+            </div>
+
+            <!-- 5. Anything else -->
+            <div class="card" style="margin-bottom:16px;">
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:14px;">5. Anything else</h3>
+              <div style="display:flex;gap:14px;flex-wrap:wrap;">
+                <div class="form-group" style="min-width:200px;flex:1;"><label>Landlord name <span style="font-weight:400;color:var(--muted);">(optional)</span></label><input type="text" id="cotLandlordName" /></div>
+                <div class="form-group" style="min-width:200px;flex:1;"><label>Landlord contact <span style="font-weight:400;color:var(--muted);">(optional)</span></label><input type="text" id="cotLandlordContact" placeholder="Phone or email" /></div>
+              </div>
+              <div class="form-group"><label>Landlord address <span style="font-weight:400;color:var(--muted);">(optional)</span></label><input type="text" id="cotLandlordAddress" /></div>
+              <div class="form-group"><label>Notes for whoever handles this</label><textarea id="cotNotes" rows="3" placeholder="Anything the supplier will ask that isn't covered above. If there is no lease, say why here."></textarea></div>
+              <label style="display:flex;align-items:flex-start;gap:10px;font-size:13px;font-weight:700;color:var(--navy);cursor:pointer;">
+                <input type="checkbox" id="cotUrgent" style="margin-top:3px;" onchange="cotToggleUrgent()" />
+                <span>Urgent: the customer is on deemed or out-of-contract rates<br><span style="font-weight:400;color:var(--muted);font-size:12.5px;">Only tick this for deemed / out-of-contract. Money is burning daily on those. Tick it for general importance and the flag stops meaning anything.</span></span>
+              </label>
+              <div class="form-group" id="cotUrgentWrap" style="display:none;margin-top:12px;"><label>What is the rate situation?</label><input type="text" id="cotUrgentReason" placeholder="e.g. out of contract since 01/07, 42p/kWh" /></div>
+            </div>
+
+            <div class="card" style="margin-bottom:16px;">
+              <div id="cotPreflight" style="margin-bottom:14px;"></div>
+              <button class="btn-primary" id="cotSubmitBtn" style="width:auto;padding:12px 24px;font-weight:800;" onclick="cotSubmit()">Submit COT request</button>
+              <button class="btn-secondary" style="width:auto;padding:12px 24px;margin-left:8px;" onclick="cotResetForm()">Clear form</button>
+              <p style="font-size:12.5px;color:var(--muted);margin-top:12px;">This goes to cot@cesgb.com for a human to send on. Nothing is sent to a supplier automatically.</p>
+            </div>
+          </div>
+        </div>
+
         <div id="brokerLeadView" style="display:none;"></div>
         <div id="brokerCeoView" style="display:none;"></div>
       </main>
@@ -7314,15 +7435,21 @@
       var proj = document.getElementById('brokerProjectsView');
       var anl = document.getElementById('brokerAnalyticsView');
       var mv = document.getElementById('brokerMetersView');
+      var cot = document.getElementById('brokerCotView');
       var lead = document.getElementById('brokerLeadView');
       var ceo = document.getElementById('brokerCeoView');
       var nS = document.getElementById('bkNavSales'), nC = document.getElementById('bkNavCust'), nP = document.getElementById('bkNavProjects'), nA = document.getElementById('bkNavAnalytics');
+      var nT = document.getElementById('bkNavCot');
       var nL = document.getElementById('bkNavLead'), nX = document.getElementById('bkNavCeo');
-      function _hideAll(){ [sales,cust,proj,anl,mv,lead,ceo].forEach(function(v){ if(v) v.style.display = 'none'; }); }
-      function _clr(){ [nS,nC,nP,nA,nL,nX].forEach(function(n){ if(n) n.classList.remove('active'); }); }
+      function _hideAll(){ [sales,cust,proj,anl,mv,cot,lead,ceo].forEach(function(v){ if(v) v.style.display = 'none'; }); }
+      function _clr(){ [nS,nC,nP,nA,nT,nL,nX].forEach(function(n){ if(n) n.classList.remove('active'); }); }
       if(view === 'customers'){
         _hideAll(); backToBrokerCustomers();
         _clr(); if(nC) nC.classList.add('active');
+      } else if(view === 'cot'){
+        _hideAll(); if(cot) cot.style.display = '';
+        _clr(); if(nT) nT.classList.add('active');
+        cotInit();
       } else if(view === 'projects'){
         _hideAll(); if(proj) proj.style.display = '';
         _clr(); if(nP) nP.classList.add('active');
@@ -7345,6 +7472,577 @@
         _hideAll(); if(sales) sales.style.display = '';
         _clr(); if(nS) nS.classList.add('active');
       }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════════
+    // COT Submission (Change of Tenancy)
+    //
+    // Scoping rule: NO query in here filters by broker. RLS on public.customers and
+    // public.meters does that, exactly as loadBroker() already relies on. So when Adam,
+    // Vick, Jon and Alex's customers get their broker_id set, their pickers populate with
+    // zero code change here.
+    //
+    // Prerequisite: broker_manages() must be repointed at customers.broker_id first, and
+    // the unscoped "brokers manage meters" policy dropped. See
+    // COT_MIGRATION_pending_approval.sql. Until then the meters query returns all 612 rows
+    // to any broker, which is masked client-side today only because one broker owns the
+    // whole book.
+    // ═══════════════════════════════════════════════════════════════════════════════════
+
+    // GENERATED from LavAI/handover/data/suppliers.json v1.0 (2026-09-01), plus the UGP
+    // aliases the live meters.supplier values need. Advisory only: the gate re-resolves
+    // server-side from the authoritative file. Regenerate, do not hand-edit.
+    var COT_SUPPLIERS = [{"k":"british_gas_business","d":"British Gas Business","a":["BG","BGB","British Gas"],"c":"proven","ch":"portal","ph":true,"auth":true,"ds":true,"cn":false,"fw":false},{"k":"bg_lite","d":"British Gas Lite","a":["BGL","BG Lite"],"c":"documented","ch":"email","ph":false,"auth":true,"ds":true,"cn":true,"fw":false},{"k":"edf","d":"EDF","a":["EDF Energy"],"c":"proven","ch":"email","ph":false,"auth":false,"ds":false,"cn":false,"fw":true},{"k":"totalenergies","d":"TotalEnergies","a":["TE","Total"],"c":"proven","ch":"email","ph":true,"auth":false,"ds":false,"cn":false,"fw":false},{"k":"crown_gas_and_power","d":"Crown Gas & Power","a":["Crown"],"c":"proven","ch":"email","ph":false,"auth":false,"ds":false,"cn":false,"fw":true},{"k":"corona","d":"Corona Energy","a":["Corona"],"c":"proven","ch":"email","ph":false,"auth":false,"ds":false,"cn":false,"fw":false},{"k":"smartest_energy","d":"SmartestEnergy","a":["Smartest","SEBL","SEL"],"c":"proven","ch":"email","ph":true,"auth":false,"ds":false,"cn":false,"fw":false},{"k":"eon_next","d":"E.ON Next","a":["EON Next","Eon Next"],"c":"proven","ch":"email","ph":false,"auth":false,"ds":false,"cn":false,"fw":false},{"k":"eon_ic","d":"E.ON (I&C) / npower Business Solutions","a":["EON","E.ON","npower","NBS"],"c":"proven","ch":"email","ph":false,"auth":false,"ds":false,"cn":true,"fw":false},{"k":"bryt","d":"Bryt Energy","a":[],"c":"proven","ch":"email","ph":false,"auth":false,"ds":false,"cn":false,"fw":false},{"k":"yu_energy","d":"Yu Energy","a":["Yu"],"c":"proven","ch":"email","ph":true,"auth":false,"ds":true,"cn":false,"fw":false},{"k":"pozitive","d":"Pozitive Energy / PE Solutions","a":["PE","PE Solutions","Pozitive"],"c":"proven","ch":"email","ph":false,"auth":false,"ds":false,"cn":false,"fw":false},{"k":"pozitive_water","d":"Pozitive Water","a":["PE Water"],"c":"proven","ch":"email","ph":true,"auth":false,"ds":false,"cn":false,"fw":false},{"k":"ugp","d":"UGP","a":["United Gas & Power","United Gas and Power","UGP"],"c":"proven","ch":"portal","ph":false,"auth":false,"ds":false,"cn":false,"fw":false},{"k":"castle_water","d":"Castle Water","a":[],"c":"assumed","ch":"email","ph":true,"auth":false,"ds":false,"cn":false,"fw":false},{"k":"sefe","d":"SEFE Energy","a":["Gazprom"],"c":"documented","ch":"email","ph":false,"auth":false,"ds":false,"cn":false,"fw":true},{"k":"brook_green","d":"Brook Green Supply","a":["BGS"],"c":"documented","ch":"email","ph":false,"auth":false,"ds":false,"cn":true,"fw":false},{"k":"scottish_power","d":"Scottish Power","a":["SP","SP Commercial"],"c":"proven","ch":"email","ph":false,"auth":false,"ds":false,"cn":true,"fw":true},{"k":"marble_power","d":"Marble Power","a":[],"c":"documented","ch":"email","ph":false,"auth":false,"ds":false,"cn":false,"fw":false},{"k":"regent_gas","d":"Regent Gas","a":[],"c":"assumed","ch":"email","ph":false,"auth":false,"ds":false,"cn":false,"fw":false},{"k":"utilita","d":"Utilita","a":[],"c":"assumed","ch":"email","ph":false,"auth":false,"ds":false,"cn":false,"fw":false},{"k":"shell_energy","d":"Shell Energy","a":[],"c":"assumed","ch":"email","ph":false,"auth":false,"ds":false,"cn":false,"fw":false},{"k":"drax","d":"Drax","a":[],"c":"assumed","ch":"email","ph":false,"auth":false,"ds":false,"cn":false,"fw":false},{"k":"ecotricity","d":"Ecotricity","a":[],"c":"assumed","ch":"email","ph":false,"auth":false,"ds":false,"cn":false,"fw":false},{"k":"ruby_energy","d":"Ruby Energy","a":[],"c":"proven","ch":"portal","ph":false,"auth":false,"ds":false,"cn":false,"fw":false},{"k":"everflow","d":"Everflow","a":[],"c":"assumed","ch":"email","ph":true,"auth":false,"ds":false,"cn":false,"fw":false},{"k":"ses_water","d":"SES Business Water","a":[],"c":"assumed","ch":"email","ph":true,"auth":false,"ds":false,"cn":false,"fw":false},{"k":"wave","d":"Wave","a":[],"c":"assumed","ch":"email","ph":true,"auth":false,"ds":false,"cn":false,"fw":false}];
+
+    // Mirrors cot_core.resolve_supplier(): exact match wins outright, then a single
+    // full-token containment. Ambiguity resolves to null, never a guess.
+    function cotNorm(s){ return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
+    function cotResolveSupplier(name){
+      var n = cotNorm(name); if (!n) return null;
+      var exact = [], contains = [];
+      COT_SUPPLIERS.forEach(function(s){
+        var cands = [s.k.replace(/_/g, ' '), s.d].concat(s.a || []);
+        for (var i = 0; i < cands.length; i++) {
+          var c = cotNorm(cands[i]); if (!c) continue;
+          if (n === c) { exact.push(s); return; }
+          if ((' ' + n + ' ').indexOf(' ' + c + ' ') >= 0) { contains.push(s); return; }
+        }
+      });
+      if (exact.length === 1) return exact[0];
+      if (!exact.length && contains.length === 1) return contains[0];
+      return null;
+    }
+
+    var _cot = { cid: null, cname: '', source: 'manual', meters: [], picked: {}, manual: [], seq: 0,
+                 files: { proof: [], extra: [] }, busy: false, searchT: null };
+
+    function cotInit(){
+      if (!_cot._booted) {
+        _cot._booted = true;
+        var dl = document.getElementById('cotSupplierList');
+        if (dl) dl.innerHTML = COT_SUPPLIERS.map(function(s){ return '<option value="' + escapeHtml(s.d) + '"></option>'; }).join('');
+        cotResetForm(true);
+      }
+      cotShowForm();
+    }
+    function cotShowForm(){
+      document.getElementById('cotFormWrap').style.display = '';
+      document.getElementById('cotListWrap').style.display = 'none';
+      document.getElementById('cotBtnList').style.display = '';
+      document.getElementById('cotBtnNew').style.display = 'none';
+      document.getElementById('cotHeading').textContent = 'Submit a COT';
+    }
+    function cotShowList(){
+      document.getElementById('cotFormWrap').style.display = 'none';
+      document.getElementById('cotListWrap').style.display = '';
+      document.getElementById('cotBtnList').style.display = 'none';
+      document.getElementById('cotBtnNew').style.display = '';
+      document.getElementById('cotHeading').textContent = 'My COT requests';
+      cotLoadList();
+    }
+
+    // ── 1. customer type-ahead ───────────────────────────────────────────────────────
+    function cotCustSearch(){
+      clearTimeout(_cot.searchT);
+      _cot.searchT = setTimeout(cotCustSearchNow, 220);
+    }
+    async function cotCustSearchNow(){
+      var q = (document.getElementById('cotCustInput').value || '').trim();
+      var box = document.getElementById('cotCustResults');
+      // typing after a pick means they are changing their mind
+      if (_cot.cid && q !== _cot.cname) cotClearCustomer(false);
+      if (q.length < 2) { box.style.display = 'none'; box.innerHTML = ''; cotCustState(q); return; }
+      // No broker filter. RLS scopes this to the signed-in broker's portfolio.
+      var r = await sb.from('customers').select('customer_id, company_name')
+                      .ilike('company_name', '%' + q + '%').order('company_name').limit(12);
+      if (r.error) { console.error('cot customer search', r.error); box.style.display = 'none'; return; }
+      var rows = r.data || [];
+      if (!rows.length) { box.style.display = 'none'; box.innerHTML = ''; cotCustState(q); return; }
+      box.innerHTML = rows.map(function(c){
+        return '<div class="cot-opt" style="padding:9px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f0f2f9;"' +
+               ' onmousedown="cotPickCustomer(\'' + escapeHtml(c.customer_id).replace(/'/g, "\\'") + '\')">' +
+               '<strong>' + escapeHtml(c.company_name || c.customer_id) + '</strong>' +
+               '<span style="color:var(--muted);font-size:11.5px;"> · ' + escapeHtml(c.customer_id) + '</span></div>';
+      }).join('');
+      box.style.display = '';
+      cotCustState(q);
+    }
+    function cotCustState(typed){
+      var el = document.getElementById('cotCustState');
+      if (_cot.cid) {
+        el.innerHTML = '<span style="color:#1b7a3d;">&#10003; ' + escapeHtml(_cot.cname) +
+          ' — on your portfolio.</span> <a href="#" style="font-weight:700;" onclick="cotClearCustomer(true);return false;">change</a>';
+      } else if ((typed || '').length >= 2) {
+        el.innerHTML = '<span style="color:#b5840a;">Not on your portfolio. We will use “' + escapeHtml(typed) +
+          '” as typed — add the meters manually below.</span>';
+      } else { el.innerHTML = ''; }
+    }
+    async function cotPickCustomer(cid){
+      var r = await sb.from('customers').select('customer_id, company_name').eq('customer_id', cid).single();
+      if (r.error || !r.data) { console.error('cot pick customer', r.error); return; }
+      _cot.cid = r.data.customer_id;
+      _cot.cname = r.data.company_name || r.data.customer_id;
+      _cot.source = 'picker';
+      document.getElementById('cotCustInput').value = _cot.cname;
+      document.getElementById('cotCustResults').style.display = 'none';
+      cotCustState(_cot.cname);
+      await cotLoadMeters(_cot.cid);
+      cotPreflight();
+    }
+    function cotClearCustomer(alsoInput){
+      _cot.cid = null; _cot.source = 'manual'; _cot.meters = []; _cot.picked = {};
+      if (alsoInput) { document.getElementById('cotCustInput').value = ''; _cot.cname = ''; }
+      cotRenderMeterPick(); cotCustState(alsoInput ? '' : (document.getElementById('cotCustInput').value || '').trim());
+      cotPreflight();
+    }
+
+    // ── 2. meters ────────────────────────────────────────────────────────────────────
+    async function cotLoadMeters(cid){
+      var wrap = document.getElementById('cotMeterPick');
+      wrap.innerHTML = '<div class="empty-state" style="padding:14px;">Loading meters…</div>';
+      // Again no broker filter: RLS scopes it.
+      var mr = await sb.from('meters')
+        .select('id, mpan, utility, supply_type, supplier, current_day_rate, current_night_rate, current_eveweekend_rate')
+        .eq('customer_id', cid).order('utility').order('mpan');
+      if (mr.error) { console.error('cot meters', mr.error); wrap.innerHTML = '<div class="empty-state" style="padding:14px;">Could not load meters. Add them manually below.</div>'; return; }
+      // sites gives an address for only a handful of meters (78 rows across 4 customers,
+      // and it never joins for gas or water), so this is a prefill, not a lookup.
+      var sr = await sb.from('sites').select('utility, identifier, site_address').eq('customer_id', cid);
+      var addr = {};
+      (sr.data || []).forEach(function(s){ if (s.identifier) addr[String(s.identifier)] = s.site_address || ''; });
+      _cot.meters = (mr.data || []).map(function(m){
+        return { id: m.id, identifier: String(m.mpan || ''), utility: m.utility, supply_type: m.supply_type || '',
+                 supplier: m.supplier || '', site_address: addr[String(m.mpan || '')] || '',
+                 rate_structure: cotGuessRate(m) };
+      });
+      _cot.picked = {};
+      cotRenderMeterPick();
+    }
+    // meters holds no rate structure, but the rate columns imply one. Broker can override.
+    function cotGuessRate(m){
+      if (m.utility === 'gas') return 'gas';
+      if (m.utility === 'water') return 'water';
+      if (m.current_eveweekend_rate != null) return 'eveweekend';
+      if (m.current_day_rate != null && m.current_night_rate != null) return 'economy7';
+      return 'single';
+    }
+    var COT_READS = { single: ['Read'], economy7: ['Day', 'Night'], eveweekend: ['Day', 'Night', 'Eve/weekend'],
+                      five_rate: ['R1', 'R2', 'R3', 'R4', 'R5'], gas: ['Read'], water: ['Supply water', 'Waste water'] };
+    var COT_IDTYPE = { electricity: 'MPAN', gas: 'MPRN', water: 'SPID' };
+
+    function cotUtilBadge(u){
+      var c = u === 'electricity' ? '#243b8f' : (u === 'gas' ? '#8a5a12' : '#0d6a72');
+      var t = u === 'electricity' ? 'ELEC' : (u === 'gas' ? 'GAS' : 'WATER');
+      return '<span style="display:inline-block;background:' + c + ';color:#fff;font-size:10px;font-weight:800;' +
+             'padding:2px 6px;border-radius:4px;letter-spacing:.4px;">' + t + '</span>';
+    }
+    function cotRenderMeterPick(){
+      var wrap = document.getElementById('cotMeterPick');
+      if (!_cot.cid) {
+        wrap.innerHTML = '<div class="empty-state" style="padding:14px;">' +
+          (_cot.cname ? 'This customer is not on your portfolio, so there are no meters on file. Add them manually below.'
+                      : 'Pick a customer first, or add a meter manually below.') + '</div>';
+        return;
+      }
+      if (!_cot.meters.length) {
+        wrap.innerHTML = '<div class="empty-state" style="padding:14px;">No meters on file for ' +
+          escapeHtml(_cot.cname) + ' yet. Add them manually below — this will not block your submission.</div>';
+        return;
+      }
+      wrap.innerHTML = _cot.meters.map(function(m, i){
+        var on = !!_cot.picked[m.id];
+        var labels = COT_READS[m.rate_structure] || COT_READS.single;
+        var reads = labels.map(function(lab, j){
+          return '<div class="form-group" style="margin:0;min-width:110px;flex:1;"><label style="font-size:11px;">' + escapeHtml(lab) +
+                 (m.utility === 'water' ? ' <span style="font-weight:400;color:var(--muted);">(optional)</span>' : '') +
+                 '</label><input type="text" inputmode="numeric" id="cotPR_' + m.id + '_' + j + '" /></div>';
+        }).join('');
+        var rateSel = m.utility === 'electricity'
+          ? '<div class="form-group" style="margin:0;min-width:170px;"><label style="font-size:11px;">Rate structure</label>' +
+            '<select id="cotPS_' + m.id + '" onchange="cotSetPickRate(\'' + m.id + '\', this.value)">' +
+            ['single|Standard (1 read)', 'economy7|Economy 7 (day + night)', 'eveweekend|Evening &amp; weekend (3)', 'five_rate|5-rate (R1–R5)']
+              .map(function(o){ var p = o.split('|'); return '<option value="' + p[0] + '"' + (m.rate_structure === p[0] ? ' selected' : '') + '>' + p[1] + '</option>'; }).join('') +
+            '</select></div>' : '';
+        return '<div style="border:1px solid ' + (on ? 'var(--navy)' : '#e6e9f4') + ';border-radius:10px;padding:12px 14px;margin-bottom:10px;background:' + (on ? '#f7f9ff' : '#fff') + ';">' +
+          '<label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:700;color:var(--navy);">' +
+            '<input type="checkbox" ' + (on ? 'checked' : '') + ' onchange="cotToggleMeter(\'' + m.id + '\', this.checked)" />' +
+            cotUtilBadge(m.utility) +
+            '<span style="font-family:ui-monospace,Menlo,monospace;">' + escapeHtml(m.identifier) + '</span>' +
+            '<span style="font-weight:600;color:var(--muted);font-size:12px;">' +
+              escapeHtml(m.supplier || 'supplier not recorded') +
+              (m.supply_type ? ' · ' + escapeHtml(m.supply_type) : '') +
+              (m.site_address ? ' · ' + escapeHtml(m.site_address) : '') +
+            '</span>' +
+          '</label>' +
+          (on ? '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;">' + rateSel + reads +
+                '<div class="form-group" style="margin:0;min-width:130px;"><label style="font-size:11px;">Read date</label><input type="date" id="cotPD_' + m.id + '" /></div>' +
+                '</div>' +
+                (m.site_address ? '' : '<div class="form-group" style="margin:10px 0 0;"><label style="font-size:11px;">Site address for this meter</label><input type="text" id="cotPA_' + m.id + '" placeholder="Not on file — please type it" /></div>')
+             : '') +
+          '</div>';
+      }).join('');
+    }
+    function cotToggleMeter(id, on){
+      if (on) _cot.picked[id] = true; else delete _cot.picked[id];
+      cotRenderMeterPick(); cotSupplierNote(); cotPreflight();
+    }
+    function cotSetPickRate(id, v){
+      var m = _cot.meters.find(function(x){ return x.id === id; });
+      if (m) { m.rate_structure = v; cotRenderMeterPick(); }
+    }
+
+    // manual meter rows — utility is ASKED, never inferred. 7 of CES's 44 water SPIDs are
+    // plain 9-10 digit numbers and pattern-matching calls those gas MPRNs.
+    function cotAddManualMeter(){
+      _cot.manual.push({ k: 'm' + (++_cot.seq), utility: 'electricity', identifier: '', supplier: '',
+                         rate_structure: 'single', site_address: '' });
+      cotRenderManualMeters(); cotPreflight();
+    }
+    function cotRemoveManualMeter(k){
+      _cot.manual = _cot.manual.filter(function(r){ return r.k !== k; });
+      cotRenderManualMeters(); cotSupplierNote(); cotPreflight();
+    }
+    function cotManualField(k, field, v){
+      var r = _cot.manual.find(function(x){ return x.k === k; }); if (!r) return;
+      r[field] = v;
+      if (field === 'utility') { r.rate_structure = v === 'gas' ? 'gas' : (v === 'water' ? 'water' : 'single'); cotRenderManualMeters(); }
+      if (field === 'identifier') cotRenderManualMeters();
+      if (field === 'supplier') { cotRenderManualMeters(); cotSupplierNote(); }
+      cotPreflight();
+    }
+    function cotIdentValid(utility, v){
+      var s = String(v || '').replace(/\s+/g, '').toUpperCase();
+      if (!s) return null;
+      if (utility === 'electricity') return /^\d{13}$/.test(s) ? true : 'An MPAN is 13 digits.';
+      if (utility === 'gas') return /^\d{6,10}$/.test(s) ? true : 'An MPRN is 6 to 10 digits.';
+      return (/^\d{10}W\d{2}$/.test(s) || /^\d{9,10}$/.test(s)) ? true : 'A SPID is 10 digits then W then 2, or 9–10 digits.';
+    }
+    function cotRenderManualMeters(){
+      var wrap = document.getElementById('cotManualMeters');
+      if (!_cot.manual.length) { wrap.innerHTML = ''; return; }
+      wrap.innerHTML = _cot.manual.map(function(r){
+        var labels = COT_READS[r.rate_structure] || COT_READS.single;
+        var vr = cotIdentValid(r.utility, r.identifier);
+        var res = r.supplier ? cotResolveSupplier(r.supplier) : null;
+        var supNote = !r.supplier ? '' : (res
+          ? '<span style="color:#1b7a3d;font-size:11.5px;font-weight:700;">&#10003; ' + escapeHtml(res.d) +
+            (res.c === 'assumed' ? ' — our requirements for them are unproven, so this one gets a human check' : '') + '</span>'
+          : '<span style="color:#b5840a;font-size:11.5px;font-weight:700;">We have no COT requirements on file for “' + escapeHtml(r.supplier) + '”. Submit anyway — it will be routed by hand.</span>');
+        return '<div style="border:1px dashed #c7cde8;border-radius:10px;padding:12px 14px;margin-top:10px;background:#fcfdff;">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
+            '<strong style="font-size:12.5px;color:var(--navy);">Meter added manually</strong>' +
+            '<button class="btn-secondary" style="width:auto;padding:4px 12px;font-size:12px;" onclick="cotRemoveManualMeter(\'' + r.k + '\')">Remove</button>' +
+          '</div>' +
+          '<div style="display:flex;gap:12px;flex-wrap:wrap;">' +
+            '<div class="form-group" style="margin:0;min-width:140px;"><label style="font-size:11px;">Utility</label>' +
+              '<select onchange="cotManualField(\'' + r.k + '\',\'utility\',this.value)">' +
+              ['electricity|Electricity', 'gas|Gas', 'water|Water'].map(function(o){ var p = o.split('|');
+                return '<option value="' + p[0] + '"' + (r.utility === p[0] ? ' selected' : '') + '>' + p[1] + '</option>'; }).join('') +
+              '</select></div>' +
+            '<div class="form-group" style="margin:0;min-width:200px;flex:1;"><label style="font-size:11px;">' + COT_IDTYPE[r.utility] + '</label>' +
+              '<input type="text" value="' + escapeHtml(r.identifier) + '" oninput="cotManualField(\'' + r.k + '\',\'identifier\',this.value)" />' +
+              (vr === true ? '' : (vr ? '<span style="color:#b5840a;font-size:11px;font-weight:700;">' + vr + '</span>' : '')) +
+            '</div>' +
+            '<div class="form-group" style="margin:0;min-width:180px;flex:1;"><label style="font-size:11px;">Supplier</label>' +
+              '<input type="text" value="' + escapeHtml(r.supplier) + '" list="cotSupplierList" oninput="cotManualField(\'' + r.k + '\',\'supplier\',this.value)" />' + supNote +
+            '</div>' +
+            (r.utility === 'electricity'
+              ? '<div class="form-group" style="margin:0;min-width:170px;"><label style="font-size:11px;">Rate structure</label>' +
+                '<select onchange="cotManualField(\'' + r.k + '\',\'rate_structure\',this.value)">' +
+                ['single|Standard (1 read)', 'economy7|Economy 7 (day + night)', 'eveweekend|Evening &amp; weekend (3)', 'five_rate|5-rate (R1–R5)']
+                  .map(function(o){ var p = o.split('|'); return '<option value="' + p[0] + '"' + (r.rate_structure === p[0] ? ' selected' : '') + '>' + p[1] + '</option>'; }).join('') +
+                '</select></div>' : '') +
+          '</div>' +
+          '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;">' +
+            labels.map(function(lab, j){
+              return '<div class="form-group" style="margin:0;min-width:110px;flex:1;"><label style="font-size:11px;">' + escapeHtml(lab) +
+                     (r.utility === 'water' ? ' <span style="font-weight:400;color:var(--muted);">(optional)</span>' : '') +
+                     '</label><input type="text" inputmode="numeric" id="cotMR_' + r.k + '_' + j + '" /></div>'; }).join('') +
+            '<div class="form-group" style="margin:0;min-width:130px;"><label style="font-size:11px;">Read date</label><input type="date" id="cotMD_' + r.k + '" /></div>' +
+          '</div>' +
+          '<div class="form-group" style="margin:10px 0 0;"><label style="font-size:11px;">Site address for this meter</label>' +
+            '<input type="text" value="' + escapeHtml(r.site_address) + '" oninput="cotManualField(\'' + r.k + '\',\'site_address\',this.value)" /></div>' +
+          '</div>';
+      }).join('');
+    }
+
+    // Every selected meter, picker + manual, in one shape.
+    function cotSelectedMeters(){
+      var out = [];
+      _cot.meters.forEach(function(m){
+        if (!_cot.picked[m.id]) return;
+        var labels = COT_READS[m.rate_structure] || COT_READS.single;
+        var reads = labels.map(function(_, j){ var e = document.getElementById('cotPR_' + m.id + '_' + j); return e ? (e.value || '').trim() : ''; });
+        var da = document.getElementById('cotPD_' + m.id);
+        var aa = document.getElementById('cotPA_' + m.id);
+        out.push({ source: 'picker', meter_id: m.id, utility: m.utility, identifier: m.identifier,
+                   identifier_type: COT_IDTYPE[m.utility], supplier_raw: m.supplier,
+                   supply_type: m.supply_type || null, rate_structure: m.rate_structure, reads: reads,
+                   read_date: da && da.value ? da.value : null,
+                   site_address: m.site_address || (aa ? (aa.value || '').trim() : '') });
+      });
+      _cot.manual.forEach(function(r){
+        if (!String(r.identifier || '').trim()) return;
+        var labels = COT_READS[r.rate_structure] || COT_READS.single;
+        var reads = labels.map(function(_, j){ var e = document.getElementById('cotMR_' + r.k + '_' + j); return e ? (e.value || '').trim() : ''; });
+        var da = document.getElementById('cotMD_' + r.k);
+        out.push({ source: 'manual', meter_id: null, utility: r.utility,
+                   identifier: String(r.identifier).replace(/\s+/g, '').toUpperCase(),
+                   identifier_type: COT_IDTYPE[r.utility], supplier_raw: r.supplier || '',
+                   supply_type: null, rate_structure: r.rate_structure, reads: reads,
+                   read_date: da && da.value ? da.value : null, site_address: r.site_address || '' });
+      });
+      return out;
+    }
+    // One COT request per supplier. Suppliers only accept their own form and confirm meter
+    // by meter, so a selection spanning two suppliers is two COTs, not one.
+    function cotGroupBySupplier(sel){
+      var groups = {};
+      sel.forEach(function(m){
+        var res = cotResolveSupplier(m.supplier_raw);
+        var key = res ? res.k : ('raw:' + cotNorm(m.supplier_raw) || 'raw:unknown');
+        if (!groups[key]) groups[key] = { key: res ? res.k : null, display: res ? res.d : (m.supplier_raw || 'Supplier not stated'), res: res, meters: [] };
+        groups[key].meters.push(m);
+      });
+      return Object.keys(groups).map(function(k){ return groups[k]; });
+    }
+    function cotSupplierNote(){
+      var el = document.getElementById('cotSupplierNote');
+      var groups = cotGroupBySupplier(cotSelectedMeters());
+      if (!groups.length) { el.innerHTML = ''; return; }
+      var bits = [];
+      if (groups.length > 1) {
+        bits.push('<div class="card" style="border-left:3px solid #243b8f;padding:12px 14px;margin:0 0 8px;font-size:12.5px;">' +
+          '<strong>' + groups.length + ' suppliers selected.</strong> This will be submitted as ' + groups.length +
+          ' separate COT requests, one per supplier, because each supplier only accepts their own form: ' +
+          groups.map(function(g){ return escapeHtml(g.display); }).join(', ') + '.</div>');
+      }
+      groups.forEach(function(g){
+        var w = [];
+        if (!g.res) w.push('We have no COT requirements on file for <strong>' + escapeHtml(g.display) + '</strong>, so this one will be routed by hand.');
+        else {
+          if (g.res.ch === 'portal') w.push('<strong>' + escapeHtml(g.res.d) + '</strong> only accepts COTs through their portal, so a person submits this one.');
+          if (g.res.c === 'assumed') w.push('Our requirements for <strong>' + escapeHtml(g.res.d) + '</strong> are assumed rather than proven, so the first one gets a human check.');
+          if (g.res.ph) w.push('<strong>' + escapeHtml(g.res.d) + '</strong> want a photo of the meter showing the serial and reading.');
+          if (g.res.auth) w.push('<strong>' + escapeHtml(g.res.d) + '</strong> reject agent-signed forms — the customer has to email authorisation from their own address.');
+          if (g.res.ds) w.push('<strong>' + escapeHtml(g.res.d) + '</strong> want the LOA signing summary as well as the LOA.');
+          if (g.res.cn) w.push('<strong>' + escapeHtml(g.res.d) + '</strong> want the incoming company\'s Companies House number.');
+          if (g.res.fw) w.push('<strong>' + escapeHtml(g.res.d) + '</strong> want a forwarding address for the final bill.');
+        }
+        if (w.length) bits.push('<div class="card" style="border-left:3px solid #b5840a;padding:12px 14px;margin:0 0 8px;font-size:12.5px;"><ul style="margin:0;padding-left:18px;">' +
+          w.map(function(x){ return '<li style="margin:3px 0;">' + x + '</li>'; }).join('') + '</ul></div>');
+      });
+      el.innerHTML = bits.join('');
+    }
+
+    // ── 3. parties ───────────────────────────────────────────────────────────────────
+    function cotRenderParties(){
+      var v = document.getElementById('cotRepresenting').value;
+      var wrap = document.getElementById('cotPartiesWrap');
+      if (!v) { wrap.innerHTML = ''; cotPreflight(); return; }
+      wrap.innerHTML =
+        '<div style="display:flex;gap:14px;flex-wrap:wrap;">' +
+          '<div class="form-group" style="min-width:220px;flex:1;"><label>Incoming party (moving in)</label><input type="text" id="cotIncoming" oninput="cotPreflight()" placeholder="Exact legal entity name" /></div>' +
+          '<div class="form-group" style="min-width:220px;flex:1;"><label>Outgoing party (moving out)</label><input type="text" id="cotOutgoing" oninput="cotPreflight()" placeholder="Exact legal entity name" /></div>' +
+          '<div class="form-group" style="min-width:170px;"><label>Incoming company number</label><input type="text" id="cotCompanyNo" placeholder="Companies House" /></div>' +
+        '</div>' +
+        (v === 'both' ? '<div class="card" style="border-left:3px solid #b5840a;padding:12px 14px;margin-bottom:14px;font-size:12.5px;">' +
+          '“Both” almost always means a group restructure. A COT breaks the outgoing contract where a novation would carry it over, and suppliers check for that, so this one will be looked at by a person before anything is sent.</div>' : '');
+      cotPreflight();
+    }
+    function cotToggleUrgent(){
+      document.getElementById('cotUrgentWrap').style.display = document.getElementById('cotUrgent').checked ? '' : 'none';
+    }
+
+    // ── 4. files ─────────────────────────────────────────────────────────────────────
+    function cotFileList(which){
+      var input = document.getElementById(which === 'proof' ? 'cotProofFiles' : 'cotExtraFiles');
+      _cot.files[which] = Array.prototype.slice.call(input.files || []);
+      var el = document.getElementById(which === 'proof' ? 'cotProofList' : 'cotExtraList');
+      if (!_cot.files[which].length) { el.innerHTML = ''; cotPreflight(); return; }
+      var tot = _cot.files[which].reduce(function(s, f){ return s + f.size; }, 0);
+      el.innerHTML = _cot.files[which].map(function(f){
+        return '<div>&#128196; ' + escapeHtml(f.name) + ' <span style="color:var(--muted);">(' + (f.size / 1048576).toFixed(1) + ' MB)</span></div>';
+      }).join('') + '<div style="color:var(--muted);margin-top:4px;">' + _cot.files[which].length + ' file(s), ' + (tot / 1048576).toFixed(1) + ' MB total</div>';
+      cotPreflight();
+    }
+
+    // ── preflight: advisory, never blocks except where a supplier truly will ─────────
+    function cotPreflight(){
+      var el = document.getElementById('cotPreflight');
+      var sel = cotSelectedMeters();
+      var name = (document.getElementById('cotCustInput').value || '').trim();
+      var stop = [], warn = [];
+      if (!name) stop.push('a customer name');
+      if (!sel.length) stop.push('at least one meter');
+      if (!document.getElementById('cotRepresenting').value) stop.push('whether our customer is incoming or outgoing');
+      if (!document.getElementById('cotChangeover').value) stop.push('the changeover date');
+      if (!_cot.files.proof.length) warn.push('No proof of occupation attached. Suppliers reject on this more than anything else. If there genuinely is no lease, say why in the notes and submit anyway.');
+      // connected party
+      var inc = (document.getElementById('cotIncoming') || {}).value || '';
+      var out = (document.getElementById('cotOutgoing') || {}).value || '';
+      if (inc && out) {
+        var ti = cotNorm(inc).split(' ').filter(function(w){ return w.length > 3; });
+        var to = cotNorm(out).split(' ').filter(function(w){ return w.length > 3; });
+        var shared = ti.filter(function(w){ return to.indexOf(w) >= 0; });
+        if (shared.length) warn.push('“' + escapeHtml(inc) + '” and “' + escapeHtml(out) + '” share the word “' + escapeHtml(shared.join(' ')) +
+          '”, so this may be a move between companies in the same group. That is allowed but a person decides it, because suppliers police it and it can land the meter on deemed rates.');
+      }
+      var html = '';
+      if (stop.length) html += '<div class="card" style="border-left:3px solid #9b2226;padding:12px 14px;margin:0 0 8px;font-size:12.5px;">Still needed: ' + stop.join(', ') + '.</div>';
+      warn.forEach(function(w){ html += '<div class="card" style="border-left:3px solid #b5840a;padding:12px 14px;margin:0 0 8px;font-size:12.5px;">' + w + '</div>'; });
+      el.innerHTML = html;
+      document.getElementById('cotSubmitBtn').disabled = stop.length > 0 || _cot.busy;
+      return { stop: stop, warn: warn };
+    }
+
+    // ── submit ───────────────────────────────────────────────────────────────────────
+    async function cotSubmit(){
+      if (_cot.busy) return;
+      var pf = cotPreflight();
+      if (pf.stop.length) return;
+      var notes = (document.getElementById('cotNotes').value || '').trim();
+      if (!_cot.files.proof.length && !notes) {
+        cotMsg('err', 'No proof of occupation is attached. If there genuinely is not one, explain why in the notes in section 5 and submit again.');
+        return;
+      }
+      if (!_cot.files.proof.length && !confirm('Submit with no proof of occupation? Suppliers reject on this more than anything else.')) return;
+
+      _cot.busy = true;
+      var btn = document.getElementById('cotSubmitBtn');
+      btn.disabled = true; btn.textContent = 'Submitting…';
+      try {
+        var s = await sb.auth.getSession();
+        var uid = s.data.session && s.data.session.user && s.data.session.user.id;
+        if (!uid) { cotMsg('err', 'Your session has expired. Please sign in again.'); return; }
+
+        var sel = cotSelectedMeters();
+        var groups = cotGroupBySupplier(sel);
+        var refs = [];
+
+        for (var gi = 0; gi < groups.length; gi++) {
+          var g = groups[gi];
+          var row = {
+            broker_id: uid,
+            customer_id: _cot.cid,                                  // null when typed manually
+            customer_name_raw: (document.getElementById('cotCustInput').value || '').trim(),
+            customer_source: _cot.cid ? 'picker' : 'manual',
+            representing: document.getElementById('cotRepresenting').value || null,
+            supplier_raw: g.display,
+            supplier_key: g.key,
+            changeover_date: document.getElementById('cotChangeover').value || null,
+            site_address: (document.getElementById('cotSiteAddress').value || '').trim() || (g.meters[0] && g.meters[0].site_address) || null,
+            postcode: (document.getElementById('cotPostcode').value || '').trim() || null,
+            incoming_party: ((document.getElementById('cotIncoming') || {}).value || '').trim() || null,
+            outgoing_party: ((document.getElementById('cotOutgoing') || {}).value || '').trim() || null,
+            company_number: ((document.getElementById('cotCompanyNo') || {}).value || '').trim() || null,
+            landlord_name: (document.getElementById('cotLandlordName').value || '').trim() || null,
+            landlord_address: (document.getElementById('cotLandlordAddress').value || '').trim() || null,
+            landlord_contact: (document.getElementById('cotLandlordContact').value || '').trim() || null,
+            forwarding_address: (document.getElementById('cotForwarding').value || '').trim() || null,
+            additional_info: notes || null,
+            urgent: document.getElementById('cotUrgent').checked,
+            urgent_reason: (document.getElementById('cotUrgentReason').value || '').trim() || null,
+            status: 'New'
+          };
+          var ins = await sb.from('cot_requests').insert(row).select('id, ref').single();
+          if (ins.error) throw ins.error;
+          var cotId = ins.data.id;
+          refs.push(ins.data.ref);
+
+          var mrows = g.meters.map(function(m){
+            var res = cotResolveSupplier(m.supplier_raw);
+            return { cot_id: cotId, meter_id: m.meter_id, source: m.source, utility: m.utility,
+                     identifier_type: m.identifier_type, identifier: m.identifier,
+                     supplier_raw: m.supplier_raw || null, supplier_key: res ? res.k : null,
+                     supply_type: m.supply_type, rate_structure: m.rate_structure,
+                     read1: m.reads[0] || null, read2: m.reads[1] || null, read3: m.reads[2] || null,
+                     read4: m.reads[3] || null, read5: m.reads[4] || null,
+                     read_date: m.read_date, site_address: m.site_address || null,
+                     postcode: (document.getElementById('cotPostcode').value || '').trim() || null };
+          });
+          var mi = await sb.from('cot_meters').insert(mrows);
+          if (mi.error) throw mi.error;
+
+          // Files last: the storage policy checks the parent COT row exists and is yours.
+          var all = _cot.files.proof.map(function(f){ return { f: f, kind: 'proof' }; })
+                      .concat(_cot.files.extra.map(function(f){ return { f: f, kind: 'extra' }; }));
+          for (var fi = 0; fi < all.length; fi++) {
+            var f = all[fi].f;
+            var safe = f.name.replace(/[^A-Za-z0-9._ -]/g, '_');
+            var up = await sb.storage.from('cot-documents').upload(cotId + '/' + all[fi].kind + '-' + safe, f, { upsert: true });
+            if (up.error) console.error('cot upload', f.name, up.error);
+          }
+          if (typeof logAction === 'function') logAction('cot_submitted', row.customer_id || row.customer_name_raw, { ref: ins.data.ref, supplier: g.display, meters: mrows.length });
+        }
+
+        cotMsg('ok', 'Submitted as ' + refs.join(', ') + '. It is with cot@cesgb.com now — you can follow it under “My COT requests”.');
+        cotResetForm(false);
+      } catch (e) {
+        console.error('cot submit', e);
+        cotMsg('err', 'Could not submit: ' + ((e && e.message) || 'unknown error') + '. Nothing was sent — please try again.');
+      } finally {
+        _cot.busy = false;
+        btn.textContent = 'Submit COT request';
+        cotPreflight();
+      }
+    }
+    function cotMsg(kind, text){
+      var ok = document.getElementById('cotOk'), er = document.getElementById('cotErr');
+      ok.style.display = 'none'; er.style.display = 'none';
+      var el = kind === 'ok' ? ok : er;
+      el.innerHTML = text; el.style.display = '';
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    function cotResetForm(silent){
+      _cot.cid = null; _cot.cname = ''; _cot.source = 'manual';
+      _cot.meters = []; _cot.picked = {}; _cot.manual = []; _cot.files = { proof: [], extra: [] };
+      ['cotCustInput','cotChangeover','cotSiteAddress','cotPostcode','cotForwarding',
+       'cotLandlordName','cotLandlordAddress','cotLandlordContact','cotNotes','cotUrgentReason']
+        .forEach(function(id){ var e = document.getElementById(id); if (e) e.value = ''; });
+      var rep = document.getElementById('cotRepresenting'); if (rep) rep.value = '';
+      var u = document.getElementById('cotUrgent'); if (u) u.checked = false;
+      ['cotProofFiles','cotExtraFiles'].forEach(function(id){ var e = document.getElementById(id); if (e) e.value = ''; });
+      ['cotProofList','cotExtraList','cotCustState','cotSupplierNote','cotPartiesWrap'].forEach(function(id){ var e = document.getElementById(id); if (e) e.innerHTML = ''; });
+      cotToggleUrgent(); cotRenderMeterPick(); cotRenderManualMeters();
+      if (!silent) { /* keep the success box visible */ } else { var o = document.getElementById('cotOk'), x = document.getElementById('cotErr'); if (o) o.style.display = 'none'; if (x) x.style.display = 'none'; }
+      cotPreflight();
+    }
+
+    // ── my COT requests ──────────────────────────────────────────────────────────────
+    var COT_STATUS_COLOUR = { 'New': '#243b8f', 'Reviewing': '#5b4bb5', 'Waiting on you': '#b5840a',
+      'Ready': '#0d6a72', 'With the supplier': '#1b7a3d', 'Supplier queried': '#b5840a',
+      'Needs a human': '#9b2226', 'Done': '#4a5578', 'Cancelled': '#8a8f9f' };
+    async function cotLoadList(){
+      var t = document.getElementById('cotListTable');
+      t.innerHTML = '<tbody><tr><td class="empty-state">Loading…</td></tr></tbody>';
+      var r = await sb.from('cot_requests')
+        .select('id, ref, customer_name_raw, supplier_raw, representing, changeover_date, status, gate, outstanding, urgent, created_at')
+        .order('created_at', { ascending: false }).limit(200);
+      if (r.error) { console.error('cot list', r.error); t.innerHTML = '<tbody><tr><td class="empty-state">Could not load your COT requests.</td></tr></tbody>'; return; }
+      var rows = r.data || [];
+      if (!rows.length) { t.innerHTML = '<tbody><tr><td class="empty-state">No COT requests yet. Submit one and it will appear here.</td></tr></tbody>'; return; }
+      var ids = rows.map(function(x){ return x.id; });
+      var mc = await sb.from('cot_meters').select('cot_id, identifier, utility').in('cot_id', ids);
+      var byCot = {};
+      (mc.data || []).forEach(function(m){ (byCot[m.cot_id] = byCot[m.cot_id] || []).push(m); });
+      t.innerHTML = '<thead><tr><th>Ref</th><th>Customer</th><th>Supplier</th><th>Meters</th>' +
+        '<th>Changeover</th><th>Status</th><th>Outstanding</th></tr></thead><tbody>' +
+        rows.map(function(c){
+          var ms = byCot[c.id] || [];
+          var col = COT_STATUS_COLOUR[c.status] || '#4a5578';
+          return '<tr>' +
+            '<td style="white-space:nowrap;font-weight:800;">' + escapeHtml(c.ref || '—') +
+              (c.urgent ? ' <span style="color:#9b2226;">&#9873;</span>' : '') + '</td>' +
+            '<td>' + escapeHtml(c.customer_name_raw || '') + '</td>' +
+            '<td>' + escapeHtml(c.supplier_raw || '—') + '</td>' +
+            '<td style="font-size:12px;">' + (ms.length ? ms.map(function(m){ return escapeHtml(m.identifier); }).join('<br>') : '—') + '</td>' +
+            '<td style="white-space:nowrap;">' + (c.changeover_date ? fmtDateUK(c.changeover_date) : '—') + '</td>' +
+            '<td style="white-space:nowrap;"><span style="display:inline-block;background:' + col + ';color:#fff;font-size:11px;font-weight:800;padding:3px 8px;border-radius:4px;">' + escapeHtml(c.status || '') + '</span>' +
+              (c.gate ? ' <span style="font-size:11px;font-weight:800;color:var(--muted);">' + escapeHtml(c.gate) + '</span>' : '') + '</td>' +
+            '<td style="font-size:12px;">' + escapeHtml(c.outstanding || '') + '</td>' +
+          '</tr>';
+        }).join('') + '</tbody>';
     }
 
     async function refreshAdminStats() {
