@@ -8086,6 +8086,7 @@
         var sel = cotSelectedMeters();
         var groups = cotGroupBySupplier(sel);
         var refs = [];
+        var notes_sent = [];
 
         for (var gi = 0; gi < groups.length; gi++) {
           var g = groups[gi];
@@ -8141,10 +8142,17 @@
             if (up.error) console.error('cot upload', f.name, up.error);
           }
           if (typeof logAction === 'function') logAction('cot_submitted', row.customer_id || row.customer_name_raw, { ref: ins.data.ref, supplier: g.display, meters: mrows.length });
+
+          // Email cot@cesgb.com. AFTER the uploads, or the attachments would not exist yet.
+          // The COT is already safely saved at this point, so a failure here is reported but
+          // never rolls anything back.
+          btn.textContent = 'Emailing cot@cesgb.com…';
+          var mailed = await cotNotify(cotId, s.data.session.access_token);
+          notes_sent.push({ ref: ins.data.ref, ok: mailed.ok, detail: mailed.detail });
         }
 
         cotResetForm(true);
-        cotShowDone(refs);
+        cotShowDone(refs, notes_sent);
       } catch (e) {
         console.error('cot submit', e);
         cotMsg('err', 'Could not submit: ' + ((e && e.message) || 'unknown error') + '. Nothing was sent — please try again.');
@@ -8158,8 +8166,38 @@
       }
     }
 
+    // Ask the cot-notify edge function to email cot@cesgb.com. Never throws: the COT row is
+    // already saved by the time this runs, so a mail failure must not look like a lost
+    // submission. Returns {ok, detail}.
+    //
+    // 60s not 32s: this function downloads every attachment from storage and base64s it
+    // before handing the lot to Resend, so a heavy lease pack is legitimately slow. If it
+    // does time out the function keeps running server-side and still stamps notified_at,
+    // which is why the message below says "may still be sending" rather than "failed".
+    async function cotNotify(cotId, token){
+      var ctrl = new AbortController();
+      var to = setTimeout(function(){ ctrl.abort(); }, 60000);
+      try {
+        var r = await fetch(SUPABASE_URL + '/functions/v1/cot-notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + token },
+          body: JSON.stringify({ cot_id: cotId }),
+          signal: ctrl.signal
+        });
+        clearTimeout(to);
+        var j = await r.json().catch(function(){ return {}; });
+        if (!r.ok || j.error) return { ok: false, detail: j.error || ('HTTP ' + r.status) };
+        return { ok: true, detail: j.already_sent ? 'already sent' : (j.attachments + ' attachment(s)') };
+      } catch (e) {
+        clearTimeout(to);
+        if (e && e.name === 'AbortError') return { ok: false, detail: 'still sending', pending: true };
+        console.error('cot notify', e);
+        return { ok: false, detail: (e && e.message) || 'network error' };
+      }
+    }
+
     // Confirmation panel. Replaces the form rather than sitting under a reset one.
-    function cotShowDone(refs){
+    function cotShowDone(refs, mail){
       _cot.done = true;
       cotPane('detail');
       document.getElementById('cotHeading').textContent = 'COT submitted';
@@ -8172,6 +8210,7 @@
             (many ? 'Your selection covered more than one supplier, so it went in as one request per supplier: '
                   : 'Your reference is ') +
             '<strong>' + refs.map(function(r){ return escapeHtml(r); }).join(', ') + '</strong>.</p>' +
+          cotDoneMailLine(mail) +
           '<p style="font-size:12.5px;color:var(--muted);margin-bottom:16px;">' +
             'Nothing has gone to the supplier. A person at cot@cesgb.com picks it up, checks the pack ' +
             'and sends it on. Anything missing will come back to you and the status will change to ' +
@@ -8180,6 +8219,28 @@
           '<button class="btn-secondary" style="width:auto;padding:10px 18px;margin-left:8px;" onclick="cotNewAfterDone()">Submit another</button>' +
         '</div>';
     }
+    // Say plainly whether cot@ was actually emailed. A submission that saved but did not
+    // email is not a success, and the broker is the only person who can tell anyone.
+    function cotDoneMailLine(mail){
+      if (!mail || !mail.length) return '';
+      var bad = mail.filter(function(m){ return !m.ok; });
+      if (!bad.length) {
+        return '<p style="font-size:13px;margin:0 0 10px;color:#1b7a3d;">&#10003; Emailed to cot@cesgb.com with your documents attached.</p>';
+      }
+      var pending = bad.every(function(m){ return m.detail === 'still sending'; });
+      if (pending) {
+        return '<div style="border-left:3px solid #b5840a;background:#fffaf0;padding:11px 14px;margin:0 0 14px;font-size:12.5px;">' +
+          'The email to cot@cesgb.com is taking a while, which is normal for a big set of documents. ' +
+          'It is still going in the background. Check “My COT requests” in a minute: if it still says ' +
+          'not emailed, use <strong>Resend to cot@</strong> on the request.</div>';
+      }
+      return '<div style="border-left:3px solid #9b2226;background:#fdf5f5;padding:11px 14px;margin:0 0 14px;font-size:12.5px;">' +
+        '<strong>Your COT is saved, but the email to cot@cesgb.com did not go.</strong><br>' +
+        bad.map(function(m){ return escapeHtml(m.ref) + ': ' + escapeHtml(m.detail || 'unknown error'); }).join('<br>') +
+        '<br><br>Open the request under “My COT requests” and press <strong>Resend to cot@</strong>. ' +
+        'If it keeps failing, tell whoever looks after the portal, and in the meantime chase it by email so it is not sitting unseen.</div>';
+    }
+
     function cotNewAfterDone(){ cotShowForm(); }
     function cotMsg(kind, text){
       var ok = document.getElementById('cotOk'), er = document.getElementById('cotErr');
@@ -8244,7 +8305,7 @@
       cotRenderLegend();
       t.innerHTML = '<tbody><tr><td class="empty-state" style="padding:22px;">Loading…</td></tr></tbody>';
       var r = await sb.from('cot_requests')
-        .select('id, ref, customer_name_raw, supplier_raw, representing, changeover_date, status, gate, outstanding, urgent, created_at')
+        .select('id, ref, customer_name_raw, supplier_raw, representing, changeover_date, status, gate, outstanding, urgent, created_at, notified_at, notify_error')
         .order('created_at', { ascending: false }).limit(200);
       if (r.error) { console.error('cot list', r.error); t.innerHTML = '<tbody><tr><td class="empty-state" style="padding:22px;">Could not load your COT requests.</td></tr></tbody>'; return; }
       var rows = r.data || [];
@@ -8270,7 +8331,8 @@
               (first ? escapeHtml(first) + more : '—') + '</td>' +
             '<td>' + (c.changeover_date ? fmtDateUK(c.changeover_date) : '—') + '</td>' +
             '<td style="color:var(--muted);">' + (c.created_at ? fmtDateUK(String(c.created_at).slice(0, 10)) : '—') + '</td>' +
-            '<td>' + cotStatusPill(c.status, c.gate) + '</td>' +
+            '<td>' + cotStatusPill(c.status, c.gate) +
+              (c.notified_at ? '' : ' <span title="cot@cesgb.com has not been emailed about this" style="color:#9b2226;font-weight:800;">not emailed</span>') + '</td>' +
             '<td style="text-align:right;color:var(--navy);font-weight:800;">View &rarr;</td>' +
           '</tr>' +
           (c.outstanding
@@ -8327,6 +8389,15 @@
             '<div style="text-align:right;">' + cotStatusPill(c.status, c.gate) +
               '<div style="font-size:12px;color:var(--muted);margin-top:6px;max-width:280px;">' + escapeHtml(help) + '</div></div>' +
           '</div>' +
+          // Whether cot@ was actually told. A saved row nobody was emailed about is the
+          // failure mode most likely to go unnoticed, so it is stated on every request.
+          (c.notified_at
+            ? '<div style="margin-top:14px;font-size:12.5px;color:#1b7a3d;">&#10003; Emailed to cot@cesgb.com on ' +
+              escapeHtml(fmtDateUK(String(c.notified_at).slice(0,10))) + '.</div>'
+            : '<div style="margin-top:14px;border-left:3px solid #9b2226;background:#fdf5f5;padding:11px 14px;font-size:12.5px;">' +
+              '<strong>Not emailed to cot@cesgb.com yet.</strong> Nobody has been told about this request.' +
+              (c.notify_error ? '<br>Last attempt failed: ' + escapeHtml(c.notify_error) : '') +
+              '<br><button class="btn-primary" style="width:auto;padding:6px 14px;margin-top:10px;" onclick="cotResend()">Resend to cot@</button></div>') +
           (c.outstanding ? '<div style="margin-top:14px;border-left:3px solid #b5840a;background:#fffaf0;padding:11px 14px;font-size:13px;">' +
             '<strong>Still needed:</strong> ' + escapeHtml(c.outstanding) + '</div>' : '') +
           (c.ai_summary ? '<div style="margin-top:14px;border-left:3px solid #243b8f;background:#f7f9ff;padding:11px 14px;font-size:13px;white-space:pre-wrap;">' +
@@ -8436,6 +8507,18 @@
     }
     function cotEditStart(){ _cotD.editing = true; cotRenderDetail(); }
     function cotEditCancel(){ _cotD.editing = false; cotRenderDetail(); }
+
+    async function cotResend(){
+      var c = _cotD.row;
+      cotDetailMsg('ok', 'Sending to cot@cesgb.com…');
+      var s = await sb.auth.getSession();
+      var tok = s.data.session && s.data.session.access_token;
+      if (!tok) { cotDetailMsg('err', 'Your session has expired. Please sign in again.'); return; }
+      var r = await cotNotify(c.id, tok);
+      if (r.ok) { await cotOpen(c.id); cotDetailMsg('ok', 'Emailed to cot@cesgb.com.'); return; }
+      if (r.pending) { cotDetailMsg('ok', 'Still sending in the background. Reopen this request in a minute to confirm.'); return; }
+      cotDetailMsg('err', 'Could not send it: ' + (r.detail || 'unknown error') + '. The COT itself is safe.');
+    }
 
     async function cotEditSave(){
       var c = _cotD.row;
