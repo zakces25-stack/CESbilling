@@ -2023,7 +2023,7 @@
                    stale deploy went unnoticed on 3 Sep. This string is plain text in the
                    markup, so it can be read off the live site without opening a browser. Bump
                    it on every COT change. -->
-              <p style="font-size:11px;color:var(--muted);margin-top:14px;opacity:.7;">COT build 2026-09-04a</p>
+              <p style="font-size:11px;color:var(--muted);margin-top:14px;opacity:.7;">COT build 2026-09-04b</p>
             </div>
           </div>
         </div>
@@ -8546,6 +8546,8 @@
             (ed ? '<button class="btn-primary" style="width:auto;padding:8px 16px;" onclick="cotEditSave()">Save changes</button>' +
                   '<button class="btn-secondary" style="width:auto;padding:8px 16px;" onclick="cotEditCancel()">Discard</button>' : '') +
             (can && !ed ? '<button class="btn-secondary" style="width:auto;padding:8px 16px;color:#9b2226;border-color:#e5b8ba;" onclick="cotCancelRequest()">Cancel this COT</button>' : '') +
+            (can && !ed
+              ? '<button class="btn-secondary" style="width:auto;padding:8px 16px;" onclick="cotRefill(this)">Rebuild supplier form</button>' : '') +
             ((c.status === 'New' || c.status === 'Cancelled') && !ed
               ? '<button class="btn-secondary" style="width:auto;padding:8px 16px;color:#9b2226;border-color:#e5b8ba;" onclick="cotDeleteRequest()">Delete permanently</button>' : '') +
           '</div>' +
@@ -8645,6 +8647,47 @@
     }
     function cotEditStart(){ _cotD.editing = true; cotRenderDetail(); }
     function cotEditCancel(){ _cotD.editing = false; cotRenderDetail(); }
+
+    // Rebuild the supplier's form for a COT that already exists.
+    //
+    // Needed because the useful case is not the first attempt. The customer sends the CES
+    // COT Form back a day after the broker submitted; a supplier reissues their form and we
+    // remap it; the filler itself gets fixed. In all three the COT is already in the system
+    // and re-submitting it would create a duplicate.
+    //
+    // notify:false deliberately. cot@ has already been emailed about this COT and does not
+    // need telling twice; the rebuilt form lands in the same folder and goes out with the
+    // next thing that does send. Use Resend to cot@ if it needs to go now.
+    async function cotRefill(btn){
+      var c = _cotD.row;
+      if (btn) { btn.disabled = true; btn.textContent = 'Rebuilding…'; }
+      cotDetailMsg('ok', 'Rebuilding the supplier form. This takes up to a minute.');
+      var s = await sb.auth.getSession();
+      var tok = s.data.session && s.data.session.access_token;
+      if (!tok) { cotDetailMsg('err', 'Your session has expired. Please sign in again.'); return; }
+      try {
+        var r = await fetch(SUPABASE_URL + '/functions/v1/cot-fill', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + tok },
+          body: JSON.stringify({ cot_id: c.id, notify: false })
+        });
+        var j = await r.json().catch(function(){ return {}; });
+        if (j.status === 'manual' || j.status === 'refused') {
+          cotDetailMsg('ok', 'No form was built: ' + (j.reason || 'this supplier is handled by hand') );
+        } else if (!r.ok || j.error) {
+          cotDetailMsg('err', 'Could not build the form: ' + (j.error || ('HTTP ' + r.status)) +
+            (j.detail ? ' — ' + j.detail : ''));
+        } else {
+          cotDetailMsg('ok', 'Rebuilt: ' + (j.filled || 0) + ' field(s) filled' +
+            (j.could_not_fill ? ', ' + j.could_not_fill + ' left blank' : '') +
+            '. Verdict: ' + (j.verdict || 'unknown') + '. ' + (j.verdict_reason || ''));
+        }
+      } catch (e) {
+        cotDetailMsg('err', 'Could not build the form: ' + ((e && e.message) || 'network error'));
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Rebuild supplier form'; }
+      }
+    }
 
     async function cotResend(){
       var c = _cotD.row;
