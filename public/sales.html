@@ -1967,6 +1967,26 @@
                 <label>Forwarding address for the outgoing party's final bill</label>
                 <input type="text" id="cotForwarding" placeholder="EDF ask for this on every COT" />
               </div>
+
+              <!-- Contact block. Every supplier form asks for these three and CES held none
+                   of them, so they came back blank on every auto-filled form. They belong to
+                   whichever party we act for, per "Our customer is" above. -->
+              <div style="border-top:1px solid var(--line, #e5e7eb);margin-top:6px;padding-top:14px;">
+                <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">
+                  <strong style="color:var(--text, #111);">The contact at our customer.</strong>
+                  Every supplier asks for a name, a number and an email, and a COT with no contact
+                  details is one of the commonest reasons they bounce it back. These go on the form
+                  as <span id="cotContactSide">our customer</span>'s contact.
+                </p>
+                <div style="display:flex;gap:14px;flex-wrap:wrap;">
+                  <div class="form-group" style="min-width:190px;flex:1;"><label>Contact name</label>
+                    <input type="text" id="cotContactName" placeholder="The person, not the company" /></div>
+                  <div class="form-group" style="min-width:150px;flex:1;"><label>Contact number</label>
+                    <input type="text" id="cotContactPhone" /></div>
+                  <div class="form-group" style="min-width:210px;flex:1;"><label>Email address</label>
+                    <input type="email" id="cotContactEmail" /></div>
+                </div>
+              </div>
             </div>
 
             <!-- 4. Evidence -->
@@ -2023,7 +2043,7 @@
                    stale deploy went unnoticed on 3 Sep. This string is plain text in the
                    markup, so it can be read off the live site without opening a browser. Bump
                    it on every COT change. -->
-              <p style="font-size:11px;color:var(--muted);margin-top:14px;opacity:.7;">COT build 2026-09-04b</p>
+              <p style="font-size:11px;color:var(--muted);margin-top:14px;opacity:.7;">COT build 2026-09-04c</p>
             </div>
           </div>
         </div>
@@ -8016,6 +8036,13 @@
     function cotRenderParties(){
       var v = document.getElementById('cotRepresenting').value;
       var wrap = document.getElementById('cotPartiesWrap');
+      // Name the side the contact belongs to. Putting one person in both the outgoing and
+      // the incoming contact boxes reads to a supplier as a connected-party COT, which is
+      // how you get a rejection or, worse, the meter moved to deemed rates.
+      var side = document.getElementById('cotContactSide');
+      if (side) side.textContent = v === 'outgoing' ? 'the outgoing party'
+                                 : v === 'incoming' ? 'the incoming party'
+                                 : v === 'both' ? 'both parties' : 'our customer';
       if (!v) { wrap.innerHTML = ''; cotPreflight(); return; }
       wrap.innerHTML =
         '<div style="display:flex;gap:14px;flex-wrap:wrap;">' +
@@ -8126,6 +8153,9 @@
             landlord_address: (document.getElementById('cotLandlordAddress').value || '').trim() || null,
             landlord_contact: (document.getElementById('cotLandlordContact').value || '').trim() || null,
             forwarding_address: (document.getElementById('cotForwarding').value || '').trim() || null,
+            contact_name: (document.getElementById('cotContactName').value || '').trim() || null,
+            contact_phone: (document.getElementById('cotContactPhone').value || '').trim() || null,
+            contact_email: (document.getElementById('cotContactEmail').value || '').trim() || null,
             additional_info: notes || null,
             urgent: document.getElementById('cotUrgent').checked,
             urgent_reason: (document.getElementById('cotUrgentReason').value || '').trim() || null,
@@ -8162,47 +8192,23 @@
           }
           if (typeof logAction === 'function') logAction('cot_submitted', row.customer_id || row.customer_name_raw, { ref: ins.data.ref, supplier: g.display, meters: mrows.length });
 
-          // Fill the supplier's own form, then email cot@cesgb.com. AFTER the uploads, or
-          // neither the CES COT Form nor the attachments would exist yet.
+          // Start the supplier form and the email, and DO NOT WAIT.
+          //
+          // This used to block the submit button for up to two minutes reading "Building
+          // the supplier form", which is a long time to stare at a button wondering whether
+          // you have broken something. The broker's work is finished the moment the row and
+          // the files are saved; the rest is machinery and belongs in the background.
           //
           // cot-fill chains into cot-notify itself once it has dropped the completed form
-          // into the same folder, so this is ONE call, not two. If the filler fails for any
-          // reason we still send the email ourselves: a COT that reaches cot@ without a
-          // pre-filled form is a normal working day, a COT that never reaches cot@ is lost
-          // work. The row is already saved by this point, so nothing here rolls anything back.
-          btn.textContent = 'Building the supplier form…';
-          var tok = s.data.session.access_token;
-          var filled = await cotFill(cotId, tok);
-          var mailed;
-          if (filled.chained) {
-            mailed = { ok: true, detail: filled.detail };
-          } else {
-            // The browser gave up but the function is still running server-side and will
-            // send the email itself. Wait for notified_at to appear before sending our own,
-            // otherwise cot@ gets the same COT twice. Only send if it never shows up.
-            var landed = false;
-            if (filled.pending) {
-              btn.textContent = 'Still working…';
-              for (var w = 0; w < 6 && !landed; w++) {
-                await new Promise(function(r){ setTimeout(r, 5000); });
-                var chk = await sb.from('cot_requests').select('notified_at').eq('id', cotId).single();
-                landed = !!(chk.data && chk.data.notified_at);
-              }
-            }
-            if (landed) {
-              mailed = { ok: true, detail: 'sent' };
-            } else {
-              btn.textContent = 'Emailing cot@cesgb.com…';
-              mailed = await cotNotify(cotId, tok);
-              if (mailed.ok && filled.detail) mailed.detail += ' · ' + filled.detail;
-            }
-          }
-          notes_sent.push({ ref: ins.data.ref, ok: mailed.ok, detail: mailed.detail,
-                            verdict: filled.verdict, gaps: filled.gaps });
+          // into the same folder, so this one call does both. The confirmation panel then
+          // watches the database and reports each step as it lands, including if it fails.
+          cotFillAsync(cotId, s.data.session.access_token);
+          notes_sent.push({ ref: ins.data.ref, id: cotId });
         }
 
         cotResetForm(true);
         cotShowDone(refs, notes_sent);
+        cotWatchFills(notes_sent);
       } catch (e) {
         console.error('cot submit', e);
         cotMsg('err', 'Could not submit: ' + ((e && e.message) || 'unknown error') + '. Nothing was sent — please try again.');
@@ -8214,6 +8220,118 @@
         // needed" card under the confirmation, which reads as a failure.
         if (!_cot.done) cotPreflight();
       }
+    }
+
+    // Start cot-fill and walk away. The response is never read: what happened is read back
+    // out of cot_fill_runs by cotWatchFills, which works even if this tab is closed.
+    //
+    // keepalive so the browser finishes sending the request if the broker navigates away
+    // the instant they submit. The body is a single id, far under the 64KB keepalive cap.
+    function cotFillAsync(cotId, token){
+      try {
+        fetch(SUPABASE_URL + '/functions/v1/cot-fill', {
+          method: 'POST', keepalive: true,
+          headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + token },
+          body: JSON.stringify({ cot_id: cotId })
+        }).catch(function(e){ console.warn('cot fill (background)', e); });
+      } catch (e) { console.warn('cot fill (background)', e); }
+    }
+
+    // Watch the background work and report it as it lands.
+    //
+    // Reads the database rather than the fetch response on purpose: the function keeps
+    // running server-side regardless of what this tab does, so the database is the only
+    // account of what actually happened. Polling also means a broker who reloads the page
+    // has lost nothing.
+    async function cotWatchFills(items){
+      if (!items || !items.length) return;
+      var settled = {};
+      var last = {};
+      for (var tick = 0; tick < 60; tick++) {          // 60 x 3s = 3 minutes
+        var outstanding = 0;
+        for (var i = 0; i < items.length; i++) {
+          var it = items[i];
+          if (settled[it.id]) continue;
+
+          var rq = await sb.from('cot_requests')
+            .select('notified_at, notify_error').eq('id', it.id).single();
+          var rr = await sb.from('cot_fill_runs')
+            .select('status, verdict, verdict_reason, could_not_fill, written')
+            .eq('cot_id', it.id).order('created_at', { ascending: false }).limit(1);
+
+          var req = rq.data || {};
+          var run = (rr.data && rr.data[0]) || null;
+          var mailed = !!req.notified_at;
+          // A run row means the filler finished, whatever the outcome. Both done = settled.
+          if (run && mailed) {
+            settled[it.id] = true;
+            last[it.id] = { run: run, req: req };
+          } else {
+            outstanding++;
+          }
+          cotProgressRow(it, run, req);
+        }
+        if (!outstanding) break;
+        await new Promise(function(r){ setTimeout(r, 3000); });
+      }
+      cotProgressFinish(items, settled, last);
+    }
+
+    // One line per COT, rewritten in place each poll.
+    function cotProgressRow(it, run, req){
+      var el = document.getElementById('cot-prog-' + it.id);
+      if (!el) return;
+      var wait = '<span style="color:var(--muted);">&#9203; </span>';
+      var tick = '<span style="color:#1b7a3d;">&#10003; </span>';
+      var warn = '<span style="color:#b5840a;">&#9888; </span>';
+
+      var form;
+      if (!run) {
+        form = wait + 'Building the supplier form&hellip;';
+      } else if (run.status === 'manual' || run.status === 'refused') {
+        form = warn + 'Supplier form to be completed by hand';
+      } else if (run.status === 'error') {
+        form = warn + 'Could not build the supplier form';
+      } else {
+        var gaps = (run.could_not_fill || []).length;
+        var n = (run.written || []).length;
+        form = tick + 'Supplier form completed' +
+          (n ? ' &middot; ' + n + ' field' + (n === 1 ? '' : 's') : '') +
+          (gaps ? ' &middot; ' + gaps + ' left blank' : '');
+      }
+
+      var mail = req && req.notified_at
+        ? tick + 'Emailed to cot@cesgb.com'
+        : (req && req.notify_error ? warn + 'Email failed: ' + escapeHtml(req.notify_error)
+                                   : wait + 'Emailing cot@cesgb.com&hellip;');
+
+      el.innerHTML =
+        '<div style="font-weight:700;font-size:12.5px;margin-bottom:2px;">' + escapeHtml(it.ref) + '</div>' +
+        '<div style="font-size:12.5px;margin-bottom:1px;">' + form + '</div>' +
+        '<div style="font-size:12.5px;">' + mail + '</div>';
+    }
+
+    // Once everything has settled (or we gave up waiting), say what it means.
+    function cotProgressFinish(items, settled, last){
+      var box = document.getElementById('cotDoneSummary');
+      if (!box) return;
+      var stuck = items.filter(function(it){ return !settled[it.id]; });
+      if (stuck.length) {
+        box.innerHTML = '<div style="border-left:3px solid #b5840a;background:#fffaf0;padding:11px 14px;margin:14px 0 0;font-size:12.5px;">' +
+          'Still working after three minutes on ' + stuck.map(function(s){ return escapeHtml(s.ref); }).join(', ') +
+          '. Your COT is saved and nothing is lost. Open it under &ldquo;My COT requests&rdquo; in a few minutes: ' +
+          'if it still says not emailed, use <strong>Resend to cot@</strong>, and <strong>Rebuild supplier form</strong> ' +
+          'if the form is missing.</div>';
+        return;
+      }
+      // Reuse the same summary lines the rest of the flow uses, fed from what actually
+      // happened rather than from what the submit call was told.
+      var mail = items.map(function(it){
+        var L = last[it.id] || {}, run = L.run || {}, req = L.req || {};
+        return { ref: it.ref, ok: !!req.notified_at, detail: req.notify_error || 'sent',
+                 verdict: run.verdict || null, gaps: (run.could_not_fill || []).length };
+      });
+      box.innerHTML = cotDoneMailLine(mail) + cotDoneFillLine(mail);
     }
 
     // Ask the cot-fill edge function to complete the supplier's own COT form.
@@ -8302,7 +8420,11 @@
     }
 
     // Confirmation panel. Replaces the form rather than sitting under a reset one.
-    function cotShowDone(refs, mail){
+    //
+    // Shown the instant the COT is saved, with the supplier form and the email still in
+    // flight. cotWatchFills writes into the per-COT rows and the summary box below as each
+    // step lands, so the broker watches it happen instead of watching a frozen button.
+    function cotShowDone(refs, items){
       _cot.done = true;
       cotPane('detail');
       document.getElementById('cotHeading').textContent = 'COT submitted';
@@ -8315,9 +8437,19 @@
             (many ? 'Your selection covered more than one supplier, so it went in as one request per supplier: '
                   : 'Your reference is ') +
             '<strong>' + refs.map(function(r){ return escapeHtml(r); }).join(', ') + '</strong>.</p>' +
-          cotDoneMailLine(mail) +
-          cotDoneFillLine(mail) +
-          '<p style="font-size:12.5px;color:var(--muted);margin-bottom:16px;">' +
+          '<p style="font-size:12.5px;color:var(--muted);margin-bottom:8px;">' +
+            'Your part is done. The rest is happening now and you can leave this page.</p>' +
+          '<div style="background:#f7f8fa;border:1px solid var(--line,#e5e7eb);border-radius:6px;padding:12px 14px;margin-bottom:6px;">' +
+            (items || []).map(function(it){
+              return '<div id="cot-prog-' + escapeHtml(it.id) + '" style="margin-bottom:8px;">' +
+                '<div style="font-weight:700;font-size:12.5px;margin-bottom:2px;">' + escapeHtml(it.ref) + '</div>' +
+                '<div style="font-size:12.5px;color:var(--muted);">&#9203; Building the supplier form&hellip;</div>' +
+                '<div style="font-size:12.5px;color:var(--muted);">&#9203; Emailing cot@cesgb.com&hellip;</div>' +
+              '</div>';
+            }).join('') +
+          '</div>' +
+          '<div id="cotDoneSummary"></div>' +
+          '<p style="font-size:12.5px;color:var(--muted);margin:14px 0 16px;">' +
             'Nothing has gone to the supplier. A person at cot@cesgb.com picks it up, checks the pack ' +
             'and sends it on. Anything missing will come back to you and the status will change to ' +
             '“Waiting on you”.</p>' +
@@ -8393,6 +8525,7 @@
       _cot.files = { cesform: [], proof: [], extra: [] };
       _cotAF.hits = {}; _cotAF.q = {};
       ['cotCustInput','cotChangeover','cotSiteAddress','cotPostcode','cotForwarding',
+       'cotContactName','cotContactPhone','cotContactEmail',
        'cotLandlordName','cotLandlordAddress','cotLandlordContact','cotNotes','cotUrgentReason']
         .forEach(function(id){ var e = document.getElementById(id); if (e) e.value = ''; });
       var rep = document.getElementById('cotRepresenting'); if (rep) rep.value = '';
