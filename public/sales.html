@@ -1953,7 +1953,12 @@
                 </div>
                 <div class="form-group" style="min-width:200px;flex:1;">
                   <label>Changeover date</label>
-                  <input type="date" id="cotChangeover" />
+                  <!-- Both handlers on purpose. A date input fires "change" when picked from
+                       the calendar and "input" when typed, and which of those you get varies
+                       by browser. Missing them entirely is what left "Still needed: the
+                       changeover date" on screen with the date plainly filled in, and with
+                       the submit button disabled behind it. -->
+                  <input type="date" id="cotChangeover" oninput="cotPreflight()" onchange="cotPreflight()" />
                 </div>
               </div>
               <div id="cotPartiesWrap"></div>
@@ -2043,7 +2048,7 @@
                    stale deploy went unnoticed on 3 Sep. This string is plain text in the
                    markup, so it can be read off the live site without opening a browser. Bump
                    it on every COT change. -->
-              <p style="font-size:11px;color:var(--muted);margin-top:14px;opacity:.7;">COT build 2026-09-04c</p>
+              <p style="font-size:11px;color:var(--muted);margin-top:14px;opacity:.7;">COT build 2026-09-04d</p>
             </div>
           </div>
         </div>
@@ -7593,7 +7598,32 @@
       var o = document.getElementById('cotOk'), x = document.getElementById('cotErr');
       if (o) o.style.display = 'none'; if (x) x.style.display = 'none';
       cotPane('form');
+      cotBindPreflight();
       cotPreflight();
+    }
+
+    // Re-run preflight whenever ANY field in the form changes.
+    //
+    // Not because the per-field handlers are wrong, but because relying on them means every
+    // future field has to remember to call cotPreflight, and one that forgets does not fail
+    // loudly: it leaves a stale "Still needed" card up with the submit button disabled
+    // behind it, which reads as the portal being broken. The changeover date shipped exactly
+    // like that. One delegated listener on the form makes that whole class of mistake
+    // impossible, and the per-field handlers stay because they also do other work.
+    //
+    // Bound once. cotShowForm runs every time the broker comes back to the form.
+    function cotBindPreflight(){
+      var wrap = document.getElementById('cotFormWrap');
+      if (!wrap || wrap.dataset.pfBound) return;
+      wrap.dataset.pfBound = '1';
+      ['input', 'change'].forEach(function(ev){
+        wrap.addEventListener(ev, function(){
+          // Debounced: a delegated listener fires on every keystroke in the form, and
+          // preflight walks the meter list and rebuilds two cards each time.
+          clearTimeout(_cot.pfT);
+          _cot.pfT = setTimeout(cotPreflight, 120);
+        });
+      });
     }
     function cotShowList(){ cotPane('list'); cotLoadList(); }
 
