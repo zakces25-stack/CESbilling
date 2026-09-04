@@ -156,6 +156,50 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
   padding:3px 8px;border-radius:var(--r-sm);border:1px solid currentColor;color:var(--ink-2)}
 .tag.power{border-color:var(--info-500);color:var(--info-600)}
 .tag.gas{border-color:var(--green-600);color:var(--green-700)}
+
+/* ── fuel separation ──────────────────────────────────────────────────── */
+/* Electricity and gas are separate contracts, separate suppliers and, most
+   importantly, separate units — MWh against therms, £/MWh against p/th. Listed
+   together and ordered by name, a gas basket could sit between two electricity
+   ones and a client could read a therm figure as MWh. This mirrors the desk's
+   two-column overview: same grouping, same colour coding, this portal's styling. */
+.fuelchips{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:22px}
+.fuelchip{display:flex;align-items:center;gap:10px;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--r-md);padding:9px 14px;
+  font-size:var(--t-sm);font-weight:600;color:var(--ink-2)}
+.fuelchip b{font-family:var(--font-mono);font-size:var(--t-md);font-weight:600;color:var(--ink)}
+.fuelchip .ic,.fuelhead .ic{border-radius:6px;display:flex;align-items:center;
+  justify-content:center;flex-shrink:0}
+.fuelchip .ic{width:27px;height:27px;font-size:14px}
+.fuelchip.power .ic{background:color-mix(in srgb,var(--info-500) 16%,transparent);color:var(--info-600)}
+.fuelchip.gas   .ic{background:color-mix(in srgb,var(--green-600) 16%,transparent);color:var(--green-700)}
+
+.fuelsecs{display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:start}
+.fuelsecs.one{grid-template-columns:1fr}
+@media (max-width:1040px){ .fuelsecs{grid-template-columns:1fr;gap:24px} }
+.fuelsec{min-width:0}
+.fuelhead{display:flex;align-items:center;gap:10px;margin-bottom:14px;padding-bottom:9px;
+  border-bottom:2px solid var(--line)}
+.fuelhead .ic{width:25px;height:25px;font-size:13px}
+.fuelhead h2{font-family:var(--font-display);font-size:var(--t-md);font-weight:700;
+  letter-spacing:.01em;margin:0;line-height:1.2}
+.fuelhead .ct{margin-left:auto;font-size:11px;font-weight:700;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--ink-3);white-space:nowrap}
+.fuelsec.power .fuelhead{border-bottom-color:color-mix(in srgb,var(--info-500) 45%,transparent)}
+.fuelsec.power .fuelhead .ic{background:color-mix(in srgb,var(--info-500) 16%,transparent);color:var(--info-600)}
+.fuelsec.power .fuelhead h2{color:var(--info-600)}
+.fuelsec.gas   .fuelhead{border-bottom-color:color-mix(in srgb,var(--green-600) 45%,transparent)}
+.fuelsec.gas   .fuelhead .ic{background:color-mix(in srgb,var(--green-600) 16%,transparent);color:var(--green-700)}
+.fuelsec.gas   .fuelhead h2{color:var(--green-700)}
+/* One card per row inside a column — two columns of cards inside a column is
+   too narrow for the three figures each card carries. A single-fuel client gets
+   the full-width auto-fill grid back. */
+.fuelsec .grid{grid-template-columns:1fr}
+.fuelsecs.one .fuelsec .grid{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+/* The card's hover rule takes its fuel's colour, so a card still reads as gas
+   or electricity once it is out of the context of its column. */
+.card.clickable[data-fuel="power"]::before{background:var(--info-500)}
+.card.clickable[data-fuel="gas"]::before{background:var(--green-600)}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(122px,1fr));gap:14px;margin-top:16px}
 .stat .k{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
 .stat .v{font-family:var(--font-mono);font-size:var(--t-fig);font-weight:600;margin-top:4px;
@@ -396,6 +440,12 @@ th:first-child::after,td:first-child::after{content:'';position:absolute;top:0;r
   header#top{padding:0 0 12pt;border-bottom:1.5pt solid #333;margin-bottom:16pt}
   .rbody{max-width:none;font-size:11.5pt;line-height:1.55}
   .card,.tbwrap,.chartbox{box-shadow:none;border:1pt solid #ccc;break-inside:avoid}
+  /* One fuel per page-width, and keep a fuel's heading with its baskets. */
+  .fuelsecs{grid-template-columns:1fr !important;gap:14pt}
+  .fuelsec{break-inside:avoid}
+  .fuelhead{border-bottom:1.5pt solid #333}
+  .fuelhead h2{color:#111 !important}
+  .fuelchips{display:none}
   thead th{position:static}
   @page{margin:16mm 15mm}
 }
@@ -726,13 +776,9 @@ function coverOf(rows){
   return {base,sec,mtm,pct:base?sec/base:null,wap:sec?wsum/sec:null};
 }
 
-function renderBaskets(){
-  OPEN=null;
-  const el=document.getElementById('v-baskets');
-  if(!D.baskets.length){el.innerHTML='<div class="empty">No baskets are shared with your account yet.</div>';return;}
-  el.innerHTML=`<div class="grid">${D.baskets.map(b=>{
-    const c=coverOf(D.positions[b.id]); const isP=b.commodity==='power';
-    return `<article class="card clickable">
+function basketCard(b){
+  const c=coverOf(D.positions[b.id]); const isP=b.commodity==='power';
+  return `<article class="card clickable" data-fuel="${isP?'power':'gas'}">
       <h3><button type="button" class="stretch" data-basket="${esc(b.id)}">${esc(b.name)}</button></h3>
       <span class="tag ${isP?'power':'gas'}">${isP?'Electricity':'Gas'}</span>
       <div style="margin-top:16px">
@@ -753,7 +799,41 @@ function renderBaskets(){
           <div class="u">${esc(b.unit_price||'')}</div></div>
       </div>
       <span class="cardgo">Open basket ${ICON_ARROW}</span>
-    </article>`;}).join('')}</div>`;
+    </article>`;
+}
+function renderBaskets(){
+  OPEN=null;
+  const el=document.getElementById('v-baskets');
+  if(!D.baskets.length){el.innerHTML='<div class="empty">No baskets are shared with your account yet.</div>';return;}
+  // Split by fuel. Electricity is MWh and £/MWh, gas is therms and p/th, and the
+  // two are separate contracts with separate suppliers — so they get separate
+  // columns rather than one list ordered by name, in which a gas basket could
+  // sit between two electricity ones.
+  const power=D.baskets.filter(b=>b.commodity==='power');
+  const gas  =D.baskets.filter(b=>b.commodity!=='power');
+  const both = power.length>0 && gas.length>0;
+  // A section is only rendered when that fuel has baskets, so a gas-only client
+  // gets one full-width column, not an empty "Electricity" heading.
+  const sec=(list,fuel,label,icon)=> !list.length ? '' : `
+      <section class="fuelsec ${fuel}" aria-labelledby="fh-${fuel}">
+        <div class="fuelhead">
+          <span class="ic" aria-hidden="true">${icon}</span>
+          <h2 id="fh-${fuel}">${label}</h2>
+          <span class="ct">${list.length} basket${list.length===1?'':'s'}</span>
+        </div>
+        <div class="grid">${list.map(basketCard).join('')}</div>
+      </section>`;
+  el.innerHTML=
+    `<div class="fuelchips">
+       ${power.length?`<div class="fuelchip power"><span class="ic" aria-hidden="true">&#9889;</span>
+         <span><b>${power.length}</b> electricity basket${power.length===1?'':'s'}</span></div>`:''}
+       ${gas.length?`<div class="fuelchip gas"><span class="ic" aria-hidden="true">&#128293;</span>
+         <span><b>${gas.length}</b> gas basket${gas.length===1?'':'s'}</span></div>`:''}
+     </div>
+     <div class="fuelsecs${both?'':' one'}">
+       ${sec(power,'power','Electricity','&#9889;')}
+       ${sec(gas,'gas','Gas','&#128293;')}
+     </div>`;
   // Delegated listeners rather than onclick="f('...')": an attribute is
   // HTML-decoded before its contents parse as JS, so an escaped quote would
   // break out of the string. Data attributes remove the whole class of bug.
@@ -773,7 +853,7 @@ function renderBasket(){
     <button class="gbtn noprint" id="backBtn" style="margin-bottom:18px">&larr; All baskets</button>
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:14px">
       <h3 style="font-size:var(--t-head)">${esc(b.name)}</h3>
-      <span class="tag ${isP?'power':'gas'}">${isP?'Electricity':'Gas'}</span>
+      <span class="tag ${isP?'power':'gas'}"><span aria-hidden="true">${isP?'&#9889;':'&#128293;'}</span> ${isP?'Electricity':'Gas'}</span>
     </div>
     <div class="statrow">
       <div class="statcard"><div class="l">Avg WAP</div>${statVal(n2(S.avgWap))}
