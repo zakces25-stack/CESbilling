@@ -22,7 +22,11 @@
      portal's live cursors out of this page is (a) no realtime code here at all
      and (b) the flex_cursors_team_only policy on realtime.messages, which gates
      that topic on is_flex_team(). -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'self';" />
+<!-- cdnjs is here for pdf.js (the in-portal report viewer), loaded on demand.
+     worker-src blob: is required because pdf.js wraps a cross-origin worker
+     script in a blob to spawn it. frame-src and object-src stay 'none': the
+     PDF is drawn onto a canvas, never embedded, so no framing is needed. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://*.supabase.co https://cdnjs.cloudflare.com; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'self';" />
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -355,6 +359,27 @@ th:first-child::after,td:first-child::after{content:'';position:absolute;top:0;r
 .gbtn.pdf:hover{background:color-mix(in srgb, var(--accent) 14%, transparent);
   border-color:var(--accent);color:var(--accent)}
 .rmeta{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px}
+/* ── in-portal PDF viewer ──────────────────────────────────────────────── */
+.pdfwrap{margin-top:16px;border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;background:var(--surface-2)}
+.pdfbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+  padding:9px 12px;border-bottom:1px solid var(--line);font-size:var(--t-sm);font-weight:600;color:var(--ink-3)}
+.pdfbar .pdfnav{display:flex;align-items:center;gap:8px}
+.pdfbar button{font:inherit;cursor:pointer;background:var(--surface);border:1.5px solid var(--line-strong);
+  color:var(--ink-2);border-radius:var(--r-sm);padding:4px 10px}
+.pdfbar button:hover:not(:disabled){border-color:var(--ink-3);color:var(--ink)}
+.pdfbar button:disabled{opacity:.45;cursor:default}
+/* Dark trough so the white pages read as pages. Deliberately not themed: a PDF
+   is always white, and a light trough makes the page edges vanish. */
+.pdfpages{max-height:min(78vh,940px);overflow:auto;background:#33373d;
+  padding:14px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.pdfpages canvas{width:100%;height:auto;display:block;background:#fff;border-radius:2px;
+  box-shadow:0 3px 14px rgba(0,0,0,.34)}
+.pdfpage{width:100%;max-width:900px;position:relative}
+.pdfpage .pn{position:absolute;top:6px;right:8px;font-size:10.5px;font-weight:700;letter-spacing:.05em;
+  color:#fff;background:rgba(0,0,0,.42);border-radius:3px;padding:2px 6px;pointer-events:none}
+.pdfstate{padding:30px 16px;text-align:center;font-size:var(--t-sm);color:var(--ink-3);font-weight:600}
+@media (max-width:640px){ .pdfpages{padding:8px;gap:8px;max-height:70vh} }
+@media print{ .pdfwrap{display:none !important} }
 
 .empty{padding:40px 20px;text-align:center;color:var(--ink-3);font-size:var(--t-md);
   background:var(--surface);border:1px dashed var(--line-strong);border-radius:var(--r-md)}
@@ -1210,12 +1235,19 @@ document.addEventListener('visibilitychange', () => {
 });
 
 /* ── reports ─────────────────────────────────────────────────────────── */
+// 'market' is the Early/Mid month market report published from the desk. The
+// raw kind is a database enum-ish string, so it is mapped rather than printed.
+const KIND_SHORT={weekly:'Weekly',monthly:'Monthly',market:'Market'};
+const KIND_FULL ={weekly:'Weekly report',monthly:'Monthly report',market:'Market report'};
+function kindShort(k){ return KIND_SHORT[k] || String(k||''); }
+function kindFull(k){ return KIND_FULL[k] || (String(k||'')+' report'); }
 function renderReports(){
+  cxPdfClose();
   const el=document.getElementById('v-reports');
   if(!D.reports.length){el.innerHTML='<div class="empty">No reports have been published to your portal yet.</div>';return;}
   el.innerHTML=`<div class="rlist">${D.reports.map(r=>`
     <button class="ritem" data-report="${esc(r.id)}">
-      <span class="kind">${esc(r.kind)}</span>
+      <span class="kind">${esc(kindShort(r.kind))}</span>
       <span class="ti"><b>${esc(r.title)}</b><span>${esc(r.period_label||fmtLong(r.report_date))}</span></span>
       <span style="color:var(--ink-3);display:flex">${ICON_CHEV}</span>
     </button>`).join('')}</div>`;
@@ -1223,12 +1255,13 @@ function renderReports(){
 }
 function openReport(id){
   const r=D.reports.find(x=>x.id===id); if(!r) return;
+  cxPdfClose();
   const el=document.getElementById('v-reports');
   const hasPdf = !!r.pdf_path;
   el.innerHTML=`<div class="reportwrap">
     <button class="gbtn noprint" id="rBack" style="margin-bottom:18px">&larr; All reports</button>
     <article class="card">
-      <span class="kind">${esc(r.kind)} report</span>
+      <span class="kind">${esc(kindFull(r.kind))}</span>
       <h2 style="font-size:var(--t-xl);margin:8px 0 4px">${esc(r.title)}</h2>
       <div style="font-size:var(--t-sm);color:var(--ink-3);font-weight:600">
         ${esc(r.period_label||'')}${r.period_label?' · ':''}${fmtLong(r.report_date)}</div>
@@ -1236,9 +1269,16 @@ function openReport(id){
           <button class="gbtn pdf" id="rPdf">&darr; Download PDF</button>
           <span style="font-size:var(--t-sm);color:var(--ink-3)">${esc(r.pdf_name||'report.pdf')}${
             r.pdf_size?' · '+Math.max(1,Math.round(r.pdf_size/1024))+' KB':''}</span>
+        </div>
+        <div class="pdfwrap noprint">
+          <div class="pdfbar">
+            <span id="pdfCount">Loading&hellip;</span>
+            <span class="pdfnav"><button type="button" id="pdfRefit">Refit width</button></span>
+          </div>
+          <div class="pdfpages" id="pdfPages"><div class="pdfstate">Loading the document&hellip;</div></div>
         </div>` : ''}
-      <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
-      <div class="rbody">${esc(r.body)}</div>
+      ${r.body && r.body.trim() ? `<hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
+      <div class="rbody">${esc(r.body)}</div>` : ''}
     </article></div>`;
   document.getElementById('rBack').addEventListener('click',renderReports);
 
@@ -1248,17 +1288,120 @@ function openReport(id){
   if(btn) btn.addEventListener('click',async ()=>{
     btn.disabled=true; const was=btn.innerHTML; btn.innerHTML='Preparing&hellip;';
     try{
-      const { data, error } = await CX.sb.storage.from('flex-reports')
-        .createSignedUrl(r.pdf_path, 120, { download: r.pdf_name || 'report.pdf' });
-      if(error||!data||!data.signedUrl) throw new Error(error?error.message:'no url');
-      location.href = data.signedUrl;
+      location.href = await cxSignedPdfUrl(r, true);
     }catch(e){
       console.error(e);
       toast('That PDF could not be fetched. Please contact your CES account manager.');
     }finally{ btn.disabled=false; btn.innerHTML=was; }
   });
+  const refit=document.getElementById('pdfRefit');
+  if(refit) refit.addEventListener('click',()=>cxPdfPaint());
+  if(hasPdf) cxPdfOpen(r);
   window.scrollTo({top:0,behavior:'smooth'});
 }
+
+/* ── in-portal PDF viewer ─────────────────────────────────────────────── */
+// The client reads the market report here rather than downloading it. Drawn to
+// a canvas with pdf.js, not embedded in an iframe: iOS Safari renders framed
+// PDFs as a grey box or a single page, and this portal is opened on phones.
+// The Download button above stays as the fallback and the printable copy.
+const PDFJS_VER='3.11.174';
+const PDF_MAX_PAGES=40;
+let _pdfLib=null,_pdfDoc=null,_pdfResizeT=null,_pdfPainting=false;
+function loadPdfJs(){
+  if(window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if(_pdfLib) return _pdfLib;
+  // ~340 KB, and most visits never open a report, so it is fetched on first use
+  // rather than on every page load.
+  _pdfLib=new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/'+PDFJS_VER+'/pdf.min.js';
+    s.onload=()=>{
+      if(!window.pdfjsLib){ reject(new Error('pdf.js did not initialise')); return; }
+      // Cross-origin worker: pdf.js wraps this in a blob to spawn it, which is
+      // why the CSP carries worker-src blob:. If the worker cannot start,
+      // pdf.js falls back to the main thread rather than failing outright.
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc=
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/'+PDFJS_VER+'/pdf.worker.min.js';
+      resolve(window.pdfjsLib);
+    };
+    s.onerror=()=>{ _pdfLib=null; reject(new Error('pdf.js could not be loaded')); };
+    document.head.appendChild(s);
+  });
+  return _pdfLib;
+}
+async function cxSignedPdfUrl(r,forDownload){
+  const { data, error } = await CX.sb.storage.from('flex-reports')
+    .createSignedUrl(r.pdf_path, 300, forDownload ? { download: r.pdf_name || 'report.pdf' } : undefined);
+  if(error||!data||!data.signedUrl) throw new Error(error?error.message:'no url');
+  return data.signedUrl;
+}
+async function cxPdfOpen(r){
+  const host=document.getElementById('pdfPages'), count=document.getElementById('pdfCount');
+  if(!host) return;
+  try{
+    const [lib,url]=await Promise.all([loadPdfJs(),cxSignedPdfUrl(r,false)]);
+    _pdfDoc=await lib.getDocument({ url:url }).promise;
+    if(count) count.textContent=_pdfDoc.numPages+(_pdfDoc.numPages===1?' page':' pages');
+    await cxPdfPaint();
+  }catch(e){
+    console.error('pdf viewer',e);
+    _pdfDoc=null;
+    if(count) count.textContent='Preview unavailable';
+    host.innerHTML='<div class="pdfstate" style="color:#e6e8ea">This document could not be shown here.<br>'
+      +'Use <b>Download PDF</b> above, or contact your CES account manager.</div>';
+  }
+}
+async function cxPdfPaint(){
+  const host=document.getElementById('pdfPages');
+  if(!host||!_pdfDoc||_pdfPainting) return;
+  _pdfPainting=true;
+  try{
+    const doc=_pdfDoc;                               // capture: may be closed mid-paint
+    const total=Math.min(doc.numPages,PDF_MAX_PAGES);
+    const width=Math.max(280,Math.min(host.clientWidth-28,900));
+    const dpr=Math.min(window.devicePixelRatio||1,2);
+    host.innerHTML='';
+    for(let n=1;n<=total;n++){
+      if(_pdfDoc!==doc) return;                      // navigated away
+      const page=await doc.getPage(n);
+      const base=page.getViewport({ scale:1 });
+      const scale=width/base.width;
+      const vp=page.getViewport({ scale:scale });
+      const wrap=document.createElement('div'); wrap.className='pdfpage';
+      const cv=document.createElement('canvas');
+      cv.width=Math.floor(vp.width*dpr); cv.height=Math.floor(vp.height*dpr);
+      cv.setAttribute('role','img');
+      cv.setAttribute('aria-label','Page '+n+' of '+doc.numPages);
+      wrap.appendChild(cv);
+      if(doc.numPages>1){
+        const tag=document.createElement('span'); tag.className='pn';
+        tag.textContent=n+' / '+doc.numPages; wrap.appendChild(tag);
+      }
+      host.appendChild(wrap);
+      await page.render({ canvasContext:cv.getContext('2d'),
+                          viewport:page.getViewport({ scale:scale*dpr }) }).promise;
+    }
+    if(doc.numPages>PDF_MAX_PAGES){
+      const more=document.createElement('div');
+      more.className='pdfstate'; more.style.color='#e6e8ea';
+      more.innerHTML='Showing the first '+PDF_MAX_PAGES+' of '+doc.numPages
+        +' pages. Download the PDF for the rest.';
+      host.appendChild(more);
+    }
+  }catch(e){ console.error('pdf paint',e); }
+  finally{ _pdfPainting=false; }
+}
+// Free the document when leaving the report, or a client flicking through
+// several reports on a phone accumulates them all in memory.
+function cxPdfClose(){
+  if(_pdfDoc){ try{ _pdfDoc.destroy(); }catch(e){} _pdfDoc=null; }
+}
+window.addEventListener('resize',()=>{
+  if(!_pdfDoc) return;
+  clearTimeout(_pdfResizeT);
+  _pdfResizeT=setTimeout(cxPdfPaint,220);
+});
 
 /* The Market curve TAB was removed at CES's request. D.curve is still loaded
    and still used: drawSceneChart() draws the ambient backdrop from it. */

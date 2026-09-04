@@ -8187,7 +8187,12 @@
       refreshCustomerDropdown(); refreshReportFilter(); refreshAdminStats();
     }
     async function refreshCustTable() {
-      const { data } = await sb.from('customers').select('*').overlaps('portal_scope', ['billing','carbon']).order('created_at', { ascending: false });
+      // 'flex' belongs here too. Without it a flex-only client (portal_scope
+      // {flex}) was invisible in this table, so there was no way to see them,
+      // rename them, set their notification emails or change their portals
+      // without hand-writing SQL. The Billing/Carbon/Flex checkboxes below are
+      // the only UI for portal_scope, so the row has to be reachable.
+      const { data } = await sb.from('customers').select('*').overlaps('portal_scope', ['billing','carbon','flex']).order('created_at', { ascending: false });
       const tbody = document.getElementById('custTable');
       window._adminCustomers = data || [];
       tbody.innerHTML = (data || []).map(c => `
@@ -8203,7 +8208,11 @@
           <td class="mono">${new Date(c.created_at).toLocaleDateString('en-GB')}</td>
           <td style="white-space:nowrap;">
             <label style="font-size:12px;font-weight:600;margin-right:10px;cursor:pointer;"><input type="checkbox" ${(c.portal_scope||[]).indexOf('billing')>=0?'checked':''} onchange="custScopeToggle('${escapeHtml(c.customer_id)}','billing',this.checked)"> Billing</label>
-            <label style="font-size:12px;font-weight:600;cursor:pointer;"><input type="checkbox" ${(c.portal_scope||[]).indexOf('carbon')>=0?'checked':''} onchange="custScopeToggle('${escapeHtml(c.customer_id)}','carbon',this.checked)"> Carbon</label>
+            <label style="font-size:12px;font-weight:600;margin-right:10px;cursor:pointer;"><input type="checkbox" ${(c.portal_scope||[]).indexOf('carbon')>=0?'checked':''} onchange="custScopeToggle('${escapeHtml(c.customer_id)}','carbon',this.checked)"> Carbon</label>
+            <!-- Flex was missing here, so a flex client could be created but never
+                 enabled without a hand-written SQL update. loadProfileAndRoute
+                 reads portal_scope to bounce flex-only customers to flexclient. -->
+            <label style="font-size:12px;font-weight:600;cursor:pointer;" title="Flex trading desk client portal. They also need at least one basket shared with them on the flex desk."><input type="checkbox" ${(c.portal_scope||[]).indexOf('flex')>=0?'checked':''} onchange="custScopeToggle('${escapeHtml(c.customer_id)}','flex',this.checked)"> Flex</label>
           </td>
           <td>
             ${c.has_logo

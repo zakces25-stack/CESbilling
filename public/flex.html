@@ -6407,7 +6407,7 @@ async function fxRenderClientReports(){
 
   const rows = (reps||[]).map(r=>`<tr>
       <td>${escape(nameOf(r.customer_id))}</td>
-      <td style="text-transform:capitalize">${escape(r.kind)}</td>
+      <td style="text-transform:capitalize">${escape(r.kind === 'market' ? 'Market report' : r.kind)}</td>
       <td>${escape(r.title)}</td>
       <td>${escape(r.period_label||'—')}</td>
       <td>${fmtDate(r.report_date)}</td>
@@ -6446,6 +6446,31 @@ async function fxRenderClientReports(){
   </div>`;
 }
 
+// Market-report naming. The client-facing entry has to read the same as the
+// document attached to it, so "Early September" / "Mid September" is derived
+// from the edition and the report date rather than hand-typed each time.
+// An auto-generated value is safe to regenerate; anything else is the author's
+// own wording and is left alone.
+function fxRepAutoTitle(){
+  const kind = (document.getElementById('rpKind')||{}).value;
+  const row  = document.getElementById('rpEditionRow');
+  const hint = document.getElementById('rpTitleHint');
+  if (row)  row.style.display  = (kind === 'market') ? '' : 'none';
+  if (hint) hint.style.display = (kind === 'market') ? '' : 'none';
+  if (kind !== 'market') return;
+  const ed = (document.getElementById('rpEdition')||{}).value || 'Early';
+  const d  = (document.getElementById('rpDate')||{}).value;
+  if (!d) return;
+  // Parse as local midnight. new Date('YYYY-MM-DD') is UTC and lands on the
+  // previous month for the 1st of a month in a negative-offset browser.
+  const dt  = new Date(d + 'T00:00:00');
+  const mon = dt.toLocaleDateString('en-GB', { month:'long' });
+  const yr  = dt.getFullYear();
+  const t = document.getElementById('rpTitle');
+  const p = document.getElementById('rpPeriod');
+  if (t && (!t.value.trim() || /^(Early|Mid)\s+[A-Za-z]+$/.test(t.value.trim()))) t.value = ed + ' ' + mon;
+  if (p && (!p.value.trim() || /^[A-Za-z]+\s+\d{4}$/.test(p.value.trim())))       p.value = mon + ' ' + yr;
+}
 function fxRepForm(r){
   const isNew = !r;
   r = r || { customer_id:'', kind:'weekly', title:'', period_label:'', body:'',
@@ -6466,15 +6491,24 @@ function fxRepForm(r){
       <div><label style="font-size:11.5px;font-weight:700;color:#4b5563;display:block;margin-bottom:4px">Customer</label>
         ${custField}</div>
       <div><label style="font-size:11.5px;font-weight:700;color:#4b5563;display:block;margin-bottom:4px">Type</label>
-        <select id="rpKind" style="width:100%;padding:7px;font-size:13px">
+        <select id="rpKind" onchange="fxRepAutoTitle()" style="width:100%;padding:7px;font-size:13px">
           <option value="weekly"${r.kind==='weekly'?' selected':''}>Weekly</option>
-          <option value="monthly"${r.kind==='monthly'?' selected':''}>Monthly</option></select></div>
+          <option value="monthly"${r.kind==='monthly'?' selected':''}>Monthly</option>
+          <option value="market"${r.kind==='market'?' selected':''}>Market report</option></select></div>
+      <!-- Market reports are named to match the PDF CES actually sends out
+           ("CES Market_Voice_Early_September.pdf" -> "Early September"), so the
+           title is generated from the edition + report date rather than typed. -->
+      <div id="rpEditionRow" style="display:none"><label style="font-size:11.5px;font-weight:700;color:#4b5563;display:block;margin-bottom:4px">Edition</label>
+        <select id="rpEdition" onchange="fxRepAutoTitle()" style="width:100%;padding:7px;font-size:13px">
+          <option value="Early"${/^Early\b/.test(r.title||'')?' selected':''}>Early month</option>
+          <option value="Mid"${/^Mid\b/.test(r.title||'')?' selected':''}>Mid month</option></select></div>
       <div><label style="font-size:11.5px;font-weight:700;color:#4b5563;display:block;margin-bottom:4px">Title</label>
-        <input id="rpTitle" value="${escape(r.title)}" placeholder="Market update" style="width:100%;padding:7px;font-size:13px"></div>
+        <input id="rpTitle" value="${escape(r.title)}" placeholder="Market update" style="width:100%;padding:7px;font-size:13px">
+        <span id="rpTitleHint" style="font-size:11px;color:#6b7280;display:none">Generated from the edition and report date. Type over it to override.</span></div>
       <div><label style="font-size:11.5px;font-weight:700;color:#4b5563;display:block;margin-bottom:4px">Period label</label>
         <input id="rpPeriod" value="${escape(r.period_label||'')}" placeholder="Week 35 · 24–30 Aug 2026" style="width:100%;padding:7px;font-size:13px"></div>
       <div><label style="font-size:11.5px;font-weight:700;color:#4b5563;display:block;margin-bottom:4px">Report date</label>
-        <input id="rpDate" type="date" value="${escape(String(r.report_date).slice(0,10))}" style="width:100%;padding:7px;font-size:13px"></div>
+        <input id="rpDate" type="date" onchange="fxRepAutoTitle()" value="${escape(String(r.report_date).slice(0,10))}" style="width:100%;padding:7px;font-size:13px"></div>
       <div style="display:flex;align-items:flex-end;padding-bottom:4px">
         <label style="font-size:12.5px;font-weight:600;color:#4b5563;display:flex;align-items:center;gap:7px;cursor:pointer">
           <input id="rpPub" type="checkbox"${r.published?' checked':''} style="width:16px;height:16px">
@@ -6502,11 +6536,13 @@ function fxRepNew(){
   if (!_fxRepCusts || !_fxRepCusts.length)
     return fxToast('No customers are set up for the client portal yet', false);
   fxModal(fxRepForm(null));
+  fxRepAutoTitle();          // set the Edition row's visibility for the chosen type
 }
 function fxRepEdit(id){
   const r = (window._fxReps||[]).find(x=>x.id===id);
   if (!r) return fxToast('Report not found — refresh and try again', false);
   fxModal(fxRepForm(r));
+  fxRepAutoTitle();
 }
 
 // PostgREST returns 204 with no error when RLS filters an UPDATE or DELETE to
