@@ -1971,7 +1971,16 @@
 
             <!-- 4. Evidence -->
             <div class="card" style="margin-bottom:16px;">
-              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">4. Proof of occupation</h3>
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">4. CES Change of Tenancy Form</h3>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">The form the customer fills in and returns. It is the only place we get the
+                <strong>forwarding address</strong> for the outgoing party's final bill, and the contact name, phone and email for both sides. Suppliers
+                will not complete a COT without those, and they are not held anywhere else, so attaching this saves the whole thing bouncing back.</p>
+              <label class="btn-primary" style="width:auto;padding:9px 14px;cursor:pointer;display:inline-block;">&#8679; Attach the CES COT form
+                <input type="file" id="cotCesFormFiles" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.heic,.tif,.tiff" style="display:none;" onchange="cotFileList('cesform')" />
+              </label>
+              <div id="cotCesFormList" style="font-size:12.5px;margin-top:10px;"></div>
+              <div style="border-top:1px solid #e6e9f4;margin:18px 0 14px;"></div>
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Proof of occupation</h3>
               <p style="font-size:12.5px;color:var(--navy);font-weight:700;margin-bottom:4px;">Signed by BOTH parties, every page.</p>
               <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Lease, TR1 / transfer deed, licence to occupy, or a solicitor's completion letter. This is the single biggest cause of supplier rejections. If there is genuinely no lease (an acquisition, say) explain it in section 5 and submit anyway.</p>
               <label class="btn-primary" style="width:auto;padding:9px 14px;cursor:pointer;display:inline-block;">&#8679; Attach proof of occupation
@@ -2014,7 +2023,7 @@
                    stale deploy went unnoticed on 3 Sep. This string is plain text in the
                    markup, so it can be read off the live site without opening a browser. Bump
                    it on every COT change. -->
-              <p style="font-size:11px;color:var(--muted);margin-top:14px;opacity:.7;">COT build 2026-09-03b</p>
+              <p style="font-size:11px;color:var(--muted);margin-top:14px;opacity:.7;">COT build 2026-09-04a</p>
             </div>
           </div>
         </div>
@@ -7530,7 +7539,7 @@
     }
 
     var _cot = { cid: null, cname: '', source: 'manual', meters: [], picked: {}, manual: [], seq: 0,
-                 rd: {}, files: { proof: [], extra: [] }, busy: false, searchT: null,
+                 rd: {}, files: { cesform: [], proof: [], extra: [] }, busy: false, searchT: null,
                  done: false, list: [] };
 
     function cotInit(){
@@ -8024,9 +8033,11 @@
 
     // ── 4. files ─────────────────────────────────────────────────────────────────────
     function cotFileList(which){
-      var input = document.getElementById(which === 'proof' ? 'cotProofFiles' : 'cotExtraFiles');
+      var INPUTS = { cesform: 'cotCesFormFiles', proof: 'cotProofFiles', extra: 'cotExtraFiles' };
+      var LISTS  = { cesform: 'cotCesFormList',  proof: 'cotProofList',  extra: 'cotExtraList'  };
+      var input = document.getElementById(INPUTS[which]);
       _cot.files[which] = Array.prototype.slice.call(input.files || []);
-      var el = document.getElementById(which === 'proof' ? 'cotProofList' : 'cotExtraList');
+      var el = document.getElementById(LISTS[which]);
       if (!_cot.files[which].length) { el.innerHTML = ''; cotPreflight(); return; }
       var tot = _cot.files[which].reduce(function(s, f){ return s + f.size; }, 0);
       el.innerHTML = _cot.files[which].map(function(f){
@@ -8049,6 +8060,7 @@
       if (!sel.length) stop.push('at least one meter');
       if (!fv('cotRepresenting')) stop.push('whether our customer is incoming or outgoing');
       if (!fv('cotChangeover')) stop.push('the changeover date');
+      if (!_cot.files.cesform.length) warn.push('No CES Change of Tenancy Form attached. It is the only source of the forwarding address for the outgoing party\u2019s final bill and the contact details for both parties, which most suppliers will not process a COT without. If the customer has not returned it yet, submit anyway and it can be added later.');
       if (!_cot.files.proof.length) warn.push('No proof of occupation attached. Suppliers reject on this more than anything else. If there genuinely is no lease, say why in the notes and submit anyway.');
       // connected party
       var inc = (document.getElementById('cotIncoming') || {}).value || '';
@@ -8139,7 +8151,8 @@
           if (mi.error) throw mi.error;
 
           // Files last: the storage policy checks the parent COT row exists and is yours.
-          var all = _cot.files.proof.map(function(f){ return { f: f, kind: 'proof' }; })
+          var all = _cot.files.cesform.map(function(f){ return { f: f, kind: 'cesform' }; })
+                      .concat(_cot.files.proof.map(function(f){ return { f: f, kind: 'proof' }; }))
                       .concat(_cot.files.extra.map(function(f){ return { f: f, kind: 'extra' }; }));
           for (var fi = 0; fi < all.length; fi++) {
             var f = all[fi].f;
@@ -8149,12 +8162,43 @@
           }
           if (typeof logAction === 'function') logAction('cot_submitted', row.customer_id || row.customer_name_raw, { ref: ins.data.ref, supplier: g.display, meters: mrows.length });
 
-          // Email cot@cesgb.com. AFTER the uploads, or the attachments would not exist yet.
-          // The COT is already safely saved at this point, so a failure here is reported but
-          // never rolls anything back.
-          btn.textContent = 'Emailing cot@cesgb.com…';
-          var mailed = await cotNotify(cotId, s.data.session.access_token);
-          notes_sent.push({ ref: ins.data.ref, ok: mailed.ok, detail: mailed.detail });
+          // Fill the supplier's own form, then email cot@cesgb.com. AFTER the uploads, or
+          // neither the CES COT Form nor the attachments would exist yet.
+          //
+          // cot-fill chains into cot-notify itself once it has dropped the completed form
+          // into the same folder, so this is ONE call, not two. If the filler fails for any
+          // reason we still send the email ourselves: a COT that reaches cot@ without a
+          // pre-filled form is a normal working day, a COT that never reaches cot@ is lost
+          // work. The row is already saved by this point, so nothing here rolls anything back.
+          btn.textContent = 'Building the supplier form…';
+          var tok = s.data.session.access_token;
+          var filled = await cotFill(cotId, tok);
+          var mailed;
+          if (filled.chained) {
+            mailed = { ok: true, detail: filled.detail };
+          } else {
+            // The browser gave up but the function is still running server-side and will
+            // send the email itself. Wait for notified_at to appear before sending our own,
+            // otherwise cot@ gets the same COT twice. Only send if it never shows up.
+            var landed = false;
+            if (filled.pending) {
+              btn.textContent = 'Still working…';
+              for (var w = 0; w < 6 && !landed; w++) {
+                await new Promise(function(r){ setTimeout(r, 5000); });
+                var chk = await sb.from('cot_requests').select('notified_at').eq('id', cotId).single();
+                landed = !!(chk.data && chk.data.notified_at);
+              }
+            }
+            if (landed) {
+              mailed = { ok: true, detail: 'sent' };
+            } else {
+              btn.textContent = 'Emailing cot@cesgb.com…';
+              mailed = await cotNotify(cotId, tok);
+              if (mailed.ok && filled.detail) mailed.detail += ' · ' + filled.detail;
+            }
+          }
+          notes_sent.push({ ref: ins.data.ref, ok: mailed.ok, detail: mailed.detail,
+                            verdict: filled.verdict, gaps: filled.gaps });
         }
 
         cotResetForm(true);
@@ -8169,6 +8213,61 @@
         // form is deliberately empty, and preflight on an empty form paints a red "Still
         // needed" card under the confirmation, which reads as a failure.
         if (!_cot.done) cotPreflight();
+      }
+    }
+
+    // Ask the cot-fill edge function to complete the supplier's own COT form.
+    //
+    // It reads the CES COT Form the customer filled in plus the proof of occupation, decides
+    // which value belongs in which box, writes the form, and then emails cot@cesgb.com with
+    // the completed form attached alongside everything the broker uploaded.
+    //
+    // Never throws, and the caller always has a fallback. Returns:
+    //   chained  true if it also sent the email, so the caller must not send it again
+    //   verdict  ready | needs_broker | needs_human | null
+    //   gaps     how many boxes it could not complete
+    //
+    // 120s: a Sonnet pass that reads two PDFs, then the PDF write, then the email with every
+    // attachment base64'd. Slow is fine here; the broker sees what it is doing.
+    async function cotFill(cotId, token){
+      var ctrl = new AbortController();
+      var to = setTimeout(function(){ ctrl.abort(); }, 120000);
+      try {
+        var r = await fetch(SUPABASE_URL + '/functions/v1/cot-fill', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + token },
+          body: JSON.stringify({ cot_id: cotId }),
+          signal: ctrl.signal
+        });
+        clearTimeout(to);
+        var j = await r.json().catch(function(){ return {}; });
+
+        // A supplier we deliberately do not auto-fill, or a form we refused because it has
+        // changed. Not a failure: it still emailed cot@ with the reason spelled out.
+        if (j.status === 'manual' || j.status === 'refused') {
+          return { chained: true, verdict: 'needs_human', gaps: null,
+                   detail: 'form to be completed by hand' };
+        }
+        if (!r.ok || j.error) {
+          console.error('cot fill', j.error || r.status);
+          return { chained: false, verdict: null, gaps: null, detail: '' };
+        }
+        return {
+          chained: true, verdict: j.verdict || null, gaps: j.could_not_fill,
+          detail: (j.filled || 0) + ' field(s) filled on the ' + (j.supplier || 'supplier') + ' form' +
+                  (j.could_not_fill ? ', ' + j.could_not_fill + ' left for the COT team' : '')
+        };
+      } catch (e) {
+        clearTimeout(to);
+        // Timed out or the network dropped. The function is still running server-side and
+        // will email cot@ on its own, but we cannot know that, so tell the caller to send
+        // the email itself. cot-notify is idempotent, so a duplicate is not sent twice.
+        if (e && e.name === 'AbortError') {
+          console.warn('cot fill still running server-side');
+          return { chained: false, pending: true, verdict: null, gaps: null, detail: '' };
+        }
+        console.error('cot fill', e);
+        return { chained: false, verdict: null, gaps: null, detail: '' };
       }
     }
 
@@ -8217,6 +8316,7 @@
                   : 'Your reference is ') +
             '<strong>' + refs.map(function(r){ return escapeHtml(r); }).join(', ') + '</strong>.</p>' +
           cotDoneMailLine(mail) +
+          cotDoneFillLine(mail) +
           '<p style="font-size:12.5px;color:var(--muted);margin-bottom:16px;">' +
             'Nothing has gone to the supplier. A person at cot@cesgb.com picks it up, checks the pack ' +
             'and sends it on. Anything missing will come back to you and the status will change to ' +
@@ -8225,6 +8325,38 @@
           '<button class="btn-secondary" style="width:auto;padding:10px 18px;margin-left:8px;" onclick="cotNewAfterDone()">Submit another</button>' +
         '</div>';
     }
+    // What happened to the supplier's own COT form.
+    //
+    // The broker's next question after "did it send" is "did it actually do anything", and
+    // the answer changes what they do next. "needs_broker" means something will come back
+    // to them; the other two do not. Saying which, now, saves the round trip where they
+    // find out in four days.
+    function cotDoneFillLine(mail){
+      if (!mail || !mail.length) return '';
+      var scored = mail.filter(function(m){ return m.verdict; });
+      if (!scored.length) return '';                       // filler did not run; stay quiet
+
+      // Worst verdict across the requests wins, because that is the one needing attention.
+      var rank = { ready: 0, needs_broker: 1, needs_human: 2 };
+      var worst = scored.reduce(function(a, m){ return rank[m.verdict] > rank[a] ? m.verdict : a; }, 'ready');
+      var gaps = scored.reduce(function(n, m){ return n + (m.gaps || 0); }, 0);
+
+      if (worst === 'ready') {
+        return '<p style="font-size:13px;margin:0 0 10px;color:#1b7a3d;">' +
+          '&#10003; The supplier&rsquo;s own COT form was completed and attached.</p>';
+      }
+      if (worst === 'needs_broker') {
+        return '<div style="border-left:3px solid #b5840a;background:#fffaf0;padding:11px 14px;margin:0 0 14px;font-size:12.5px;">' +
+          '<strong>The supplier&rsquo;s form is filled in and attached, with ' + gaps +
+          ' box' + (gaps === 1 ? '' : 'es') + ' left blank.</strong> Those are things we do not hold. ' +
+          'The COT team will fill what they can and come back to you for the rest, so it is worth ' +
+          'checking now whether the customer sent everything on the CES COT Form.</div>';
+      }
+      return '<div style="border-left:3px solid #6b7280;background:#f7f8fa;padding:11px 14px;margin:0 0 14px;font-size:12.5px;">' +
+        'This supplier&rsquo;s form is completed by hand, so nothing was pre-filled. Everything you ' +
+        'entered still went across, and the COT team will take it from here.</div>';
+    }
+
     // Say plainly whether cot@ was actually emailed. A submission that saved but did not
     // email is not a success, and the broker is the only person who can tell anyone.
     function cotDoneMailLine(mail){
@@ -8258,15 +8390,15 @@
     function cotResetForm(silent){
       _cot.cid = null; _cot.cname = ''; _cot.source = 'manual';
       _cot.meters = []; _cot.picked = {}; _cot.manual = []; _cot.rd = {};
-      _cot.files = { proof: [], extra: [] };
+      _cot.files = { cesform: [], proof: [], extra: [] };
       _cotAF.hits = {}; _cotAF.q = {};
       ['cotCustInput','cotChangeover','cotSiteAddress','cotPostcode','cotForwarding',
        'cotLandlordName','cotLandlordAddress','cotLandlordContact','cotNotes','cotUrgentReason']
         .forEach(function(id){ var e = document.getElementById(id); if (e) e.value = ''; });
       var rep = document.getElementById('cotRepresenting'); if (rep) rep.value = '';
       var u = document.getElementById('cotUrgent'); if (u) u.checked = false;
-      ['cotProofFiles','cotExtraFiles'].forEach(function(id){ var e = document.getElementById(id); if (e) e.value = ''; });
-      ['cotProofList','cotExtraList','cotCustState','cotSupplierNote','cotPartiesWrap'].forEach(function(id){ var e = document.getElementById(id); if (e) e.innerHTML = ''; });
+      ['cotCesFormFiles','cotProofFiles','cotExtraFiles'].forEach(function(id){ var e = document.getElementById(id); if (e) e.value = ''; });
+      ['cotCesFormList','cotProofList','cotExtraList','cotCustState','cotSupplierNote','cotPartiesWrap'].forEach(function(id){ var e = document.getElementById(id); if (e) e.innerHTML = ''; });
       cotToggleUrgent(); cotRenderMeterPick(); cotRenderManualMeters();
       if (!silent) { /* keep the success box visible */ } else { var o = document.getElementById('cotOk'), x = document.getElementById('cotErr'); if (o) o.style.display = 'none'; if (x) x.style.display = 'none'; }
       cotPreflight();
