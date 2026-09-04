@@ -503,7 +503,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
 const LOGIN_DOMAIN = 'portal.cesgb.com';  // usernames map to <username>@portal.cesgb.com
 
 var currentUser = null;
-var _SK = { reps: [], kpis: [], sales: [], salesTeam: [], eff: [], targets: {}, compByRep: {}, myRepId: null, fy: null };
+var _SK = { reps: [], kpis: [], sales: [], salesTeam: [], eff: [], targets: {}, compByRep: {}, compPlans: {}, myRepId: null, fy: null };
 var _entryKey = null;      // selected period 'YYYY-MM-01' on the Figures tab
 var _teamKey = '__all__';  // Team tab period ('__all__' = FY cumulative)
 var _charts = {};
@@ -522,7 +522,11 @@ function _skContractBill(k){
   if (k._contract_eff != null) return Number(k._contract_eff) || 0;
   var ov = k.uplift_override, kwh = Number(k.total_kwh) || 0;
   if (ov != null && ov !== '' && kwh) return (Number(ov) || 0) / 100 * kwh;
-  return Math.max(0, (Number(k.billing_total)||0) - (Number(k.consultancy)||0));
+  // From 28 Aug 2026 this is BILLING TOTAL: consultancy / direct sales are no
+  // longer deducted. Mirrors broker_kpis.contract_billing_eff, sales.html and
+  // index.html exactly. This app was the last copy still deducting, so it
+  // showed a lower uplift p/kWh than the desktop and the month-end report.
+  return Math.max(0, Number(k.billing_total)||0);
 }
 function _skHasOverride(k){
   if (!k) return false;
@@ -542,7 +546,7 @@ function _thisMonthKey(){ return new Date().toISOString().slice(0,7)+'-01'; }  /
 var _SK_FIELDS = [
   ['billing_total', 'Billing total', '£', 'Annual equivalent — include consultancy / direct £'],
   ['long_term_total', 'Long term total', '£', ''],
-  ['consultancy', 'Consultancy / direct sales', '£', 'Shared saving, metering, fixed fees — excluded from uplift'],
+  ['consultancy', 'Consultancy / direct sales', '£', 'Shared saving, metering, fixed fees — recorded, included in billing total'],
   ['total_kwh', 'Total kWh', 'kWh', ''],
   ['new_business_gbp', 'Total new business', '£', ''],
   ['new_business_kwh', 'Total new business', 'kWh', ''],
@@ -728,9 +732,19 @@ async function refreshAll(showToast){
     var tg = await sb.from('broker_targets').select('*');
     if (tg.error) degraded = true;
     else { _SK.targets = {}; (tg.data||[]).forEach(function(t){ _SK.targets[t.rep_id] = t; }); }
-    var cp = await sb.from('broker_comp').select('*');   // RLS: rep sees own row only
+    var cp = await sb.from('broker_comp').select('*').order('valid_from', { ascending:false });   // RLS: rep sees own row only
     if (cp.error) degraded = true;
-    else { _SK.compByRep = {}; (cp.data || []).forEach(function(c){ _SK.compByRep[c.rep_id] = c; }); }
+    else {
+      // Every plan the rep has had, newest first, so a past month is priced at
+      // the rates that applied to it rather than at today's.
+      _SK.compPlans = {}; _SK.compByRep = {};
+      (cp.data || []).forEach(function(c){ (_SK.compPlans[c.rep_id] = _SK.compPlans[c.rep_id] || []).push(c); });
+      var _td = new Date().toISOString().slice(0,10);
+      Object.keys(_SK.compPlans).forEach(function(rid){
+        _SK.compPlans[rid].sort(function(a,b){ return String(b.valid_from).localeCompare(String(a.valid_from)); });
+        _SK.compByRep[rid] = _skCompFor(rid, _td) || _SK.compPlans[rid][0];
+      });
+    }
     _SK.myRepId = null;
     if (currentUser && !currentUser.isAdmin) {
       var mine = _SK.reps.filter(function(r){ return r.profile_id === currentUser.userId; })[0];
@@ -740,7 +754,7 @@ async function refreshAll(showToast){
     // Only snapshot a fully successful refresh — a degraded one must never
     // become the offline truth.
     if (!degraded) {
-      try { localStorage.setItem('cesSalesApp:snapshot', JSON.stringify({ t: Date.now(), reps: _SK.reps, kpis: _SK.kpis, salesTeam: _SK.salesTeam, targets: _SK.targets })); } catch(e){}
+      try { localStorage.setItem('cesSalesApp:snapshot', JSON.stringify({ t: Date.now(), reps: _SK.reps, kpis: _SK.kpis, salesTeam: _SK.salesTeam, targets: _SK.targets, compPlans: _SK.compPlans })); } catch(e){}
     } else {
       toast('Some data could not be refreshed — figures may be partial', true);
     }
@@ -755,7 +769,11 @@ async function refreshAll(showToast){
       var snap = JSON.parse(localStorage.getItem('cesSalesApp:snapshot') || 'null');
       if (snap) {
         _SK.reps = snap.reps || []; _SK.kpis = snap.kpis || []; _SK.salesTeam = snap.salesTeam || [];
-        _SK.targets = snap.targets || {}; _SK.sales = []; _SK.compByRep = {};
+        _SK.targets = snap.targets || {}; _SK.sales = [];
+        // Keep the cached plans so offline commission still uses the right rates.
+        _SK.compPlans = snap.compPlans || {}; _SK.compByRep = {};
+        var _ts = new Date().toISOString().slice(0,10);
+        Object.keys(_SK.compPlans).forEach(function(rid){ _SK.compByRep[rid] = _skCompFor(rid, _ts) || _SK.compPlans[rid][0]; });
         if (currentUser) { var m2 = _SK.reps.filter(function(r){ return r.profile_id === currentUser.userId; })[0]; _SK.myRepId = m2 ? m2.id : null; }
         _skBuildEffective();
         var el2 = document.getElementById('lastSync'); if (el2) el2.textContent = 'Cached ' + new Date(snap.t).toLocaleString('en-GB');
@@ -790,17 +808,37 @@ function _skBuildEffective(){
   _SK.eff = Object.keys(map).map(function(key){ return map[key]; });
 }
 function _skEffRow(repId, period){ return _SK.eff.filter(function(k){ return k.rep_id === repId && k.period === period; })[0] || null; }
-/* verbatim port of _skCommission (sales.html:4872) */
-function _skCommission(k, comp){
-  if(!comp) return null;
+/* port of _skCompFor / _skCommission (sales.html) — keep in step with it.
+   Commission plans are date-effective and a confirmed month is frozen, so this
+   app shows the same figure as the desktop portal and the month-end report. */
+function _skCompFor(repId, period){
+  var list = (_SK.compPlans && _SK.compPlans[repId]) || [];
+  if(!period) return _SK.compByRep[repId] || list[0] || null;
+  var p = String(period).slice(0,10);
+  for(var i=0;i<list.length;i++){
+    var pl = list[i];
+    var from = String(pl.valid_from || '').slice(0,10);
+    var to   = pl.valid_to ? String(pl.valid_to).slice(0,10) : null;
+    if(from && from <= p && (!to || p < to)) return pl;
+  }
+  return null;
+}
+function _skCommission(k, compFallback){
   k = k || {};
+  // A confirmed month carries its own frozen figures. Read them, never recompute.
+  if(k.comm_snapshot_at){
+    var fRet = Number(k.comm_retained_gbp)||0, fNB = Number(k.comm_newbiz_gbp)||0;
+    return { commission: fRet + fNB, base: Number(k.comm_base_salary)||0, frozen: true };
+  }
+  var comp = _skCompFor(k.rep_id, k.period) || compFallback;
+  if(!comp) return null;
   var manNB = Number(k._manualNB != null ? k._manualNB : k.new_business_gbp)||0;
   var manBill = Number(k._manualBilling != null ? k._manualBilling : k.billing_total)||0;
   var manRet = Math.max(0, manBill - manNB);
   var rC = manRet * (Number(comp.retained_rate)||0) / 100;
   var nC = manNB * (Number(comp.new_business_rate)||0) / 100;
   var salesRet = Number(k._salesCommRet)||0, salesNB = Number(k._salesCommNB)||0;
-  return { commission: rC + salesRet + nC + salesNB };
+  return { commission: rC + salesRet + nC + salesNB, frozen: false };
 }
 
 /* ═══════════ app shell / tabs ═══════════ */
@@ -961,7 +999,8 @@ function updateLive(){
   var bill = _fVal('f_billing_total'), cons = _fVal('f_consultancy'), kwh = _fVal('f_total_kwh'), nb = _fVal('f_new_business_gbp');
   document.getElementById('liveBill').textContent = _skMoney(bill);
   document.getElementById('liveNb').textContent = _skMoney(nb);
-  document.getElementById('liveUplift').textContent = kwh ? _skUplift(Math.max(0, bill - cons), kwh) : '—';
+  // Uplift is billing total ÷ kWh; consultancy is NOT deducted (28 Aug 2026).
+  document.getElementById('liveUplift').textContent = kwh ? _skUplift(Math.max(0, bill), kwh) : '—';
   // NB split reconciliation (advisory only — desktop doesn't block on it either)
   var g = _fVal('f_nb_organic_gbp') + _fVal('f_nb_recommendation_gbp') + _fVal('f_nb_prospecting_gbp');
   var kw = _fVal('f_nb_organic_kwh') + _fVal('f_nb_recommendation_kwh') + _fVal('f_nb_prospecting_kwh');
@@ -1096,10 +1135,18 @@ async function confirmMonth(){
   if (!row) { toast('Save your figures for ' + lbl + ' first, then confirm.', true); return; }
   if (_dirty) { toast('You have unsaved changes — Save first, then confirm.', true); return; }
   if (!_cocFilled(row.customers_of_concern)) { toast('Before confirming ' + lbl + ': add at least one customer of concern (with the customer’s name) and Save — or tick “No customers of concern”.', true); return; }
-  if (!confirm('Confirm ' + lbl + ' as your FINAL figures?\n\nAfter confirming you will NOT be able to change them — only CES admin can. Once every broker has confirmed, the month-end report is generated and emailed to management automatically.')) return;
-  var resp = await sb.from('broker_kpis').update({ confirmed_at: new Date().toISOString() }).eq('rep_id', _SK.myRepId).eq('period', _entryKey);
+  var _pre = _skCommission(_skEffRow(_SK.myRepId, _entryKey) || row, _skCompFor(_SK.myRepId, _entryKey));
+  if (!confirm('Confirm ' + lbl + ' as your FINAL figures?\n\n'
+    + (_pre ? 'Commission locked in: ' + _skMoney(_pre.commission) + '\n\n' : '')
+    + 'After confirming you will NOT be able to change them — only CES admin can. Your commission is recorded as it stands today and will not change afterwards, even if the rates are changed later.\n\n'
+    + 'Once every broker has confirmed, the month-end report is generated and emailed to management automatically.')) return;
+  // confirm_broker_month() sets confirmed_at AND freezes the commission in one
+  // statement — same call the desktop portal makes, so the two cannot diverge.
+  var resp = await sb.rpc('confirm_broker_month', { p_period: _entryKey });
   if (resp.error) { toast('Could not confirm your figures — ' + (resp.error.message || 'try again'), true); return; }
-  row.confirmed_at = new Date().toISOString();
+  if (resp.data) { for (var _ck in resp.data) row[_ck] = resp.data[_ck]; }
+  else { row.confirmed_at = new Date().toISOString(); }
+  _skBuildEffective();
   logAction('confirm_month', null, { period: _entryKey, via: 'app' });
   loadEntry();
   toast('Confirmed — your ' + lbl + ' figures are locked 🔒');
@@ -1134,7 +1181,7 @@ function renderTrends(){
   var curKey = _entryKey || _defaultEntryKey();
   var k = _skEffRow(_SK.myRepId, curKey) || {};
   var pct = tgt > 0 ? Math.round((Number(k.billing_total)||0) / tgt * 100) : null;
-  var comm = _skCommission(k, _SK.compByRep[_SK.myRepId]);
+  var comm = _skCommission(k, _skCompFor(_SK.myRepId, k && k.period));
   document.getElementById('trendStats').innerHTML =
     '<div class="stat"><div class="lbl">' + _skPeriodLabel(curKey) + ' billing</div><div class="val">' + _skMoney(k.billing_total) + '</div></div>' +
     '<div class="stat' + (pct != null ? (pct >= 100 ? ' ok' : (pct < 60 ? ' bad' : '')) : '') + '"><div class="lbl">% to target</div><div class="val">' + (pct != null ? pct + '%' : '—') + '</div><div class="sub">' + (tgt ? 'Target ' + _skMoney(tgt) : 'No target set') + '</div></div>' +

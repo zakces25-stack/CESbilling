@@ -5585,7 +5585,7 @@
     // Team figures (visible to all reps) + each rep's own entry, dashboard
     // and PRIVATE salary calculator. Data: sales_reps / broker_kpis (team-read)
     // / broker_comp (private: own + admin only, enforced by RLS).
-    var _SK = { reps: [], kpis: [], sales: [], salesTeam: [], eff: [], notes: [], targets: {}, projects: [], projEntries: [], activity: [], newBiz: [], compByRep: {}, myRepId: null };
+    var _SK = { reps: [], kpis: [], sales: [], salesTeam: [], eff: [], notes: [], targets: {}, projects: [], projEntries: [], activity: [], newBiz: [], compByRep: {}, compPlans: {}, myRepId: null };
     var _SK_FIELDS = [
       ['billing_total', 'Billing total (£, annual equivalent — include consultancy / direct £)'],
       ['long_term_total', 'Long term total (£)'],
@@ -5677,9 +5677,41 @@
     function _skPeriodLabel(p){ if(!p) return ''; var d = new Date(p + 'T00:00:00'); return d.toLocaleDateString('en-GB', { month:'short', year:'numeric' }); }
     function _skMonthKey(id){ var v = (document.getElementById(id)||{}).value; return v ? v + '-01' : null; }
     function _skFlash(id, msg){ var e = document.getElementById(id); if(!e) return; e.textContent = msg; e.style.display = 'block'; setTimeout(function(){ e.style.display = 'none'; }, 2500); }
-    function _skCommission(k, comp){
-      if(!comp) return null;
+    // ── Commission plans are DATE-EFFECTIVE ────────────────────────────────────
+    // broker_comp holds one row per (rep_id, valid_from). valid_from is
+    // inclusive, valid_to is EXCLUSIVE, valid_to null means currently in force.
+    // Returns the plan that applied in the given month — never "today's rates".
+    function _skCompFor(repId, period){
+      var list = (_SK.compPlans && _SK.compPlans[repId]) || [];
+      if(!period) return _SK.compByRep[repId] || list[0] || null;
+      var p = String(period).slice(0,10);
+      for(var i=0;i<list.length;i++){
+        var pl = list[i];
+        var from = String(pl.valid_from || '').slice(0,10);
+        var to   = pl.valid_to ? String(pl.valid_to).slice(0,10) : null;
+        if(from && from <= p && (!to || p < to)) return pl;
+      }
+      return null;
+    }
+    // A month with comm_snapshot_at set was confirmed, agreed and probably paid.
+    // Its figures are READ BACK, never recalculated — that is the whole point of
+    // the snapshot. Editing a rate today can no longer move a past month.
+    // `compFallback` is kept only so the existing call sites need no change.
+    function _skCommission(k, compFallback){
       k = k || {};
+      var nbTotal  = Number(k.new_business_gbp)||0;
+      var retTotal = Math.max(0, (Number(k.billing_total)||0) - nbTotal);
+      if(k.comm_snapshot_at){
+        var fRet  = Number(k.comm_retained_gbp)||0;
+        var fNB   = Number(k.comm_newbiz_gbp)||0;
+        var fBase = Number(k.comm_base_salary)||0;
+        return { retained:retTotal, newbiz:nbTotal, retainedComm:fRet, newbizComm:fNB,
+                 commission:fRet+fNB, base:fBase, total:fRet+fNB+fBase, frozen:true,
+                 planFrom:k.comm_plan_from,
+                 rates:{ retained:Number(k.comm_retained_rate), newbiz:Number(k.comm_new_business_rate) } };
+      }
+      var comp = _skCompFor(k.rep_id, k.period) || compFallback;
+      if(!comp) return null;
       // Comp-rate commission applies to MANUALLY-entered billing only; individually-logged
       // sales carry their own commission (each at its own %), added on top.
       var manNB = Number(k._manualNB != null ? k._manualNB : k.new_business_gbp)||0;
@@ -5689,11 +5721,15 @@
       var nC = manNB * (Number(comp.new_business_rate)||0) / 100;
       var salesRet = Number(k._salesCommRet)||0, salesNB = Number(k._salesCommNB)||0;
       var retainedComm = rC + salesRet, newbizComm = nC + salesNB;
-      var nbTotal = Number(k.new_business_gbp)||0;
-      var retTotal = Math.max(0, (Number(k.billing_total)||0) - nbTotal);
-      var own = (_SK.targets && _SK.myRepId) ? _SK.targets[_SK.myRepId] : null;
+      // Base salary belongs to the rep being calculated. This used to read
+      // _SK.targets[_SK.myRepId], so the Head of Sales' own base salary was
+      // applied to every broker they looked at.
+      var own = (_SK.targets && (k.rep_id || _SK.myRepId)) ? _SK.targets[k.rep_id || _SK.myRepId] : null;
       var base = (own && own.base_salary != null && own.base_salary !== '') ? (Number(own.base_salary)||0) : (Number(comp.base_salary)||0);
-      return { retained:retTotal, newbiz:nbTotal, retainedComm:retainedComm, newbizComm:newbizComm, commission:retainedComm+newbizComm, base:base, total:retainedComm+newbizComm+base };
+      return { retained:retTotal, newbiz:nbTotal, retainedComm:retainedComm, newbizComm:newbizComm,
+               commission:retainedComm+newbizComm, base:base, total:retainedComm+newbizComm+base,
+               frozen:false, planFrom:comp.valid_from,
+               rates:{ retained:Number(comp.retained_rate), newbiz:Number(comp.new_business_rate) } };
     }
     async function salesFetchAll(){
       var reps = await sb.from('sales_reps').select('*').order('sort_order');
@@ -5712,9 +5748,20 @@
       var pe = await sb.from('broker_project_entries').select('*'); _SK.projEntries = pe.data || [];
       var ba = await sb.from('broker_activity').select('*'); _SK.activity = ba.data || [];   // calls/emails per rep per month (own/admin)
       var nbq = await sb.from('broker_new_business').select('*'); _SK.newBiz = nbq.data || [];  // itemised new-business wins (own/admin)
-      var cp = await sb.from('broker_comp').select('*'); // RLS: admin=all, rep=own only
+      var cp = await sb.from('broker_comp').select('*').order('valid_from', { ascending:false }); // RLS: admin=all, rep=own only
+      // Every plan a rep has ever had, newest first, so _skCompFor() can price
+      // any historical month at the rates that actually applied to it.
+      _SK.compPlans = {};
       _SK.compByRep = {};
-      (cp.data || []).forEach(function(c){ _SK.compByRep[c.rep_id] = c; });
+      (cp.data || []).forEach(function(c){
+        (_SK.compPlans[c.rep_id] = _SK.compPlans[c.rep_id] || []).push(c);
+      });
+      var _today = new Date().toISOString().slice(0,10);
+      Object.keys(_SK.compPlans).forEach(function(rid){
+        _SK.compPlans[rid].sort(function(a,b){ return String(b.valid_from).localeCompare(String(a.valid_from)); });
+        // compByRep = the plan in force right now, kept for the settings screen.
+        _SK.compByRep[rid] = _skCompFor(rid, _today) || _SK.compPlans[rid][0];
+      });
       _SK.myRepId = null;
       if(currentUser && !currentUser.isAdmin){
         var mine = _SK.reps.filter(function(r){ return r.profile_id === currentUser.userId; })[0];
@@ -6153,34 +6200,101 @@
         try{ logAction('download_month_end_report', currentUser && currentUser.customerId, { period:key }); }catch(_e){}
       }catch(e){ safeAlert('Could not generate the Excel report. Please try again.', e); }
     }
+    // Latest month already confirmed AND frozen for a rep. A new plan may not
+    // start on or before this, so past pay cannot be restated.
+    function _skFrozenUpTo(repId){
+      var latest = null;
+      _SK.kpis.forEach(function(k){
+        if(k.rep_id !== repId || !k.comm_snapshot_at) return;
+        if(!latest || String(k.period) > latest) latest = String(k.period).slice(0,10);
+      });
+      return latest;
+    }
+    function _skNextMonthAfter(period){
+      var y = +String(period).slice(0,4), m = +String(period).slice(5,7) + 1;
+      if(m > 12){ m = 1; y++; }
+      return y + '-' + (m < 10 ? '0' + m : m) + '-01';
+    }
+    function _skThisMonth(){ var d = new Date(); return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2); }
     function renderCommissionEditor(){
       var host = document.getElementById('skCompEditor'); if(!host) return;
       var rows = _SK.reps.map(function(r){
         var c = _SK.compByRep[r.id] || { retained_rate:5, new_business_rate:13, base_salary:0 };
-        return '<tr><td>' + escapeHtml(r.name) + '</td>' +
-          '<td><input type="number" step="0.1" id="cr_' + r.id + '" value="' + c.retained_rate + '" style="width:78px"></td>' +
-          '<td><input type="number" step="0.1" id="cn_' + r.id + '" value="' + c.new_business_rate + '" style="width:78px"></td>' +
-          '<td><input type="number" step="1" id="cb_' + r.id + '" value="' + c.base_salary + '" style="width:108px"></td>' +
+        var frozen = _skFrozenUpTo(r.id);
+        var minMonth = frozen ? _skNextMonthAfter(frozen).slice(0,7) : '';
+        var deflt = _skThisMonth();
+        if(minMonth && deflt < minMonth) deflt = minMonth;
+        return '<tr><td>' + escapeHtml(r.name) +
+            (frozen ? '<div style="font-size:11px;color:var(--muted);font-weight:600;margin-top:2px;">Frozen to ' + _skPeriodLabel(frozen) + '</div>' : '') + '</td>' +
+          '<td><input type="number" step="0.1" min="0" max="100" id="cr_' + r.id + '" value="' + c.retained_rate + '" style="width:78px"></td>' +
+          '<td><input type="number" step="0.1" min="0" max="100" id="cn_' + r.id + '" value="' + c.new_business_rate + '" style="width:78px"></td>' +
+          '<td><input type="number" step="1" min="0" id="cb_' + r.id + '" value="' + c.base_salary + '" style="width:108px"></td>' +
+          '<td><input type="month" id="cf_' + r.id + '" value="' + deflt + '"' + (minMonth ? ' min="' + minMonth + '"' : '') + ' style="width:150px"></td>' +
           '<td><input type="number" step="1" id="ct_' + r.id + '" value="' + (Number(r.monthly_target)||0) + '" style="width:118px"></td>' +
           '<td><input type="email" id="ce_' + r.id + '" value="' + escapeHtml(r.email||'') + '" placeholder="broker@cesgb.com" style="width:200px"></td>' +
           '<td><button class="btn-primary" style="padding:6px 12px;width:auto" onclick="skSaveComp(\'' + r.id + '\')">Save</button></td></tr>';
       }).join('');
-      host.innerHTML = '<table class="sk-table"><tr><th>Rep</th><th>Retained %</th><th>New business %</th><th>Base £/mo</th><th>Monthly target £</th><th>Email (for reminders)</th><th></th></tr>' + rows + '</table>';
+      // Plan history — what applied when, so any past figure can be explained.
+      var hist = _SK.reps.map(function(r){
+        var list = (_SK.compPlans && _SK.compPlans[r.id]) || [];
+        if(!list.length) return '';
+        var items = list.map(function(pl){
+          var from = _skPeriodLabel(pl.valid_from);
+          var to   = pl.valid_to ? _skPeriodLabel(_skPrevMonthOf(pl.valid_to)) : 'now';
+          return '<li>' + escapeHtml(from) + ' &rarr; ' + escapeHtml(to) + ': <strong>' +
+                 escapeHtml(String(pl.retained_rate)) + '%</strong> retained, <strong>' +
+                 escapeHtml(String(pl.new_business_rate)) + '%</strong> new business, base <strong>' +
+                 _skMoney(pl.base_salary) + '</strong>' +
+                 (pl.note ? ' &middot; <em>' + escapeHtml(pl.note) + '</em>' : '') + '</li>';
+        }).join('');
+        return '<div style="margin-top:10px;"><strong style="font-size:12px;">' + escapeHtml(r.name) +
+               '</strong><ul style="margin:4px 0 0 18px;font-size:12px;color:var(--muted);line-height:1.7;">' + items + '</ul></div>';
+      }).join('');
+      host.innerHTML =
+        '<p style="font-size:12px;color:var(--muted);line-height:1.6;margin:0 0 10px;">Saving <strong>opens a new commission plan</strong> from the month you choose. Earlier months keep the rates they were paid at. A month a broker has confirmed is frozen and cannot be re-rated here.</p>' +
+        '<table class="sk-table"><tr><th>Rep</th><th>Retained %</th><th>New business %</th><th>Base £/mo</th><th>Effective from</th><th>Monthly target £</th><th>Email (for reminders)</th><th></th></tr>' + rows + '</table>' +
+        '<details style="margin-top:14px;"><summary style="cursor:pointer;font-size:12px;font-weight:800;color:var(--navy);">Rate history</summary>' + hist + '</details>';
+    }
+    function _skPrevMonthOf(period){
+      var y = +String(period).slice(0,4), m = +String(period).slice(5,7) - 1;
+      if(m < 1){ m = 12; y--; }
+      return y + '-' + (m < 10 ? '0' + m : m) + '-01';
     }
     async function skSaveComp(repId){
-      var rr = parseFloat(document.getElementById('cr_' + repId).value) || 0;
-      var nr = parseFloat(document.getElementById('cn_' + repId).value) || 0;
-      var bs = parseFloat(document.getElementById('cb_' + repId).value) || 0;
+      var rr = parseFloat(document.getElementById('cr_' + repId).value);
+      var nr = parseFloat(document.getElementById('cn_' + repId).value);
+      var bs = parseFloat(document.getElementById('cb_' + repId).value);
       var tg = parseFloat(document.getElementById('ct_' + repId).value) || 0;
       var em = (document.getElementById('ce_' + repId).value || '').trim();
-      var e1 = await sb.from('broker_comp').upsert({ rep_id:repId, retained_rate:rr, new_business_rate:nr, base_salary:bs, updated_at:new Date().toISOString() }, { onConflict:'rep_id' });
+      var fm = (document.getElementById('cf_' + repId)||{}).value || '';
+      if(isNaN(rr) || rr < 0 || rr > 100 || isNaN(nr) || nr < 0 || nr > 100){
+        safeAlert('Retained % and new business % must both be between 0 and 100.', null); return;
+      }
+      if(isNaN(bs) || bs < 0){ safeAlert('Base salary cannot be negative.', null); return; }
+      if(!/^\d{4}-\d{2}$/.test(fm)){ safeAlert('Pick the month this plan takes effect from.', null); return; }
+      var from = fm + '-01';
+      var rep = _SK.reps.filter(function(r){ return r.id === repId; })[0];
+      var cur = _SK.compByRep[repId];
+      var changed = !cur || Number(cur.retained_rate) !== rr || Number(cur.new_business_rate) !== nr || Number(cur.base_salary) !== bs;
+      if(changed && !confirm('Open a new commission plan for ' + ((rep && rep.name) || 'this broker') + ' from ' + _skPeriodLabel(from) + '?\n\n'
+          + rr + '% retained, ' + nr + '% new business, base ' + _skMoney(bs) + ' per month.\n\n'
+          + 'Months before ' + _skPeriodLabel(from) + ' keep the rates they were already paid at.')) return;
+      // set_broker_comp closes the plan currently in force and opens a new one.
+      // It refuses a start date that would reach back over a frozen month.
+      if(changed){
+        var rpc = await sb.rpc('set_broker_comp', {
+          p_rep: repId, p_retained: rr, p_newbiz: nr, p_base: bs, p_from: from, p_note: null
+        });
+        if(rpc.error){ safeAlert('Could not save the commission plan.', rpc.error); return; }
+      }
       var e2 = await sb.from('sales_reps').update({ monthly_target:tg, email: em || null }).eq('id', repId);
-      if(e1.error || e2.error){ safeAlert('Could not save commission settings.', e1.error || e2.error); return; }
-      _SK.compByRep[repId] = { rep_id:repId, retained_rate:rr, new_business_rate:nr, base_salary:bs };
-      var rep = _SK.reps.filter(function(r){ return r.id === repId; })[0]; if(rep) rep.monthly_target = tg;
-      logAction('save_broker_comp', null, { rep_id:repId });
+      if(e2.error){ safeAlert('Rates saved, but the target/email did not save.', e2.error); }
+      else if(rep){ rep.monthly_target = tg; rep.email = em || null; }
+      logAction('save_broker_comp', null, { rep_id:repId, effective_from:from, retained:rr, new_business:nr, base:bs });
+      await salesFetchAll();
+      renderCommissionEditor();
       adminRenderBoard();
-      _skFlash('skCompMsg', 'Saved.');
+      _skFlash('skCompMsg', changed ? ('Saved — new plan runs from ' + _skPeriodLabel(from) + '.') : 'Saved.');
     }
     function skKpiLoadForm(){
       var repId = document.getElementById('skKpiRep').value;
@@ -6289,13 +6403,21 @@
       var row = _SK.kpis.filter(function(x){ return x.rep_id === _SK.myRepId && x.period === key; })[0];
       if(!row){ safeAlert('Save your figures for ' + lbl + ' first, then confirm.', null); return; }
       if(!_cocFilled(row.customers_of_concern)){ safeAlert('Before confirming ' + lbl + ', please complete “Customers of concern” and Save — add at least one account and reason, or tick “No customers of concern”.', null); return; }
-      if(!confirm('Confirm ' + lbl + ' as your FINAL figures?\n\nAfter confirming you will NOT be able to change them \u2014 only CES admin can. Once every broker has confirmed, the month-end report is generated and emailed to management automatically.')) return;
-      var resp = await sb.from('broker_kpis').update({ confirmed_at: new Date().toISOString() }).eq('rep_id', _SK.myRepId).eq('period', key);
+      var _pre = _skCommission(_skEffRow(_SK.myRepId, key) || row, _skCompFor(_SK.myRepId, key));
+      if(!confirm('Confirm ' + lbl + ' as your FINAL figures?\n\n'
+        + (_pre ? 'Commission locked in: ' + _skMoney(_pre.commission) + ' (plus base ' + _skMoney(_pre.base) + ') = ' + _skMoney(_pre.total) + '\n\n' : '')
+        + 'After confirming you will NOT be able to change them \u2014 only CES admin can. Your commission is recorded as it stands today and will not change afterwards, even if the rates are changed later.\n\n'
+        + 'Once every broker has confirmed, the month-end report is generated and emailed to management automatically.')) return;
+      // confirm_broker_month() sets confirmed_at AND freezes the commission in a
+      // single statement, so a month can never end up confirmed but un-frozen.
+      var resp = await sb.rpc('confirm_broker_month', { p_period: key });
       if(resp.error){ safeAlert('Could not confirm your figures.', resp.error); return; }
       logAction('confirm_month', null, { period: key });
       await salesFetchAll();
       brokerRenderMine();
-      _skFlash('bxMsg', 'Confirmed \u2014 your ' + lbl + ' figures are now locked.');
+      var _lockedTotal = (resp.data && resp.data.comm_total_gbp != null) ? _skMoney(resp.data.comm_total_gbp) : null;
+      _skFlash('bxMsg', 'Confirmed \u2014 your ' + lbl + ' figures are now locked'
+        + (_lockedTotal ? ', commission recorded at ' + _lockedTotal + '.' : '.'));
     }
     function _skCard(label, val, sub){
       return '<div class="stat-card"><div class="stat-label">' + label + '</div><div class="stat-value">' + val + '</div>' +
@@ -6308,13 +6430,13 @@
       k = k || { billing_total:0, total_kwh:0, new_business_gbp:0, lost_customers:0 };
       var tgt = Number(rep.monthly_target) || 0;
       var pct = tgt > 0 ? Math.round((Number(k.billing_total)||0) / tgt * 100) + '%' : '—';
-      var comm = _skCommission(k, _SK.compByRep[_SK.myRepId]);
+      var comm = _skCommission(k, _skCompFor(_SK.myRepId, k.period));
       host.innerHTML =
         _skCard('Billing this month', _skMoney(k.billing_total)) +
         _skCard('% to target', pct, tgt > 0 ? ('Target ' + _skMoney(tgt)) : 'No target set') +
         _skCard('New business', _skMoney(k.new_business_gbp)) +
         _skCard('Avg uplift', _skUplift(_skContractBill(k), k.total_kwh) + ' p/kWh', 'billing total ÷ kWh') +
-        (comm ? _skCard('Commission (month)', _skMoney(comm.commission), 'Private to you') : '');
+        (comm ? _skCard('Commission (month)', _skMoney(comm.commission), comm.frozen ? '&#128274; locked &middot; private to you' : 'Private to you') : '');
       renderMyTrend();
     }
     function renderMyTrend(){
@@ -6524,20 +6646,24 @@
       var heroHost = document.getElementById('bxCards'), gridHost = document.getElementById('bxCharts');
       var rep = _SK.reps.filter(function(r){ return r.id === _SK.myRepId; })[0];
       if(!rep){ if(heroHost) heroHost.innerHTML = ''; if(gridHost) gridHost.innerHTML = ''; return; }
-      var comp = _SK.compByRep[_SK.myRepId];
+      // Price the selected month at the plan that applied to IT, not today's.
+      var comp = _skCompFor(_SK.myRepId, key) || _SK.compByRep[_SK.myRepId];
       var _mdFy={}; _fyMonths(_skFy()).forEach(function(p){ _mdFy[p]=1; });
       var hist = _SK.eff.filter(function(x){ return x.rep_id === _SK.myRepId && _mdFy[x.period]; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
       k = k || { billing_total:0, total_kwh:0, new_business_gbp:0 };
       var tgt = Number(rep.monthly_target) || 0;
       var rank = _skRankInMonth(key);
       // ── Hero cards ──
-      if(comp){
-        var cc = _skCommission(k, comp);
-        var commYTD = hist.reduce(function(a,h){ return a + _skCommission(h, comp).commission; }, 0);
+      var cc = _skCommission(k, comp);
+      if(cc){
+        // Each month is valued on its own plan (or its frozen snapshot), so the
+        // FY total is the sum of what was actually earned, not a re-rating.
+        var commYTD = hist.reduce(function(a,h){ var hc = _skCommission(h, _skCompFor(h.rep_id, h.period)); return a + (hc ? hc.commission : 0); }, 0);
         var mWith = hist.filter(function(h){ return (Number(h.billing_total)||0) > 0; }).length || 1;
         var proj = commYTD / mWith * 12;
         heroHost.innerHTML =
-          _skCard('Commission this month', _skMoney(cc.commission), '+ base ' + _skMoney(cc.base) + ' = ' + _skMoney(cc.total)) +
+          _skCard('Commission this month', _skMoney(cc.commission),
+            (cc.frozen ? '&#128274; locked at confirmation &middot; ' : '') + '+ base ' + _skMoney(cc.base) + ' = ' + _skMoney(cc.total)) +
           _skCard('Earned this FY', _skMoney(commYTD), 'commission so far') +
           _skCard('On pace for (full year)', _skMoney(proj), 'your monthly average × 12 — moves as the year fills in') +
           _skCard('Your rank', rank, 'team billing · ' + _skPeriodLabel(key));
@@ -6554,7 +6680,7 @@
       var panels = [];
       panels.push(_skChartPanel('💷 Billing each month', _skColBars(hist.map(function(h){ return { label:_skPeriodLabel(h.period), val:Number(h.billing_total)||0 }; }), { color:'#2f3d7e', money:true })));
       if(comp){
-        var commSeries = hist.map(function(h){ return { label:_skPeriodLabel(h.period), val:_skCommission(h, comp).commission }; });
+        var commSeries = hist.map(function(h){ var hc = _skCommission(h, _skCompFor(h.rep_id, h.period)); return { label:_skPeriodLabel(h.period), val:hc ? hc.commission : 0 }; });
         panels.push(_skChartPanel('💰 Commission each month', _skColBars(commSeries, { color:'#2f7d4f', money:true })));
         var run = 0; var cumSeries = commSeries.map(function(s){ run += s.val; return { label:s.label, val:run }; });
         panels.push(_skChartPanel('📈 Commission banked this FY', _skArea(cumSeries, '#2f7d4f')));
@@ -7394,7 +7520,8 @@
       var rows = act.map(function(a){
         var eff = _skEffRow(_SK.myRepId, a.period);
         var rev = eff ? (Number(eff.billing_total)||0) : 0;
-        var comm = (comp && eff) ? _skCommission(eff, comp).commission : 0;
+        var _ec = eff ? _skCommission(eff, _skCompFor(eff.rep_id, eff.period)) : null;
+        var comm = _ec ? _ec.commission : 0;
         return { label:_skPeriodLabel(a.period), calls:Number(a.calls)||0, emails:Number(a.emails)||0, rev:rev, comm:comm };
       });
       var tCalls=rows.reduce(function(s,r){return s+r.calls;},0), tEmails=rows.reduce(function(s,r){return s+r.emails;},0);
@@ -8148,9 +8275,14 @@
       tbody.innerHTML = (data || []).map(r => {
         const isOcc = r.report_type === 'occupancy';
         const ix = idx[r.id];
+        // A validation report with no bv_summary published without its dashboard
+        // data: the customer's site list, league, usage and error badge are all
+        // empty. Flag it here so it is visible after the fact, not only at upload.
+        const noMeta = !isOcc && !r.bv_summary;
         const typeLabel = isOcc
           ? '<span class="badge badge-warn"><span class="bdot"></span>Occupancy</span>'
-          : '<span class="badge badge-ok"><span class="bdot"></span>Validation</span>';
+          : ('<span class="badge badge-ok"><span class="bdot"></span>Validation</span>'
+             + (noMeta ? '<span class="badge badge-fail" title="Published without dashboard data — the customer sees no sites, no league, no usage and a false &quot;No errors&quot; badge. Re-generate and re-upload."><span class="bdot"></span>No data</span>' : ''));
         const periodLabel = isOcc ? fmtRange(r.period_start, r.period_end) : r.period;
         const totalLabel = isOcc
           ? `<span class="occ-level occ-level-${r.unoccupied_level || 'Average'}">${r.unoccupied_level || 'Average'}</span>`
@@ -8216,8 +8348,69 @@
       const xlsxPath     = xlsxFile     ? `${customerId}/${year}/${shortMon}-${yy}.xlsx`         : null;
       const invoicesPath = invoicesFile ? `${customerId}/${year}/${shortMon}-${yy}-invoices.zip` : null;
       const btn = document.getElementById('uploadBtn');
-      btn.disabled = true; btn.textContent = 'Uploading…';
+      btn.disabled = true; btn.textContent = 'Checking\u2026';
+      let sites = parseInt(document.getElementById('upSites').value) || 0;
+      let total = document.getElementById('upTotal').value.trim();
+      let fails = parseInt(document.getElementById('upFails').value) || 0;
+      let warns = parseInt(document.getElementById('upWarns').value) || 0;
+      let htmlText = null, bv = null, bvHH = null;
+      let usageRows = [], siteRows = [], issueRows = [];
+      let prevTotal = null, metaOk = true, metaReason = '';
+      // ══ PHASE 1: read and parse EVERYTHING before a single byte is written ══
+      // Nothing is uploaded and no row is created until we know the whole report
+      // can be turned into the site list, issues log and usage data the customer
+      // actually looks at. A half-published report is worse than one that does
+      // not publish: the customer sees a confident, empty, wrong dashboard.
       try {
+        if (htmlFile) {
+          htmlText = await htmlFile.text();
+          const bvStr = _extractJsObject(htmlText, 'BV');
+          if (!bvStr) {
+            metaOk = false;
+            metaReason = 'This file has no window.BV data block, so it is probably not a bill-validation report from the CES generator.';
+          } else {
+            bv = _bvParse(bvStr);
+            if (!bv || !bv.summary) {
+              metaOk = false;
+              metaReason = 'The report\u2019s BV data block parsed but has no summary section.';
+            } else {
+              try { const h = _extractJsObject(htmlText, 'BV_HH'); bvHH = h ? _bvParse(h) : null; } catch (e) { bvHH = null; }
+              if (!sites) sites = (bv.summary.electricity?.length || 0) + (bv.summary.water?.length || 0) + (bv.summary.gas?.length || 0);
+              const fmtGBP = (n) => '\u00a3' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+              if (!total) total = fmtGBP(bv.summary.totals?.grand_total || 0);
+              prevTotal = (bv.summary.totals?.prev_grand != null) ? fmtGBP(bv.summary.totals.prev_grand) : null;
+              if (!fails) fails = (bv.issues || []).filter(i => i.sev === 'FAIL').length;
+              if (!warns) warns = (bv.issues || []).filter(i => i.sev !== 'FAIL').length;
+              // Derive the child rows now too, so a parser fault here also stops
+              // the publish rather than surfacing as an empty tab days later.
+              const parsed = parseValidationHTML(htmlText, { id: reportId, customer_id: customerId });
+              usageRows = parsed.rows || [];
+              for (const w of (parsed.warnings || [])) console.warn('[Usage parse]', w);
+              siteRows  = extractSitesFromBV(bv, customerId, reportId) || [];
+              issueRows = extractIssuesFromBV(bv, customerId, reportId, month, parseInt(year), month.slice(0,3) + '-' + yy) || [];
+            }
+          }
+        }
+      } catch (e) {
+        metaOk = false;
+        metaReason = 'Could not read the report\u2019s data: ' + (e && e.message ? e.message : e);
+      }
+      // The one place a degraded publish is allowed, and only with eyes open.
+      if (htmlFile && !metaOk) {
+        btn.disabled = false; btn.textContent = 'Upload report';
+        if (!confirm('This report\u2019s data could not be read.\n\n' + metaReason
+          + '\n\nYou can still publish the report file itself, but the customer would see:\n'
+          + '  \u2022 no sites in their Site List\n'
+          + '  \u2022 nothing in the League table or Comparison\n'
+          + '  \u2022 an empty Usage and Carbon report\n'
+          + '  \u2022 a green \u201cNo errors\u201d badge, even if the report lists failures\n\n'
+          + 'Recommended: press Cancel, re-generate the report, and upload again.\n\n'
+          + 'Publish it anyway, without the dashboard data?')) return;
+        btn.disabled = true;
+      }
+      btn.textContent = 'Uploading\u2026';
+      try {
+        // ══ PHASE 2: files to storage ══
         if (htmlFile) {
           const { error } = await sb.storage.from('report-html')
             .upload(htmlPath, htmlFile, { upsert: true, contentType: 'text/html; charset=utf-8' });
@@ -8237,41 +8430,14 @@
           });
           if (error) throw new Error('Invoice ZIP upload: ' + error.message);
         }
-        let sites = parseInt(document.getElementById('upSites').value) || 0;
-        let total = document.getElementById('upTotal').value.trim();
-        let fails = parseInt(document.getElementById('upFails').value) || 0;
-        let warns = parseInt(document.getElementById('upWarns').value) || 0;
-        // Read the HTML text once (used both for metadata extraction AND
-        // usage_data auto-parse after the report row is saved).
-        let htmlText = null;
-        if (htmlFile) {
-          try {
-            htmlText = await htmlFile.text();
-            const bvStr = _extractJsObject(htmlText, 'BV');
-            if (bvStr) {
-              const bv = JSON.parse(bvStr); window._upBV = bv;
-              try { var _hhStr = _extractJsObject(htmlText, 'BV_HH'); window._upBVHH = _hhStr ? JSON.parse(_hhStr) : null; } catch (e) { window._upBVHH = null; }
-              if (!sites) sites = (bv.summary.electricity?.length || 0) + (bv.summary.water?.length || 0) + (bv.summary.gas?.length || 0);
-              const fmtGBP = (n) => '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-              if (!total) total = fmtGBP(bv.summary.totals?.grand_total || 0);
-              if (bv.summary.totals?.prev_grand != null) {
-                window._extractedPrevTotal = fmtGBP(bv.summary.totals.prev_grand);
-              } else {
-                window._extractedPrevTotal = null;
-              }
-              if (!fails) fails = (bv.issues || []).filter(i => i.sev === 'FAIL').length;
-              if (!warns) warns = (bv.issues || []).filter(i => i.sev !== 'FAIL').length;
-            }
-          } catch (e) { console.warn('Auto-extract failed:', e); }
-        }
         const upsertPayload = {
           id: reportId, customer_id: customerId, month,
           month_num: parseInt(monthNum), year: parseInt(year),
           period: `${month.slice(0,3)}-${yy}`,
           sites, fail_count: fails, warn_count: warns,
           total_net: total || '—',
-          prev_total_net: window._extractedPrevTotal || null,
-          bv_summary: window._upBV ? trimBvSummary(window._upBV, window._upBVHH) : null,
+          prev_total_net: prevTotal,
+          bv_summary: bv ? trimBvSummary(bv, bvHH) : null,
           report_type: 'bill_validation',
           uploaded_by: currentUser.userId,
           uploaded_at: new Date().toISOString()
@@ -8279,55 +8445,45 @@
         if (htmlPath)     upsertPayload.html_path     = htmlPath;
         if (xlsxPath)     upsertPayload.xlsx_path     = xlsxPath;
         if (invoicesPath) upsertPayload.invoices_path = invoicesPath;
+        // ══ PHASE 3: database rows. Parent first, then children. Every error is
+        //    fatal — these used to be console.warn, which is how a report ended
+        //    up published with no issues log and a "No errors" badge.
         const { error: dbErr } = await sb.from('reports').upsert(upsertPayload);
-        if (dbErr) throw new Error('DB write: ' + dbErr.message);
+        if (dbErr) throw new Error('Report record: ' + dbErr.message);
 
-        // ── Auto-populate usage_data so the customer's Usage Report works
-        //    instantly. Uses the same parser as the Backfill Usage Data button.
-        if (htmlText) {
-          try {
-            const reportRow = { id: reportId, customer_id: customerId };
-            const { rows, warnings } = parseValidationHTML(htmlText, reportRow);
-            for (const w of warnings) console.warn('[Usage auto-parse]', w);
-            if (rows.length > 0) {
-              const { error: upErr } = await sb
-                .from('usage_data')
-                .upsert(rows, { onConflict: 'customer_id,meter_id,period_start,utility' });
-              if (upErr) {
-                console.warn('[Usage auto-parse] upsert failed:', upErr.message);
-              } else {
-                console.log('[Usage auto-parse] ' + rows.length + ' usage row(s) upserted for ' + reportId);
-              }
-            }
-          } catch (e) {
-            console.warn('[Usage auto-parse] failed:', e);
-          }
+        if (issueRows.length) {
+          const { error: iErr } = await sb.from('issues').upsert(issueRows, { onConflict: 'report_id,seq' });
+          if (iErr) throw new Error('Issues log (' + issueRows.length + ' rows): ' + iErr.message
+            + ' — the report is saved but its error list is missing. Press Upload again.');
+        }
+        if (usageRows.length) {
+          const { error: upErr } = await sb.from('usage_data')
+            .upsert(usageRows, { onConflict: 'customer_id,meter_id,period_start,utility' });
+          if (upErr) throw new Error('Usage data (' + usageRows.length + ' rows): ' + upErr.message
+            + ' — the report is saved but the Usage and Carbon reports will be empty. Press Upload again.');
+        }
+        if (siteRows.length) {
+          const { error: sErr } = await sb.from('sites').upsert(siteRows, { onConflict: 'customer_id,utility,identifier' });
+          if (sErr) throw new Error('Site list (' + siteRows.length + ' rows): ' + sErr.message
+            + ' — the report is saved but the customer\u2019s Site List will be empty. Press Upload again.');
         }
 
-        // ── Auto-populate the Site List (MPAN/SPID → address) from the report ──
-        if (window._upBV) {
-          try {
-            const siteRows = extractSitesFromBV(window._upBV, customerId, reportId);
-            if (siteRows.length) {
-              const { error: sErr } = await sb.from('sites').upsert(siteRows, { onConflict: 'customer_id,utility,identifier' });
-              if (sErr) console.warn('[Sites] upsert failed:', sErr.message);
-            }
-          } catch (e) { console.warn('[Sites] extract failed:', e); }
-          try {
-            const issueRows = extractIssuesFromBV(window._upBV, customerId, reportId, month, parseInt(year), month.slice(0,3) + '-' + yy);
-            if (issueRows.length) {
-              const { error: iErr } = await sb.from('issues').upsert(issueRows, { onConflict: 'report_id,seq' });
-              if (iErr) console.warn('[Issues] upsert failed:', iErr.message);
-            }
-          } catch (e) { console.warn('[Issues] extract failed:', e); }
-          window._upBV = null;
-        }
-
+        // ══ PHASE 4: only now is the report genuinely complete ══
         ok.classList.add('show');
-        logAction('upload_validation', reportId, { sites: sites, fails: fails, warns: warns });
+        logAction('upload_validation', reportId, {
+          sites: sites, fails: fails, warns: warns,
+          issues: issueRows.length, usage: usageRows.length, site_rows: siteRows.length,
+          metadata: metaOk
+        });
+        if (!metaOk) {
+          safeAlert('Report file published, but WITHOUT dashboard data — the customer\u2019s site list, league, usage and error badge will be empty. No notification email has been sent. Re-generate the report and upload it again to fix this.', null);
+        }
 
         // ── Trigger email notification (best-effort, never blocks the upload) ──
+        //    Skipped on a degraded publish: do not invite the customer to look at
+        //    a dashboard we already know is empty.
         try {
+          if (!metaOk) throw { message: 'skipped — report published without dashboard data' };
           const { data: notifResp, error: notifErr } = await sb.functions.invoke('send-report-notification', {
             body: { customer_id: customerId, month: month, year: parseInt(year) }
           });
@@ -10281,6 +10437,113 @@
     // Robust JS-object extractor — walks the source string counting braces
     // (respecting string literals + escapes) so it works regardless of line
     // endings or whitespace after the closing brace.
+    // ── Parsing the report's own data block ──────────────────────────────────
+    // The report generator emits `window.BV = { ... }` as a JavaScript object
+    // literal, not strict JSON. JSON.parse chokes on unquoted keys, single
+    // quotes, trailing commas and `undefined` — and the old code swallowed that
+    // failure, saved bv_summary: null, and showed the admin a green tick. The
+    // customer then got an empty site list, empty league, empty usage report and
+    // a "No errors" badge on a report whose own issues log listed failures.
+    //
+    // This is a small recursive-descent parser. It does NOT use eval or
+    // new Function: the report is customer-supplied content and is deliberately
+    // confined to a sandboxed iframe, so its code must never run in this page.
+    function _bvParseLiteral(src){
+      var i = 0, n = src.length;
+      function err(msg){ throw new SyntaxError(msg + ' at character ' + i); }
+      function ws(){
+        for(;;){
+          while(i < n && /\s/.test(src.charAt(i))) i++;
+          if(src.charAt(i) === '/' && src.charAt(i+1) === '/'){ while(i < n && src.charAt(i) !== '\n') i++; continue; }
+          if(src.charAt(i) === '/' && src.charAt(i+1) === '*'){ i += 2; while(i < n && !(src.charAt(i) === '*' && src.charAt(i+1) === '/')) i++; i += 2; continue; }
+          return;
+        }
+      }
+      function str(q){
+        i++; var out = '';
+        while(i < n){
+          var c = src.charAt(i);
+          if(c === '\\'){
+            var e = src.charAt(i+1); i += 2;
+            if(e === 'n') out += '\n';
+            else if(e === 't') out += '\t';
+            else if(e === 'r') out += '\r';
+            else if(e === 'b') out += '\b';
+            else if(e === 'f') out += '\f';
+            else if(e === 'v') out += '\v';
+            else if(e === '0') out += '\0';
+            else if(e === 'u'){
+              if(src.charAt(i) === '{'){ var j = src.indexOf('}', i); out += String.fromCodePoint(parseInt(src.slice(i+1, j), 16)); i = j + 1; }
+              else { out += String.fromCharCode(parseInt(src.substr(i, 4), 16)); i += 4; }
+            }
+            else if(e === 'x'){ out += String.fromCharCode(parseInt(src.substr(i, 2), 16)); i += 2; }
+            else if(e === '\n'){ /* escaped newline = line continuation */ }
+            else out += e;
+            continue;
+          }
+          if(c === q){ i++; return out; }
+          out += c; i++;
+        }
+        err('unterminated string');
+      }
+      function key(){
+        ws();
+        var c = src.charAt(i);
+        if(c === '"' || c === "'" || c === '`') return str(c);
+        var st = i;
+        while(i < n && /[A-Za-z0-9_$]/.test(src.charAt(i))) i++;
+        if(i === st) err('expected a property name');
+        return src.slice(st, i);
+      }
+      function val(){
+        ws();
+        var c = src.charAt(i), o, a, k;
+        if(c === '{'){
+          i++; o = {};
+          for(;;){
+            ws();
+            if(src.charAt(i) === '}'){ i++; return o; }
+            k = key(); ws();
+            if(src.charAt(i) !== ':') err('expected ":" after property "' + k + '"');
+            i++; o[k] = val(); ws();
+            if(src.charAt(i) === ','){ i++; continue; }
+            if(src.charAt(i) === '}'){ i++; return o; }
+            err('expected "," or "}"');
+          }
+        }
+        if(c === '['){
+          i++; a = [];
+          for(;;){
+            ws();
+            if(src.charAt(i) === ']'){ i++; return a; }
+            a.push(val()); ws();
+            if(src.charAt(i) === ','){ i++; continue; }
+            if(src.charAt(i) === ']'){ i++; return a; }
+            err('expected "," or "]"');
+          }
+        }
+        if(c === '"' || c === "'" || c === '`') return str(c);
+        var st2 = i;
+        while(i < n && !/[\s,}\]:]/.test(src.charAt(i))) i++;
+        var w = src.slice(st2, i);
+        if(w === 'true') return true;
+        if(w === 'false') return false;
+        if(w === 'null' || w === 'undefined' || w === 'NaN' || w === 'Infinity' || w === '-Infinity') return null;
+        if(w === '') err('expected a value');
+        var num = Number(w);
+        return isNaN(num) ? w : num;
+      }
+      var out = val();
+      return out;
+    }
+    // Strict JSON first (most reports are clean and this is fastest), then the
+    // tolerant parser. Throws with a character offset if the block is genuinely
+    // broken, so the caller can tell the admin something useful.
+    function _bvParse(str){
+      if(!str) return null;
+      try { return JSON.parse(str); } catch(e){}
+      return _bvParseLiteral(str);
+    }
     function _extractJsObject(text, varName) {
       // Find the assignment "window.<varName> = {" using a regex so we don't
       // accidentally match "window.BV" inside "window.BV_HH" or inside JSX code.
@@ -11348,7 +11611,40 @@
       const invFile  = document.getElementById('editInvFile').files[0];
       if (!htmlFile && !xlsxFile && !invFile) { safeAlert('Pick at least one file to replace.'); return; }
       const btn = document.getElementById('editSubmitBtn');
-      btn.disabled = true; btn.textContent = 'Uploading…';
+      btn.disabled = true; btn.textContent = 'Checking…';
+      // ══ PHASE 1: parse the replacement BEFORE overwriting anything ══
+      // Replacing a report used to overwrite the file and the headline totals
+      // while leaving the OLD issues log and usage data in place if the re-parse
+      // failed — new figures, stale errors, and only a console warning.
+      let _eTxt = null, _eBv = null, _eBvHH = null;
+      let _eUsage = [], _eSites = [], _eIssues = [], _eMetaOk = true, _eWhy = '';
+      try {
+        if (htmlFile) {
+          _eTxt = await htmlFile.text();
+          const bvStr = _extractJsObject(_eTxt, 'BV');
+          if (!bvStr) { _eMetaOk = false; _eWhy = 'This file has no window.BV data block.'; }
+          else {
+            _eBv = _bvParse(bvStr);
+            if (!_eBv || !_eBv.summary) { _eMetaOk = false; _eWhy = 'The BV data block has no summary section.'; }
+            else {
+              try { const h = _extractJsObject(_eTxt, 'BV_HH'); _eBvHH = h ? _bvParse(h) : null; } catch (e) { _eBvHH = null; }
+              const parsed = parseValidationHTML(_eTxt, { id: r.id, customer_id: r.customer_id });
+              _eUsage  = parsed.rows || [];
+              _eSites  = extractSitesFromBV(_eBv, r.customer_id, r.id) || [];
+              _eIssues = extractIssuesFromBV(_eBv, r.customer_id, r.id, r.month, r.year, r.period) || [];
+            }
+          }
+        }
+      } catch (e) {
+        _eMetaOk = false; _eWhy = 'Could not read the report’s data: ' + (e && e.message ? e.message : e);
+      }
+      if (htmlFile && !_eMetaOk) {
+        btn.disabled = false; btn.textContent = 'Replace files';
+        safeAlert('Nothing has been changed.\n\n' + _eWhy
+          + '\n\nReplacing the report with a file whose data cannot be read would leave the customer looking at the new totals alongside the OLD error list and usage figures. Re-generate the report and try again.', null);
+        return;
+      }
+      btn.textContent = 'Uploading…';
       try {
         // Validate magic bytes
         if (htmlFile) { const v = await validateFileMagicBytes(htmlFile, 'html'); if (!v.ok) throw new Error(v.reason); }
@@ -11387,41 +11683,41 @@
         if (xlsxFile) patch.xlsx_path = xlsxPath;
         if (invFile)  patch.invoices_path = invPath;
 
-        // If HTML was re-uploaded, re-parse metadata + usage_data
-        if (htmlFile) {
-          try {
-            const txt = await htmlFile.text();
-            const bvStr = _extractJsObject(txt, 'BV');
-            if (bvStr) {
-              const bv = JSON.parse(bvStr);
-              var _ebvhh = null; try { var _ehhStr = _extractJsObject(txt, 'BV_HH'); _ebvhh = _ehhStr ? JSON.parse(_ehhStr) : null; } catch (e) {}
-              const fmtGBP = (n) => '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-              patch.sites = (bv.summary.electricity?.length || 0) + (bv.summary.water?.length || 0) + (bv.summary.gas?.length || 0);
-              patch.total_net = fmtGBP(bv.summary.totals?.grand_total || 0);
-              patch.prev_total_net = bv.summary.totals?.prev_grand != null ? fmtGBP(bv.summary.totals.prev_grand) : null;
-              patch.fail_count = (bv.issues || []).filter(i => i.sev === 'FAIL').length;
-              patch.warn_count = (bv.issues || []).filter(i => i.sev !== 'FAIL').length;
-              patch.bv_summary = trimBvSummary(bv, _ebvhh);
-              try {
-                const siteRows = extractSitesFromBV(bv, r.customer_id, r.id);
-                if (siteRows.length) await sb.from('sites').upsert(siteRows, { onConflict: 'customer_id,utility,identifier' });
-              } catch (se) { console.warn('[Sites] edit upsert failed:', se); }
-              try {
-                const issueRows = extractIssuesFromBV(bv, r.customer_id, r.id, r.month, r.year, r.period);
-                if (issueRows.length) await sb.from('issues').upsert(issueRows, { onConflict: 'report_id,seq' });
-              } catch (ie) { console.warn('[Issues] edit upsert failed:', ie); }
-            }
-            // Refresh usage_data using the new HTML
-            const reportRow = { id: r.id, customer_id: r.customer_id };
-            const { rows } = parseValidationHTML(txt, reportRow);
-            if (rows.length > 0) {
-              await sb.from('usage_data').upsert(rows, { onConflict: 'customer_id,meter_id,period_start,utility' });
-            }
-          } catch (e) { console.warn('Metadata re-parse failed:', e); }
+        // ══ PHASE 3: apply the metadata parsed in phase 1. Errors are fatal, so
+        //    the figures and the error list can never drift apart. ══
+        if (htmlFile && _eBv) {
+          const fmtGBP = (n) => '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          patch.sites = (_eBv.summary.electricity?.length || 0) + (_eBv.summary.water?.length || 0) + (_eBv.summary.gas?.length || 0);
+          patch.total_net = fmtGBP(_eBv.summary.totals?.grand_total || 0);
+          patch.prev_total_net = _eBv.summary.totals?.prev_grand != null ? fmtGBP(_eBv.summary.totals.prev_grand) : null;
+          patch.fail_count = (_eBv.issues || []).filter(i => i.sev === 'FAIL').length;
+          patch.warn_count = (_eBv.issues || []).filter(i => i.sev !== 'FAIL').length;
+          patch.bv_summary = trimBvSummary(_eBv, _eBvHH);
         }
 
         const { error: dbErr } = await sb.from('reports').update(patch).eq('id', r.id);
-        if (dbErr) throw new Error('DB write: ' + dbErr.message);
+        if (dbErr) throw new Error('Report record: ' + dbErr.message);
+
+        if (_eIssues.length) {
+          // Clear the previous issues log first: a report that shed an error on
+          // re-generation would otherwise keep the stale row for ever.
+          const { error: dErr } = await sb.from('issues').delete().eq('report_id', r.id);
+          if (dErr) throw new Error('Clearing the old error list: ' + dErr.message);
+          const { error: iErr } = await sb.from('issues').upsert(_eIssues, { onConflict: 'report_id,seq' });
+          if (iErr) throw new Error('Issues log (' + _eIssues.length + ' rows): ' + iErr.message
+            + ' — the report is replaced but its error list is missing. Press Replace again.');
+        }
+        if (_eUsage.length) {
+          const { error: uErr } = await sb.from('usage_data')
+            .upsert(_eUsage, { onConflict: 'customer_id,meter_id,period_start,utility' });
+          if (uErr) throw new Error('Usage data (' + _eUsage.length + ' rows): ' + uErr.message
+            + ' — the report is replaced but the Usage report still shows the old figures. Press Replace again.');
+        }
+        if (_eSites.length) {
+          const { error: sErr } = await sb.from('sites').upsert(_eSites, { onConflict: 'customer_id,utility,identifier' });
+          if (sErr) throw new Error('Site list (' + _eSites.length + ' rows): ' + sErr.message
+            + ' — the report is replaced but the Site List is stale. Press Replace again.');
+        }
 
         // Bust in-memory cache for this report
         if (window._reportCache) {
