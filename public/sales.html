@@ -2046,7 +2046,7 @@
                    stale deploy went unnoticed on 3 Sep. This string is plain text in the
                    markup, so it can be read off the live site without opening a browser. Bump
                    it on every COT change. -->
-              <p style="font-size:11px;color:var(--muted);margin-top:14px;opacity:.7;">COT build 2026-09-04e</p>
+              <p style="font-size:11px;color:var(--muted);margin-top:14px;opacity:.7;">COT build 2026-09-06a</p>
             </div>
           </div>
         </div>
@@ -2869,6 +2869,23 @@
         salesLead:  !!profile.sales_lead,
         execView:   !!profile.exec_view
       };
+      // ── COT team sign in here too, and get sent to their own desk ──
+      //
+      // One login page for everyone on the CES side, because "which URL do I use" is a
+      // question nobody should have to remember the answer to. The COT team's account is
+      // not a broker account, so without this it would hit the "not a sales account"
+      // message below and look broken.
+      //
+      // A straight redirect is enough: the Supabase session is already established and
+      // persisted against this origin, so cot.html finds it and does not ask again. A
+      // broker who is ALSO on the COT team stays here, because the sales portal is their
+      // day job and it already has a COT tab.
+      if (profile.cot_team && !currentUser.isBroker) {
+        logAction('login', null, { role: currentUser.role, portal: 'cot' });
+        window.location.href = '/cot.html';
+        return;
+      }
+
       // ── Sales portal is broker-only ──
       if (!currentUser.isBroker) {
         await sb.auth.signOut();
