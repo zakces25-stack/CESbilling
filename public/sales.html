@@ -1931,7 +1931,7 @@
             <!-- 2. Meters -->
             <div class="card" style="margin-bottom:16px;">
               <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">2. Meters going through the COT</h3>
-              <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Tick the meters on file, or add any that are missing. Meter serial numbers are not needed.</p>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Tick the meters on file, or add any that are missing. Meter serial numbers are not needed, and <strong>meter readings are optional</strong> — most supplies are smart now and the supplier takes their own read on the changeover date. Put one in if you have it and it will go on the form.</p>
               <div id="cotMeterPick"><div class="empty-state" style="padding:14px;">Pick a customer first, or add a meter manually below.</div></div>
               <div id="cotManualMeters"></div>
               <button class="btn-secondary" style="width:auto;padding:9px 16px;margin-top:12px;" onclick="cotAddManualMeter()">+ Add a meter that isn't listed</button>
@@ -1996,18 +1996,16 @@
 
             <!-- 4. Evidence -->
             <div class="card" style="margin-bottom:16px;">
-              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">4. CES Change of Tenancy Form</h3>
-              <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">The form the customer fills in and returns. It is the only place we get the
-                <strong>forwarding address</strong> for the outgoing party's final bill, and the contact name, phone and email for both sides. Suppliers
-                will not complete a COT without those, and they are not held anywhere else, so attaching this saves the whole thing bouncing back.</p>
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">4. CES Change of Tenancy Form <span style="color:var(--muted);font-weight:600;">— optional</span></h3>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Optional, but worth chasing. The customer’s own copy carries the <strong>forwarding address</strong> for the outgoing party’s final bill and the contact details for both sides. We now build a CES COT form for every request from what you enter here, so this one fills the gaps we cannot know. If the customer has not sent it back, submit without it.</p>
               <label class="btn-primary" style="width:auto;padding:9px 14px;cursor:pointer;display:inline-block;">&#8679; Attach the CES COT form
                 <input type="file" id="cotCesFormFiles" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.heic,.tif,.tiff" style="display:none;" onchange="cotFileList('cesform')" />
               </label>
               <div id="cotCesFormList" style="font-size:12.5px;margin-top:10px;"></div>
               <div style="border-top:1px solid #e6e9f4;margin:18px 0 14px;"></div>
-              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Proof of occupation</h3>
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Proof of occupation <span style="color:#9b2226;font-weight:700;">— required</span></h3>
               <p style="font-size:12.5px;color:var(--navy);font-weight:700;margin-bottom:4px;">Signed by BOTH parties, every page.</p>
-              <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Lease, TR1 / transfer deed, licence to occupy, or a solicitor's completion letter. This is the single biggest cause of supplier rejections. If there is genuinely no lease (an acquisition, say) explain it in section 5 and submit anyway.</p>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Lease, TR1 / transfer deed, licence to occupy, or a solicitor’s completion letter. <strong>Required — you cannot submit without it.</strong> 27 of the 28 suppliers we deal with make it mandatory and it is the commonest reason a COT is rejected. If there is genuinely no lease, ring the COT team rather than sending a request they cannot use.</p>
               <label class="btn-primary" style="width:auto;padding:9px 14px;cursor:pointer;display:inline-block;">&#8679; Attach proof of occupation
                 <input type="file" id="cotProofFiles" multiple accept=".pdf,.jpg,.jpeg,.png,.heic,.tif,.tiff,.doc,.docx" style="display:none;" onchange="cotFileList('proof')" />
               </label>
@@ -2048,7 +2046,7 @@
                    stale deploy went unnoticed on 3 Sep. This string is plain text in the
                    markup, so it can be read off the live site without opening a browser. Bump
                    it on every COT change. -->
-              <p style="font-size:11px;color:var(--muted);margin-top:14px;opacity:.7;">COT build 2026-09-04d</p>
+              <p style="font-size:11px;color:var(--muted);margin-top:14px;opacity:.7;">COT build 2026-09-04e</p>
             </div>
           </div>
         </div>
@@ -8240,12 +8238,22 @@
       var sel = cotSelectedMeters();
       var name = fv('cotCustInput').trim();
       var stop = [], warn = [];
+      // THREE HARD REQUIREMENTS, and no more. Everything else is a prompt.
+      //
+      // Changed 4 Sep 2026 on the CEO's instruction: as few blockers as possible, but the
+      // lease becomes non-negotiable. Of the 28 suppliers in the requirements matrix, 27
+      // make proof of occupation mandatory, and it is the single commonest reason a COT is
+      // rejected. A blocked submit costs a broker a minute; a rejection costs three weeks
+      // with the customer sitting on deemed rates.
       if (!name) stop.push('a customer name');
       if (!sel.length) stop.push('at least one meter');
-      if (!fv('cotRepresenting')) stop.push('whether our customer is incoming or outgoing');
-      if (!fv('cotChangeover')) stop.push('the changeover date');
-      if (!_cot.files.cesform.length) warn.push('No CES Change of Tenancy Form attached. It is the only source of the forwarding address for the outgoing party\u2019s final bill and the contact details for both parties, which most suppliers will not process a COT without. If the customer has not returned it yet, submit anyway and it can be added later.');
-      if (!_cot.files.proof.length) warn.push('No proof of occupation attached. Suppliers reject on this more than anything else. If there genuinely is no lease, say why in the notes and submit anyway.');
+      if (!_cot.files.proof.length) stop.push('the lease, or other proof of occupation');
+
+      // Demoted from blockers to prompts. Both are wanted, neither is worth stopping a
+      // broker who has the rest of it.
+      if (!fv('cotRepresenting')) warn.push('You have not said whether our customer is the incoming or the outgoing party. Without it we cannot tell which column of the supplier\u2019s form each name belongs in, so the COT team will have to ask you. Ten seconds now saves that.');
+      if (!fv('cotChangeover')) warn.push('No changeover date. The supplier decides who pays for what from this date, so they will query a COT that arrives without one. Put your best estimate in and note in section 5 that it is provisional.');
+      if (!_cot.files.cesform.length) warn.push('No CES Change of Tenancy Form attached. It carries the contact details and the outgoing party\u2019s forwarding address. If the customer has not returned it, submit anyway: we will fill what we hold and the COT team will chase the rest.');
       // connected party
       var inc = (document.getElementById('cotIncoming') || {}).value || '';
       var out = (document.getElementById('cotOutgoing') || {}).value || '';
@@ -8271,11 +8279,8 @@
       var pf = cotPreflight();
       if (pf.stop.length) return;
       var notes = (document.getElementById('cotNotes').value || '').trim();
-      if (!_cot.files.proof.length && !notes) {
-        cotMsg('err', 'No proof of occupation is attached. If there genuinely is not one, explain why in the notes in section 5 and submit again.');
-        return;
-      }
-      if (!_cot.files.proof.length && !confirm('Submit with no proof of occupation? Suppliers reject on this more than anything else.')) return;
+      // The old "submit anyway without proof?" confirm is gone: preflight now blocks on the
+      // lease, so that branch was unreachable and would only have contradicted it.
 
       _cot.busy = true;
       var btn = document.getElementById('cotSubmitBtn');
