@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' blob: https://fonts.googleapis.com; font-src 'self' data: blob: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co; frame-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self';" />
+  <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <title>CES COT Desk</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    /* Same palette as the sales and billing portals. This is one product, not three. */
+    :root {
+      --navy: #2f3d7e; --navy-dark: #1e2a5e;
+      --lime: #93c43a;
+      --bg: #f5f2ec; --surface: #ffffff; --surface-2: #faf8f4;
+      --border: #e6e1d6; --line: #ede9df;
+      --text: #1c1f2a; --text-2: #4a4e5c; --muted: #7a7e8c;
+      --ok: #3a7a24; --ok-bg: rgba(100,180,80,0.12);
+      --fail: #8b2015; --fail-bg: rgba(192,57,43,0.10);
+      --warn: #7a5010; --warn-bg: rgba(200,140,30,0.12);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { min-height: 100vh; font-family: 'Manrope', sans-serif; background: var(--bg); color: var(--text); }
+    h1 { font-size: 30px; font-weight: 800; letter-spacing: -0.6px; }
+    h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
+    h3 { font-size: 15px; font-weight: 800; }
+    p, label, span, td, th, li { font-size: 14px; }
+    button, input, select, textarea { font-family: inherit; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+
+    .wrap { max-width: 1220px; margin: 0 auto; padding: 0 22px; }
+    header { background: var(--navy); color: #fff; padding: 14px 0; }
+    header .wrap { display: flex; align-items: center; gap: 16px; }
+    header .brand { font-weight: 800; font-size: 17px; letter-spacing: -0.3px; }
+    header .who { margin-left: auto; display: flex; align-items: center; gap: 12px; font-size: 13px; opacity: 0.92; }
+    header button { background: rgba(255,255,255,0.14); color: #fff; border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 7px; padding: 6px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+    header button:hover { background: rgba(255,255,255,0.24); }
+
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+    .btn { border: 0; border-radius: 8px; padding: 9px 16px; font-size: 13.5px; font-weight: 700; cursor: pointer; }
+    .btn-primary { background: var(--navy); color: #fff; }
+    .btn-primary:hover { background: var(--navy-dark); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-sec { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+    .btn-sec:hover { background: var(--surface-2); }
+    input[type=text], input[type=password], input[type=date], select, textarea {
+      width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px;
+      background: var(--surface); color: var(--text); font-size: 14px;
+    }
+    input:focus, select:focus, textarea:focus { outline: 2px solid var(--navy); outline-offset: -1px; }
+    label.fl { display: block; font-size: 11.5px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.4px; color: var(--muted); margin-bottom: 5px; }
+
+    /* ── sign in ─────────────────────────────────────────────────────────────────── */
+    #signin { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    #signin .card { width: 100%; max-width: 400px; }
+    .err { background: var(--fail-bg); color: var(--fail); border-left: 3px solid var(--fail);
+      padding: 10px 13px; border-radius: 5px; font-size: 13px; margin-bottom: 14px; }
+
+    /* ── queue ───────────────────────────────────────────────────────────────────── */
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 18px 0 14px; }
+    .chip { border: 1px solid var(--border); background: var(--surface); border-radius: 999px;
+      padding: 6px 14px; font-size: 12.5px; font-weight: 700; cursor: pointer; color: var(--text-2); }
+    .chip.on { background: var(--navy); border-color: var(--navy); color: #fff; }
+    .chip .n { opacity: 0.65; margin-left: 5px; font-weight: 600; }
+
+    table { width: 100%; border-collapse: collapse; background: var(--surface); }
+    th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--muted); font-weight: 700; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    td { padding: 11px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    tr.row { cursor: pointer; }
+    tr.row:hover td { background: var(--surface-2); }
+
+    .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px;
+      font-weight: 700; white-space: nowrap; }
+    .act { display: inline-block; padding: 3px 9px; border-radius: 5px; font-size: 11px;
+      font-weight: 800; letter-spacing: 0.3px; white-space: nowrap; }
+    .act-red { background: var(--fail-bg); color: var(--fail); }
+    .act-amb { background: var(--warn-bg); color: var(--warn); }
+    .act-blu { background: rgba(47,61,126,0.10); color: var(--navy); }
+    .why { font-size: 12px; color: var(--text-2); margin-top: 4px; max-width: 560px; line-height: 1.45; }
+
+    .empty { padding: 40px 20px; text-align: center; color: var(--muted); font-size: 14px; }
+    .hide { display: none !important; }
+
+    /* ── one COT ─────────────────────────────────────────────────────────────────── */
+    .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+    .kv { display: grid; grid-template-columns: 155px 1fr; gap: 6px 12px; font-size: 13.5px; }
+    .kv dt { color: var(--muted); font-weight: 600; }
+    .kv dd { color: var(--text); word-break: break-word; }
+    .fieldrow { display: grid; grid-template-columns: 220px 1fr; gap: 10px; align-items: center;
+      padding: 6px 0; border-bottom: 1px solid var(--line); }
+    .fieldrow .lbl { font-size: 12.5px; font-weight: 700; color: var(--text-2); }
+    .fieldrow input { font-size: 13px; padding: 6px 9px; }
+    .fieldrow input.edited { border-color: var(--navy); background: rgba(47,61,126,0.04); }
+    .src { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
+    .doc { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+    .doc a { color: var(--navy); font-weight: 600; text-decoration: none; }
+    .doc a:hover { text-decoration: underline; }
+    .note { background: var(--surface-2); border-left: 3px solid var(--border); padding: 10px 13px;
+      font-size: 12.5px; color: var(--text-2); border-radius: 4px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+
+<!-- ══ SIGN IN ══════════════════════════════════════════════════════════════════════ -->
+<div id="signin">
+  <div class="card">
+    <h2 style="margin-bottom:4px;">COT Desk</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:18px;">Change of tenancy requests from every broker.</p>
+    <div id="loginErr" class="err hide"></div>
+    <div style="margin-bottom:12px;">
+      <label class="fl" for="u">Username</label>
+      <input type="text" id="u" autocomplete="username" spellcheck="false" />
+    </div>
+    <div style="margin-bottom:16px;">
+      <label class="fl" for="p">Password</label>
+      <input type="password" id="p" autocomplete="current-password" />
+    </div>
+    <button class="btn btn-primary" style="width:100%;" id="loginBtn">Sign in</button>
+  </div>
+</div>
+
+<!-- ══ WHO IS WORKING ═══════════════════════════════════════════════════════════════ -->
+<!--
+  The team shares one login, so the account cannot say who did anything. This asks once per
+  session and stamps that name on every note, status change and email. It is a convention,
+  not a security control: nothing stops someone picking the wrong name, and it is not meant
+  to. It is there so that in three weeks' time "who sent that to the supplier" has an answer.
+-->
+<div id="whoami" class="hide" style="min-height:100vh;display:grid;place-items:center;padding:24px;">
+  <div class="card" style="width:100%;max-width:420px;">
+    <h2 style="margin-bottom:4px;">Who's on the desk?</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">
+      Everyone shares this login, so your name goes on what you do here. Pick yours.</p>
+    <div style="margin-bottom:14px;">
+      <label class="fl" for="whoName">Your name</label>
+      <input type="text" id="whoName" list="cotPeople" placeholder="First and last name" spellcheck="false" />
+      <datalist id="cotPeople"></datalist>
+    </div>
+    <button class="btn btn-primary" style="width:100%;" id="whoBtn">Start</button>
+    <p style="color:var(--muted);font-size:11.5px;margin-top:12px;">
+      Remembered on this computer until you sign out.</p>
+  </div>
+</div>
+
+<!-- ══ THE DESK ═════════════════════════════════════════════════════════════════════ -->
+<div id="app" class="hide">
+  <header>
+    <div class="wrap">
+      <span class="brand">CES COT Desk</span>
+      <span class="who">
+        <span id="whoLabel"></span>
+        <button id="btnSwitch">Not you?</button>
+        <button id="btnOut">Sign out</button>
+      </span>
+    </div>
+  </header>
+
+  <div class="wrap" style="padding-top:20px;padding-bottom:60px;">
+
+    <!-- queue -->
+    <div id="queueView">
+      <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;">
+        <h1>The queue</h1>
+        <span id="qCount" style="color:var(--muted);font-size:14px;"></span>
+        <button class="btn btn-sec" style="margin-left:auto;" id="btnRefresh">Refresh</button>
+      </div>
+      <div class="toolbar" id="filters"></div>
+      <div class="card" style="padding:0;overflow:hidden;">
+        <table>
+          <thead><tr>
+            <th style="width:118px;">Reference</th>
+            <th>Customer &amp; supplier</th>
+            <th style="width:150px;">Status</th>
+            <th>What needs doing</th>
+          </tr></thead>
+          <tbody id="qBody"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- one COT -->
+    <div id="cotView" class="hide"></div>
+
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// CES COT Desk — the COT team's side of the change-of-tenancy pipeline.
+//
+// Brokers raise COTs in the sales portal and see only their own. This is the other end: one
+// queue across every broker, ordered by what is actually costing money, and one screen per
+// COT with everything needed to send it on.
+//
+// The ordering is not invented here. The cot_due view already works out what each COT needs
+// and why, from the supplier SLAs and the escalation ladder in the requirements matrix. This
+// page renders that judgement rather than second-guessing it.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+const SUPABASE_URL  = 'https://niadffxpxdohglcyagau.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pYWRmZnhweGRvaGdsY3lhZ2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3Mzc3MTksImV4cCI6MjA5NDMxMzcxOX0.x22Zh9O408PGfcPZ6rgu-a4B7WTbyH8iyT_ysr-IfIs';
+const LOGIN_DOMAIN  = 'portal.cesgb.com';   // usernames map to <username>@portal.cesgb.com
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+  auth: { persistSession: true, autoRefreshToken: true }
+});
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
+  (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const ukDate = (d) => { if (!d) return ''; const [y,m,dd] = String(d).slice(0,10).split('-'); return `${dd}/${m}/${y}`; };
+
+let WHO = '';          // the person on the desk, for the audit trail
+let ROWS = [];         // the queue, as loaded
+let FILTER = 'action';
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Sign in
+// ═══════════════════════════════════════════════════════════════════════════════════════
+async function signIn() {
+  const err = $('loginErr'), btn = $('loginBtn');
+  const user = ($('u').value || '').trim().toLowerCase();
+  const pass = $('p').value || '';
+  err.classList.add('hide');
+  if (!user || !pass) { err.textContent = 'Username and password, please.'; err.classList.remove('hide'); return; }
+
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  // Usernames, not email addresses: these are internal logins with no real mailbox behind
+  // them, mapped onto a domain Supabase will accept.
+  const email = user.includes('@') ? user : `${user}@${LOGIN_DOMAIN}`;
+  const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+  btn.disabled = false; btn.textContent = 'Sign in';
+
+  if (error) {
+    err.textContent = 'That username and password did not work.';
+    err.classList.remove('hide');
+    return;
+  }
+  await afterSignIn();
+}
+
+/**
+ * Gate on the cot_team flag, not merely on having signed in.
+ *
+ * A broker's login would authenticate perfectly well here and then see an empty queue,
+ * because RLS would show them nothing. An empty screen reads as "the portal is broken", so
+ * say plainly that this is the wrong door rather than letting them stare at it.
+ */
+async function afterSignIn() {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return showSignIn();
+  const { data: prof } = await sb.from('profiles')
+    .select('cot_team, is_admin, display_name').eq('id', user.id).maybeSingle();
+
+  if (!prof || !(prof.cot_team || prof.is_admin)) {
+    await sb.auth.signOut();
+    showSignIn();
+    const err = $('loginErr');
+    err.textContent = 'That login works, but it is not on the COT team. Brokers raise COTs in the sales portal.';
+    err.classList.remove('hide');
+    return;
+  }
+
+  WHO = localStorage.getItem('cot_who') || '';
+  if (WHO) { startDesk(); } else { $('signin').classList.add('hide'); $('whoami').classList.remove('hide'); }
+}
+
+function showSignIn() {
+  $('signin').classList.remove('hide');
+  $('whoami').classList.add('hide');
+  $('app').classList.add('hide');
+}
+
+function setWho() {
+  const v = ($('whoName').value || '').trim();
+  if (v.length < 2) { $('whoName').focus(); return; }
+  WHO = v;
+  localStorage.setItem('cot_who', v);
+  startDesk();
+}
+
+function startDesk() {
+  $('signin').classList.add('hide');
+  $('whoami').classList.add('hide');
+  $('app').classList.remove('hide');
+  $('whoLabel').textContent = WHO;
+  loadQueue();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// The queue
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+// Worst first. This order is the whole point of the screen: a COT where the customer is on
+// deemed rates past their changeover date is losing money every day, and it must not sit
+// below one that is merely a day old.
+const ACTION_RANK = {
+  'MONEY BURNING':     { r: 0, cls: 'act-red' },
+  'DELIVERY PROBLEM':  { r: 1, cls: 'act-red' },
+  'EXPEDITE':          { r: 2, cls: 'act-amb' },
+  'NUDGE THE BROKER':  { r: 3, cls: 'act-amb' },
+  'CHASE':             { r: 4, cls: 'act-amb' },
+  'READY, NOT SENT':   { r: 5, cls: 'act-blu' },
+  'NOT PICKED UP':     { r: 6, cls: 'act-blu' },
+};
+const rank = (a) => (ACTION_RANK[a] ? ACTION_RANK[a].r : 90);
+
+const STATUS_COLOUR = {
+  'New': '#243b8f', 'Reviewing': '#5b4bb5', 'Waiting on you': '#b5840a',
+  'Waiting on customer': '#b5840a', 'Ready': '#0d6a72', 'With the supplier': '#1b7a3d',
+  'Acknowledged': '#1b7a3d', 'Supplier queried': '#b5840a', 'Needs a human': '#9b2226',
+  'Done': '#4a5578', 'Rejected': '#9b2226', 'Cancelled': '#8a8f9f', 'Superseded': '#8a8f9f'
+};
+
+async function loadQueue() {
+  $('qBody').innerHTML = '<tr><td colspan="4" class="empty">Loading…</td></tr>';
+  // cot_due already excludes Done / Rejected / Superseded / Cancelled and computes the
+  // action and the reason for it.
+  const { data, error } = await sb.from('cot_due').select('*');
+  if (error) {
+    $('qBody').innerHTML = `<tr><td colspan="4" class="empty">Could not load the queue: ${esc(error.message)}</td></tr>`;
+    return;
+  }
+  ROWS = (data || []).sort((a, b) => {
+    const d = rank(a.action) - rank(b.action);
+    if (d) return d;
+    if (a.urgent !== b.urgent) return a.urgent ? -1 : 1;
+    return String(a.created_at).localeCompare(String(b.created_at));   // oldest first
+  });
+  renderFilters();
+  renderQueue();
+}
+
+function renderFilters() {
+  const needing = ROWS.filter((r) => r.action).length;
+  const defs = [
+    ['action', 'Needs doing', needing],
+    ['all',    'Everything open', ROWS.length],
+    ['sent',   'With the supplier', ROWS.filter((r) => r.status === 'With the supplier' || r.status === 'Acknowledged').length],
+    ['stuck',  'Waiting on us', ROWS.filter((r) => r.status === 'New' || r.status === 'Needs a human' || r.status === 'Ready').length],
+  ];
+  $('filters').innerHTML = defs.map(([k, label, n]) =>
+    `<button class="chip${FILTER === k ? ' on' : ''}" data-f="${k}">${esc(label)}<span class="n">${n}</span></button>`
+  ).join('');
+  [...document.querySelectorAll('#filters .chip')].forEach((c) =>
+    c.onclick = () => { FILTER = c.dataset.f; renderFilters(); renderQueue(); });
+}
+
+function visibleRows() {
+  if (FILTER === 'all') return ROWS;
+  if (FILTER === 'action') return ROWS.filter((r) => r.action);
+  if (FILTER === 'sent') return ROWS.filter((r) => r.status === 'With the supplier' || r.status === 'Acknowledged');
+  return ROWS.filter((r) => r.status === 'New' || r.status === 'Needs a human' || r.status === 'Ready');
+}
+
+function renderQueue() {
+  const rows = visibleRows();
+  $('qCount').textContent = rows.length === ROWS.length
+    ? `${ROWS.length} open`
+    : `${rows.length} of ${ROWS.length} open`;
+
+  if (!rows.length) {
+    $('qBody').innerHTML = `<tr><td colspan="4" class="empty">${
+      FILTER === 'action' ? 'Nothing needs doing right now. That is allowed.' : 'Nothing here.'
+    }</td></tr>`;
+    return;
+  }
+
+  $('qBody').innerHTML = rows.map((r) => {
+    const a = ACTION_RANK[r.action];
+    const days = r.wd_since_sent != null ? `${r.wd_since_sent} working day${r.wd_since_sent === 1 ? '' : 's'} since it went` : '';
+    return `<tr class="row" data-id="${esc(r.id)}">
+      <td>
+        <div class="mono" style="font-weight:700;font-size:12.5px;">${esc(r.ref || '')}</div>
+        ${r.urgent ? '<div style="font-size:10.5px;font-weight:800;color:var(--fail);margin-top:3px;">URGENT</div>' : ''}
+      </td>
+      <td>
+        <div style="font-weight:700;">${esc(r.customer_name_raw || '')}</div>
+        <div style="font-size:12.5px;color:var(--muted);margin-top:2px;">
+          ${esc(r.supplier_display || r.supplier_raw || 'no supplier')}
+          ${r.meter_count ? ' · ' + r.meter_count + ' meter' + (r.meter_count === 1 ? '' : 's') : ''}
+          ${r.changeover_date ? ' · changeover ' + ukDate(r.changeover_date) : ''}
+        </div>
+      </td>
+      <td>
+        <span class="pill" style="background:${STATUS_COLOUR[r.status] || '#6b7280'};color:#fff;">${esc(r.status)}</span>
+        ${days ? `<div style="font-size:11.5px;color:var(--muted);margin-top:5px;">${esc(days)}</div>` : ''}
+      </td>
+      <td>
+        ${r.action ? `<span class="act ${a ? a.cls : 'act-blu'}">${esc(r.action)}</span>` : '<span style="color:var(--muted);font-size:12.5px;">Nothing due</span>'}
+        ${r.why ? `<div class="why">${esc(r.why)}</div>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+
+  [...document.querySelectorAll('#qBody tr.row')].forEach((tr) =>
+    tr.onclick = () => openCot(tr.dataset.id));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// One COT
+// ═══════════════════════════════════════════════════════════════════════════════════════
+let CUR = null;        // { row, meters, run, files }
+
+async function openCot(id) {
+  $('queueView').classList.add('hide');
+  $('cotView').classList.remove('hide');
+  $('cotView').innerHTML = '<div class="card"><p style="color:var(--muted);">Loading…</p></div>';
+  window.scrollTo(0, 0);
+
+  const [{ data: row }, { data: meters }, { data: runs }, { data: files }] = await Promise.all([
+    sb.from('cot_requests').select('*').eq('id', id).single(),
+    sb.from('cot_meters').select('*').eq('cot_id', id).order('identifier'),
+    sb.from('cot_fill_runs').select('*').eq('cot_id', id).order('created_at', { ascending: false }).limit(1),
+    sb.storage.from('cot-documents').list(id, { limit: 100 }),
+  ]);
+  if (!row) { $('cotView').innerHTML = '<div class="card">That COT could not be loaded.</div>'; return; }
+
+  CUR = { row, meters: meters || [], run: (runs && runs[0]) || null, files: files || [] };
+  renderCot();
+}
+
+function backToQueue() {
+  $('cotView').classList.add('hide');
+  $('queueView').classList.remove('hide');
+  CUR = null;
+  loadQueue();
+}
+
+function docLabel(name) {
+  if (/^proof-/i.test(name))       return ['Proof of occupation', name.replace(/^proof-/i, '')];
+  if (/^cesform-/i.test(name))     return ["Customer's CES form", name.replace(/^cesform-/i, '')];
+  if (/^extra-/i.test(name))       return ['Also attached', name.replace(/^extra-/i, '')];
+  if (/^supplierform-/i.test(name))return ["Supplier's form — FILLED", name];
+  if (/^CES COT Form/i.test(name)) return ['CES COT Form — FILLED', name];
+  return ['Document', name];
+}
+
+function renderCot() {
+  const r = CUR.row, run = CUR.run;
+  const gaps = (run && run.could_not_fill) || [];
+  const conflicts = (run && run.conflicts) || [];
+  const written = (run && run.written) || [];
+
+  const meterRows = CUR.meters.map((m) => {
+    const reads = [m.read1, m.read2, m.read3].filter((x) => x !== null && x !== undefined && String(x).trim() !== '');
+    return `<tr>
+      <td class="mono" style="font-size:12.5px;">${esc(m.identifier)}</td>
+      <td>${esc(m.utility || '')}</td>
+      <td>${reads.length ? esc(reads.join(' / ')) : '<span style="color:var(--muted);">supplier reads</span>'}</td>
+      <td>${esc(ukDate(m.read_date))}</td>
+    </tr>`;
+  }).join('');
+
+  const docs = CUR.files.map((f) => {
+    const [kind, nice] = docLabel(f.name);
+    const filled = /^(supplierform-|CES COT Form)/i.test(f.name);
+    return `<div class="doc">
+      <span style="min-width:190px;font-weight:${filled ? 800 : 600};color:${filled ? 'var(--navy)' : 'var(--text-2)'};font-size:12.5px;">${esc(kind)}</span>
+      <a href="#" data-doc="${esc(f.name)}">${esc(nice)}</a>
+      <span style="color:var(--muted);font-size:11.5px;margin-left:auto;">${Math.round((f.metadata?.size || 0) / 1024)} KB</span>
+    </div>`;
+  }).join('') || '<p style="color:var(--muted);font-size:13px;">Nothing attached.</p>';
+
+  $('cotView').innerHTML = `
+    <button class="btn btn-sec" id="btnBack" style="margin-bottom:16px;">&larr; Back to the queue</button>
+
+    <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px;">
+      <h1>${esc(r.customer_name_raw || '')}</h1>
+      <span class="mono" style="font-weight:700;color:var(--muted);">${esc(r.ref || '')}</span>
+      <span class="pill" style="background:${STATUS_COLOUR[r.status] || '#6b7280'};color:#fff;">${esc(r.status)}</span>
+      ${r.urgent ? '<span class="act act-red">URGENT — ' + esc(r.urgent_reason || 'deemed rates') + '</span>' : ''}
+    </div>
+    <p style="color:var(--muted);font-size:13.5px;margin-bottom:18px;">
+      ${esc(r.supplier_raw || 'no supplier')} · we act for the ${esc(r.representing || 'unstated')} party
+      ${r.changeover_date ? ' · changeover ' + ukDate(r.changeover_date) : ''}
+    </p>
+
+    ${conflicts.length ? `<div class="card" style="border-left:4px solid var(--fail);margin-bottom:16px;">
+      <h3 style="color:var(--fail);margin-bottom:8px;">Sources disagree — read this first</h3>
+      ${conflicts.map((c) => `<div style="font-size:13px;margin-bottom:8px;">
+        <strong>${esc(c.field)}</strong> — used <strong>${esc(c.what_was_used)}</strong>.
+        <div style="color:var(--text-2);font-size:12.5px;margin-top:2px;">${esc(c.why || '')}</div>
+      </div>`).join('')}
+    </div>` : ''}
+
+    <div class="cols">
+      <div class="card">
+        <h3 style="margin-bottom:12px;">The request</h3>
+        <dl class="kv">
+          <dt>Site</dt><dd>${esc(r.site_address || '—')}${r.postcode ? ', ' + esc(r.postcode) : ''}</dd>
+          <dt>Outgoing</dt><dd>${esc(r.outgoing_party || '—')}</dd>
+          <dt>Incoming</dt><dd>${esc(r.incoming_party || '—')}</dd>
+          <dt>Company no.</dt><dd>${esc(r.company_number || '—')}</dd>
+          <dt>Contact</dt><dd>${esc([r.contact_name, r.contact_phone, r.contact_email].filter(Boolean).join(' · ') || '—')}</dd>
+          <dt>Forwarding</dt><dd>${esc(r.forwarding_address || '—')}</dd>
+          <dt>Landlord</dt><dd>${esc([r.landlord_name, r.landlord_contact].filter(Boolean).join(' · ') || '—')}</dd>
+          <dt>Broker notes</dt><dd>${esc(r.additional_info || '—')}</dd>
+        </dl>
+        <h3 style="margin:18px 0 8px;">Meters</h3>
+        <table><thead><tr><th>Identifier</th><th>Utility</th><th>Reading</th><th>Read date</th></tr></thead>
+        <tbody>${meterRows || '<tr><td colspan="4" style="color:var(--muted);">None recorded.</td></tr>'}</tbody></table>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-bottom:4px;">Documents</h3>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:10px;">
+          Both forms are built for every COT. Send whichever this supplier will accept.</p>
+        ${docs}
+        ${gaps.length ? `<h3 style="margin:18px 0 8px;">Left blank (${gaps.length})</h3>
+          <div class="note">${gaps.map((g) => `<div style="margin-bottom:5px;"><strong>${esc(g.field)}</strong> — ${esc(g.why)}</div>`).join('')}</div>` : ''}
+      </div>
+    </div>
+
+    ${written.length ? `<div class="card" style="margin-top:16px;">
+      <h3 style="margin-bottom:4px;">What went on the supplier's form</h3>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:12px;">
+        Change anything that is wrong and press Save. Only the boxes you touch change; the rest of the form stays exactly as it is.</p>
+      <div id="fields">${written.filter((w) => w.kind !== 'tick').map((w) => `
+        <div class="fieldrow">
+          <div>
+            <div class="lbl">${esc(w.label || w.id)}</div>
+            <div class="src">${esc(w.source || '')}${w.confidence && w.confidence !== 'high' ? ' · ' + esc(w.confidence) + ' confidence' : ''}</div>
+          </div>
+          <input type="text" data-fid="${esc(w.id)}" value="${esc(w.value || '')}" />
+        </div>`).join('')}</div>
+      <div style="display:flex;gap:8px;margin-top:14px;align-items:center;">
+        <button class="btn btn-primary" id="btnSave">Save and redraw the form</button>
+        <button class="btn btn-sec" id="btnRefill">Start again from scratch</button>
+        <span id="saveMsg" style="font-size:12.5px;color:var(--muted);"></span>
+      </div>
+    </div>` : `<div class="card" style="margin-top:16px;">
+      <h3 style="margin-bottom:6px;">No form has been built yet</h3>
+      <p style="color:var(--text-2);font-size:13px;margin-bottom:12px;">
+        ${run ? esc(run.verdict_reason || 'The last attempt did not produce a form.') : 'Nothing has run against this COT.'}</p>
+      <button class="btn btn-primary" id="btnRefill">Build the forms</button>
+      <span id="saveMsg" style="font-size:12.5px;color:var(--muted);margin-left:10px;"></span>
+    </div>`}
+  `;
+
+  $('btnBack').onclick = backToQueue;
+  const save = $('btnSave'); if (save) save.onclick = saveEdits;
+  const refill = $('btnRefill'); if (refill) refill.onclick = rebuild;
+  [...document.querySelectorAll('#fields input')].forEach((i) => {
+    const original = i.value;
+    i.oninput = () => i.classList.toggle('edited', i.value !== original);
+  });
+  [...document.querySelectorAll('[data-doc]')].forEach((a) =>
+    a.onclick = async (e) => { e.preventDefault(); await openDoc(a.dataset.doc); });
+}
+
+/** Signed URL rather than a public one: cot-documents holds leases and customer contacts. */
+async function openDoc(name) {
+  const { data, error } = await sb.storage.from('cot-documents')
+    .createSignedUrl(`${CUR.row.id}/${name}`, 60 * 10);
+  if (error || !data) { alert('Could not open that document: ' + (error?.message || 'unknown error')); return; }
+  window.open(data.signedUrl, '_blank', 'noopener');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Editing
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Send only what changed.
+ *
+ * cot-fill reuses the previous mapping and redraws, so an untouched box is written back
+ * byte-identically. Sending every field would work too, but then every value would be
+ * recorded as human-edited and the audit trail would stop telling you which two boxes the
+ * person actually disagreed with.
+ */
+async function saveEdits() {
+  const msg = $('saveMsg'), btn = $('btnSave');
+  const overrides = {};
+  const written = (CUR.run && CUR.run.written) || [];
+  const by = {}; written.forEach((w) => { by[w.id] = String(w.value ?? ''); });
+  [...document.querySelectorAll('#fields input')].forEach((i) => {
+    const id = i.dataset.fid;
+    if (String(i.value) !== by[id]) overrides[id] = i.value;
+  });
+
+  if (!Object.keys(overrides).length) { msg.textContent = 'Nothing changed.'; return; }
+
+  btn.disabled = true; btn.textContent = 'Redrawing…';
+  msg.textContent = '';
+  try {
+    const { data: s } = await sb.auth.getSession();
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/cot-fill`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON,
+                 Authorization: 'Bearer ' + s.session.access_token },
+      body: JSON.stringify({ cot_id: CUR.row.id, overrides, notify: false }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || j.error) throw new Error(j.error || ('HTTP ' + res.status));
+
+    await logEvent('edited', `${WHO} edited ${(j.edited || []).length} field(s): ${(j.edited || []).join(', ')}`);
+    msg.textContent = `Saved. ${j.filled} field(s) on the form.`;
+    await openCot(CUR.row.id);
+  } catch (e) {
+    msg.textContent = 'Could not save: ' + (e.message || 'unknown error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save and redraw the form';
+  }
+}
+
+/** Re-run the whole mapping, model and all. For a COT that has changed since it was filled. */
+async function rebuild() {
+  const msg = $('saveMsg'), btn = $('btnRefill');
+  btn.disabled = true; btn.textContent = 'Building…';
+  msg.textContent = 'This takes up to a minute.';
+  try {
+    const { data: s } = await sb.auth.getSession();
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/cot-fill`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON,
+                 Authorization: 'Bearer ' + s.session.access_token },
+      body: JSON.stringify({ cot_id: CUR.row.id, notify: false }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (j.status === 'manual' || j.status === 'refused') {
+      msg.textContent = j.reason || 'This supplier is handled by hand.';
+    } else if (!res.ok || j.error) {
+      throw new Error(j.error || ('HTTP ' + res.status));
+    } else {
+      await logEvent('refilled', `${WHO} rebuilt the forms`);
+      msg.textContent = `Built. ${j.filled} field(s), ${j.could_not_fill} left blank.`;
+    }
+    await openCot(CUR.row.id);
+  } catch (e) {
+    msg.textContent = 'Could not build: ' + (e.message || 'unknown error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Start again from scratch';
+  }
+}
+
+/**
+ * The audit trail.
+ *
+ * WHO is a name typed at sign-in, not an identity the system can prove. That is the deal
+ * with a shared login and it is worth being honest about: this answers "who did this" in a
+ * normal week, and would not survive someone deliberately lying. Never block on it failing.
+ */
+async function logEvent(kind, detail) {
+  try {
+    await sb.from('cot_events').insert({
+      cot_id: CUR.row.id, actor: WHO || 'COT team', kind, detail,
+    });
+  } catch (e) { console.warn('cot_events', e); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Wiring
+// ═══════════════════════════════════════════════════════════════════════════════════════
+$('loginBtn').onclick = signIn;
+['u', 'p'].forEach((id) => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') signIn(); }));
+$('whoBtn').onclick = setWho;
+$('whoName').addEventListener('keydown', (e) => { if (e.key === 'Enter') setWho(); });
+$('btnRefresh').onclick = loadQueue;
+$('btnSwitch').onclick = () => {
+  localStorage.removeItem('cot_who'); WHO = '';
+  $('app').classList.add('hide'); $('whoami').classList.remove('hide');
+  $('whoName').value = ''; $('whoName').focus();
+};
+$('btnOut').onclick = async () => { localStorage.removeItem('cot_who'); await sb.auth.signOut(); location.reload(); };
+
+// Names already seen on this desk, so the second person to sign in gets a suggestion rather
+// than a blank box, and "Laverne" does not become "laverne" and "Lav" in the audit trail.
+(async () => {
+  const { data: s } = await sb.auth.getSession();
+  if (s && s.session) await afterSignIn(); else showSignIn();
+  try {
+    const { data } = await sb.from('cot_events').select('actor').limit(300);
+    const names = [...new Set((data || []).map((e) => e.actor).filter((a) => a && a !== 'COT team'))].sort();
+    $('cotPeople').innerHTML = names.map((n) => `<option value="${esc(n)}">`).join('');
+  } catch (e) { /* suggestions are a nicety */ }
+})();
+
+// COT desk build 2026-09-06a
+</script>
+</body>
+</html>
