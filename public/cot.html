@@ -13,19 +13,32 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <style>
-    /* Same palette as the sales and billing portals. This is one product, not three. */
+    /* Claude OS palette: near-black ground, one cyan accent, monospace numerals.
+       Dark on purpose — this is a screen somebody stares at all day, and the queue reads
+       better when the only bright things on it are the things that need doing. */
     :root {
-      --navy: #2f3d7e; --navy-dark: #1e2a5e;
-      --lime: #93c43a;
-      --bg: #f5f2ec; --surface: #ffffff; --surface-2: #faf8f4;
-      --border: #e6e1d6; --line: #ede9df;
-      --text: #1c1f2a; --text-2: #4a4e5c; --muted: #7a7e8c;
-      --ok: #3a7a24; --ok-bg: rgba(100,180,80,0.12);
-      --fail: #8b2015; --fail-bg: rgba(192,57,43,0.10);
-      --warn: #7a5010; --warn-bg: rgba(200,140,30,0.12);
+      --bg: #070a11; --bg-2: #0b1019;
+      --panel: #0e1420; --panel-2: #131b29; --panel-3: #18212f;
+      --line: #1e2836; --line-2: #2a3648;
+      --text: #e8edf5; --text-2: #97a3b6; --muted: #5f6b7e;
+      --cyan: #22d3ee; --cyan-dim: #0e7490; --cyan-glow: rgba(34,211,238,0.13);
+      --ok: #34d399; --ok-bg: rgba(52,211,153,0.11);
+      --fail: #f87171; --fail-bg: rgba(248,113,113,0.11);
+      --warn: #fbbf24; --warn-bg: rgba(251,191,36,0.11);
+      --navy: var(--cyan); --navy-dark: #0891b2;
+      --surface: var(--panel); --surface-2: var(--panel-2); --border: var(--line);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { min-height: 100vh; font-family: 'Manrope', sans-serif; background: var(--bg); color: var(--text); }
+    html, body { min-height: 100vh; font-family: 'Manrope', sans-serif; background: var(--bg); color: var(--text);
+      -webkit-font-smoothing: antialiased; }
+    /* room for the chat bar, which is pinned and would otherwise cover the last row */
+    /* A starting value only. The real figure is measured from the bar at runtime, because
+       the bar grows when the chat opens and a fixed number left the last row unreachable. */
+    body { padding-bottom: 150px; }
+    ::selection { background: var(--cyan-glow); }
+    ::-webkit-scrollbar { width: 9px; height: 9px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 5px; }
     h1 { font-size: 30px; font-weight: 800; letter-spacing: -0.6px; }
     h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
     h3 { font-size: 15px; font-weight: 800; }
@@ -34,48 +47,63 @@
     .mono { font-family: 'JetBrains Mono', monospace; }
 
     .wrap { max-width: 1220px; margin: 0 auto; padding: 0 22px; }
-    header { background: var(--navy); color: #fff; padding: 14px 0; }
+    header { background: var(--bg-2); border-bottom: 1px solid var(--line); padding: 13px 0;
+      position: sticky; top: 0; z-index: 40; }
     header .wrap { display: flex; align-items: center; gap: 16px; }
-    header .brand { font-weight: 800; font-size: 17px; letter-spacing: -0.3px; }
+    header .brand { font-weight: 800; font-size: 14px; letter-spacing: 1.4px; text-transform: uppercase;
+      display: flex; align-items: center; gap: 9px; }
+    header .brand::before { content: ''; width: 9px; height: 9px; border-radius: 2px;
+      background: var(--cyan); transform: rotate(45deg); box-shadow: 0 0 11px var(--cyan); }
+    .live { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: 0.6px;
+      text-transform: uppercase; color: var(--text-2); }
+    .live::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--ok);
+      box-shadow: 0 0 8px var(--ok); }
     header .who { margin-left: auto; display: flex; align-items: center; gap: 12px; font-size: 13px; opacity: 0.92; }
-    header button { background: rgba(255,255,255,0.14); color: #fff; border: 1px solid rgba(255,255,255,0.25);
-      border-radius: 7px; padding: 6px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
-    header button:hover { background: rgba(255,255,255,0.24); }
+    header button { background: var(--panel-2); color: var(--text-2); border: 1px solid var(--line-2);
+      border-radius: 7px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+    header button:hover { background: var(--panel-3); color: var(--text); }
 
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
     .btn { border: 0; border-radius: 8px; padding: 9px 16px; font-size: 13.5px; font-weight: 700; cursor: pointer; }
-    .btn-primary { background: var(--navy); color: #fff; }
-    .btn-primary:hover { background: var(--navy-dark); }
+    .btn-primary { background: var(--cyan); color: #04141a; }
+    .btn-primary:hover { background: #67e8f9; }
     .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn-sec { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
-    .btn-sec:hover { background: var(--surface-2); }
+    .btn-sec { background: var(--panel-2); color: var(--text-2); border: 1px solid var(--line-2); }
+    .btn-sec:hover { background: var(--panel-3); color: var(--text); }
     input[type=text], input[type=password], input[type=date], select, textarea {
-      width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px;
-      background: var(--surface); color: var(--text); font-size: 14px;
+      width: 100%; padding: 9px 11px; border: 1px solid var(--line-2); border-radius: 8px;
+      background: var(--bg-2); color: var(--text); font-size: 14px;
     }
-    input:focus, select:focus, textarea:focus { outline: 2px solid var(--navy); outline-offset: -1px; }
+    input::placeholder, textarea::placeholder { color: var(--muted); }
+    input:focus, select:focus, textarea:focus { outline: 1px solid var(--cyan); outline-offset: 0; border-color: var(--cyan); }
     label.fl { display: block; font-size: 11.5px; font-weight: 700; text-transform: uppercase;
       letter-spacing: 0.4px; color: var(--muted); margin-bottom: 5px; }
 
     /* ── sign in ─────────────────────────────────────────────────────────────────── */
     #signin { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
     #signin .card { width: 100%; max-width: 400px; }
-    .err { background: var(--fail-bg); color: var(--fail); border-left: 3px solid var(--fail);
+    .err { background: var(--fail-bg); color: var(--fail); border-left: 2px solid var(--fail);
       padding: 10px 13px; border-radius: 5px; font-size: 13px; margin-bottom: 14px; }
 
     /* ── queue ───────────────────────────────────────────────────────────────────── */
     .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 18px 0 14px; }
-    .chip { border: 1px solid var(--border); background: var(--surface); border-radius: 999px;
-      padding: 6px 14px; font-size: 12.5px; font-weight: 700; cursor: pointer; color: var(--text-2); }
-    .chip.on { background: var(--navy); border-color: var(--navy); color: #fff; }
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .chip { border: 1px solid var(--line-2); background: var(--panel); border-radius: 7px;
+      padding: 6px 13px; font-size: 12px; font-weight: 700; cursor: pointer; color: var(--text-2);
+      letter-spacing: 0.2px; }
+    .chip:hover { border-color: var(--cyan-dim); color: var(--text); }
+    .chip.on { background: var(--cyan-glow); border-color: var(--cyan); color: var(--cyan); }
     .chip .n { opacity: 0.65; margin-left: 5px; font-weight: 600; }
 
-    table { width: 100%; border-collapse: collapse; background: var(--surface); }
-    th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
-      color: var(--muted); font-weight: 700; padding: 10px 12px; border-bottom: 1px solid var(--border); }
-    td { padding: 11px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    table { width: 100%; border-collapse: collapse; background: transparent; min-width: 560px; }
+    th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+      color: var(--muted); font-weight: 700; padding: 11px 14px; border-bottom: 1px solid var(--line);
+      background: var(--bg-2); }
+    td { padding: 13px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
     tr.row { cursor: pointer; }
-    tr.row:hover td { background: var(--surface-2); }
+    tr.row:hover td { background: var(--panel-2); }
+    tr.row.now td { box-shadow: inset 3px 0 0 var(--fail); }
+    tr.row.today td { box-shadow: inset 3px 0 0 var(--warn); }
 
     .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px;
       font-weight: 700; white-space: nowrap; }
@@ -83,7 +111,7 @@
       font-weight: 800; letter-spacing: 0.3px; white-space: nowrap; }
     .act-red { background: var(--fail-bg); color: var(--fail); }
     .act-amb { background: var(--warn-bg); color: var(--warn); }
-    .act-blu { background: rgba(47,61,126,0.10); color: var(--navy); }
+    .act-blu { background: var(--cyan-glow); color: var(--cyan); }
     .why { font-size: 12px; color: var(--text-2); margin-top: 4px; max-width: 560px; line-height: 1.45; }
 
     .empty { padding: 40px 20px; text-align: center; color: var(--muted); font-size: 14px; }
@@ -93,38 +121,122 @@
     .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
     .kv { display: grid; grid-template-columns: 155px 1fr; gap: 6px 12px; font-size: 13.5px; }
-    .kv dt { color: var(--muted); font-weight: 600; }
+    .kv dt { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
     .kv dd { color: var(--text); word-break: break-word; }
     .fieldrow { display: grid; grid-template-columns: 220px 1fr; gap: 10px; align-items: center;
       padding: 6px 0; border-bottom: 1px solid var(--line); }
     .fieldrow .lbl { font-size: 12.5px; font-weight: 700; color: var(--text-2); }
     .fieldrow input { font-size: 13px; padding: 6px 9px; }
-    .fieldrow input.edited { border-color: var(--navy); background: rgba(47,61,126,0.04); }
+    .fieldrow input.edited { border-color: var(--cyan); background: var(--cyan-glow); }
     .src { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
     .doc { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
-    .doc a { color: var(--navy); font-weight: 600; text-decoration: none; }
+    .doc a { color: var(--cyan); font-weight: 600; text-decoration: none; }
     .doc a:hover { text-decoration: underline; }
-    .note { background: var(--surface-2); border-left: 3px solid var(--border); padding: 10px 13px;
+    .note { background: var(--panel-2); border-left: 2px solid var(--line-2); padding: 10px 13px;
       font-size: 12.5px; color: var(--text-2); border-radius: 4px; line-height: 1.5; }
+
+    /* ── the brief ───────────────────────────────────────────────────────────────── */
+    .brief { background: linear-gradient(180deg, var(--panel-2), var(--panel));
+      border: 1px solid var(--line-2); border-radius: 14px; padding: 22px 24px; margin-bottom: 16px;
+      position: relative; overflow: hidden; }
+    .brief::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 2px; background: var(--cyan);
+      box-shadow: 0 0 18px var(--cyan); }
+    .brief .hi { font-size: 21px; font-weight: 800; letter-spacing: -0.4px; margin-bottom: 7px; }
+    .brief .head { font-size: 14.5px; color: var(--text-2); line-height: 1.6; max-width: 860px; }
+    .brief .head b { color: var(--cyan); font-weight: 700; }
+    .brief .by { font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+      margin-top: 13px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+    .clock { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-2);
+      letter-spacing: 1px; }
+
+    /* ── stat strip ──────────────────────────────────────────────────────────────── */
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 12px;
+      margin-bottom: 16px; }
+    .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 14px 16px;
+      position: relative; overflow: hidden; }
+    .stat .lab { font-size: 10px; text-transform: uppercase; letter-spacing: 1.1px; color: var(--muted);
+      font-weight: 700; margin-bottom: 8px; }
+    .stat .num { font-family: 'JetBrains Mono', monospace; font-size: 27px; font-weight: 600;
+      line-height: 1; letter-spacing: -1px; }
+    .stat .sub { font-size: 11.5px; color: var(--text-2); margin-top: 7px; }
+    .stat .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--line); }
+    .stat .bar i { display: block; height: 100%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+    .stat.hot .num { color: var(--fail); }
+    .stat.hot .bar i { background: var(--fail); box-shadow: 0 0 10px var(--fail); }
+
+    /* the AI's one-line instruction, on each queue row */
+    .todo { font-size: 12.5px; color: var(--text); margin-top: 6px; display: flex; gap: 7px; align-items: baseline; }
+    .todo::before { content: '\203A'; color: var(--cyan); font-weight: 700; }
+    .u { font-size: 9.5px; font-weight: 800; letter-spacing: 0.9px; text-transform: uppercase;
+      padding: 2px 6px; border-radius: 3px; }
+    .u-now { background: var(--fail-bg); color: var(--fail); }
+    .u-today { background: var(--warn-bg); color: var(--warn); }
+    .u-soon { background: var(--cyan-glow); color: var(--cyan); }
+    .u-waiting { background: var(--panel-3); color: var(--muted); }
+
+    /* ── the chat bar, pinned ────────────────────────────────────────────────────── */
+    /* Opaque, not a gradient. A see-through bar over a dense table is unreadable, and the
+       fade is done above the bar instead so content dissolves into it rather than through it. */
+    #bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; background: var(--bg);
+      border-top: 1px solid var(--line); padding: 12px 0 14px;
+      box-shadow: 0 -22px 26px -6px var(--bg), 0 -1px 0 var(--line); }
+    #bar .wrap { display: flex; flex-direction: column; gap: 9px; }
+    #barChat { max-height: 40vh; overflow-y: auto; display: none; padding-bottom: 4px; }
+    #barChat.on { display: flex; flex-direction: column; }
+    .barbox { display: flex; gap: 9px; align-items: center; border: 1px solid var(--cyan-dim);
+      border-radius: 11px; background: var(--bg-2); padding: 5px 6px 5px 14px;
+      box-shadow: 0 0 0 3px rgba(34,211,238,0.05); }
+    .barbox:focus-within { border-color: var(--cyan); box-shadow: 0 0 0 3px var(--cyan-glow); }
+    .barbox input { border: 0; background: transparent; outline: 0; padding: 9px 0; font-size: 14px; }
+    .barbox input:focus { outline: 0; border: 0; }
+    .barbox button { width: 36px; height: 36px; border-radius: 8px; border: 0; cursor: pointer;
+      background: var(--cyan); color: #04141a; font-size: 16px; font-weight: 800; flex: 0 0 auto; }
+    .barbox button:disabled { opacity: 0.45; cursor: not-allowed; }
+    /* nowrap: a full reference like COT-2026-0007 wrapped to two lines and made the whole
+       bar taller than the input inside it. */
+    .scope { font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+      white-space: nowrap; flex: 0 0 auto; }
+    .scope b { color: var(--cyan); font-weight: 700; }
+    .tag { font-size: 9.5px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 3px; background: var(--panel-3); color: var(--text-2); }
+    .tag.sonnet { background: var(--cyan-glow); color: var(--cyan); }
 
     /* ── assistant + send ────────────────────────────────────────────────────────── */
     .chat { max-height: 340px; overflow-y: auto; padding: 4px 2px; margin-bottom: 10px; }
     .bub { padding: 9px 13px; border-radius: 10px; margin-bottom: 8px; font-size: 13px;
       line-height: 1.55; white-space: pre-wrap; max-width: 86%; }
-    .bub.me { background: var(--navy); color: #fff; margin-left: auto; border-bottom-right-radius: 3px; }
-    .bub.ai { background: var(--surface-2); border: 1px solid var(--border); border-bottom-left-radius: 3px; }
+    .bub.me { background: var(--cyan-glow); color: var(--text); align-self: flex-end;
+      border: 1px solid var(--cyan-dim); border-bottom-right-radius: 3px; }
+    .bub.ai { background: var(--panel-2); border: 1px solid var(--line); align-self: flex-start;
+      border-bottom-left-radius: 3px; }
     .ask { display: flex; gap: 8px; }
     .ask input { flex: 1; }
     .sugg { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
-    .sugg button { border: 1px solid var(--border); background: var(--surface); border-radius: 999px;
-      padding: 5px 12px; font-size: 12px; cursor: pointer; color: var(--text-2); }
-    .sugg button:hover { background: var(--surface-2); }
+    .sugg button { border: 1px solid var(--line-2); background: var(--panel-2); border-radius: 7px;
+      padding: 6px 12px; font-size: 12px; cursor: pointer; color: var(--text-2); }
+    .sugg button:hover { border-color: var(--cyan-dim); color: var(--text); }
     .send-field { margin-bottom: 12px; }
     .send-field textarea { min-height: 230px; resize: vertical; font-size: 13px; line-height: 1.55; }
     .attach { display: flex; align-items: center; gap: 9px; padding: 6px 0; font-size: 12.5px; }
     .attach input { width: auto; }
-    .danger { background: var(--fail-bg); color: var(--fail); border-left: 3px solid var(--fail);
+    .danger { background: var(--fail-bg); color: var(--fail); border-left: 2px solid var(--fail);
       padding: 10px 13px; border-radius: 5px; font-size: 12.5px; margin-bottom: 12px; line-height: 1.5; }
+    /* ── phones ───────────────────────────────────────────────────────────────────────
+       Measured at 390px, not guessed. Two things overflowed: the header's right-hand
+       block and the queue table. The table now scrolls in its own box (above); the
+       header is allowed to wrap onto a second line rather than running off the edge. */
+    @media (max-width: 640px) {
+      header .wrap { flex-wrap: wrap; row-gap: 8px; padding: 10px 14px; }
+      header .who { margin-left: 0; width: 100%; }
+      .wrap { padding: 0 14px; }
+      .brief { padding: 16px 16px 14px; }
+      .brief .head { font-size: 14px; }
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      #barSugg { overflow-x: auto; flex-wrap: nowrap; }
+      #barSugg button { white-space: nowrap; }
+    }
+
   </style>
 </head>
 <body>
@@ -175,6 +287,8 @@
   <header>
     <div class="wrap">
       <span class="brand">CES COT Desk</span>
+      <span class="live" id="liveDot">Connected</span>
+      <span class="clock" id="clock"></span>
       <span class="who">
         <span id="whoLabel"></span>
         <button id="btnSwitch">Not you?</button>
@@ -187,13 +301,22 @@
 
     <!-- queue -->
     <div id="queueView">
-      <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;">
-        <h1>The queue</h1>
-        <span id="qCount" style="color:var(--muted);font-size:14px;"></span>
-        <button class="btn btn-sec" style="margin-left:auto;" id="btnRefresh">Refresh</button>
+      <div class="brief" id="brief">
+        <div class="hi" id="briefHi">Good morning.</div>
+        <div class="head" id="briefHead">Reading the queue…</div>
+        <div class="by" id="briefBy"></div>
       </div>
-      <div class="toolbar" id="filters"></div>
+      <div class="stats" id="stats"></div>
+      <div class="toolbar">
+        <!-- #filters is rewritten wholesale by renderFilters(), so nothing else may live
+             inside it. #qCount used to, and was destroyed on every render. -->
+        <div class="chips" id="filters"></div>
+        <span id="qCount" style="color:var(--muted);font-size:12px;margin-left:auto;"></span>
+      </div>
       <div class="card" style="padding:0;overflow:hidden;">
+        <!-- The table scrolls inside this box. Without it the page itself scrolled
+             sideways on a phone and the header ran off the right edge. -->
+        <div style="overflow-x:auto;">
         <table>
           <thead><tr>
             <th style="width:118px;">Reference</th>
@@ -203,12 +326,30 @@
           </tr></thead>
           <tbody id="qBody"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
         </table>
+        </div>
       </div>
     </div>
 
     <!-- one COT -->
     <div id="cotView" class="hide"></div>
 
+  </div>
+
+  <!--
+    The chat bar. Pinned, always there, and context-aware: on the queue it answers about the
+    queue, and with a COT open it answers about that COT. One box rather than one per screen,
+    because the desk should not have to work out where the assistant lives.
+  -->
+  <div id="bar">
+    <div class="wrap">
+      <div id="barChat"></div>
+      <div class="sugg" id="barSugg"></div>
+      <div class="barbox">
+        <span class="scope" id="barScope">QUEUE</span>
+        <input type="text" id="barInput" placeholder="Ask about the queue…" autocomplete="off" />
+        <button id="barSend" title="Ask">&#8593;</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -241,6 +382,8 @@ const ukDate = (d) => { if (!d) return ''; const [y,m,dd] = String(d).slice(0,10
 let WHO = '';          // the person on the desk, for the audit trail
 let ROWS = [];         // the queue, as loaded
 let FILTER = 'action';
+let BRIEF = null;      // { headline, lines: [{cot_id, todo, urgency}] }
+let TODO = {};         // cot_id -> {todo, urgency}, so the queue can show it per row
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
 // Sign in
@@ -312,6 +455,7 @@ function startDesk() {
   $('whoami').classList.add('hide');
   $('app').classList.remove('hide');
   $('whoLabel').textContent = WHO;
+  setScope();
   loadQueue();
 }
 
@@ -356,7 +500,113 @@ async function loadQueue() {
     return String(a.created_at).localeCompare(String(b.created_at));   // oldest first
   });
   renderFilters();
+  renderStats();
   renderQueue();
+  loadBrief();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// The brief
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * One Haiku call for the whole queue, not one per COT.
+ *
+ * Cached for fifteen minutes in this browser. The queue does not change minute to minute and
+ * regenerating the brief on every page load would burn a call each time somebody clicks back
+ * from a COT. Refresh forces it.
+ */
+async function loadBrief(force) {
+  const cacheKey = 'cot_brief';
+  if (!force) {
+    try {
+      const c = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+      if (c && Date.now() - c.at < 15 * 60 * 1000 && c.n === ROWS.length) {
+        applyBrief(c.brief, true);
+        return;
+      }
+    } catch (e) { /* a bad cache is not worth reporting */ }
+  }
+  try {
+    const { res, j } = await fn('cot-assist', { mode: 'brief' });
+    if (!res.ok || j.error) throw new Error(j.error || ('HTTP ' + res.status));
+    applyBrief(j, false);
+    try { localStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), n: ROWS.length, brief: j })); } catch (e) {}
+  } catch (e) {
+    $('briefHead').textContent = 'Could not write the brief: ' + (e.message || 'unknown error') +
+      '. The queue below is still live.';
+    $('briefBy').innerHTML = '';
+  }
+}
+
+/**
+ * The model writes the instruction. The system decides the priority.
+ *
+ * cot_due already works out the action from each supplier's SLA and CES's escalation ladder,
+ * and the queue is SORTED on it. Letting the model also label urgency put a "soon" row above
+ * two "today" rows on the very first run, which makes the screen look wrong even when the
+ * order is right. So the pill is derived from the action and the two can never disagree.
+ */
+const ACTION_URGENCY = {
+  'MONEY BURNING': 'now', 'DELIVERY PROBLEM': 'now',
+  'EXPEDITE': 'today', 'NUDGE THE BROKER': 'today', 'CHASE': 'today',
+  'READY, NOT SENT': 'soon', 'NOT PICKED UP': 'soon',
+};
+const urgencyOf = (row) => ACTION_URGENCY[row.action] || (row.action ? 'soon' : 'waiting');
+
+function applyBrief(j, cached) {
+  BRIEF = j;
+  TODO = {};
+  const byId = new Map(ROWS.map((r) => [String(r.id), r]));
+  (j.lines || []).forEach((l) => {
+    const row = byId.get(String(l.cot_id));
+    if (row) TODO[l.cot_id] = { todo: l.todo, urgency: urgencyOf(row) };
+  });
+
+  const h = new Date().getHours();
+  $('briefHi').textContent = `Good ${h < 12 ? 'morning' : h < 18 ? 'afternoon' : 'evening'}, ${WHO.split(' ')[0]}.`;
+  // Numbers in the headline get the accent, the way the Claude OS brief highlights them.
+  $('briefHead').innerHTML = esc(j.headline || '').replace(/\b(\d+)\b/g, '<b>$1</b>');
+
+  // Counted off the system's own actions, so these numbers match the pills and the sort.
+  const now = ROWS.filter((r) => urgencyOf(r) === 'now').length;
+  const today = ROWS.filter((r) => urgencyOf(r) === 'today').length;
+  $('briefBy').innerHTML =
+    `<span class="tag">${esc(j.model === null ? 'no model needed' : 'Haiku')}</span>` +
+    `<span>${ROWS.length} open</span>` +
+    (now ? `<span style="color:var(--fail);">${now} need doing now</span>` : '') +
+    (today ? `<span style="color:var(--warn);">${today} today</span>` : '') +
+    (cached ? '<span>from cache</span>' : '') +
+    `<span style="margin-left:auto;"><button class="btn btn-sec" style="padding:4px 10px;font-size:11px;" id="btnRebrief">Re-read the queue</button></span>`;
+  $('btnRebrief').onclick = () => { $('briefHead').textContent = 'Reading the queue…'; loadBrief(true); };
+
+  renderQueue();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// The stat strip
+// ═══════════════════════════════════════════════════════════════════════════════════════
+function renderStats() {
+  const n = ROWS.length;
+  const money = ROWS.filter((r) => r.action === 'MONEY BURNING').length;
+  const unsent = ROWS.filter((r) => !r.submitted_at).length;
+  const silent = ROWS.filter((r) => r.submitted_at && !r.acknowledged_at).length;
+  const needing = ROWS.filter((r) => r.action).length;
+  const oldest = ROWS.reduce((m, r) => Math.max(m, r.wd_since_sent || 0), 0);
+
+  const card = (lab, num, sub, pct, hot) => `<div class="stat${hot ? ' hot' : ''}">
+    <div class="lab">${lab}</div><div class="num">${num}</div><div class="sub">${sub}</div>
+    <div class="bar"><i style="width:${Math.max(2, Math.min(100, pct))}%"></i></div></div>`;
+
+  $('stats').innerHTML =
+    card('Open COTs', n, `${needing} need action`, n ? (needing / n) * 100 : 0, false) +
+    card('Money burning', money, money ? 'past changeover, deemed rates' : 'nothing on deemed rates',
+         n ? (money / n) * 100 : 0, money > 0) +
+    card('Not yet sent', unsent, unsent ? 'sitting with us' : 'all sent to suppliers',
+         n ? (unsent / n) * 100 : 0, false) +
+    card('No acknowledgement', silent, silent ? 'sent, supplier silent' : 'all acknowledged',
+         n ? (silent / n) * 100 : 0, false) +
+    card('Longest wait', oldest, 'working days since sending', Math.min(100, oldest * 4), oldest >= 15);
 }
 
 function renderFilters() {
@@ -383,7 +633,11 @@ function visibleRows() {
 
 function renderQueue() {
   const rows = visibleRows();
-  $('qCount').textContent = rows.length === ROWS.length
+  // Guarded on purpose. This threw once because the element was being deleted by
+  // renderFilters, and a throw here also killed loadBrief further down the same call, so a
+  // cosmetic count took out the brief and the table with it.
+  const qc = $('qCount');
+  if (qc) qc.textContent = rows.length === ROWS.length
     ? `${ROWS.length} open`
     : `${rows.length} of ${ROWS.length} open`;
 
@@ -397,7 +651,8 @@ function renderQueue() {
   $('qBody').innerHTML = rows.map((r) => {
     const a = ACTION_RANK[r.action];
     const days = r.wd_since_sent != null ? `${r.wd_since_sent} working day${r.wd_since_sent === 1 ? '' : 's'} since it went` : '';
-    return `<tr class="row" data-id="${esc(r.id)}">
+    const t = TODO[r.id];
+    return `<tr class="row${t ? ' ' + t.urgency : ''}" data-id="${esc(r.id)}">
       <td>
         <div class="mono" style="font-weight:700;font-size:12.5px;">${esc(r.ref || '')}</div>
         ${r.urgent ? '<div style="font-size:10.5px;font-weight:800;color:var(--fail);margin-top:3px;">URGENT</div>' : ''}
@@ -416,6 +671,7 @@ function renderQueue() {
       </td>
       <td>
         ${r.action ? `<span class="act ${a ? a.cls : 'act-blu'}">${esc(r.action)}</span>` : '<span style="color:var(--muted);font-size:12.5px;">Nothing due</span>'}
+        ${t ? `<div class="todo"><span class="u u-${esc(t.urgency)}">${esc(t.urgency)}</span><span>${esc(t.todo)}</span></div>` : ''}
         ${r.why ? `<div class="why">${esc(r.why)}</div>` : ''}
       </td>
     </tr>`;
@@ -452,6 +708,7 @@ function backToQueue() {
   $('cotView').classList.add('hide');
   $('queueView').classList.remove('hide');
   CUR = null;
+  setScope();
   loadQueue();
 }
 
@@ -565,25 +822,7 @@ function renderCot() {
       <span id="saveMsg" style="font-size:12.5px;color:var(--muted);margin-left:10px;"></span>
     </div>`}
 
-    <div class="cols" style="margin-top:16px;align-items:start;">
-
-      <!-- the assistant -->
-      <div class="card">
-        <h3 style="margin-bottom:4px;">Ask about this COT</h3>
-        <p style="color:var(--muted);font-size:12px;margin-bottom:12px;">
-          Knows this COT, what ${esc(r.supplier_raw || 'the supplier')} requires, and everything that has happened so far.
-          It drafts; it cannot send.</p>
-        <div class="chat" id="chat"></div>
-        <div class="sugg" id="sugg">
-          <button data-q="What does this supplier need before I send it?">What does this supplier need?</button>
-          <button data-q="Is anything missing or wrong that would get this rejected?">Anything that would get it rejected?</button>
-          <button data-q="What should I do with this one next?">What should I do next?</button>
-        </div>
-        <div class="ask">
-          <input type="text" id="askBox" placeholder="Ask anything about this COT…" />
-          <button class="btn btn-primary" id="btnAsk">Ask</button>
-        </div>
-      </div>
+    <div style="margin-top:16px;">
 
       <!-- the email -->
       <div class="card">
@@ -604,11 +843,8 @@ function renderCot() {
   $('btnBack').onclick = backToQueue;
   const save = $('btnSave'); if (save) save.onclick = saveEdits;
   const refill = $('btnRefill'); if (refill) refill.onclick = rebuild;
-  $('btnAsk').onclick = () => ask($('askBox').value);
-  $('askBox').addEventListener('keydown', (e) => { if (e.key === 'Enter') ask($('askBox').value); });
-  [...document.querySelectorAll('#sugg button')].forEach((b) => b.onclick = () => ask(b.dataset.q));
   $('btnDraft').onclick = draftEmail;
-  CHAT = [];
+  setScope();
   [...document.querySelectorAll('#fields input')].forEach((i) => {
     const original = i.value;
     i.oninput = () => i.classList.toggle('edited', i.value !== original);
@@ -703,7 +939,16 @@ async function rebuild() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
-// The assistant
+// The assistant, in the bar at the bottom
+//
+// One box for the whole desk, context-aware rather than one per screen. On the queue it
+// answers about the queue; with a COT open it answers about that COT, and the scope label
+// says which so nobody is ever guessing what they just asked about.
+//
+// The reply carries which model answered. Haiku handles recall — status, dates, what this
+// supplier wants — and hands over to Sonnet by itself when the honest answer needs a
+// document read or a judgement call. That is worth showing: "Haiku, instantly" and "Sonnet,
+// after thinking about the lease" are different kinds of answer.
 // ═══════════════════════════════════════════════════════════════════════════════════════
 let CHAT = [];
 
@@ -719,28 +964,65 @@ async function fn(name, payload) {
   return { res, j };
 }
 
-function bubble(who, text) {
-  const el = $('chat');
-  if (!el) return;
-  el.insertAdjacentHTML('beforeend', `<div class="bub ${who}">${esc(text)}</div>`);
+const QUEUE_SUGG = [
+  'What should I start with?',
+  'Which of these is costing money?',
+  'Anything waiting on a supplier too long?',
+];
+const COT_SUGG = [
+  'What does this supplier need before I send it?',
+  'Anything here that would get it rejected?',
+  'What should I do with this one next?',
+];
+
+/** Reset the bar for whatever is on screen, and clear the conversation with it. */
+function setScope() {
+  CHAT = [];
+  const onCot = !!CUR;
+  $('barScope').textContent = onCot ? esc(CUR.row.ref || 'COT') : 'QUEUE';
+  $('barInput').placeholder = onCot
+    ? `Ask about ${CUR.row.customer_name_raw}…`
+    : 'Ask about the queue…';
+  $('barChat').innerHTML = '';
+  $('barChat').classList.remove('on');
+  $('barSugg').innerHTML = (onCot ? COT_SUGG : QUEUE_SUGG)
+    .map((q) => `<button data-q="${esc(q)}">${esc(q)}</button>`).join('');
+  [...document.querySelectorAll('#barSugg button')].forEach((b) => b.onclick = () => ask(b.dataset.q));
+}
+
+function bubble(who, text, tag) {
+  const el = $('barChat');
+  el.classList.add('on');
+  el.insertAdjacentHTML('beforeend',
+    `<div class="bub ${who}">${esc(text)}${tag ? ` <span class="tag ${tag.cls}">${esc(tag.label)}</span>` : ''}</div>`);
   el.scrollTop = el.scrollHeight;
+  return el.lastElementChild;
 }
 
 async function ask(q) {
   q = String(q || '').trim();
   if (!q) return;
-  $('askBox').value = '';
+  $('barInput').value = '';
+  $('barSend').disabled = true;
   bubble('me', q);
   CHAT.push({ role: 'user', content: q });
-  bubble('ai', 'Thinking…');
-  const thinking = $('chat').lastElementChild;
+  const thinking = bubble('ai', 'Thinking…');
   try {
-    const { res, j } = await fn('cot-assist', { cot_id: CUR.row.id, mode: 'chat', messages: CHAT });
+    const payload = { mode: 'chat', messages: CHAT };
+    if (CUR) payload.cot_id = CUR.row.id;      // no cot_id = the queue as a whole
+    const { res, j } = await fn('cot-assist', payload);
     if (!res.ok || j.error) throw new Error(j.error || ('HTTP ' + res.status));
-    thinking.textContent = j.reply;
+
+    const sonnet = j.model_label === 'Sonnet';
+    thinking.innerHTML = esc(j.reply) +
+      ` <span class="tag${sonnet ? ' sonnet' : ''}">${esc(j.model_label || '')}</span>` +
+      (j.escalated ? `<div style="font-size:11px;color:var(--muted);margin-top:6px;">Handed to Sonnet: ${esc(j.escalation_reason || '')}</div>` : '');
     CHAT.push({ role: 'assistant', content: j.reply });
   } catch (e) {
     thinking.textContent = 'Could not answer: ' + (e.message || 'unknown error');
+  } finally {
+    $('barSend').disabled = false;
+    $('barInput').focus();
   }
 }
 
@@ -877,7 +1159,30 @@ $('loginBtn').onclick = signIn;
 ['u', 'p'].forEach((id) => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') signIn(); }));
 $('whoBtn').onclick = setWho;
 $('whoName').addEventListener('keydown', (e) => { if (e.key === 'Enter') setWho(); });
-$('btnRefresh').onclick = loadQueue;
+$('barSend').onclick = () => ask($('barInput').value);
+$('barInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') ask($('barInput').value); });
+
+/**
+ * The bar is fixed to the bottom, so the page needs exactly as much bottom padding as the
+ * bar is tall. Hard-coding it left the last row of the queue underneath the bar and
+ * unclickable, and the bar changes height when the chat opens and when the suggestions wrap.
+ * So measure it.
+ */
+(function keepClearOfBar() {
+  const bar = $('bar');
+  if (!bar) return;
+  const set = () => { document.body.style.paddingBottom = (bar.offsetHeight + 26) + 'px'; };
+  set();
+  if (window.ResizeObserver) new ResizeObserver(set).observe(bar);
+  window.addEventListener('resize', set);
+})();
+
+// A monospace clock, like the Claude OS header. Cheap, and it tells you the page is live.
+setInterval(() => {
+  const d = new Date();
+  const c = $('clock');
+  if (c) c.textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}, 1000);
 $('btnSwitch').onclick = () => {
   localStorage.removeItem('cot_who'); WHO = '';
   $('app').classList.add('hide'); $('whoami').classList.remove('hide');
@@ -897,7 +1202,7 @@ $('btnOut').onclick = async () => { localStorage.removeItem('cot_who'); await sb
   } catch (e) { /* suggestions are a nicety */ }
 })();
 
-// COT desk build 2026-09-06b
+// COT desk build 2026-09-07a
 </script>
 </body>
 </html>
