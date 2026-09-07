@@ -636,6 +636,22 @@
     .usage-source-pill.src-MIXED     { background: var(--warn-bg); color: var(--warn); }
     .usage-source-pill.src-BILLED    { background: rgba(47,61,126,0.10); color: var(--navy); }
     .usage-source-pill.src-ESTIMATED { background: var(--fail-bg); color: var(--fail); }
+    /* Origin marker — sits next to the source pill on months whose kWh came from
+       the daily half-hourly feed from the data collector rather than the invoice.
+       Turns amber when that actual read disagrees with the billed figure by 5%+,
+       so a swap that moves the number a long way is visible rather than silent. */
+    .usage-origin-pill {
+      display: inline-block; font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 100px;
+      text-transform: uppercase; letter-spacing: 0.4px; margin-left: 4px;
+      background: rgba(47,61,126,0.10); color: var(--navy); cursor: help; white-space: nowrap;
+    }
+    /* The flagged variant must not rely on colour alone at 9.5px — it also
+       carries a ⚠ in its label, and a solid border so it reads as different
+       even in greyscale. */
+    .usage-origin-pill.flag {
+      background: rgba(200,140,30,0.28); color: var(--warn);
+      box-shadow: inset 0 0 0 1px var(--warn);
+    }
     .usage-source-legend { font-size: 11.5px; color: var(--muted); margin-top: 12px; }
 
     /* ═════════════════════════════════════════════════════════════════ */
@@ -1490,7 +1506,7 @@
         <div class="dash-section" data-page="usage" style="display:none;">
           <div class="section-head">
             <h2>Carbon Reporting</h2>
-            <div class="section-meta">Aggregate kWh and kgCO<sub>2</sub>e across selected sites and periods · uses Half-Hourly Data where available, falls back to billed where not.</div>
+            <div class="section-meta">Aggregate kWh and kgCO<sub>2</sub>e across selected sites and periods · uses the daily half-hourly feed from the data collector wherever it covers the whole billing period, and falls back to the validated invoice where it does not.</div>
           </div>
           <div class="usage-filters" id="usageFilters">
             <div class="filter-block">
@@ -1542,6 +1558,11 @@
                 <span class="usage-source-pill src-BILLED">Billed</span> from invoice ·
                 <span class="usage-source-pill src-ESTIMATED">Estimated</span> estimated reads
               </p>
+              <p class="usage-source-legend" style="margin-top:6px;">
+                <span class="usage-origin-pill">DC feed</span> kWh taken from the daily half-hourly feed supplied by the data collector, which covered every day of that billing period · hover for the billed comparison ·
+                <span class="usage-origin-pill flag">⚠ DC feed</span> that actual read differs from the billed figure by 5% or more
+              </p>
+              <p class="usage-source-legend" id="usageOriginNote" style="margin-top:6px;"></p>
             </div>
           </div>
           <div id="usageEmpty" style="display:none;">
@@ -10748,6 +10769,7 @@
 
     let _usageSites = [];   // [{site_name, site_postcode, key}]
     let _usageRows  = [];   // last fetched dataset
+    let _usageFlagged = 0;  // DC-fed month cells whose actual read differs 5%+ from billed
     let _usageMeterSiteKey = {};  // "<utility>|<normMeter>" -> canonical site key (set in loadUsageReport)
     let _usageSiteMix = {};       // canonical site key -> { electricity: [meterIds], gas: [...] }
 
@@ -10959,7 +10981,15 @@
           return;
         }
 
-        let q = sb.from('usage_data').select('*').eq('customer_id', currentUser.customerId)
+        // usage_data_resolved, not usage_data. The view puts the daily Stark
+        // half-hourly feed (hh_data) into total_kwh wherever Stark covers every
+        // day of the billing period, and falls back to the parsed report where it
+        // does not — a meter Stark has never sent, a period with a collection
+        // gap, or gas, which has no HHD at all. It also carries billed_kwh,
+        // data_origin and the variance so the swap can be shown, not hidden.
+        // security_invoker=on, so the same RLS as usage_data applies.
+        // Migration: supabase/migrations/20260907_usage_data_resolved_stark_hhd.sql
+        let q = sb.from('usage_data_resolved').select('*').eq('customer_id', currentUser.customerId)
           .in('utility', utils)
           .gte('period_start', from.start).lte('period_start', to.end)
           .order('period_start', { ascending: true });
@@ -11009,12 +11039,15 @@
     }
 
     function renderUsageKPIs(rows) {
-      let totalKwh = 0, totalCO2kg = 0, verifiedKwh = 0;
+      let totalKwh = 0, totalCO2kg = 0, verifiedKwh = 0, dcKwh = 0;
       const meterSites = _resolveMeterSites(rows);
       const sites = new Set();
       for (const r of rows) {
         const k = Number(r.total_kwh || 0);
         totalKwh += k;
+        // How much of the total came from the data collector's daily half-hourly
+        // feed rather than off an invoice. Set by usage_data_resolved.
+        if (r.data_origin === 'STARK') dcKwh += k;
         // Apply per-meter green energy % — green portion contributes 0 CO2
         const greenPct = _greenByMeter[r.meter_id] || 0;
         const taxableKwh = k * (1 - greenPct / 100);
@@ -11032,8 +11065,10 @@
       const totalCO2t = totalCO2kg / 1000;
       const verifiedPct = totalKwh > 0 ? Math.round((verifiedKwh / totalKwh) * 1000) / 10 : 0;
       const verifiedBadge = verifiedPct >= 95 ? '✓ SECR + ESOS ready' : (verifiedPct >= 80 ? 'Chase missing actuals' : 'Below SECR / ESOS threshold');
+      const dcPct = totalKwh > 0 ? Math.round((dcKwh / totalKwh) * 1000) / 10 : 0;
+      const dcLine = dcKwh > 0 ? ' · ' + _fmtNum(dcPct, 1) + '% from the DC half-hourly feed' : '';
       const html = ''
-        + '<div class="usage-kpi"><div class="usage-kpi__label">Total Consumption</div><div class="usage-kpi__value">' + _fmtNum(totalKwh, 1) + ' kWh</div><div class="usage-kpi__sub">' + rows.length + ' month-rows across ' + sites.size + ' site(s)</div></div>'
+        + '<div class="usage-kpi"><div class="usage-kpi__label">Total Consumption</div><div class="usage-kpi__value">' + _fmtNum(totalKwh, 1) + ' kWh</div><div class="usage-kpi__sub">' + rows.length + ' month-rows across ' + sites.size + ' site(s)' + dcLine + '</div></div>'
         + '<div class="usage-kpi"><div class="usage-kpi__label">Carbon Footprint</div><div class="usage-kpi__value">' + _fmtNum(totalCO2t, 2) + ' tCO₂e</div><div class="usage-kpi__sub">Electricity 0.17700, Gas 0.18296 kgCO₂e/kWh</div></div>'
         + '<div class="usage-kpi"><div class="usage-kpi__label">% Data Verified</div><div class="usage-kpi__value">' + _fmtNum(verifiedPct, 1) + '%</div><div class="usage-kpi__sub">' + verifiedBadge + '</div></div>'
         + '<div class="usage-kpi"><div class="usage-kpi__label">Sites Included</div><div class="usage-kpi__value">' + sites.size + '</div><div class="usage-kpi__sub">of ' + _usageSites.length + ' available</div></div>';
@@ -11091,6 +11126,7 @@
       const meterSites = _resolveMeterSites(rows);
       const monthKeys = new Set();
       const rowMap = {};
+      _usageFlagged = 0;   // counted while rendering the cells, reported under the table
       for (const r of rows) {
         const mk = _periodKey(r);
         monthKeys.add(mk);
@@ -11106,9 +11142,16 @@
           };
         }
         const mm = rowMap[rk].months;
-        if (!mm[mk]) mm[mk] = { kwh: 0, sources: {} };
+        if (!mm[mk]) mm[mk] = { kwh: 0, sources: {}, n: 0, dc: 0, billed: 0 };
         mm[mk].kwh += Number(r.total_kwh || 0);
         mm[mk].sources[r.source] = (mm[mk].sources[r.source] || 0) + 1;
+        // Track how the cell was sourced so the DC-feed marker and the
+        // variance-against-billed tooltip can be rendered below. A cell can hold
+        // more than one billing period, so only mark it as DC-fed when EVERY
+        // row behind it came from the feed.
+        mm[mk].n  += 1;
+        if (r.data_origin === 'STARK') mm[mk].dc += 1;
+        mm[mk].billed += Number(r.billed_kwh != null ? r.billed_kwh : r.total_kwh || 0);
       }
       const months = Array.from(monthKeys).sort();
       const all = Object.values(rowMap);
@@ -11142,7 +11185,24 @@
             for (const k in cell.sources) {
               if (cell.sources[k] > bestN) { bestN = cell.sources[k]; bestSrc = k; }
             }
-            html += '<td class="num">' + _fmtNum(cell.kwh, 1) + '<br><span class="usage-source-pill src-' + bestSrc + '" style="margin-left:0;">' + bestSrc + '</span></td>';
+            // DC-feed marker: only when every period in the cell came from the
+            // feed, so a half-and-half cell is never labelled as fully actual.
+            let originPill = '';
+            if (cell.n > 0 && cell.dc === cell.n) {
+              const diff = cell.kwh - cell.billed;
+              const pct  = cell.billed > 0 ? (diff / cell.billed) * 100 : null;
+              const flag = pct != null && Math.abs(pct) >= 5;
+              if (flag) _usageFlagged++;
+              const tip = 'Actual half-hourly data from the data collector, covering every day of this billing period.'
+                + '\nBilled on the invoice: ' + _fmtNum(cell.billed, 1) + ' kWh'
+                + (pct != null
+                    ? '\nDifference: ' + (diff > 0 ? '+' : '') + _fmtNum(diff, 1) + ' kWh ('
+                      + (pct > 0 ? '+' : '') + pct.toFixed(1) + '%)'
+                    : '');
+              originPill = '<span class="usage-origin-pill' + (flag ? ' flag' : '') + '" title="'
+                + escapeHtml(tip) + '">' + (flag ? '⚠ DC feed' : 'DC feed') + '</span>';
+            }
+            html += '<td class="num">' + _fmtNum(cell.kwh, 1) + '<br><span class="usage-source-pill src-' + bestSrc + '" style="margin-left:0;">' + bestSrc + '</span>' + originPill + '</td>';
             colTotals[i] += cell.kwh;
             rowKwh += cell.kwh;
           });
@@ -11178,6 +11238,18 @@
       html += '<td class="num">' + _fmtNum(grandCO2t, 2) + ' tCO&#8322;e</td></tr>';
       html += '</tbody>';
       document.getElementById('usageTable').innerHTML = html;
+      // Say out loud how many DC-fed months disagree materially with the invoice.
+      // A silent swap that moves a figure 50% is exactly what must not happen on
+      // a report that feeds an ESOS / SECR submission.
+      const note = document.getElementById('usageOriginNote');
+      if (note) {
+        note.innerHTML = _usageFlagged > 0
+          ? '⚠ ' + _usageFlagged + ' DC-fed month' + (_usageFlagged === 1 ? '' : 's')
+            + ' differ' + (_usageFlagged === 1 ? 's' : '') + ' from the billed figure by 5% or more '
+            + '(amber markers above). Hover a marker for the billed comparison — worth checking the '
+            + 'billing period dates on those invoices before the figures are submitted.'
+          : '';
+      }
       setTimeout(_fitUsageTable, 30);
     }
 
@@ -11252,6 +11324,7 @@
       // ---- pivot (same grouping as the on-screen table: one row per meter) ----
       var meterSites = _resolveMeterSites(rows);
       var monthSet = {}, rowMap = {};
+      var xlDcKwh = 0, xlTotKwh = 0;
       rows.forEach(function(r){
         var mk = _periodKey(r); monthSet[mk] = 1;
         var rk = r.utility + '|' + _normMeter(r.meter_id);
@@ -11260,6 +11333,10 @@
           rowMap[rk] = { utility:r.utility, site:ms.site_name, post:ms.site_postcode, meter:r.meter_id, months:{} };
         }
         rowMap[rk].months[mk] = (rowMap[rk].months[mk] || 0) + Number(r.total_kwh || 0);
+        // Basis of the workbook, stated in the subtitle. A carbon workbook that
+        // does not say where its kWh came from is not auditable.
+        xlTotKwh += Number(r.total_kwh || 0);
+        if (r.data_origin === 'STARK') xlDcKwh += Number(r.total_kwh || 0);
       });
       var months = Object.keys(monthSet).sort();
       var all = Object.keys(rowMap).map(function(k){ return rowMap[k]; });
@@ -11281,7 +11358,8 @@
         var thin = { style:'thin', color:{ argb:'FFE3E0D8' } };
         var wb = new ExcelJS.Workbook();
         wb.creator = 'CES Billing Portal';
-        var ws = wb.addWorksheet('Carbon Report', { views: [{ state:'frozen', ySplit: 4, xSplit: 1 }] });
+        // ySplit 5, not 4 — title, subtitle, basis note, spacer, then the header row.
+        var ws = wb.addWorksheet('Carbon Report', { views: [{ state:'frozen', ySplit: 5, xSplit: 1 }] });
 
         var widths = [34, 18].concat(months.map(function(){ return 13; })).concat([13, 11]);
         widths.forEach(function(w, i){ ws.getColumn(i + 1).width = w; });
@@ -11297,9 +11375,14 @@
         var sub = ws.addRow(['Period: ' + spanLbl + '     ·     Factors: Electricity ' + (BEIS_FACTORS.electricity || 0) + ' / Gas ' + (BEIS_FACTORS.gas || 0) + ' kgCO₂e per kWh']);
         ws.mergeCells(sub.number, 1, sub.number, nCols);
         ws.getCell(sub.number, 1).font = { size:10, color:{ argb:'FF7A7E8C' } };
-        ws.addRow([]); // blank spacer (row 3)
+        var dcShare = xlTotKwh > 0 ? Math.round(xlDcKwh / xlTotKwh * 1000) / 10 : 0;
+        var basis = ws.addRow(['Basis: ' + dcShare.toFixed(1) + '% of the kWh below is actual half-hourly data from the data collector '
+          + '(used wherever it covers every day of a billing period); the remainder is taken from the validated invoice.']);
+        ws.mergeCells(basis.number, 1, basis.number, nCols);
+        ws.getCell(basis.number, 1).font = { size:9.5, italic:true, color:{ argb:'FF7A7E8C' } };
+        ws.addRow([]); // blank spacer
 
-        // Header (row 4)
+        // Header (row 5)
         var headerVals = ['Site', 'Meter'].concat(months.map(function(m){ return _periodLabel(m) + ' (kWh)'; })).concat(['Total kWh', 'tCO₂e']);
         var hr = ws.addRow(headerVals); hr.height = 22;
         hr.eachCell(function(cell, col){
