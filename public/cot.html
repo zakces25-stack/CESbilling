@@ -497,7 +497,8 @@
         <div style="display:grid;gap:14px;">
           <div class="card" style="padding:0;overflow:hidden;">
             <div style="padding:14px 16px 10px;">
-              <h3 style="margin-bottom:4px;">Boxes on this form <span class="mono" id="boxCount" style="color:var(--muted);font-weight:600;font-size:12px;"></span></h3>
+              <h3 style="margin-bottom:4px;">Boxes on <span id="boxWhich">the supplier's form</span>
+                <span class="mono" id="boxCount" style="color:var(--muted);font-weight:600;font-size:12px;"></span></h3>
               <p style="color:var(--muted);font-size:12px;">
                 In the order they appear on the form, top to bottom. Click one to find it on
                 the page. Type and it shows on the page straight away in amber; press save to
@@ -512,7 +513,7 @@
             </div>
           </div>
 
-          <div class="card">
+          <div class="card" id="fCard">
             <h3 style="margin-bottom:4px;">Ask for a change</h3>
             <p style="color:var(--muted);font-size:12px;margin-bottom:10px;">
               Sonnet reads this COT and proposes boxes to change. It never writes: you apply
@@ -596,7 +597,10 @@ const ukDate = (d) => { if (!d) return ''; const [y,m,dd] = String(d).slice(0,10
 
 let WHO = '';          // the person on the desk, for the audit trail
 let ROWS = [];         // the queue, as loaded
-let FILTER = 'action';
+// Everything open, not "needs doing". "Needs doing" is computed from each supplier's SLA, so
+// on a quiet morning it is legitimately empty — and an empty table is the first thing anyone
+// sees when they open the portal, which reads as broken rather than as calm.
+let FILTER = 'all';
 let BRIEF = null;      // { headline, lines: [{cot_id, todo, urgency}] }
 let TODO = {};         // cot_id -> {todo, urgency}, so the queue can show it per row
 
@@ -860,8 +864,8 @@ function renderStats() {
 function renderFilters() {
   const needing = ROWS.filter((r) => r.action).length;
   const defs = [
-    ['action', 'Needs doing', needing],
     ['all',    'Everything open', ROWS.length],
+    ['action', 'Needs doing', needing],
     ['sent',   'With the supplier', ROWS.filter((r) => r.status === 'With the supplier' || r.status === 'Acknowledged').length],
     ['stuck',  'Waiting on us', ROWS.filter((r) => r.status === 'New' || r.status === 'Needs a human' || r.status === 'Ready').length],
   ];
@@ -1707,6 +1711,22 @@ function reorderBoxList() {
   BOXES.forEach((b) => { if (byId[b.id]) list.appendChild(byId[b.id]); });
 }
 
+/**
+ * Which document the box editor is for, decided by what the viewer is showing.
+ *
+ * 'supplier'  the supplier's own filled form
+ * 'ces'       CES's Change of Tenancy Form, filled from a fixed map
+ * null        a lease, a proof, or anything the customer or a solicitor sent — READ ONLY.
+ *             There are no boxes to edit on someone else's document, and offering an editor
+ *             over a scanned lease invites somebody to try.
+ */
+function formKindOf(name) {
+  if (/^supplierform-/i.test(name || '')) return 'supplier';
+  if (/^CES COT Form/i.test(name || '')) return 'ces';
+  return null;
+}
+let EDIT_TARGET = 'supplier';
+
 let BOXES = [];        // [{id,label,page,rect,name,ord,value,source,blank}] in form order
 let ORIG = {};         // box id -> the value that was on the form when this screen opened
 let DBQ = {};          // box id -> db_field, queued from an applied proposal
@@ -1724,8 +1744,14 @@ async function openForm() {
   DBQ = {}; SEL = null;
 
   const files = buildPicker();
-  await renderBoxes();
-  if (files.length) await pdfLoad(files[0].name);
+  // pdfLoad decides which form the editor is for, so it renders the boxes itself. With no
+  // documents at all there is nothing to decide, and the read-only state is the honest one.
+  if (files.length) {
+    await pdfLoad(files[0].name);
+  } else {
+    EDIT_TARGET = null;
+    await renderBoxes();
+  }
 }
 
 /**
@@ -1751,13 +1777,44 @@ function buildPicker() {
 
 async function renderBoxes() {
   const list = $('boxList'), run = CUR.run;
-  const written = (run && run.written) || [];
+
+  // ── whose boxes are these ─────────────────────────────────────────────────────────
+  // The editor follows the viewer. Switching the picker to CES's form used to leave the
+  // supplier's fields on screen, which is an invitation to correct the wrong document.
+  const target = EDIT_TARGET;
+  const editable = target === 'supplier' || target === 'ces';
+  const which = target === 'ces' ? "CES's own COT form" : "the supplier's form";
+  ['btnBoxSave', 'btnBoxBlank', 'boxPending'].forEach((id) => {
+    const el = $(id); if (el) el.classList.toggle('hide', !editable);
+  });
+  // cot-assist's fields mode reads the supplier's form and the supplier's requirements. CES's
+  // own form is drawn from a fixed twelve-row map with no model involved, so there is nothing
+  // for it to reason about, and a lease has no boxes at all.
+  const fCard = $('fCard'); if (fCard) fCard.classList.toggle('hide', target !== 'supplier');
+  const label = $('boxWhich'); if (label) label.textContent = editable ? which : '';
+
+  if (!editable) {
+    BOXES = []; ORIG = {}; DBQ = {};
+    $('boxCount').textContent = '';
+    list.innerHTML = `<div style="padding:16px;">
+      <p style="font-size:13px;color:var(--text-2);line-height:1.5;">
+        <strong>${esc(_pdfName || 'This document')}</strong> is not one of ours to edit — it came
+        from the customer or their solicitor. Read it, shrink it if it is too big to email, but
+        there is nothing here to type into.</p>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px;">
+        Pick the supplier's form or CES's COT form above to edit boxes.</p>
+    </div>`;
+    drawPreviews();
+    return;
+  }
+
+  const written = (target === 'ces' ? (run && run.ces_written) : (run && run.written)) || [];
   const byId = {}; written.filter((w) => w.kind !== 'tick').forEach((w) => { byId[w.id] = w; });
 
   let boxes = [];
   try {
     const geo = await geometry();
-    const form = geo.forms?.[CUR.row.supplier_key || ''];
+    const form = target === 'ces' ? geo.forms?.ces_form : geo.forms?.[CUR.row.supplier_key || ''];
     boxes = geoBoxes(form);
   } catch (e) {
     // Without the geometry the written list is still worth showing: it is the boxes that
@@ -1767,6 +1824,25 @@ async function renderBoxes() {
   if (!boxes.length) {
     boxes = written.filter((w) => w.kind !== 'tick')
       .map((w, i) => ({ id: w.id, label: w.label || w.id, page: w.page || 0, rect: null, name: null, ord: i }));
+  }
+
+  // A COT filled before cot-fill recorded the CES form's boxes has geometry but no values.
+  // Rather than showing a form full of false blanks, offer to read them back: a no-op redraw
+  // rebuilds them from the same fixed map that drew the document in the first place.
+  const cesUnrecorded = target === 'ces' && !written.length && boxes.length;
+  if (cesUnrecorded) {
+    $('boxCount').textContent = '';
+    list.innerHTML = `<div style="padding:16px;">
+      <p style="font-size:13px;color:var(--text-2);line-height:1.5;">
+        This CES form was filled before the portal kept a record of its boxes, so their values
+        are not stored anywhere. Reading them back rebuilds the list from the same fixed map
+        that drew the document — nothing on the form changes.</p>
+      <button class="btn btn-primary" id="btnCesLoad" style="margin-top:10px;">Read this form's boxes</button>
+      <span id="cesLoadMsg" style="font-size:12.5px;color:var(--muted);margin-left:8px;"></span>
+    </div>`;
+    $('btnCesLoad').onclick = loadCesBoxes;
+    drawPreviews();
+    return;
   }
 
   BOXES = boxes.map((b) => {
@@ -1807,6 +1883,26 @@ async function renderBoxes() {
   });
   drawPreviews();
   pending();
+}
+
+/**
+ * Materialise the CES form's box list for a COT filled before it was recorded.
+ *
+ * An override call with nothing in it: cot-fill rebuilds the baseline from cesFormPlan, draws
+ * the same document again and writes ces_written. Deterministic, so the file that comes back
+ * is the file that was already there.
+ */
+async function loadCesBoxes() {
+  const btn = $('btnCesLoad'), msg = $('cesLoadMsg');
+  btn.disabled = true; btn.textContent = 'Reading…';
+  try {
+    const { res, j } = await fn('cot-fill', { cot_id: CUR.row.id, target: 'ces', overrides: {}, notify: false });
+    if (!res.ok || j.error) throw new Error(j.error || ('HTTP ' + res.status));
+    await refreshCot();
+  } catch (e) {
+    msg.textContent = 'Could not read them: ' + (e.message || 'unknown error');
+    btn.disabled = false; btn.textContent = "Read this form's boxes";
+  }
 }
 
 /** How many boxes are changed but not written, said out loud next to the Save button. */
@@ -1900,6 +1996,12 @@ async function pdfLoad(name) {
   _pdfName = name;
   $('pdfPick').value = name;
 
+  // The editor follows the document. Switching to CES's form switches the box list to CES's
+  // boxes, switching back switches it back, and a lease switches it off.
+  EDIT_TARGET = formKindOf(name);
+  SEL = null; DBQ = {};
+  await renderBoxes();
+
   try {
     _pdfBytes = await dlBytes(name);
   } catch (e) {
@@ -1933,8 +2035,13 @@ async function pdfPaint() {
   _pdfPages = [];
 
   for (let n = 1; n <= total; n++) {
-    if (_pdfDoc !== doc) return;                      // switched file mid-render
+    // Checked before AND after every await, not just at the top of the loop. Leaving the form
+    // while a page was being fetched let this iteration carry on and append a canvas to a
+    // pane that had already been emptied, so the document was never really released and the
+    // remaining pages kept rendering into a hidden tab.
+    if (_pdfDoc !== doc) return;                      // switched file or left the form
     const page = await doc.getPage(n);
+    if (_pdfDoc !== doc) return;
     const base = page.getViewport({ scale: 1 });
     const scale = (avail / base.width) * _zoom;
     const vp = page.getViewport({ scale });
@@ -2024,10 +2131,12 @@ async function saveBoxes() {
 
   btn.disabled = true; btn.textContent = 'Redrawing…'; msg.textContent = '';
   try {
-    const { res, j } = await fn('cot-fill', { cot_id: CUR.row.id, overrides, notify: false });
+    const { res, j } = await fn('cot-fill',
+      { cot_id: CUR.row.id, target: EDIT_TARGET, overrides, notify: false });
     if (!res.ok || j.error) throw new Error(j.error || ('HTTP ' + res.status));
     const edited = j.edited || [];
-    await logEvent('edit', `${WHO} changed ${edited.length} box(es) on the ${CUR.row.supplier_raw || 'supplier'} form: ${edited.join(', ')}`);
+    const onWhat = EDIT_TARGET === 'ces' ? 'the CES COT form' : `the ${CUR.row.supplier_raw || 'supplier'} form`;
+    await logEvent('edit', `${WHO} changed ${edited.length} box(es) on ${onWhat}: ${edited.join(', ')}`);
     msg.innerHTML = `Saved. ${j.filled} box(es) on the form, ${j.could_not_fill} still blank.` +
       (j.refused && j.refused.length
         ? `<span style="color:var(--fail);"> ${j.refused.length} refused: ` +
@@ -2486,7 +2595,18 @@ $('btnOut').onclick = async () => {
 
 // ── the form tab's controls ──────────────────────────────────────────────────────────
 $('btnFormBack').onclick = () => { if (CUR) { showView('cot'); } else { backToQueue(); } };
-$('pdfPick').onchange = () => pdfLoad($('pdfPick').value);
+// Switching document throws away anything typed and not saved, so say so first and put the
+// dropdown back if the answer is no.
+$('pdfPick').onchange = () => {
+  const next = $('pdfPick').value;
+  const n = [...document.querySelectorAll('#boxList input[data-bid]')]
+    .filter((i) => DBQ[i.dataset.bid] || i.value !== (ORIG[i.dataset.bid] || '')).length;
+  if (n && !confirm(`${n} unsaved change${n === 1 ? '' : 's'} on this form will be lost. Switch anyway?`)) {
+    $('pdfPick').value = _pdfName;
+    return;
+  }
+  pdfLoad(next);
+};
 $('pdfOpen').onclick = () => { if (_pdfName) openDoc(_pdfName); };
 $('pdfShrink').onclick = shrinkCurrent;
 $('pdfFull').onclick = () => pdfFullscreen();
@@ -2507,6 +2627,9 @@ document.addEventListener('keydown', (e) => {
   if (s && s.session) await afterSignIn(); else showSignIn();
 })();
 
+// COT desk build 2026-09-07d
+//  · the box editor follows the file picker: supplier form, CES's own form, or read-only
+//  · the queue opens on Everything open rather than a filter that is often empty
 // COT desk build 2026-09-07c
 //  · the viewer reads past the CDN, so a redraw is visible instead of an hour old
 //  · typing shows on the page immediately, in amber, before it is saved
