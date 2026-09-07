@@ -256,6 +256,11 @@
     .pdfpage .hl { position: absolute; border: 2px solid var(--cyan); background: var(--cyan-glow);
       border-radius: 2px; pointer-events: none; box-shadow: 0 0 12px var(--cyan-glow); }
     .pdfpage .hl.warn { border-color: var(--warn); background: var(--warn-bg); box-shadow: none; }
+    /* an unsaved edit, laid over its own box */
+    .pdfpage .pv { position: absolute; pointer-events: none; display: flex; align-items: center;
+      font-family: Arial, Helvetica, sans-serif; color: #8a5a00; background: rgba(251,191,36,0.22);
+      border-bottom: 1px solid var(--warn); overflow: hidden; white-space: nowrap; line-height: 1; }
+    .pdfpage .pv.db { color: #0b6b7a; background: rgba(34,211,238,0.18); border-bottom-color: var(--cyan); font-style: italic; }
     .pdfnum { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--muted);
       text-align: center; margin: -8px 0 12px; }
 
@@ -494,13 +499,15 @@
             <div style="padding:14px 16px 10px;">
               <h3 style="margin-bottom:4px;">Boxes on this form <span class="mono" id="boxCount" style="color:var(--muted);font-weight:600;font-size:12px;"></span></h3>
               <p style="color:var(--muted);font-size:12px;">
-                Click one to find it on the page. Change what is wrong, then save: only the
-                boxes you touch change.</p>
+                In the order they appear on the form, top to bottom. Click one to find it on
+                the page. Type and it shows on the page straight away in amber; press save to
+                write it, and only the boxes you touched change.</p>
             </div>
             <div class="boxlist" id="boxList"></div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--line);">
               <button class="btn btn-primary" id="btnBoxSave">Save and redraw</button>
               <button class="btn btn-sec" id="btnBoxBlank">Show blanks only</button>
+              <span id="boxPending" style="font-size:12px;color:var(--warn);"></span>
               <span id="boxMsg" style="font-size:12.5px;color:var(--muted);"></span>
             </div>
           </div>
@@ -693,6 +700,30 @@ const ACTION_RANK = {
   'NOT PICKED UP':     { r: 6, cls: 'act-blu' },
 };
 const rank = (a) => (ACTION_RANK[a] ? ACTION_RANK[a].r : 90);
+
+// ── what can follow what ───────────────────────────────────────────────────────────────
+// The same map as cot_track_state in the database, which writes an ILLEGAL TRANSITION event
+// for anything outside it. Held here so the screen only ever offers moves that are allowed:
+// the alternative is a dropdown that quietly fills the change log with errors.
+// Keep the two in step — the database is the one that decides.
+const NEXT = {
+  'New':                  ['Reviewing','Waiting on you','Waiting on customer','Ready','With the supplier','Needs a human','Cancelled'],
+  'Reviewing':            ['Waiting on you','Waiting on customer','Ready','With the supplier','Needs a human','Cancelled'],
+  'Waiting on you':       ['New','Reviewing','Waiting on customer','Ready','With the supplier','Needs a human','Cancelled'],
+  'Waiting on customer':  ['Ready','Waiting on you','With the supplier','Needs a human','Cancelled'],
+  'Ready':                ['With the supplier','Waiting on you','Needs a human','Cancelled'],
+  'With the supplier':    ['Acknowledged','Supplier queried','Done','Rejected','Superseded','Needs a human'],
+  'Acknowledged':         ['Supplier queried','Done','Rejected','Superseded','Needs a human'],
+  'Supplier queried':     ['Waiting on you','With the supplier','Done','Rejected','Superseded','Needs a human'],
+  'Needs a human':        ['Done','Rejected','Superseded','Cancelled','With the supplier','Waiting on you'],
+};
+const CLOSERS = ['Done', 'Rejected', 'Superseded', 'Cancelled'];
+const CLOSE_LABEL = {
+  'Done':       'Done — the supplier completed it',
+  'Rejected':   'Rejected — the supplier refused it',
+  'Superseded': 'Superseded — replaced by another COT',
+  'Cancelled':  'Cancelled — not going ahead',
+};
 
 const STATUS_COLOUR = {
   'New': '#243b8f', 'Reviewing': '#5b4bb5', 'Waiting on you': '#b5840a',
@@ -915,7 +946,7 @@ async function openCot(id) {
   ]);
   if (!row) { $('cotView').innerHTML = '<div class="card">That COT could not be loaded.</div>'; return; }
 
-  CUR = { row, meters: meters || [], run: (runs && runs[0]) || null, files: files || [] };
+  CUR = { row, meters: meters || [], run: (runs && runs[0]) || null, files: realFiles(files) };
   renderCot();
   // Again, now that CUR exists: it is what enables the Form tab and what presence reports.
   showView('cot');
@@ -929,23 +960,12 @@ function backToQueue() {
 }
 
 function docLabel(name) {
-  // "(small)" is the re-rendered copy the shrink tool makes. Labelled rather than hidden:
-  // the desk is choosing what to attach, and "which of these two is the small one" should
-  // not need working out from the byte count.
-  const small = /\(small\)\.pdf$/i.test(name);
-  const tag = (s) => small ? s + ' · smaller copy' : s;
-  if (/^proof-/i.test(name))       return [tag('Proof of occupation'), name.replace(/^proof-/i, '')];
-  if (/^cesform-/i.test(name))     return [tag("Customer's CES form"), name.replace(/^cesform-/i, '')];
-  if (/^extra-/i.test(name))       return [tag('Also attached'), name.replace(/^extra-/i, '')];
-  if (/^supplierform-/i.test(name))return [tag("Supplier's form — FILLED"), name];
-  if (/^CES COT Form/i.test(name)) return [tag('CES COT Form — FILLED'), name];
-  return [tag('Document'), name];
-}
-
-/** The small copy of a file, if one has been made. */
-function smallOf(name, files) {
-  const want = String(name).replace(/\.pdf$/i, '') + ' (small).pdf';
-  return (files || []).some((f) => f.name === want) ? want : null;
+  if (/^proof-/i.test(name))       return ['Proof of occupation', name.replace(/^proof-/i, '')];
+  if (/^cesform-/i.test(name))     return ["Customer's CES form", name.replace(/^cesform-/i, '')];
+  if (/^extra-/i.test(name))       return ['Also attached', name.replace(/^extra-/i, '')];
+  if (/^supplierform-/i.test(name))return ["Supplier's form — FILLED", name];
+  if (/^CES COT Form/i.test(name)) return ['CES COT Form — FILLED', name];
+  return ['Document', name];
 }
 
 function renderCot() {
@@ -970,7 +990,7 @@ function renderCot() {
     const [kind, nice] = docLabel(f.name);
     const filled = /^(supplierform-|CES COT Form)/i.test(f.name);
     const bytes = f.metadata?.size || 0;
-    const heavy = bytes > 1_500_000 && !smallOf(f.name, CUR.files);
+    const heavy = bytes > 1_500_000;
     return `<div class="doc">
       <span style="min-width:190px;font-weight:${filled ? 800 : 600};color:${filled ? 'var(--navy)' : 'var(--text-2)'};font-size:12.5px;">${esc(kind)}</span>
       <a href="#" data-doc="${esc(f.name)}">${esc(nice)}</a>
@@ -1066,6 +1086,30 @@ function renderCot() {
 
     <div style="margin-top:16px;">
 
+      <!-- closing it out -->
+      <div class="card" style="margin-bottom:16px;">
+        <h3 style="margin-bottom:4px;">Close this COT</h3>
+        ${r.closed_at ? `<p style="color:var(--ok);font-size:13px;">
+             Closed ${ukDate(r.closed_at)} as <strong>${esc(r.status)}</strong>${
+               r.close_reason && r.close_reason !== r.status ? ' — ' + esc(r.close_reason) : ''}.</p>`
+          : CLOSERS.filter((s) => (NEXT[r.status] || []).includes(s)).length
+            ? `<p style="color:var(--muted);font-size:12px;margin-bottom:10px;">
+                 It drops off the queue and stops being chased. ${
+                   (NEXT[r.status] || []).includes('Done') ? '' :
+                   'From <strong>' + esc(r.status) + '</strong> the only way out is Cancelled — a COT that never went to the supplier was not done.'}</p>
+               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                 <select id="closeAs" style="width:auto;font-size:13px;padding:7px 9px;">
+                   ${CLOSERS.filter((s) => (NEXT[r.status] || []).includes(s))
+                     .map((s) => `<option value="${esc(s)}">${esc(CLOSE_LABEL[s] || s)}</option>`).join('')}
+                 </select>
+                 <input type="text" id="closeWhy" placeholder="Why, in a few words" style="flex:1;min-width:200px;font-size:13px;padding:7px 9px;" />
+                 <button class="btn btn-sec" id="btnClose">Close it</button>
+                 <span id="closeMsg" style="font-size:12.5px;color:var(--muted);"></span>
+               </div>`
+            : `<p style="color:var(--muted);font-size:13px;">
+                 Nothing can close a COT that is <strong>${esc(r.status)}</strong>. Move it on first.</p>`}
+      </div>
+
       <!-- the email -->
       <div class="card">
         <h3 style="margin-bottom:4px;">Send to the supplier</h3>
@@ -1084,6 +1128,7 @@ function renderCot() {
 
   $('btnBack').onclick = backToQueue;
   const openF = $('btnOpenForm'); if (openF) openF.onclick = openForm;
+  const cl = $('btnClose'); if (cl) cl.onclick = closeCot;
   const save = $('btnSave'); if (save) save.onclick = saveEdits;
   const refill = $('btnRefill'); if (refill) refill.onclick = rebuild;
   $('btnDraft').onclick = draftEmail;
@@ -1095,6 +1140,44 @@ function renderCot() {
   [...document.querySelectorAll('[data-doc]')].forEach((a) =>
     a.onclick = async (e) => { e.preventDefault(); await openDoc(a.dataset.doc); });
 }
+
+/**
+ * Read a file out of cot-documents, past the CDN.
+ *
+ * `.download()` goes through the storage CDN and every object in this bucket was written with
+ * `max-age=3600`, so immediately after cot-fill overwrites the form the browser is handed the
+ * hour-old copy: the desk saves a correction and watches the page not change. cot-fill now
+ * writes with cacheControl 0, and this reads through a freshly signed URL — a different token
+ * each time, so a different cache key — with no-store on top for the browser's own cache.
+ * `.download()` stays as the fallback, because a stale form beats no form.
+ */
+async function dlBytes(name) {
+  const path = `${CUR.row.id}/${name}`;
+  try {
+    const { data, error } = await sb.storage.from('cot-documents').createSignedUrl(path, 120);
+    if (error || !data) throw new Error(error?.message || 'no signed url');
+    const res = await fetch(data.signedUrl, { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.arrayBuffer();
+  } catch (e) {
+    const { data, error } = await sb.storage.from('cot-documents').download(path);
+    if (error || !data) throw new Error(error?.message || 'could not read that file');
+    return await data.arrayBuffer();
+  }
+}
+
+/**
+ * Objects only.
+ *
+ * A storage listing includes a placeholder row for each sub-folder, with `id: null` and no
+ * metadata. `originals/` is where the shrink tool puts the untouched scan, and without this
+ * it would appear in the document list, the file picker and the attachment checkboxes as a
+ * file called "originals".
+ */
+// A folder placeholder has BOTH id and metadata null, so either one being present means a
+// real object. Written as an OR rather than testing id alone: if a listing ever comes back
+// without ids, hiding every document is a far worse failure than showing a folder row.
+const realFiles = (list) => (list || []).filter((f) => f && (f.id || f.metadata));
 
 /** Signed URL rather than a public one: cot-documents holds leases and customer contacts. */
 async function openDoc(name) {
@@ -1141,13 +1224,41 @@ async function saveEdits() {
     const j = await res.json().catch(() => ({}));
     if (!res.ok || j.error) throw new Error(j.error || ('HTTP ' + res.status));
 
-    await logEvent('edited', `${WHO} edited ${(j.edited || []).length} field(s): ${(j.edited || []).join(', ')}`);
+    await logEvent('edit', `${WHO} edited ${(j.edited || []).length} field(s): ${(j.edited || []).join(', ')}`);
     msg.textContent = `Saved. ${j.filled} field(s) on the form.`;
     await openCot(CUR.row.id);
   } catch (e) {
     msg.textContent = 'Could not save: ' + (e.message || 'unknown error');
   } finally {
     btn.disabled = false; btn.textContent = 'Save and redraw the form';
+  }
+}
+
+/**
+ * Close it out.
+ *
+ * Only the statuses the database's own transition map allows from here are offered, so this
+ * cannot produce an ILLEGAL TRANSITION row. `closed_at` is stamped by the trigger, not here:
+ * one clock, set in one place, whoever does the closing.
+ */
+async function closeCot() {
+  const sel = $('closeAs'), why = $('closeWhy'), btn = $('btnClose'), msg = $('closeMsg');
+  const status = sel.value;
+  const reason = (why.value || '').trim();
+  if (!reason) { msg.textContent = 'Say why, so the next person reading this knows.'; why.focus(); return; }
+  if (!confirm(`Close ${CUR.row.ref} as "${status}"?\n\n${reason}\n\nIt comes off the queue and stops being chased.`)) return;
+
+  btn.disabled = true; btn.textContent = 'Closing…'; msg.textContent = '';
+  try {
+    const { error } = await sb.from('cot_requests')
+      .update({ status, close_reason: reason }).eq('id', CUR.row.id);
+    if (error) throw new Error(error.message);
+    await logEvent('close', `${WHO} closed it as ${status}: ${reason}`);
+    msg.textContent = 'Closed.';
+    setTimeout(backToQueue, 700);
+  } catch (e) {
+    msg.textContent = 'Could not close it: ' + (e.message || 'unknown error');
+    btn.disabled = false; btn.textContent = 'Close it';
   }
 }
 
@@ -1170,7 +1281,7 @@ async function rebuild() {
     } else if (!res.ok || j.error) {
       throw new Error(j.error || ('HTTP ' + res.status));
     } else {
-      await logEvent('refilled', `${WHO} rebuilt the forms`);
+      await logEvent('fill', `${WHO} rebuilt the forms from scratch`);
       msg.textContent = `Built. ${j.filled} field(s), ${j.could_not_fill} left blank.`;
     }
     await openCot(CUR.row.id);
@@ -1296,15 +1407,7 @@ async function draftEmail() {
 
 function renderSend(d) {
   const files = CUR.files.map((f) => f.name);
-  // Prefer a smaller copy wherever the shrink tool has made one. cot-assist picks from the
-  // document list and cannot tell which of two near-identical filenames is the 400KB one;
-  // this can, and the swap is shown rather than done quietly.
-  const swapped = [];
-  const chosen = new Set((d.attach || []).map((n) => {
-    const s = smallOf(n, CUR.files);
-    if (s) { swapped.push([n, s]); return s; }
-    return n;
-  }));
+  const chosen = new Set(d.attach || []);
   const sizeOf = (n) => (CUR.files.find((f) => f.name === n)?.metadata?.size || 0);
   const chosenBytes = [...chosen].reduce((t, n) => t + sizeOf(n), 0);
   const sent = !!CUR.row.submitted_at;
@@ -1333,8 +1436,6 @@ function renderSend(d) {
     </div>
     <div class="send-field">
       <label class="fl">Attach</label>
-      ${swapped.length ? `<p style="font-size:11.5px;color:var(--cyan);margin-bottom:6px;">
-        Using the smaller cop${swapped.length === 1 ? 'y' : 'ies'} of ${swapped.map(([o]) => esc(o)).join(', ')}.</p>` : ''}
       ${files.map((f) => {
         const b = sizeOf(f);
         return `<label class="attach">
@@ -1424,13 +1525,23 @@ async function sendToSupplier() {
  */
 async function logEvent(kind, detail) {
   try {
-    await sb.from('cot_events').insert({
+    const { error } = await sb.from('cot_events').insert({
       cot_id: CUR.row.id, actor: WHO || 'COT team', kind, detail,
     });
-    // The desk view reads this table, so anything done here should show up there without
-    // waiting for the 30s poll.
+    // Looked at, not assumed. cot_events has a CHECK on `kind`, and this function used to
+    // write 'edited' / 'refilled' / 'shrank' — none of which were in it. Every insert was
+    // rejected and the reason went into console.warn, so the log stayed empty for days while
+    // the desk kept working. supabase-js RETURNS errors rather than throwing them, which is
+    // exactly how that hid.
+    if (error) throw new Error(error.message || 'rejected');
     loadFeed();
-  } catch (e) { console.warn('cot_events', e); }
+    return true;
+  } catch (e) {
+    console.warn('cot_events', e);
+    const m = $('boxMsg') || $('saveMsg');
+    if (m) m.innerHTML += ` <span style="color:var(--fail);">Not written to the log: ${esc(e.message || e)}</span>`;
+    return false;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -1534,20 +1645,69 @@ async function geometry() {
  */
 function geoBoxes(form) {
   if (!form) return [];
+  let out;
   if (form.mechanism === 'pdf_acroform') {
-    return (form.fields || [])
+    out = (form.fields || [])
       .filter((f) => f.type !== 'CheckBox' && f.type !== 'RadioButton')
       .map((f) => ({ id: f.id, label: f.label_unique || f.name || f.id, page: f.page || 0,
                      name: f.name, rect: f.rect || null }));
+  } else {
+    out = (form.rows || []).flatMap((r) =>
+      (r.value_cells || []).map((c, i) => ({ c, i }))
+        .filter((z) => !z.c.label_in_cell)
+        .map((z) => ({ id: `${r.id}c${z.i}`, label: r.label_unique || r.id, page: r.page || 0,
+                       name: null, rect: z.c.rect || null })));
   }
-  return (form.rows || []).flatMap((r) =>
-    (r.value_cells || []).map((c, i) => ({ c, i }))
-      .filter((z) => !z.c.label_in_cell)
-      .map((z) => ({ id: `${r.id}c${z.i}`, label: r.label_unique || r.id, page: r.page || 0,
-                     name: null, rect: z.c.rect || null })));
+  // `ord` keeps the geometry's own order as the tie-break, so two boxes on the same line
+  // stay in the order the form was mapped in.
+  out.forEach((b, i) => { b.ord = i; });
+  return inFormOrder(out);
 }
 
-let BOXES = [];        // [{id,label,page,rect,name,value,source,blank}]
+/**
+ * Down the page, then across, exactly as the form reads.
+ *
+ * The geometry's own order is whatever `extract_geometry.py` walked, and for an AcroForm it is
+ * the order the fields were created in, which has nothing to do with where they sit. So a list
+ * that looked arbitrary beside the page. PDF user space puts the origin at the BOTTOM left, so
+ * the top of a page is the LARGEST y — hence the negation.
+ *
+ * A box whose rectangle is not known yet sorts to the end of its own page rather than to the
+ * top, so an AcroForm reorders sensibly once pdf.js has handed over its annotations.
+ */
+function boxSortKey(b) {
+  const pg = _pdfPages[b.page || 0];
+  const rect = b.rect || (b.name && pg && pg.annots ? pg.annots[b.name] : null);
+  if (!rect) return [b.page || 0, 1, 0, b.ord || 0];
+  return [b.page || 0, 0, -Math.max(rect[1], rect[3]), Math.min(rect[0], rect[2])];
+}
+
+function inFormOrder(list) {
+  return [...list].sort((a, b) => {
+    const ka = boxSortKey(a), kb = boxSortKey(b);
+    for (let i = 0; i < ka.length; i++) {
+      if (ka[i] !== kb[i]) return ka[i] < kb[i] ? -1 : 1;
+    }
+    return (a.ord || 0) - (b.ord || 0);
+  });
+}
+
+/**
+ * Put the rendered list back in order without rebuilding it.
+ *
+ * Called once the pages are painted, because that is when an AcroForm's rectangles arrive.
+ * It moves the existing nodes rather than re-rendering, so anything half-typed survives.
+ */
+function reorderBoxList() {
+  const list = $('boxList');
+  if (!list || !BOXES.length) return;
+  BOXES = inFormOrder(BOXES);
+  const byId = {};
+  [...list.querySelectorAll('.box')].forEach((el) => { byId[el.dataset.box] = el; });
+  BOXES.forEach((b) => { if (byId[b.id]) list.appendChild(byId[b.id]); });
+}
+
+let BOXES = [];        // [{id,label,page,rect,name,ord,value,source,blank}] in form order
 let ORIG = {};         // box id -> the value that was on the form when this screen opened
 let DBQ = {};          // box id -> db_field, queued from an applied proposal
 let SEL = null;        // the box currently outlined
@@ -1606,7 +1766,7 @@ async function renderBoxes() {
   }
   if (!boxes.length) {
     boxes = written.filter((w) => w.kind !== 'tick')
-      .map((w) => ({ id: w.id, label: w.label || w.id, page: w.page || 0, rect: null, name: null }));
+      .map((w, i) => ({ id: w.id, label: w.label || w.id, page: w.page || 0, rect: null, name: null, ord: i }));
   }
 
   BOXES = boxes.map((b) => {
@@ -1641,8 +1801,22 @@ async function renderBoxes() {
       i.classList.remove('fromai');
       i.classList.toggle('edited', i.value !== (ORIG[i.dataset.bid] || ''));
       delete DBQ[i.dataset.bid];         // typing over a proposal cancels it
+      drawPreviews();
+      pending();
     };
   });
+  drawPreviews();
+  pending();
+}
+
+/** How many boxes are changed but not written, said out loud next to the Save button. */
+function pending() {
+  const n = [...document.querySelectorAll('#boxList input[data-bid]')]
+    .filter((i) => DBQ[i.dataset.bid] || i.value !== (ORIG[i.dataset.bid] || '')).length;
+  const el = $('boxPending');
+  if (el) el.textContent = n ? `${n} unsaved change${n === 1 ? '' : 's'}, shown in amber on the page` : '';
+  const btn = $('btnBoxSave');
+  if (btn) btn.textContent = n ? `Save ${n} change${n === 1 ? '' : 's'} and redraw` : 'Save and redraw';
 }
 
 function selectBox(id) {
@@ -1677,6 +1851,47 @@ function drawHighlight() {
   pg.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+/**
+ * Show an unsaved edit on the page as it is typed.
+ *
+ * The form on screen is a PDF the server drew, so until Save it cannot show what you just
+ * typed — which reads as the viewer being broken. This lays the pending text over its own box
+ * at roughly the size cot-fill will use, in amber, so it is obviously a preview and not the
+ * document. A queued db_field shows the field name instead: the value lives in the database
+ * and this page never sees it, which is the whole point of that route.
+ */
+function drawPreviews() {
+  [...document.querySelectorAll('.pdfpage .pv')].forEach((el) => el.remove());
+  if (!_pdfPages.length) return;
+  // Only over the supplier's own form. Previewing form boxes on top of a lease scan would be
+  // nonsense.
+  if (!/^(supplierform-|CES COT Form)/i.test(_pdfName || '')) return;
+
+  BOXES.forEach((b) => {
+    const input = document.querySelector(`#boxList input[data-bid="${cssId(b.id)}"]`);
+    const queued = DBQ[b.id];
+    if (!queued && (!input || input.value === (ORIG[b.id] || ''))) return;
+    const pg = _pdfPages[b.page || 0];
+    const rect = b.rect || (b.name && pg && pg.annots ? pg.annots[b.name] : null);
+    if (!pg || !rect) return;
+    const r = pg.vp.convertToViewportRectangle(rect);
+    const left = Math.min(r[0], r[2]), top = Math.min(r[1], r[3]);
+    const w = Math.abs(r[2] - r[0]), h = Math.abs(r[3] - r[1]);
+    const el = document.createElement('div');
+    el.className = 'pv' + (queued ? ' db' : '');
+    // cot-fill caps at 9pt and pads 3pt; close enough that what you see is where it lands.
+    el.style.cssText = `left:${left}px;top:${top}px;width:${w}px;height:${h}px;` +
+      `font-size:${Math.max(6, Math.min(9, h * 0.55) * pg.vp.scale)}px;` +
+      `padding-left:${3 * pg.vp.scale}px;`;
+    el.textContent = queued ? `«${queued}»` : input.value;
+    pg.el.appendChild(el);
+  });
+}
+
+// document.querySelector with an id that contains nothing exotic today, but CSS.escape costs
+// nothing and box ids come from a geometry file nobody here controls.
+const cssId = (s) => (window.CSS && CSS.escape ? CSS.escape(String(s)) : String(s));
+
 async function pdfLoad(name) {
   if (!name) return;
   const scroll = $('pdfScroll');
@@ -1685,12 +1900,12 @@ async function pdfLoad(name) {
   _pdfName = name;
   $('pdfPick').value = name;
 
-  const { data, error } = await sb.storage.from('cot-documents').download(`${CUR.row.id}/${name}`);
-  if (error || !data) {
-    scroll.innerHTML = `<p style="color:var(--fail);font-size:13px;">Could not open that file: ${esc(error?.message || 'missing')}</p>`;
+  try {
+    _pdfBytes = await dlBytes(name);
+  } catch (e) {
+    scroll.innerHTML = `<p style="color:var(--fail);font-size:13px;">Could not open that file: ${esc(e.message || e)}</p>`;
     return;
   }
-  _pdfBytes = await data.arrayBuffer();
   sizeLine();
 
   if (!/\.pdf$/i.test(name)) {
@@ -1757,7 +1972,11 @@ async function pdfPaint() {
       `<p style="color:var(--muted);font-size:12px;text-align:center;">First ${PDF_MAX_PAGES} pages of ${doc.numPages}. Use Open for the rest.</p>`);
   }
   $('pdfZoomLab').textContent = Math.round(_zoom * 100) + '%';
+  // An AcroForm's rectangles only exist once its annotations have been read, so this is the
+  // first moment the list can be put in the order the page reads.
+  reorderBoxList();
   drawHighlight();
+  drawPreviews();
 }
 
 function sizeLine() {
@@ -1808,7 +2027,7 @@ async function saveBoxes() {
     const { res, j } = await fn('cot-fill', { cot_id: CUR.row.id, overrides, notify: false });
     if (!res.ok || j.error) throw new Error(j.error || ('HTTP ' + res.status));
     const edited = j.edited || [];
-    await logEvent('edited', `${WHO} changed ${edited.length} box(es) on the ${CUR.row.supplier_raw || 'supplier'} form: ${edited.join(', ')}`);
+    await logEvent('edit', `${WHO} changed ${edited.length} box(es) on the ${CUR.row.supplier_raw || 'supplier'} form: ${edited.join(', ')}`);
     msg.innerHTML = `Saved. ${j.filled} box(es) on the form, ${j.could_not_fill} still blank.` +
       (j.refused && j.refused.length
         ? `<span style="color:var(--fail);"> ${j.refused.length} refused: ` +
@@ -1833,7 +2052,7 @@ async function refreshCot() {
   ]);
   if (row) CUR.row = row;
   CUR.run = (runs && runs[0]) || CUR.run;
-  CUR.files = files || CUR.files;
+  CUR.files = files ? realFiles(files) : CUR.files;
   buildPicker();
   await renderBoxes();
   if (showing && CUR.files.some((f) => f.name === showing)) await pdfLoad(showing);
@@ -1898,14 +2117,14 @@ function renderProposals(j) {
 }
 
 function applyProposal(c, btn) {
-  const i = document.querySelector(`#boxList input[data-bid="${window.CSS && CSS.escape ? CSS.escape(c.box_id) : c.box_id}"]`);
+  const i = document.querySelector(`#boxList input[data-bid="${cssId(c.box_id)}"]`);
   if (!i) { if (btn) btn.textContent = 'That box is not on this screen'; return; }
   if (c.db_field) {
     DBQ[c.box_id] = c.db_field;
     i.value = '';
     i.placeholder = `from the record: ${c.db_field}`;
     i.classList.add('fromai'); i.classList.remove('edited');
-    const s = document.querySelector(`[data-src="${window.CSS && CSS.escape ? CSS.escape(c.box_id) : c.box_id}"]`);
+    const s = document.querySelector(`[data-src="${cssId(c.box_id)}"]`);
     if (s) s.innerHTML = `<span class="dbf">will be taken from ${esc(c.db_field)}</span>`;
   } else {
     delete DBQ[c.box_id];
@@ -1913,8 +2132,10 @@ function applyProposal(c, btn) {
     i.classList.add('fromai'); i.classList.remove('edited');
   }
   selectBox(c.box_id);
+  drawPreviews();
+  pending();
   if (btn) { btn.textContent = 'In the box'; btn.disabled = true; }
-  $('boxMsg').textContent = 'Applied to the box. Press Save and redraw to write it.';
+  $('boxMsg').textContent = 'Applied to the box, and showing on the page. Press Save and redraw to write it.';
 }
 
 // ── shrink for email ─────────────────────────────────────────────────────────────────
@@ -1927,8 +2148,13 @@ function applyProposal(c, btn) {
  * saves megabytes, and a lease only has to be legible.
  *
  * Three passes at most, each coarser than the last, stopping as soon as it is under target.
- * The original is never touched: the small copy lands beside it as "(small)" and the send
- * screen prefers it. If the result is not actually smaller, nothing is uploaded.
+ *
+ * It REPLACES the file rather than adding one beside it. The first version left a "(small)"
+ * copy next to the original, which meant two near-identical filenames in the pack and a
+ * choice to get wrong at the moment of sending. The untouched original is copied to
+ * `originals/` in the same COT folder first, because a lossy re-render of a lease is not
+ * something to do without a way back, and storage listings hide sub-folders from every list
+ * on this screen. If the result is not actually smaller, nothing is written at all.
  */
 const SHRINK_TARGET = 1_200_000;
 const SHRINK_PASSES = [{ dpi: 120, q: 0.72 }, { dpi: 96, q: 0.6 }, { dpi: 72, q: 0.5 }];
@@ -1937,8 +2163,10 @@ async function shrinkCurrent() {
   const btn = $('pdfShrink'), msg = $('boxMsg');
   const name = _pdfName;
   if (!name || !/\.pdf$/i.test(name)) { alert('Pick a PDF first.'); return; }
-  if (/\(small\)\.pdf$/i.test(name)) { alert('That is already the small copy.'); return; }
   const before = _pdfBytes ? _pdfBytes.byteLength : 0;
+  if (!confirm(`Re-render ${name} at screen resolution and replace it?\n\n` +
+      `${(before / 1048576).toFixed(2)}MB now. The untouched original is kept in this COT's ` +
+      `originals folder, so this can be undone.`)) return;
 
   btn.disabled = true; btn.textContent = 'Shrinking…';
   try {
@@ -1985,19 +2213,27 @@ async function shrinkCurrent() {
       return;
     }
 
-    const small = name.replace(/\.pdf$/i, '') + ' (small).pdf';
+    // The original goes aside FIRST. If that fails, nothing is overwritten.
+    const { error: cpErr } = await sb.storage.from('cot-documents')
+      .copy(`${CUR.row.id}/${name}`, `${CUR.row.id}/originals/${name}`);
+    // A second shrink finds the original already there, which is fine: the one in originals/
+    // is still the untouched scan, and that is the copy worth keeping.
+    if (cpErr && !/exist|duplicate/i.test(cpErr.message || '')) {
+      throw new Error('could not set the original aside, so nothing was changed: ' + cpErr.message);
+    }
+
     const { error: upErr } = await sb.storage.from('cot-documents')
-      .upload(`${CUR.row.id}/${small}`, new Blob([best], { type: 'application/pdf' }),
-              { contentType: 'application/pdf', upsert: true });
+      .upload(`${CUR.row.id}/${name}`, new Blob([best], { type: 'application/pdf' }),
+              { contentType: 'application/pdf', upsert: true, cacheControl: '0' });
     if (upErr) throw new Error(upErr.message);
 
     const pct = Math.round((1 - best.byteLength / before) * 100);
-    await logEvent('shrank', `${WHO} shrank ${name} from ${(before / 1048576).toFixed(2)}MB to ` +
-      `${(best.byteLength / 1048576).toFixed(2)}MB (${pct}% smaller, ${used.dpi}dpi) as "${small}"`);
-    msg.textContent = `Made a smaller copy: ${(before / 1048576).toFixed(2)}MB to ${(best.byteLength / 1048576).toFixed(2)}MB, ${pct}% off. Check it reads properly before sending.`;
+    await logEvent('shrink', `${WHO} shrank ${name} from ${(before / 1048576).toFixed(2)}MB to ` +
+      `${(best.byteLength / 1048576).toFixed(2)}MB (${pct}% off, ${used.dpi}dpi). Original kept in originals/.`);
+    msg.textContent = `Replaced: ${(before / 1048576).toFixed(2)}MB to ${(best.byteLength / 1048576).toFixed(2)}MB, ` +
+      `${pct}% off. Read it before sending — the original is in this COT's originals folder.`;
     await refreshCot();
-    await pdfLoad(small);
-    $('pdfPick').value = small;
+    await pdfLoad(name);
   } catch (e) {
     msg.textContent = 'Could not shrink it: ' + (e.message || 'unknown error');
   } finally {
@@ -2071,29 +2307,73 @@ function renderPresence() {
 }
 
 // ── the change log ───────────────────────────────────────────────────────────────────
-// cot_events is not in the realtime publication, so this polls rather than subscribing.
-// Every 30s while the desk view is open, and immediately after anything is done here.
-const FEED_KINDS = { sent: 'sent', chase_sent: 'sent', send_failed: 'fail' };
+// cot_events is not in the realtime publication, so this polls rather than subscribing:
+// every 30s while it is on screen, and immediately after anything is done here.
+//
+// It shows TODAY by default and the window is recomputed on every poll, so it rolls over at
+// midnight on its own rather than showing a growing pile of last week.
+const FEED_KINDS = { send: 'sent', chase: 'sent', notify: 'sent', error: 'fail' };
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+let FEED_DAYS = 1;
+
+function feedSince() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);                       // local midnight, so "today" means today
+  if (FEED_DAYS > 1) d.setDate(d.getDate() - (FEED_DAYS - 1));
+  return d;
+}
+
+/**
+ * Who did it.
+ *
+ * The shared login means the name is whatever was picked at sign-in, and the database's own
+ * state trigger records the login's uuid rather than a person. Showing a raw uuid to the desk
+ * is worse than useless, so it is named for what it is.
+ */
+function actorName(a) {
+  const s = String(a || '').trim();
+  if (!s) return 'unattributed';
+  if (UUID_RE.test(s)) return 'the portal';
+  if (s === 'automation') return 'automation';
+  return s;
+}
 
 async function loadFeed() {
   const target = ['whoFeed', 'deskFeed'].map($).filter(Boolean);
   if (!target.length) return;
+  const since = feedSince();
   const { data, error } = await sb.from('cot_events')
     .select('at, actor, kind, detail, cot_id, cot_requests(ref, customer_name_raw)')
-    .order('at', { ascending: false }).limit(60);
+    .gte('at', since.toISOString())
+    .order('at', { ascending: false }).limit(200);
+
+  const head = `<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">
+      ${[[1, 'Today'], [7, 'Last 7 days'], [30, 'Last 30 days']].map(([d, lab]) =>
+        `<button class="chip${FEED_DAYS === d ? ' on' : ''}" data-days="${d}">${lab}</button>`).join('')}
+      <span style="margin-left:auto;color:var(--muted);font-size:11px;" class="mono">${
+        (data || []).length}${(data || []).length === 200 ? '+' : ''}</span>
+    </div>`;
+
   if (error) {
-    target.forEach((el) => el.innerHTML = `<p style="color:var(--muted);font-size:12.5px;">Could not read the log: ${esc(error.message)}</p>`);
+    target.forEach((el) => el.innerHTML = head +
+      `<p style="color:var(--fail);font-size:12.5px;">Could not read the log: ${esc(error.message)}</p>`);
+    wireFeed();
     return;
   }
-  const html = (data || []).length
+
+  const body = (data || []).length
     ? data.map((e) => {
-        const t = String(e.at || '').slice(11, 16);
+        const at = new Date(e.at);
+        const t = isNaN(at) ? String(e.at || '').slice(11, 16)
+          : `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+        const day = FEED_DAYS > 1 && !isNaN(at)
+          ? `${String(at.getDate()).padStart(2, '0')}/${String(at.getMonth() + 1).padStart(2, '0')}` : '';
         const ref = e.cot_requests?.ref || '';
         const cust = e.cot_requests?.customer_name_raw || '';
         return `<div class="fd">
-          <div class="t">${esc(t)}</div>
+          <div class="t">${esc(t)}${day ? '<br>' + esc(day) : ''}</div>
           <div>
-            <span class="who">${esc(e.actor || 'system')}</span>
+            <span class="who">${esc(actorName(e.actor))}</span>
             <span class="kind ${FEED_KINDS[e.kind] || ''}">${esc(e.kind || '')}</span>
             ${ref ? `<span class="mono" style="color:var(--muted);font-size:11px;margin-left:6px;">${esc(ref)}</span>` : ''}
             ${cust ? `<span style="color:var(--text-2);font-size:11.5px;margin-left:6px;">${esc(cust)}</span>` : ''}
@@ -2101,8 +2381,17 @@ async function loadFeed() {
           </div>
         </div>`;
       }).join('')
-    : '<p style="color:var(--muted);font-size:13px;">Nothing recorded yet.</p>';
-  target.forEach((el) => el.innerHTML = html);
+    : `<p style="color:var(--muted);font-size:13px;">Nothing ${FEED_DAYS === 1 ? 'yet today' : 'in that window'}.</p>`;
+
+  target.forEach((el) => el.innerHTML = head + body);
+  wireFeed();
+}
+
+function wireFeed() {
+  [...document.querySelectorAll('[data-days]')].forEach((b) => b.onclick = () => {
+    FEED_DAYS = +b.dataset.days || 1;
+    loadFeed();
+  });
 }
 
 setInterval(() => { if (VIEW === 'desk' || !$('whoami').classList.contains('hide')) loadFeed(); }, 30000);
@@ -2175,11 +2464,14 @@ $('btnSwitch').onclick = () => {
   $('app').classList.add('hide'); $('whoami').classList.remove('hide');
   $('whoName').value = ''; $('whoName').focus();
 };
+// Out of the COT desk and back to the sales login, rather than reloading into this page's own
+// sign-in box. Whoever signs out here is done with the desk, and the next thing they want is
+// the portal they came from.
 $('btnOut').onclick = async () => {
   localStorage.removeItem('cot_who');
   try { if (PRES) await PRES.untrack(); } catch (e) { /* going anyway */ }
   await sb.auth.signOut();
-  location.reload();
+  location.href = '/sales.html';
 };
 
 // ── the tab strip ────────────────────────────────────────────────────────────────────
@@ -2215,8 +2507,14 @@ document.addEventListener('keydown', (e) => {
   if (s && s.session) await afterSignIn(); else showSignIn();
 })();
 
-// COT desk build 2026-09-07b — form tab (pdf.js viewer + box editor + fields assistant),
-// desk presence and change log, and the in-portal shrink tool.
+// COT desk build 2026-09-07c
+//  · the viewer reads past the CDN, so a redraw is visible instead of an hour old
+//  · typing shows on the page immediately, in amber, before it is saved
+//  · the box list is in form order, top to bottom, not geometry order
+//  · shrink REPLACES the file and keeps the original in originals/
+//  · the log is today's by default, rolls over at midnight, and names who did what
+//  · a COT can be closed, offering only the transitions the database allows
+//  · signing out goes to the sales login
 </script>
 </body>
 </html>
