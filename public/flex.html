@@ -1620,6 +1620,10 @@ button{transition:all .14s ease}
 .fx-rule-chip{margin-top:3px;font-size:9.5px;font-weight:700;letter-spacing:.3px;color:#0f6e56;background:#eaf6f1;border:1px solid #cfe9df;border-radius:999px;padding:1px 6px;display:inline-block;text-transform:none;font-family:var(--font-mono)}
 /* marks an achieved cell that ticked itself */
 .fx-auto-tag{margin-left:5px;font-size:8.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;opacity:.62;font-family:inherit}
+/* a month whose targets are all achieved — the achieved cells keep their stronger green */
+.fx-trow-hit > td{background:#e9f6ee}
+/* preview: this month's requirement was pulled in to its baseload */
+.fx-cap-tag{margin-left:5px;font-size:8.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#8a6d1f;background:#fdf4e0;border:1px solid #efdfb4;border-radius:999px;padding:0 5px}
 /* draggable session chip */
 .fx-grip{cursor:grab;user-select:none;opacity:.55;font-size:14px;line-height:1;padding-right:2px;letter-spacing:-1px}
 #flexChip:hover .fx-grip{opacity:.9}
@@ -2396,12 +2400,7 @@ function getNextTargetForMonth(basket, monthStr) {
       return { price };
     }
   }
-  // Check if all non-null are achieved
-  let anyNonNull = false;
-  for (let i = 1; i <= numT; i++) {
-    if (t[`lower_t${i}`] != null) { anyNonNull = true; break; }
-  }
-  return anyNonNull ? { allHit: true } : null;
+  return fxAllTargetsHit(basket, monthStr) ? { allHit: true } : null;
 }
 
 function getUpperAlertForMonth(basket, monthStr) {
@@ -2566,12 +2565,13 @@ function fxRuleLabel(basket, i) {
   return null;
 }
 
-// Cumulative secured volume (in the basket's unit) that column `i` requires in month `m`.
+// Cumulative requirement for column `i` BEFORE the baseload cap. Split out from
+// fxRequiredSecured so the rule preview can show when a rule has been pulled in, rather
+// than silently displaying a number that differs from what was typed.
 // null = not evaluable: column i carries no rule, an amount is missing, or there is no
 // baseload to measure a share against.
-function fxRequiredSecured(basket, m, i) {
+function fxRequiredRaw(basket, i, base) {
   if (fxTargetRule(basket, i).type === 'none') return null;
-  const base = (m && m.baseload_vol != null) ? m.baseload_vol : null;
   let cum = 0;
   for (let n = 1; n <= i; n++) {
     const r = fxTargetRule(basket, n);
@@ -2591,6 +2591,22 @@ function fxRequiredSecured(basket, m, i) {
     }
   }
   return cum;
+}
+
+// Cumulative secured volume (in the basket's unit) that column `i` requires in month `m`.
+function fxRequiredSecured(basket, m, i) {
+  const base = (m && m.baseload_vol != null) ? m.baseload_vol : null;
+  // No baseload to hedge means no meaningful test — better "not evaluable" than every
+  // target ticking green on a month that carries no volume.
+  if (base != null && !(base > 0)) return null;
+  const raw = fxRequiredRaw(basket, i, base);
+  if (raw == null) return null;
+  // A month can never secure more than its own baseload, so a requirement above it is
+  // unsatisfiable by construction: a 0.1 MW-per-tranche ladder asks 0.3 MW of a 0.25 MW
+  // meter, and that last target would sit pending forever — dragging the month out of
+  // "all hit" and putting its alert back on Positions. Capping means a full hedge always
+  // finishes the ladder, while the earlier rungs keep their real thresholds.
+  return (base != null) ? Math.min(raw, base) : raw;
 }
 
 // Compare at the precision the Positions tab displays, so a target can never read as
@@ -2619,6 +2635,32 @@ function fxIsAchieved(basket, t, i) {
   return fxAutoAchieved(basket, t, i) === true;
 }
 
+// Every target that actually carries a PRICE for this month is achieved. Columns left
+// blank are skipped, so a basket using only T1 and T2 counts as complete on those two
+// even where T3 is empty for the period. A month with no priced target at all returns
+// false — nothing was ever asked of it, so it cannot be "done".
+function fxAllTargetsHit(basket, monthStr) {
+  const t = (basket.targets || []).find(x => x.month === monthStr);
+  if (!t) return false;
+  const n = fxTierCount(basket);
+  let priced = 0;
+  for (let i = 1; i <= n; i++) {
+    if (t['lower_t' + i] == null) continue;
+    priced++;
+    if (!fxIsAchieved(basket, t, i)) return false;
+  }
+  return priced > 0;
+}
+
+// Months the targets tab will show: tradable ones only. The current month is already
+// spot and anything before it has settled, so neither can still be traded to a target.
+// Reads the live month clock rather than a value fixed at load, so the tab sheds a month
+// on its own the moment the 1st ticks over.
+function fxVisibleTargets(basket) {
+  const cut = fxNowMonth();
+  return (basket.targets || []).filter(t => t.month > cut);
+}
+
 
 function getNextUnachievedTarget(basket, monthStr) {
   const t = (basket.targets || []).find(t => t.month === monthStr);
@@ -2644,6 +2686,12 @@ function fxRowAlert(basket, m) {
   const mp = m.market_price;
   if (!mp) return null;
   if (m.month === fxNowMonth()) return null; // current month always uses day-ahead pricing — never let an alert fire
+  // Every target set for this month has been achieved: there is nothing left to buy, so
+  // there is nothing to warn about. An upper alert on a finished month is noise, and this
+  // is what lets such a month lose its colour without anyone having to clear the alert by
+  // hand. Suppression is deliberately total — it also silences an unhit lower target,
+  // because "all targets achieved" already says the month is done.
+  if (fxAllTargetsHit(basket, m.month)) return null;
   const t = (basket.targets || []).find(x => x.month === m.month);
   const n = fxTierCount(basket);
   let belowAny = false, belowAuth = false, hitPrice = null;
@@ -3100,10 +3148,15 @@ function renderSeasons(basket) {
 
 // ── TARGETS ───────────────────────────────────────────────────────
 function renderTargets(basket) {
-  const targets = basket.targets || [];
+  const targets = fxVisibleTargets(basket);
 
   if (targets.length === 0) {
-    document.getElementById('tab-targets').innerHTML = '<div class="no-targets">No active targets for this basket.</div>';
+    // Distinguish "never had any" from "all of them have rolled into the past", or the
+    // tab looks broken on a basket whose targets were simply all delivered.
+    const _had = (basket.targets || []).length > 0;
+    document.getElementById('tab-targets').innerHTML = '<div class="no-targets">' + (_had
+      ? 'No targets for any tradable month. Past and current months are no longer shown here.'
+      : 'No active targets for this basket.') + '</div>';
     return;
   }
 
@@ -3157,7 +3210,10 @@ function renderTargets(basket) {
       tds += `<td class="td-right fx-twap${warn}"${tip}>${sc && sc.wap != null ? sc.wap.toFixed(2) : dash}</td>`
            + `<td class="td-right fx-twap${warn}">${sc && sc.deliv != null ? sc.deliv.toFixed(3) : dash}</td>`;
     }
-    return `<tr>${tds}</tr>`;
+    // Whole row goes green once every target set for the month is achieved. Reads far
+    // faster than checking each cell, and matches the alert being dropped on Positions.
+    const _rowHit = fxAllTargetsHit(basket, t.month);
+    return `<tr${_rowHit ? ' class="fx-trow-hit" title="Every target set for this month is achieved"' : ''}>${tds}</tr>`;
   }).join('');
 
   document.getElementById('tab-targets').innerHTML = `
@@ -5488,12 +5544,18 @@ renderCurves = function(){
     const t=(DATA.te&&DATA.te[f])||{}, fwd=fxNextMonth();
     const keys=Object.keys(t).filter(k=>k>=fwd).sort();
     const blanks=keys.filter(k=>t[k]==null).length;
+    // Laid out down the page like Full market curve data, not across like the Marex
+    // strips: TotalEnergies send six years of months, and a single wide row meant
+    // scrolling sideways to read a curve that is naturally a list. Boxed and scrolled so
+    // two commodities still fit the tab at roughly the height the Marex view occupies.
     const body = keys.length
-      ? `<div style="margin-top:14px;overflow-x:auto"><table class="fx-htable">
-          <thead><tr><th class="rowlbl">Months</th>${keys.map(k=>`<th>${escape(fmtMonth(k))}</th>`).join('')}</tr></thead>
-          <tbody><tr><td class="rowlbl">Mid</td>${keys.map(k=>t[k]!=null
-            ? `<td>${t[k].toFixed(2)}</td>`
-            : `<td style="color:#b91c1c;font-weight:700" title="TotalEnergies sent no price for this month — the client portal shows the Marex price for this month only">&mdash;</td>`).join('')}</tr></tbody></table></div>`
+      ? `<div style="margin-top:14px;max-height:280px;overflow:auto;border:1px solid var(--border,#e6e1d6);border-radius:8px">
+          <table class="fx-htable fx-fctable" style="width:100%">
+          <thead><tr><th style="text-align:left">Month</th><th class="td-right">Mid</th></tr></thead>
+          <tbody>${keys.map(k=>`<tr><td>${escape(fmtMonth(k))}</td>${t[k]!=null
+            ? `<td class="td-right">${t[k].toFixed(2)}</td>`
+            : `<td class="td-right" style="color:#b91c1c;font-weight:700" title="TotalEnergies sent no price for this month — the client portal shows the Marex price for this month only">&mdash;</td>`}</tr>`).join('')}</tbody></table></div>`
+          + `<div style="font-size:11px;color:#6b7280;margin-top:6px">${keys.length} month${keys.length>1?'s':''} &middot; earliest first</div>`
           + (blanks ? `<div style="font-size:11.5px;color:#b91c1c;margin-top:6px">${blanks} month${blanks>1?'s':''} with no TotalEnergies price &mdash; ${blanks>1?'those months fall':'that month falls'} back to Marex on the client portal.</div>` : '')
       : `<div style="margin-top:12px;font-size:12.5px;color:#6b7280">No TotalEnergies prices imported for this commodity yet &mdash; use <b>Import TotalEnergies curve</b> above.</div>`;
     return `<div class="extra-section" style="margin-bottom:16px"><div class="extra-section-title">${title} (${unit})</div>${body}</div>`;
@@ -5770,19 +5832,26 @@ async function fxRenderFullCurve(){
               : (imported ? '<span class="fx-src live">imported</span>' : '<span class="fx-src man">manual</span>');
     const pv = imported ? (marexMid('power',k,m.season) ?? m.power) : m.power;
     const gv = imported ? (marexMid('gas',k,m.season) ?? m.gas) : m.gas;
-    return `<tr><td>${fmtMonth(k)}</td><td>${fxQLabel(m.quarter)}</td><td>${m.season||'—'}</td>${cell('power',k,pv,!imported)}${cell('gas',k,gv,!imported)}<td>${src}</td></tr>`;
+    return `<tr><td>${fmtMonth(k)}</td><td>${fxQLabel(m.quarter)}</td><td>${m.season||'—'}</td>${cell('gas',k,gv,!imported)}${cell('power',k,pv,!imported)}<td>${src}</td></tr>`;
   }).join('');
   const manSeasons=[...new Set(months.filter(k=>k>=manualFrom).map(k=>byM[k].season).filter(Boolean))];
-  const seasonTool = manSeasons.length ? `<span style="display:inline-flex;align-items:center;gap:6px;margin-left:6px;padding-left:10px;border-left:1px solid #e0dccf"><b style="font-size:11px;color:#4b5563">Set whole season:</b><select id="fxCurveSeasonSel" style="font-size:11px;padding:2px 4px">${manSeasons.map(s=>`<option value="${escape(s)}">${escape(s)}</option>`).join('')}</select><select id="fxCurveSeasonComm" style="font-size:11px;padding:2px 4px"><option value="power">Power &pound;/MWh</option><option value="gas">Gas p/th</option></select><input id="fxCurveSeasonVal" type="number" step="0.01" placeholder="value" style="width:78px;font-size:11px;padding:2px 4px"><button class="fx-btn" onclick="fxCurveSetSeason()">Apply</button></span>` : '';
+  // Applying re-renders this whole panel, so both dropdowns are rebuilt from scratch and
+  // used to snap back to the first option. Carry the last choice across the re-render —
+  // setting a season usually means setting the next one too.
+  const _selS = (_fxSeasonPick && manSeasons.indexOf(_fxSeasonPick) !== -1) ? _fxSeasonPick : manSeasons[0];
+  const seasonTool = manSeasons.length ? `<span style="display:inline-flex;align-items:center;gap:6px;margin-left:6px;padding-left:10px;border-left:1px solid #e0dccf"><b style="font-size:11px;color:#4b5563">Set whole season:</b><select id="fxCurveSeasonSel" style="font-size:11px;padding:2px 4px">${manSeasons.map(s=>`<option value="${escape(s)}"${s===_selS?' selected':''}>${escape(s)}</option>`).join('')}</select><select id="fxCurveSeasonComm" style="font-size:11px;padding:2px 4px"><option value="gas"${_fxSeasonComm==='gas'?' selected':''}>Gas p/th</option><option value="power"${_fxSeasonComm==='power'?' selected':''}>Power &pound;/MWh</option></select><input id="fxCurveSeasonVal" type="number" step="0.01" placeholder="value" style="width:78px;font-size:11px;padding:2px 4px"><button class="fx-btn" onclick="fxCurveSetSeason()">Apply</button></span>` : '';
   const tools = EDIT
     ? `<div class="fx-toolbar" style="margin:0 0 10px;flex-wrap:wrap"><button class="fx-btn" onclick="fxFullCurveExport()">&#8623; Export to Excel</button><label class="fx-btn" style="cursor:pointer;display:inline-flex;align-items:center">&#8624; Import from Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])fxFullCurveImport(this.files[0]);this.value=''"></label>${seasonTool}<span style="font-size:11px;color:#6b7280;flex-basis:100%;margin-top:4px">Click a Power/Gas figure to edit, or set a whole season at once above. Imported months refresh from the twice-daily Marex curve (always the priority); the manual tail beyond the imported seasons is yours to maintain.</span></div>`
     : '';
   body.innerHTML = tools
-    + `<div style="font-size:11px;color:#6b7280;margin:2px 0 8px;">${months.length} months · oldest first · Power £/MWh, Gas p/th</div>`
+    + `<div style="font-size:11px;color:#6b7280;margin:2px 0 8px;">${months.length} months · oldest first · Gas p/th, Power £/MWh</div>`
     + `<div style="max-height:460px;overflow:auto;border:1px solid var(--border,#e6e1d6);border-radius:8px;">`
     + `<table class="fx-htable fx-fctable" style="width:100%;"><thead><tr>`
     + `<th style="text-align:left">Month</th><th style="text-align:left">Quarter</th><th style="text-align:left">Season</th>`
-    + `<th class="td-right">Power (£/MWh)</th><th class="td-right">Gas (p/th)</th><th style="text-align:left">Source</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    + `<th class="td-right">Gas (p/th)</th><th class="td-right">Power (£/MWh)</th><th style="text-align:left">Source</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  const _ss=document.getElementById('fxCurveSeasonSel'), _sc=document.getElementById('fxCurveSeasonComm');
+  if(_ss) _ss.onchange=()=>{ _fxSeasonPick=_ss.value; };
+  if(_sc) _sc.onchange=()=>{ _fxSeasonComm=_sc.value; };
   if(EDIT) body.querySelectorAll('.fx-fc-edit').forEach(td=>{
     td.onclick=()=>{ if(td.querySelector('input')) return;
       const t=td.textContent.trim(); const cur=(t==='—'||t==='')?null:parseFloat(t);
@@ -5842,11 +5911,18 @@ async function fxFullCurveImport(file){
   if(error) return fxToast(error.message||'Import failed', false);
   fxToast('Imported '+upserts.length+' curve values'); _fxFullCurve=null; fxRenderFullCurve();
 }
+// Last "Set whole season" choice, held across the re-render that Apply triggers.
+// Module-level rather than read off the DOM, because the elements are destroyed and
+// rebuilt each time the panel redraws.
+let _fxSeasonPick = null, _fxSeasonComm = 'gas';
+
 // Set one commodity's value across every (manual) month of a whole season at once
 async function fxCurveSetSeason(){
   const sel=document.getElementById('fxCurveSeasonSel'), commEl=document.getElementById('fxCurveSeasonComm'), valEl=document.getElementById('fxCurveSeasonVal');
   if(!sel||!commEl||!valEl) return;
   const season=sel.value, comm=commEl.value, raw=(valEl.value||'').trim();
+  // Remember the pair even when the value is rejected — the selection was still deliberate.
+  _fxSeasonPick = season; _fxSeasonComm = comm;
   if(raw===''||isNaN(+raw)){ fxToast('Enter a value first', false); return; }
   const val=+raw;
   const manualFrom=await fxManualFromMonth(true);
@@ -5929,7 +6005,7 @@ renderTargets = function(basket){
       + ` <span style="font-size:11px;color:#6b7280">Click a column name to rename it and set its volume rule &middot; click a price to edit &middot; tick the circle to mark achieved &middot; tap each cell's Auth/Adv tag to set red/purple &middot; or use a column header's Auth/Adv chip to set the whole column &middot; changes stage until you Apply</span>`
       + (_pend? ` <button class="fx-btn" style="background:var(--green-500);color:var(--navy-900);font-weight:800" onclick="fxApplyTargets(currentBasket)">&#10003; Apply ${_pend} change${_pend>1?'s':''}</button> <button class="fx-btn danger" onclick="fxDiscardTargets(currentBasket)">Discard</button>` : '');
     el.insertBefore(bar, el.firstChild);
-    const targets=basket.targets||[];
+    const targets=fxVisibleTargets(basket);   // MUST match the rows _renderTargets drew — this maps cells to months by index
     const tbody=el.querySelector('tbody');
     if(tbody) [...tbody.rows].forEach((tr,i)=>{
       const t=targets[i]; if(!t) return;
@@ -6236,29 +6312,48 @@ function fxTargetRulePreview(){
   }
   const isPower = b.commodity === 'power';
   const cut = fxNowMonth();
-  const rows = (b.targets || []).filter(t => t.month >= cut).slice(0, 14).map(t => {
-    const m = (b.months || []).find(x => x.month === t.month);
+  // Every tradable month in the BASKET, not a sample and not only the months that happen
+  // to have a target row yet — a curve running years out has to show all of it, and the
+  // panel scrolls. Months with no target row are listed too, so it is obvious where rows
+  // are still missing before you commit the rule.
+  const mons = (b.months || []).filter(m => m.month > cut)
+                 .slice().sort((x, y) => x.month < y.month ? -1 : 1);
+  let nHit = 0, nEval = 0, nCapped = 0;
+  const rows = mons.map(m => {
+    const t = (b.targets || []).find(x => x.month === m.month) || null;
     const need = fxRequiredSecured(d.shim, m, n);
-    const have = m ? m.secured_vol : null;
+    const have = m.secured_vol;
     const ok = fxVolMeets(b, have, need);
-    const manual = t['t'+n+'_achieved'] === 'Yes';
-    const verdict = need == null
-      ? '<span style="color:#9aa1ad">Not evaluable</span>'
-      : (ok ? '<span style="color:#0f6e56;font-weight:700">&#10003; Achieved</span>'
-            : '<span style="color:#9aa1ad">Pending</span>');
+    if (need != null){ nEval++; if (ok) nHit++; }
+    // Flag the months where the ladder asks for more than the meter can take, so the
+    // capped figure never looks like a typo.
+    const _base = m.baseload_vol != null ? m.baseload_vol : null;
+    const _raw  = fxRequiredRaw(d.shim, n, _base);
+    const capped = (need != null && _raw != null && _base != null && _raw > _base);
+    if (capped) nCapped++;
+    const manual = !!(t && t['t'+n+'_achieved'] === 'Yes');
+    let verdict;
+    if (!t)                verdict = '<span style="color:#c8cdd8">No target row</span>';
+    else if (need == null) verdict = '<span style="color:#9aa1ad">Not evaluable</span>';
+    else if (ok)           verdict = '<span style="color:#0f6e56;font-weight:700">&#10003; Achieved</span>';
+    else                   verdict = '<span style="color:#9aa1ad">Pending</span>';
     const note = (manual && !ok) ? ' <span style="color:#6b7280">&middot; ticked by hand</span>' : '';
-    return `<tr><td>${fmtMonth(t.month)}</td>
-      <td class="td-right">${m && m.baseload_vol != null ? fmtVolC(m.baseload_vol, isPower) : '-'}</td>
+    return `<tr><td>${fmtMonth(m.month)}</td>
+      <td class="td-right">${m.baseload_vol != null ? fmtVolC(m.baseload_vol, isPower) : '-'}</td>
       <td class="td-right">${fmtVolC(have, isPower)}</td>
-      <td class="td-right">${need != null ? fmtVolC(need, isPower) : '&mdash;'}</td>
+      <td class="td-right">${need != null ? fmtVolC(need, isPower) : '&mdash;'}${capped ? '<span class="fx-cap-tag" title="This column asks for more than the month\'s baseload, so it is capped — a full hedge achieves it">capped</span>' : ''}</td>
       <td>${verdict}${note}</td></tr>`;
   }).join('');
   el.innerHTML = rows
-    ? `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#4b5563;margin:16px 0 0">Preview &mdash; cumulative secured volume needed through this column</div>
-       <div class="fx-preview" style="max-height:250px"><table class="fx-tt-table">
+    ? `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:16px 0 0;flex-wrap:wrap">
+         <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#4b5563">Preview &mdash; cumulative secured volume needed through this column</div>
+         <div style="font-size:11px;color:#6b7280">${mons.length} month${mons.length === 1 ? '' : 's'} &middot; ${nHit} of ${nEval} would be achieved</div>
+       </div>
+       <div class="fx-preview" style="max-height:340px"><table class="fx-tt-table">
        <thead><tr><th>Month</th><th class="td-right">Baseload</th><th class="td-right">Secured</th><th class="td-right">Needs</th><th>Result</th></tr></thead>
-       <tbody>${rows}</tbody></table></div>`
-    : `<div style="font-size:12px;color:#9aa1ad;padding:12px 0">No target rows from this month onward to preview.</div>`;
+       <tbody>${rows}</tbody></table></div>
+       ${nCapped ? `<div style="font-size:11.5px;color:#6b7280;margin-top:7px">${nCapped} month${nCapped === 1 ? '' : 's'} need${nCapped === 1 ? 's' : ''} less than this column asks for, because the requirement exceeds the baseload. Those are capped at 100% secured &mdash; a full hedge achieves them.</div>` : ''}`
+    : `<div style="font-size:12px;color:#9aa1ad;padding:12px 0">No tradable months in this basket to preview.</div>`;
 }
 
 async function fxTargetRuleSave(){
