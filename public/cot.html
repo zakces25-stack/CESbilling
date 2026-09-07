@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' blob: https://fonts.googleapis.com; font-src 'self' data: blob: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co; frame-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self';" />
+  <!-- cdnjs + worker-src are for pdf.js, which wraps its cross-origin worker in a blob, and
+       jsdelivr also carries pdf-lib for the shrink tool. Both are pinned to an exact version
+       in the loader below rather than a floating tag. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' blob: https://fonts.googleapis.com; font-src 'self' data: blob: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: data: https://*.supabase.co wss://*.supabase.co https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; frame-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self';" />
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <title>CES COT Desk</title>
@@ -222,6 +225,94 @@
     .attach input { width: auto; }
     .danger { background: var(--fail-bg); color: var(--fail); border-left: 2px solid var(--fail);
       padding: 10px 13px; border-radius: 5px; font-size: 12.5px; margin-bottom: 12px; line-height: 1.5; }
+    /* ── the tab strip ───────────────────────────────────────────────────────────────
+       Three destinations rather than the two hand-written view swaps this page started
+       with. Queue and Form are where the work happens; Desk is who else is here. */
+    .tabs { display: flex; gap: 4px; }
+    .tab { background: transparent; border: 1px solid transparent; color: var(--text-2);
+      border-radius: 8px; padding: 6px 13px; font-size: 12.5px; font-weight: 700; cursor: pointer;
+      letter-spacing: 0.2px; }
+    .tab:hover { color: var(--text); background: var(--panel-2); }
+    .tab.on { background: var(--cyan-glow); border-color: var(--cyan); color: var(--cyan); }
+    .tab:disabled { opacity: 0.35; cursor: not-allowed; background: transparent; }
+    .tab .n { font-family: 'JetBrains Mono', monospace; opacity: 0.7; margin-left: 5px; font-size: 11px; }
+
+    /* ── the form tab: page on the left, boxes on the right ──────────────────────────
+       Side by side on purpose. The whole complaint this answers is that the desk could
+       see the box list or the PDF but never both, so a value in the wrong place could
+       only be found by opening the file in another tab and counting rows. */
+    .formgrid { display: grid; grid-template-columns: minmax(0, 1fr) 430px; gap: 16px; align-items: start; }
+    @media (max-width: 1100px) { .formgrid { grid-template-columns: 1fr; } }
+    .pdfpane { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+      overflow: hidden; display: flex; flex-direction: column; }
+    .pdftools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--bg-2); }
+    .pdftools .grow { margin-left: auto; }
+    .pdfscroll { overflow: auto; padding: 14px; background: #0a0e16; min-height: 320px;
+      max-height: calc(100vh - 250px); }
+    .pdfpage { position: relative; margin: 0 auto 14px; width: fit-content;
+      box-shadow: 0 2px 14px rgba(0,0,0,0.5); }
+    .pdfpage canvas { display: block; }
+    .pdfpage .hl { position: absolute; border: 2px solid var(--cyan); background: var(--cyan-glow);
+      border-radius: 2px; pointer-events: none; box-shadow: 0 0 12px var(--cyan-glow); }
+    .pdfpage .hl.warn { border-color: var(--warn); background: var(--warn-bg); box-shadow: none; }
+    .pdfnum { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--muted);
+      text-align: center; margin: -8px 0 12px; }
+
+    /* full-bleed: the viewer over the whole window, chat bar included, Esc to come back */
+    body.zoomed { overflow: hidden; }
+    body.zoomed #bar { display: none; }
+    .pdfpane.full { position: fixed; inset: 0; z-index: 90; border-radius: 0; border: 0; }
+    .pdfpane.full .pdfscroll { max-height: none; flex: 1; }
+
+    /* ── the box list ────────────────────────────────────────────────────────────────── */
+    .boxlist { max-height: calc(100vh - 320px); overflow-y: auto; }
+    .box { display: grid; grid-template-columns: 1fr; gap: 4px; padding: 8px 10px;
+      border-bottom: 1px solid var(--line); cursor: pointer; }
+    .box:hover { background: var(--panel-2); }
+    .box.sel { background: var(--cyan-glow); box-shadow: inset 2px 0 0 var(--cyan); }
+    .box .top { display: flex; gap: 8px; align-items: baseline; }
+    .box .lbl { font-size: 12.5px; font-weight: 700; color: var(--text-2); flex: 1;
+      overflow-wrap: anywhere; }
+    .box .pg { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted);
+      flex: 0 0 auto; }
+    .box input { font-size: 13px; padding: 6px 9px; }
+    .box input.edited { border-color: var(--cyan); background: var(--cyan-glow); }
+    .box input.fromai { border-color: var(--warn); background: var(--warn-bg); }
+    .box.blank .lbl { color: var(--warn); }
+    .box .dbf { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--cyan); }
+
+    /* ── the form assistant ──────────────────────────────────────────────────────────── */
+    .prop { border: 1px solid var(--line-2); border-left: 2px solid var(--cyan); border-radius: 8px;
+      background: var(--panel-2); padding: 10px 12px; margin-bottom: 8px; font-size: 12.5px; }
+    .prop .h { font-weight: 700; margin-bottom: 3px; }
+    .prop .was { color: var(--muted); text-decoration: line-through; }
+    .prop .now { color: var(--cyan); font-weight: 700; }
+    .prop .why { color: var(--text-2); font-size: 12px; margin: 4px 0 7px; line-height: 1.45; }
+    .prop.lowconf { border-left-color: var(--warn); }
+    .prop button { font-size: 11.5px; padding: 4px 10px; }
+
+    /* ── who is on the desk, and what changed ────────────────────────────────────────── */
+    .pres { display: flex; flex-wrap: wrap; gap: 8px; }
+    .presone { display: inline-flex; align-items: center; gap: 7px; background: var(--panel-2);
+      border: 1px solid var(--line-2); border-radius: 999px; padding: 5px 12px 5px 9px; font-size: 12.5px; }
+    .presone i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok);
+      box-shadow: 0 0 8px var(--ok); flex: 0 0 auto; }
+    .presone i.idle { background: var(--muted); box-shadow: none; }
+    .presone b { font-weight: 700; }
+    .presone span { color: var(--muted); font-size: 11.5px; }
+    .presone.me { border-color: var(--cyan-dim); }
+    .feed { max-height: 340px; overflow-y: auto; }
+    .fd { display: grid; grid-template-columns: 54px 1fr; gap: 10px; padding: 8px 0;
+      border-bottom: 1px solid var(--line); font-size: 12.5px; }
+    .fd .t { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); }
+    .fd .who { font-weight: 700; }
+    .fd .kind { font-size: 9.5px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase;
+      padding: 1px 6px; border-radius: 3px; background: var(--panel-3); color: var(--text-2); margin-left: 6px; }
+    .fd .kind.sent { background: var(--ok-bg); color: var(--ok); }
+    .fd .kind.fail { background: var(--fail-bg); color: var(--fail); }
+    .fd .d { color: var(--text-2); line-height: 1.45; margin-top: 2px; overflow-wrap: anywhere; }
+
     /* ── phones ───────────────────────────────────────────────────────────────────────
        Measured at 390px, not guessed. Two things overflowed: the header's right-hand
        block and the queue table. The table now scrolls in its own box (above); the
@@ -235,6 +326,12 @@
       .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       #barSugg { overflow-x: auto; flex-wrap: nowrap; }
       #barSugg button { white-space: nowrap; }
+      /* The clock is the first thing to go: the tabs have to stay reachable. */
+      .clock { display: none; }
+      .tabs { order: 3; width: 100%; }
+      .pdfscroll { max-height: 60vh; padding: 8px; }
+      .boxlist { max-height: none; }
+      .fd { grid-template-columns: 46px 1fr; gap: 8px; }
     }
 
   </style>
@@ -267,18 +364,37 @@
   to. It is there so that in three weeks' time "who sent that to the supplier" has an answer.
 -->
 <div id="whoami" class="hide" style="min-height:100vh;display:grid;place-items:center;padding:24px;">
-  <div class="card" style="width:100%;max-width:420px;">
-    <h2 style="margin-bottom:4px;">Who's on the desk?</h2>
-    <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">
-      Everyone shares this login, so your name goes on what you do here. Pick yours.</p>
-    <div style="margin-bottom:14px;">
-      <label class="fl" for="whoName">Your name</label>
-      <input type="text" id="whoName" list="cotPeople" placeholder="First and last name" spellcheck="false" />
-      <datalist id="cotPeople"></datalist>
+  <div style="width:100%;max-width:760px;display:grid;gap:14px;">
+    <div class="card">
+      <h2 style="margin-bottom:4px;">Who's on the desk?</h2>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">
+        Everyone shares this login, so your name goes on what you do here. Pick yours.</p>
+      <!-- The pick list, built from cot_desk_members. Free text is still allowed, because on
+           the first ever sign-in the list is empty and a locked dropdown would be a dead end;
+           anything typed is added to the list so it is a click for everyone after that. -->
+      <div id="whoPick" class="chips" style="margin-bottom:12px;"></div>
+      <div style="margin-bottom:14px;">
+        <label class="fl" for="whoName">Your name</label>
+        <input type="text" id="whoName" list="cotPeople" placeholder="First and last name" spellcheck="false" />
+        <datalist id="cotPeople"></datalist>
+      </div>
+      <button class="btn btn-primary" style="width:100%;" id="whoBtn">Start</button>
+      <p style="color:var(--muted);font-size:11.5px;margin-top:12px;">
+        Remembered on this computer until you sign out.</p>
     </div>
-    <button class="btn btn-primary" style="width:100%;" id="whoBtn">Start</button>
-    <p style="color:var(--muted);font-size:11.5px;margin-top:12px;">
-      Remembered on this computer until you sign out.</p>
+
+    <!-- Who else is here, before you have even started. Two people editing the same COT is
+         the thing this prevents, and the moment to know is now rather than after. -->
+    <div class="card">
+      <h3 style="margin-bottom:4px;">On the desk right now</h3>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:12px;">
+        Live. Anyone with this page open, and what they have in front of them.</p>
+      <div class="pres" id="whoPresence"><span style="color:var(--muted);font-size:13px;">Connecting…</span></div>
+      <h3 style="margin:18px 0 4px;">What has changed today</h3>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:8px;">
+        Every edit, rebuild, shrink and send, newest first.</p>
+      <div class="feed" id="whoFeed"><p style="color:var(--muted);font-size:13px;">Loading…</p></div>
+    </div>
   </div>
 </div>
 
@@ -289,6 +405,12 @@
       <span class="brand">CES COT Desk</span>
       <span class="live" id="liveDot">Connected</span>
       <span class="clock" id="clock"></span>
+      <!-- Form is disabled until a COT is open, because there is no form without one. -->
+      <span class="tabs">
+        <button class="tab on" id="tabQueue" data-view="queue">Queue</button>
+        <button class="tab" id="tabForm" data-view="form" disabled title="Open a COT first">Form</button>
+        <button class="tab" id="tabDesk" data-view="desk">Desk<span class="n" id="tabDeskN"></span></button>
+      </span>
       <span class="who">
         <span id="whoLabel"></span>
         <button id="btnSwitch">Not you?</button>
@@ -332,6 +454,92 @@
 
     <!-- one COT -->
     <div id="cotView" class="hide"></div>
+
+    <!-- ══ THE FORM ═══════════════════════════════════════════════════════════════════
+      The supplier's form, rendered, beside the boxes that were written into it. Clicking a
+      box outlines it on the page, which is the only way to be sure a value is in the right
+      place: a label list can look perfect while every value sits one row too low.
+
+      pdf.js draws to canvas rather than an <iframe>, the same choice flexclient.html made,
+      because framed PDFs come out as a grey box or a single page on iOS Safari and the box
+      overlay needs page coordinates anyway.
+    -->
+    <div id="formView" class="hide">
+      <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+        <button class="btn btn-sec" id="btnFormBack">&larr; Back to the COT</button>
+        <h2 id="formTitle" style="margin-left:4px;"></h2>
+        <span class="mono" id="formRef" style="color:var(--muted);font-weight:700;"></span>
+      </div>
+
+      <div class="formgrid">
+        <div class="pdfpane" id="pdfPane">
+          <div class="pdftools">
+            <select id="pdfPick" style="width:auto;max-width:340px;font-size:12.5px;padding:6px 9px;"></select>
+            <button class="btn btn-sec" id="pdfZoomOut" title="Smaller">&minus;</button>
+            <span class="mono" id="pdfZoomLab" style="font-size:11.5px;color:var(--muted);">100%</span>
+            <button class="btn btn-sec" id="pdfZoomIn" title="Bigger">+</button>
+            <button class="btn btn-sec" id="pdfFull">Full screen</button>
+            <span class="grow"></span>
+            <span id="pdfSize" style="font-size:11.5px;color:var(--muted);"></span>
+            <button class="btn btn-sec" id="pdfShrink" title="Re-render at screen resolution so it fits an email">Shrink for email</button>
+            <button class="btn btn-sec" id="pdfOpen">Open</button>
+          </div>
+          <div class="pdfscroll" id="pdfScroll">
+            <p style="color:var(--muted);font-size:13px;">Nothing loaded.</p>
+          </div>
+        </div>
+
+        <div style="display:grid;gap:14px;">
+          <div class="card" style="padding:0;overflow:hidden;">
+            <div style="padding:14px 16px 10px;">
+              <h3 style="margin-bottom:4px;">Boxes on this form <span class="mono" id="boxCount" style="color:var(--muted);font-weight:600;font-size:12px;"></span></h3>
+              <p style="color:var(--muted);font-size:12px;">
+                Click one to find it on the page. Change what is wrong, then save: only the
+                boxes you touch change.</p>
+            </div>
+            <div class="boxlist" id="boxList"></div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--line);">
+              <button class="btn btn-primary" id="btnBoxSave">Save and redraw</button>
+              <button class="btn btn-sec" id="btnBoxBlank">Show blanks only</button>
+              <span id="boxMsg" style="font-size:12.5px;color:var(--muted);"></span>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3 style="margin-bottom:4px;">Ask for a change</h3>
+            <p style="color:var(--muted);font-size:12px;margin-bottom:10px;">
+              Sonnet reads this COT and proposes boxes to change. It never writes: you apply
+              what you agree with, and anything CES already holds is taken from the record
+              rather than typed by the model.</p>
+            <div class="sugg" id="fSugg"></div>
+            <div class="ask">
+              <input type="text" id="fAsk" placeholder="e.g. fill in the company number and the billing address" autocomplete="off" />
+              <button class="btn btn-primary" id="fGo">Ask</button>
+            </div>
+            <div id="fOut" style="margin-top:12px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ THE DESK ═══════════════════════════════════════════════════════════════════ -->
+    <div id="deskView" class="hide">
+      <div class="cols">
+        <div class="card">
+          <h3 style="margin-bottom:4px;">On the desk right now</h3>
+          <p style="color:var(--muted);font-size:12px;margin-bottom:12px;">
+            Live, from this page. It shows the name each person picked at sign-in, which is a
+            claim rather than proof: the login is shared.</p>
+          <div class="pres" id="deskPresence"><span style="color:var(--muted);font-size:13px;">Connecting…</span></div>
+        </div>
+        <div class="card">
+          <h3 style="margin-bottom:4px;">What has changed</h3>
+          <p style="color:var(--muted);font-size:12px;margin-bottom:8px;">
+            Every edit, rebuild, shrink and send across all COTs, newest first.</p>
+          <div class="feed" id="deskFeed"><p style="color:var(--muted);font-size:13px;">Loading…</p></div>
+        </div>
+      </div>
+    </div>
 
   </div>
 
@@ -433,6 +641,12 @@ async function afterSignIn() {
   }
 
   WHO = localStorage.getItem('cot_who') || '';
+  // Presence and the log start here rather than after a name is picked, so the name screen
+  // can already show who else is on the desk. Until a name is chosen this session appears
+  // to the others as "signing in", which is true.
+  presenceStart();
+  loadDeskMembers();
+  loadFeed();
   if (WHO) { startDesk(); } else { $('signin').classList.add('hide'); $('whoami').classList.remove('hide'); }
 }
 
@@ -447,6 +661,7 @@ function setWho() {
   if (v.length < 2) { $('whoName').focus(); return; }
   WHO = v;
   localStorage.setItem('cot_who', v);
+  rememberName(v);          // so the next person picks it rather than retyping it
   startDesk();
 }
 
@@ -455,6 +670,8 @@ function startDesk() {
   $('whoami').classList.add('hide');
   $('app').classList.remove('hide');
   $('whoLabel').textContent = WHO;
+  showView('queue');
+  presenceTrack();
   setScope();
   loadQueue();
 }
@@ -687,10 +904,8 @@ function renderQueue() {
 let CUR = null;        // { row, meters, run, files }
 
 async function openCot(id) {
-  $('queueView').classList.add('hide');
-  $('cotView').classList.remove('hide');
+  showView('cot');
   $('cotView').innerHTML = '<div class="card"><p style="color:var(--muted);">Loading…</p></div>';
-  window.scrollTo(0, 0);
 
   const [{ data: row }, { data: meters }, { data: runs }, { data: files }] = await Promise.all([
     sb.from('cot_requests').select('*').eq('id', id).single(),
@@ -702,23 +917,35 @@ async function openCot(id) {
 
   CUR = { row, meters: meters || [], run: (runs && runs[0]) || null, files: files || [] };
   renderCot();
+  // Again, now that CUR exists: it is what enables the Form tab and what presence reports.
+  showView('cot');
 }
 
 function backToQueue() {
-  $('cotView').classList.add('hide');
-  $('queueView').classList.remove('hide');
   CUR = null;
+  showView('queue');
   setScope();
   loadQueue();
 }
 
 function docLabel(name) {
-  if (/^proof-/i.test(name))       return ['Proof of occupation', name.replace(/^proof-/i, '')];
-  if (/^cesform-/i.test(name))     return ["Customer's CES form", name.replace(/^cesform-/i, '')];
-  if (/^extra-/i.test(name))       return ['Also attached', name.replace(/^extra-/i, '')];
-  if (/^supplierform-/i.test(name))return ["Supplier's form — FILLED", name];
-  if (/^CES COT Form/i.test(name)) return ['CES COT Form — FILLED', name];
-  return ['Document', name];
+  // "(small)" is the re-rendered copy the shrink tool makes. Labelled rather than hidden:
+  // the desk is choosing what to attach, and "which of these two is the small one" should
+  // not need working out from the byte count.
+  const small = /\(small\)\.pdf$/i.test(name);
+  const tag = (s) => small ? s + ' · smaller copy' : s;
+  if (/^proof-/i.test(name))       return [tag('Proof of occupation'), name.replace(/^proof-/i, '')];
+  if (/^cesform-/i.test(name))     return [tag("Customer's CES form"), name.replace(/^cesform-/i, '')];
+  if (/^extra-/i.test(name))       return [tag('Also attached'), name.replace(/^extra-/i, '')];
+  if (/^supplierform-/i.test(name))return [tag("Supplier's form — FILLED"), name];
+  if (/^CES COT Form/i.test(name)) return [tag('CES COT Form — FILLED'), name];
+  return [tag('Document'), name];
+}
+
+/** The small copy of a file, if one has been made. */
+function smallOf(name, files) {
+  const want = String(name).replace(/\.pdf$/i, '') + ' (small).pdf';
+  return (files || []).some((f) => f.name === want) ? want : null;
 }
 
 function renderCot() {
@@ -737,15 +964,23 @@ function renderCot() {
     </tr>`;
   }).join('');
 
+  // Anything on its own over 1.5MB is what puts a pack over the one-email limit, so the size
+  // is coloured rather than merely printed.
   const docs = CUR.files.map((f) => {
     const [kind, nice] = docLabel(f.name);
     const filled = /^(supplierform-|CES COT Form)/i.test(f.name);
+    const bytes = f.metadata?.size || 0;
+    const heavy = bytes > 1_500_000 && !smallOf(f.name, CUR.files);
     return `<div class="doc">
       <span style="min-width:190px;font-weight:${filled ? 800 : 600};color:${filled ? 'var(--navy)' : 'var(--text-2)'};font-size:12.5px;">${esc(kind)}</span>
       <a href="#" data-doc="${esc(f.name)}">${esc(nice)}</a>
-      <span style="color:var(--muted);font-size:11.5px;margin-left:auto;">${Math.round((f.metadata?.size || 0) / 1024)} KB</span>
+      <span style="color:${heavy ? 'var(--warn)' : 'var(--muted)'};font-size:11.5px;margin-left:auto;"
+            title="${heavy ? 'Big enough to push the pack over the 4MB email limit. Shrink it on the form tab.' : ''}">${
+        bytes > 1048576 ? (bytes / 1048576).toFixed(2) + ' MB' : Math.round(bytes / 1024) + ' KB'}</span>
     </div>`;
   }).join('') || '<p style="color:var(--muted);font-size:13px;">Nothing attached.</p>';
+
+  const packBytes = CUR.files.reduce((t, f) => t + (f.metadata?.size || 0), 0);
 
   $('cotView').innerHTML = `
     <button class="btn btn-sec" id="btnBack" style="margin-bottom:16px;">&larr; Back to the queue</button>
@@ -788,10 +1023,17 @@ function renderCot() {
       </div>
 
       <div class="card">
-        <h3 style="margin-bottom:4px;">Documents</h3>
+        <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
+          <h3 style="margin-bottom:4px;">Documents</h3>
+          <button class="btn btn-sec" id="btnOpenForm" style="margin-left:auto;padding:5px 11px;font-size:12px;">Open the form &rarr;</button>
+        </div>
         <p style="color:var(--muted);font-size:12px;margin-bottom:10px;">
           Both forms are built for every COT. Send whichever this supplier will accept.</p>
         ${docs}
+        <p style="font-size:11.5px;margin-top:8px;color:${packBytes > 2_600_000 ? 'var(--warn)' : 'var(--muted)'};">
+          ${(packBytes / 1048576).toFixed(2)} MB in total${packBytes > 2_600_000
+            ? ' — over the 2.6MB that goes in one email. Shrink the scans on the form tab, or it goes the slow way as a draft.'
+            : '.'}</p>
         ${gaps.length ? `<h3 style="margin:18px 0 8px;">Left blank (${gaps.length})</h3>
           <div class="note">${gaps.map((g) => `<div style="margin-bottom:5px;"><strong>${esc(g.field)}</strong> — ${esc(g.why)}</div>`).join('')}</div>` : ''}
       </div>
@@ -841,6 +1083,7 @@ function renderCot() {
   `;
 
   $('btnBack').onclick = backToQueue;
+  const openF = $('btnOpenForm'); if (openF) openF.onclick = openForm;
   const save = $('btnSave'); if (save) save.onclick = saveEdits;
   const refill = $('btnRefill'); if (refill) refill.onclick = rebuild;
   $('btnDraft').onclick = draftEmail;
@@ -1053,7 +1296,17 @@ async function draftEmail() {
 
 function renderSend(d) {
   const files = CUR.files.map((f) => f.name);
-  const chosen = new Set(d.attach || []);
+  // Prefer a smaller copy wherever the shrink tool has made one. cot-assist picks from the
+  // document list and cannot tell which of two near-identical filenames is the 400KB one;
+  // this can, and the swap is shown rather than done quietly.
+  const swapped = [];
+  const chosen = new Set((d.attach || []).map((n) => {
+    const s = smallOf(n, CUR.files);
+    if (s) { swapped.push([n, s]); return s; }
+    return n;
+  }));
+  const sizeOf = (n) => (CUR.files.find((f) => f.name === n)?.metadata?.size || 0);
+  const chosenBytes = [...chosen].reduce((t, n) => t + sizeOf(n), 0);
   const sent = !!CUR.row.submitted_at;
 
   $('sendWrap').innerHTML =
@@ -1080,9 +1333,20 @@ function renderSend(d) {
     </div>
     <div class="send-field">
       <label class="fl">Attach</label>
-      ${files.map((f) => `<label class="attach">
+      ${swapped.length ? `<p style="font-size:11.5px;color:var(--cyan);margin-bottom:6px;">
+        Using the smaller cop${swapped.length === 1 ? 'y' : 'ies'} of ${swapped.map(([o]) => esc(o)).join(', ')}.</p>` : ''}
+      ${files.map((f) => {
+        const b = sizeOf(f);
+        return `<label class="attach">
         <input type="checkbox" data-att="${esc(f)}" ${chosen.has(f) ? 'checked' : ''} />
-        <span>${esc(f)}</span></label>`).join('') || '<p style="color:var(--muted);font-size:12.5px;">Nothing on this COT to attach.</p>'}
+        <span>${esc(f)}</span>
+        <span style="margin-left:auto;color:var(--muted);font-size:11.5px;">${
+          b > 1048576 ? (b / 1048576).toFixed(2) + ' MB' : Math.round(b / 1024) + ' KB'}</span></label>`;
+      }).join('') || '<p style="color:var(--muted);font-size:12.5px;">Nothing on this COT to attach.</p>'}
+      <p id="attTotal" style="font-size:11.5px;margin-top:6px;color:${chosenBytes > 2_600_000 ? 'var(--warn)' : 'var(--muted)'};">
+        ${(chosenBytes / 1048576).toFixed(2)} MB selected${chosenBytes > 2_600_000
+          ? ' — too big for one email, so it goes as a draft. Slower, and it needs the mail app to hold Mail.ReadWrite.'
+          : '.'}</p>
     </div>` +
 
     (sent ? `<label class="attach" style="color:var(--fail);font-weight:700;">
@@ -1098,6 +1362,19 @@ function renderSend(d) {
       Sends as cot@cesgb.com. Replies come back there and are picked up automatically twice a day.</p>`;
 
   $('btnSend').onclick = sendToSupplier;
+  // Keep the total honest as boxes are ticked: the number that decides whether this goes in
+  // one email must not be the number from when the screen was drawn.
+  const retot = () => {
+    const picked = [...document.querySelectorAll('[data-att]')].filter((c) => c.checked).map((c) => c.dataset.att);
+    const b = picked.reduce((t, n) => t + sizeOf(n), 0);
+    const el = $('attTotal');
+    if (!el) return;
+    el.style.color = b > 2_600_000 ? 'var(--warn)' : 'var(--muted)';
+    el.textContent = `${(b / 1048576).toFixed(2)} MB selected` + (b > 2_600_000
+      ? ' — too big for one email, so it goes as a draft. Slower, and it needs the mail app to hold Mail.ReadWrite.'
+      : '.');
+  };
+  [...document.querySelectorAll('[data-att]')].forEach((c) => c.onchange = retot);
   $('btnRedraft').onclick = () => {
     $('sendWrap').innerHTML = `<button class="btn btn-primary" id="btnDraft">Draft the email</button>
       <span id="draftMsg" style="font-size:12.5px;color:var(--muted);margin-left:10px;"></span>`;
@@ -1126,7 +1403,8 @@ async function sendToSupplier() {
     });
     if (j.error === 'already_sent') { msg.textContent = j.message; return; }
     if (!res.ok || j.error) throw new Error(j.error + (j.detail ? ' — ' + j.detail : ''));
-    msg.textContent = `Sent to ${j.sent_to.join(', ')}${j.attachments ? ' with ' + j.attachments + ' attachment(s)' : ''}.`;
+    msg.textContent = `Sent to ${j.sent_to.join(', ')}${j.attachments ? ' with ' + j.attachments + ' attachment(s)' : ''}` +
+      `${j.transport === 'upload_session' ? ', uploaded as a draft because it was over 2.6MB' : ''}.`;
     if (j.warning) msg.textContent += ' ' + j.warning;
     setTimeout(() => openCot(CUR.row.id), 1200);
   } catch (e) {
@@ -1149,7 +1427,716 @@ async function logEvent(kind, detail) {
     await sb.from('cot_events').insert({
       cot_id: CUR.row.id, actor: WHO || 'COT team', kind, detail,
     });
+    // The desk view reads this table, so anything done here should show up there without
+    // waiting for the 30s poll.
+    loadFeed();
   } catch (e) { console.warn('cot_events', e); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Views
+//
+// Four panes, one at a time. Two of them used to be swapped by hand in both directions,
+// which is fine for two and would not survive four: every new pane would mean remembering
+// to hide the other three at four separate call sites.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+const VIEWS = { queue: 'queueView', cot: 'cotView', form: 'formView', desk: 'deskView' };
+let VIEW = 'queue';
+
+function showView(name) {
+  if (!VIEWS[name]) name = 'queue';
+  // Leaving the form releases the document. Forty pages of canvas is tens of megabytes of
+  // bitmap and nobody returns to the queue to look at it.
+  if (VIEW === 'form' && name !== 'form') { pdfClose(); pdfFullscreen(false); }
+  VIEW = name;
+  Object.entries(VIEWS).forEach(([k, id]) => { const el = $(id); if (el) el.classList.toggle('hide', k !== name); });
+  // The COT screen is a drill-down from the queue rather than a destination, so Queue stays
+  // lit on it. Otherwise no tab would be, and the strip would look broken.
+  $('tabQueue').classList.toggle('on', name === 'queue' || name === 'cot');
+  $('tabForm').classList.toggle('on', name === 'form');
+  $('tabDesk').classList.toggle('on', name === 'desk');
+  $('tabForm').disabled = !CUR;
+  $('tabForm').title = CUR ? 'The supplier form for this COT' : 'Open a COT first';
+  window.scrollTo(0, 0);
+  presenceTrack();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// The form tab: the page, and the boxes on it
+//
+// pdf.js draws to canvas rather than an <iframe>. flexclient.html made the same call because
+// iOS Safari renders a framed PDF as a grey box or one page, and here there is a second
+// reason: the box outline has to be positioned in page coordinates, which an iframe will not
+// give up.
+//
+// Loaded on first use. It is ~340KB and most of a day on this desk never opens a form.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+const PDFJS_VER = '3.11.174';
+const PDFLIB_VER = '1.17.1';
+const PDF_MAX_PAGES = 40;
+let _pdfLib = null, _pdfDoc = null, _pdfPages = [], _pdfBytes = null, _pdfName = '';
+let _zoom = 1, _libPdfLib = null;
+
+function loadScript(src) {
+  return new Promise((ok, no) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = ok; s.onerror = () => no(new Error('could not load ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+async function pdfjs() {
+  if (_pdfLib) return _pdfLib;
+  await loadScript(`https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VER}/pdf.min.js`);
+  const lib = window.pdfjsLib;
+  if (!lib) throw new Error('pdf.js did not load');
+  // pdf.js fetches its worker cross-origin and wraps it in a blob, which is why the CSP
+  // carries worker-src blob: as well as cdnjs.
+  lib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VER}/pdf.worker.min.js`;
+  _pdfLib = lib;
+  return lib;
+}
+
+async function pdflib() {
+  if (_libPdfLib) return _libPdfLib;
+  await loadScript(`https://cdn.jsdelivr.net/npm/pdf-lib@${PDFLIB_VER}/dist/pdf-lib.min.js`);
+  if (!window.PDFLib) throw new Error('pdf-lib did not load');
+  _libPdfLib = window.PDFLib;
+  return _libPdfLib;
+}
+
+function pdfClose() {
+  try { if (_pdfDoc) _pdfDoc.destroy(); } catch (e) { /* already gone */ }
+  _pdfDoc = null; _pdfPages = []; _pdfBytes = null; _pdfName = '';
+  const s = $('pdfScroll'); if (s) s.innerHTML = '';
+}
+
+// ── the box map, straight out of the geometry ────────────────────────────────────────
+// One download per session. The same file cot-fill reads, so the ids here are the ids it
+// will accept in an override, which is what makes an edit land where the desk aimed it.
+let GEO = null;
+
+async function geometry() {
+  if (GEO) return GEO;
+  const { data, error } = await sb.storage.from('cot-forms').download('form_geometry.json');
+  if (error || !data) throw new Error('could not read the form geometry: ' + (error?.message || 'missing'));
+  GEO = JSON.parse(await data.text());
+  return GEO;
+}
+
+/**
+ * Every box on this form a person may type into.
+ *
+ * Mirrors boxIndex() in cot-fill, and the two exclusions are the point of it: a value cell
+ * that already carries printed text is a panel of choices rather than a box (writing into
+ * Scottish Power's "Legal entity" cell draws over Incorporated / Sole trader / Partnership),
+ * and a tick box cannot be typed into at all.
+ */
+function geoBoxes(form) {
+  if (!form) return [];
+  if (form.mechanism === 'pdf_acroform') {
+    return (form.fields || [])
+      .filter((f) => f.type !== 'CheckBox' && f.type !== 'RadioButton')
+      .map((f) => ({ id: f.id, label: f.label_unique || f.name || f.id, page: f.page || 0,
+                     name: f.name, rect: f.rect || null }));
+  }
+  return (form.rows || []).flatMap((r) =>
+    (r.value_cells || []).map((c, i) => ({ c, i }))
+      .filter((z) => !z.c.label_in_cell)
+      .map((z) => ({ id: `${r.id}c${z.i}`, label: r.label_unique || r.id, page: r.page || 0,
+                     name: null, rect: z.c.rect || null })));
+}
+
+let BOXES = [];        // [{id,label,page,rect,name,value,source,blank}]
+let ORIG = {};         // box id -> the value that was on the form when this screen opened
+let DBQ = {};          // box id -> db_field, queued from an applied proposal
+let SEL = null;        // the box currently outlined
+let BLANKS_ONLY = false;
+
+async function openForm() {
+  if (!CUR) return;
+  showView('form');
+  $('formTitle').textContent = CUR.row.customer_name_raw || '';
+  $('formRef').textContent = CUR.row.ref || '';
+  $('fSugg').innerHTML = FORM_SUGG.map((q) => `<button data-fq="${esc(q)}">${esc(q)}</button>`).join('');
+  [...document.querySelectorAll('#fSugg button')].forEach((b) => b.onclick = () => askFields(b.dataset.fq));
+  $('fOut').innerHTML = '';
+  DBQ = {}; SEL = null;
+
+  const files = buildPicker();
+  await renderBoxes();
+  if (files.length) await pdfLoad(files[0].name);
+}
+
+/**
+ * The file dropdown, supplier's filled form first because it is what the desk came for.
+ *
+ * Rebuilt after anything that adds a file, which is how the shrink tool's new copy becomes
+ * selectable: setting a <select> to a value that has no option is a silent no-op, so the
+ * viewer would have loaded the small copy while the dropdown still said the original.
+ */
+function buildPicker() {
+  const rank = (n) => /^supplierform-/i.test(n) ? 0
+    : /^CES COT Form/i.test(n) ? 1
+    : /^proof-/i.test(n) ? 2
+    : /^cesform-/i.test(n) ? 3 : 4;
+  const files = [...CUR.files].sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
+  $('pdfPick').innerHTML = files.map((f) => {
+    const [kind] = docLabel(f.name);
+    const kb = Math.round((f.metadata?.size || 0) / 1024);
+    return `<option value="${esc(f.name)}">${esc(kind)} — ${esc(f.name)} (${kb} KB)</option>`;
+  }).join('') || '<option value="">Nothing attached to this COT</option>';
+  return files;
+}
+
+async function renderBoxes() {
+  const list = $('boxList'), run = CUR.run;
+  const written = (run && run.written) || [];
+  const byId = {}; written.filter((w) => w.kind !== 'tick').forEach((w) => { byId[w.id] = w; });
+
+  let boxes = [];
+  try {
+    const geo = await geometry();
+    const form = geo.forms?.[CUR.row.supplier_key || ''];
+    boxes = geoBoxes(form);
+  } catch (e) {
+    // Without the geometry the written list is still worth showing: it is the boxes that
+    // matter most, and losing the blanks is better than losing the screen.
+    console.warn('geometry', e);
+  }
+  if (!boxes.length) {
+    boxes = written.filter((w) => w.kind !== 'tick')
+      .map((w) => ({ id: w.id, label: w.label || w.id, page: w.page || 0, rect: null, name: null }));
+  }
+
+  BOXES = boxes.map((b) => {
+    const w = byId[b.id];
+    return { ...b, value: w ? String(w.value ?? '') : '', source: w ? (w.source || '') : '',
+             confidence: w ? w.confidence : null, blank: !w };
+  });
+  ORIG = {}; BOXES.forEach((b) => { ORIG[b.id] = b.value; });
+
+  const shown = BLANKS_ONLY ? BOXES.filter((b) => b.blank) : BOXES;
+  $('boxCount').textContent = `${BOXES.length} boxes · ${BOXES.filter((b) => b.blank).length} blank`;
+  $('btnBoxBlank').textContent = BLANKS_ONLY ? 'Show every box' : 'Show blanks only';
+
+  list.innerHTML = shown.map((b) => `
+    <div class="box${b.blank ? ' blank' : ''}" data-box="${esc(b.id)}">
+      <div class="top">
+        <span class="lbl">${esc(b.label)}</span>
+        <span class="pg">p${(b.page || 0) + 1}</span>
+      </div>
+      <input type="text" data-bid="${esc(b.id)}" value="${esc(b.value)}"
+             placeholder="${b.blank ? 'blank' : ''}" />
+      <div class="src" data-src="${esc(b.id)}">${esc(b.source || (b.blank ? 'nothing written' : ''))}${
+        b.confidence && b.confidence !== 'high' ? ' · ' + esc(b.confidence) + ' confidence' : ''}</div>
+    </div>`).join('') || '<p style="padding:14px 16px;color:var(--muted);font-size:13px;">No boxes to show.</p>';
+
+  [...list.querySelectorAll('.box')].forEach((el) => {
+    el.onclick = (e) => { if (e.target.tagName !== 'INPUT') selectBox(el.dataset.box); };
+  });
+  [...list.querySelectorAll('input[data-bid]')].forEach((i) => {
+    i.onfocus = () => selectBox(i.dataset.bid);
+    i.oninput = () => {
+      i.classList.remove('fromai');
+      i.classList.toggle('edited', i.value !== (ORIG[i.dataset.bid] || ''));
+      delete DBQ[i.dataset.bid];         // typing over a proposal cancels it
+    };
+  });
+}
+
+function selectBox(id) {
+  SEL = id;
+  [...document.querySelectorAll('#boxList .box')].forEach((el) =>
+    el.classList.toggle('sel', el.dataset.box === id));
+  drawHighlight();
+}
+
+/**
+ * Outline the selected box on the rendered page.
+ *
+ * Flat forms carry a rectangle per cell in the geometry, in PDF user space. AcroForm fields
+ * do not always, so their rectangle comes from pdf.js's own annotation list matched on field
+ * name — which is better anyway, since it is the box the viewer is actually drawing.
+ */
+function drawHighlight() {
+  [...document.querySelectorAll('.pdfpage .hl')].forEach((el) => el.remove());
+  const b = BOXES.find((x) => x.id === SEL);
+  if (!b) return;
+  const pg = _pdfPages[b.page || 0];
+  if (!pg) return;
+  const rect = b.rect || (b.name && pg.annots ? pg.annots[b.name] : null);
+  if (!rect) return;
+  const r = pg.vp.convertToViewportRectangle(rect);
+  const left = Math.min(r[0], r[2]), top = Math.min(r[1], r[3]);
+  const w = Math.abs(r[2] - r[0]), h = Math.abs(r[3] - r[1]);
+  const hl = document.createElement('div');
+  hl.className = 'hl' + (b.blank ? ' warn' : '');
+  hl.style.cssText = `left:${left - 2}px;top:${top - 2}px;width:${w + 4}px;height:${h + 4}px;`;
+  pg.el.appendChild(hl);
+  pg.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+async function pdfLoad(name) {
+  if (!name) return;
+  const scroll = $('pdfScroll');
+  scroll.innerHTML = '<p style="color:var(--muted);font-size:13px;">Loading…</p>';
+  pdfClose();
+  _pdfName = name;
+  $('pdfPick').value = name;
+
+  const { data, error } = await sb.storage.from('cot-documents').download(`${CUR.row.id}/${name}`);
+  if (error || !data) {
+    scroll.innerHTML = `<p style="color:var(--fail);font-size:13px;">Could not open that file: ${esc(error?.message || 'missing')}</p>`;
+    return;
+  }
+  _pdfBytes = await data.arrayBuffer();
+  sizeLine();
+
+  if (!/\.pdf$/i.test(name)) {
+    scroll.innerHTML = `<p style="color:var(--text-2);font-size:13px;">${esc(name)} is not a PDF, so there is nothing to render here. Use Open.</p>`;
+    return;
+  }
+  try {
+    const lib = await pdfjs();
+    // A copy, because pdf.js takes ownership of the buffer it is handed and the shrink tool
+    // needs the original bytes afterwards.
+    _pdfDoc = await lib.getDocument({ data: new Uint8Array(_pdfBytes).slice() }).promise;
+    await pdfPaint();
+  } catch (e) {
+    scroll.innerHTML = `<p style="color:var(--fail);font-size:13px;">Could not render it: ${esc(e.message || e)}</p>`;
+  }
+}
+
+async function pdfPaint() {
+  const doc = _pdfDoc, scroll = $('pdfScroll');
+  if (!doc) return;
+  const total = Math.min(doc.numPages, PDF_MAX_PAGES);
+  const avail = Math.max(280, (scroll.clientWidth || 700) - 30);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  scroll.innerHTML = '';
+  _pdfPages = [];
+
+  for (let n = 1; n <= total; n++) {
+    if (_pdfDoc !== doc) return;                      // switched file mid-render
+    const page = await doc.getPage(n);
+    const base = page.getViewport({ scale: 1 });
+    const scale = (avail / base.width) * _zoom;
+    const vp = page.getViewport({ scale });
+    const holder = document.createElement('div');
+    holder.className = 'pdfpage';
+    holder.style.width = Math.floor(vp.width) + 'px';
+    holder.style.height = Math.floor(vp.height) + 'px';
+    const cv = document.createElement('canvas');
+    cv.width = Math.floor(vp.width * dpr);
+    cv.height = Math.floor(vp.height * dpr);
+    cv.style.width = Math.floor(vp.width) + 'px';
+    cv.style.height = Math.floor(vp.height) + 'px';
+    holder.appendChild(cv);
+    scroll.appendChild(holder);
+    const num = document.createElement('div');
+    num.className = 'pdfnum';
+    num.textContent = `page ${n} of ${doc.numPages}`;
+    scroll.appendChild(num);
+
+    await page.render({ canvasContext: cv.getContext('2d'),
+                        viewport: page.getViewport({ scale: scale * dpr }) }).promise;
+
+    // Widget rectangles by field name, for outlining a box on an AcroForm.
+    let annots = null;
+    try {
+      const list = await page.getAnnotations();
+      annots = {};
+      list.filter((a) => a.fieldName && a.rect).forEach((a) => { annots[a.fieldName] = a.rect; });
+    } catch (e) { /* flat forms have none, and the geometry has the rectangles anyway */ }
+
+    _pdfPages[n - 1] = { el: holder, vp, annots };
+  }
+  if (doc.numPages > PDF_MAX_PAGES) {
+    scroll.insertAdjacentHTML('beforeend',
+      `<p style="color:var(--muted);font-size:12px;text-align:center;">First ${PDF_MAX_PAGES} pages of ${doc.numPages}. Use Open for the rest.</p>`);
+  }
+  $('pdfZoomLab').textContent = Math.round(_zoom * 100) + '%';
+  drawHighlight();
+}
+
+function sizeLine() {
+  const f = CUR.files.find((x) => x.name === _pdfName);
+  const mine = (f?.metadata?.size || _pdfBytes?.byteLength || 0);
+  const pack = CUR.files.filter((x) => /^(proof-|cesform-|supplierform-|extra-|CES COT Form)/i.test(x.name))
+    .reduce((t, x) => t + (x.metadata?.size || 0), 0);
+  const over = pack > 2_600_000;
+  $('pdfSize').innerHTML = `${(mine / 1048576).toFixed(2)}MB · pack ` +
+    `<b style="color:${over ? 'var(--warn)' : 'var(--text-2)'};">${(pack / 1048576).toFixed(2)}MB</b>` +
+    (over ? ' — over the 2.6MB one-email limit' : '');
+}
+
+// Named pdfFullscreen rather than pdfFull because #pdfFull is an element id, and an element
+// id is also a window property: two things called pdfFull in the same scope is a bug waiting
+// for whoever edits this next.
+function pdfFullscreen(on) {
+  const pane = $('pdfPane');
+  if (!pane) return;
+  const want = on === undefined ? !pane.classList.contains('full') : !!on;
+  pane.classList.toggle('full', want);
+  document.body.classList.toggle('zoomed', want);
+  $('pdfFull').textContent = want ? 'Close full screen' : 'Full screen';
+  // The pane is a different width now, so the page has to be laid out again.
+  if (_pdfDoc) setTimeout(pdfPaint, 30);
+}
+
+// ── saving ───────────────────────────────────────────────────────────────────────────
+/**
+ * Send only what changed, and send a db_field by NAME where one was proposed.
+ *
+ * cot-fill resolves { db_field } out of the database itself, so a value CES holds is never
+ * carried through this page or authored by a model on the way. Typed text goes as text,
+ * which is right for the boxes the database does not hold.
+ */
+async function saveBoxes() {
+  const msg = $('boxMsg'), btn = $('btnBoxSave');
+  const overrides = {};
+  [...document.querySelectorAll('#boxList input[data-bid]')].forEach((i) => {
+    const id = i.dataset.bid;
+    if (DBQ[id]) { overrides[id] = { db_field: DBQ[id] }; return; }
+    if (String(i.value) !== (ORIG[id] || '')) overrides[id] = i.value;
+  });
+  if (!Object.keys(overrides).length) { msg.textContent = 'Nothing changed.'; return; }
+
+  btn.disabled = true; btn.textContent = 'Redrawing…'; msg.textContent = '';
+  try {
+    const { res, j } = await fn('cot-fill', { cot_id: CUR.row.id, overrides, notify: false });
+    if (!res.ok || j.error) throw new Error(j.error || ('HTTP ' + res.status));
+    const edited = j.edited || [];
+    await logEvent('edited', `${WHO} changed ${edited.length} box(es) on the ${CUR.row.supplier_raw || 'supplier'} form: ${edited.join(', ')}`);
+    msg.innerHTML = `Saved. ${j.filled} box(es) on the form, ${j.could_not_fill} still blank.` +
+      (j.refused && j.refused.length
+        ? `<span style="color:var(--fail);"> ${j.refused.length} refused: ` +
+          j.refused.map((r) => esc(r.why)).join('; ') + '</span>'
+        : '');
+    DBQ = {};
+    await refreshCot();
+  } catch (e) {
+    msg.textContent = 'Could not save: ' + (e.message || 'unknown error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save and redraw';
+  }
+}
+
+/** Reload the COT under the form tab without bouncing the desk back to the queue. */
+async function refreshCot() {
+  const id = CUR.row.id, showing = _pdfName;
+  const [{ data: row }, { data: runs }, { data: files }] = await Promise.all([
+    sb.from('cot_requests').select('*').eq('id', id).single(),
+    sb.from('cot_fill_runs').select('*').eq('cot_id', id).order('created_at', { ascending: false }).limit(1),
+    sb.storage.from('cot-documents').list(id, { limit: 100 }),
+  ]);
+  if (row) CUR.row = row;
+  CUR.run = (runs && runs[0]) || CUR.run;
+  CUR.files = files || CUR.files;
+  buildPicker();
+  await renderBoxes();
+  if (showing && CUR.files.some((f) => f.name === showing)) await pdfLoad(showing);
+  loadFeed();
+}
+
+// ── the assistant, on the form ───────────────────────────────────────────────────────
+const FORM_SUGG = [
+  'Fill anything still blank that you can',
+  'Does the entity name match the lease?',
+  'Is anything in the wrong column?',
+];
+
+async function askFields(q) {
+  q = String(q || $('fAsk').value || '').trim();
+  if (!q) return;
+  const out = $('fOut'), btn = $('fGo');
+  btn.disabled = true;
+  out.innerHTML = '<p style="color:var(--muted);font-size:12.5px;">Reading the COT and the form…</p>';
+  try {
+    const { res, j } = await fn('cot-assist', { cot_id: CUR.row.id, mode: 'fields', messages: [{ role: 'user', content: q }] });
+    if (!res.ok || j.error) throw new Error(j.error || ('HTTP ' + res.status));
+    renderProposals(j);
+  } catch (e) {
+    out.innerHTML = `<p style="color:var(--fail);font-size:12.5px;">${esc(e.message || 'could not answer')}</p>`;
+  } finally {
+    btn.disabled = false;
+    $('fAsk').value = '';
+  }
+}
+
+function renderProposals(j) {
+  const out = $('fOut');
+  const props = j.changes || [];
+  out.innerHTML =
+    (j.notes ? `<div class="note" style="margin-bottom:10px;">${esc(j.notes)}</div>` : '') +
+    (props.length
+      ? props.map((c, n) => `
+        <div class="prop${c.confidence === 'low' ? ' lowconf' : ''}">
+          <div class="h">${esc(c.label)} <span class="pg mono" style="color:var(--muted);font-size:10px;">p${(c.page || 0) + 1}</span></div>
+          <div>${c.was ? `<span class="was">${esc(c.was)}</span> &rarr; ` : ''}<span class="now">${
+            c.db_field ? 'from the record: ' + esc(c.db_field) : esc(c.value)}</span></div>
+          <div class="why">${esc(c.why)}${c.confidence !== 'high' ? ' · ' + esc(c.confidence) + ' confidence' : ''}</div>
+          <button class="btn btn-sec" data-apply="${n}">Put it in the box</button>
+        </div>`).join('')
+      : '<p style="color:var(--muted);font-size:12.5px;">No box changes proposed.</p>') +
+    ((j.cannot || []).length
+      ? `<div class="danger" style="margin-top:10px;">${j.cannot.map((c) =>
+          `<div><strong>${esc(c.what)}</strong> — ${esc(c.why)}</div>`).join('')}</div>`
+      : '') +
+    `<p style="color:var(--muted);font-size:11px;margin-top:8px;">
+       ${esc(j.model_label || 'Sonnet')} · nothing is written until you press Save and redraw.</p>`;
+
+  [...out.querySelectorAll('[data-apply]')].forEach((b) => b.onclick = () => {
+    const c = props[+b.dataset.apply];
+    if (!c) return;
+    // The box may be hidden behind the blanks-only filter, so lift it before hunting for
+    // the input: applying a proposal and seeing nothing happen is worse than no button.
+    if (BLANKS_ONLY) { BLANKS_ONLY = false; renderBoxes().then(() => applyProposal(c, b)); return; }
+    applyProposal(c, b);
+  });
+}
+
+function applyProposal(c, btn) {
+  const i = document.querySelector(`#boxList input[data-bid="${window.CSS && CSS.escape ? CSS.escape(c.box_id) : c.box_id}"]`);
+  if (!i) { if (btn) btn.textContent = 'That box is not on this screen'; return; }
+  if (c.db_field) {
+    DBQ[c.box_id] = c.db_field;
+    i.value = '';
+    i.placeholder = `from the record: ${c.db_field}`;
+    i.classList.add('fromai'); i.classList.remove('edited');
+    const s = document.querySelector(`[data-src="${window.CSS && CSS.escape ? CSS.escape(c.box_id) : c.box_id}"]`);
+    if (s) s.innerHTML = `<span class="dbf">will be taken from ${esc(c.db_field)}</span>`;
+  } else {
+    delete DBQ[c.box_id];
+    i.value = c.value || '';
+    i.classList.add('fromai'); i.classList.remove('edited');
+  }
+  selectBox(c.box_id);
+  if (btn) { btn.textContent = 'In the box'; btn.disabled = true; }
+  $('boxMsg').textContent = 'Applied to the box. Press Save and redraw to write it.';
+}
+
+// ── shrink for email ─────────────────────────────────────────────────────────────────
+/**
+ * Re-render a scan at screen resolution and rebuild it as JPEG pages.
+ *
+ * The 4MB ceiling on a COT email is not metadata, whatever it looks like: proof-of-occupation
+ * scans are 98% of the weight in the bucket, averaging 3.6MB each, while the machine-filled
+ * forms are 50-150KB. Stripping metadata saves kilobytes. Re-rendering a 300dpi scan at 120
+ * saves megabytes, and a lease only has to be legible.
+ *
+ * Three passes at most, each coarser than the last, stopping as soon as it is under target.
+ * The original is never touched: the small copy lands beside it as "(small)" and the send
+ * screen prefers it. If the result is not actually smaller, nothing is uploaded.
+ */
+const SHRINK_TARGET = 1_200_000;
+const SHRINK_PASSES = [{ dpi: 120, q: 0.72 }, { dpi: 96, q: 0.6 }, { dpi: 72, q: 0.5 }];
+
+async function shrinkCurrent() {
+  const btn = $('pdfShrink'), msg = $('boxMsg');
+  const name = _pdfName;
+  if (!name || !/\.pdf$/i.test(name)) { alert('Pick a PDF first.'); return; }
+  if (/\(small\)\.pdf$/i.test(name)) { alert('That is already the small copy.'); return; }
+  const before = _pdfBytes ? _pdfBytes.byteLength : 0;
+
+  btn.disabled = true; btn.textContent = 'Shrinking…';
+  try {
+    const lib = await pdfjs();
+    const PDFLib = await pdflib();
+    let best = null, used = null;
+
+    for (const pass of SHRINK_PASSES) {
+      const doc = await lib.getDocument({ data: new Uint8Array(_pdfBytes).slice() }).promise;
+      const out = await PDFLib.PDFDocument.create();
+      // Asked for as "shrink the metadata": it is worth kilobytes rather than megabytes, but
+      // it also means a supplier does not receive the scanner's serial number and the
+      // solicitor's file path in the document properties.
+      out.setTitle(''); out.setAuthor(''); out.setSubject(''); out.setKeywords([]);
+      out.setProducer('CES portal'); out.setCreator('CES portal');
+
+      for (let n = 1; n <= doc.numPages; n++) {
+        const page = await doc.getPage(n);
+        const base = page.getViewport({ scale: 1 });
+        const vp = page.getViewport({ scale: pass.dpi / 72 });
+        const cv = document.createElement('canvas');
+        cv.width = Math.max(1, Math.floor(vp.width));
+        cv.height = Math.max(1, Math.floor(vp.height));
+        const ctx = cv.getContext('2d');
+        // White behind it: a scan with a transparent background turns black as a JPEG.
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, cv.width, cv.height);
+        await page.render({ canvasContext: ctx, viewport: vp }).promise;
+        const blob = await new Promise((ok) => cv.toBlob(ok, 'image/jpeg', pass.q));
+        const img = await out.embedJpg(await blob.arrayBuffer());
+        // Page size in points from the original, so the paper does not change size.
+        const p = out.addPage([base.width, base.height]);
+        p.drawImage(img, { x: 0, y: 0, width: base.width, height: base.height });
+        cv.width = cv.height = 0;                       // let the bitmap go
+      }
+      const bytes = await out.save();
+      try { doc.destroy(); } catch (e) { /* done with it */ }
+      if (!best || bytes.byteLength < best.byteLength) { best = bytes; used = pass; }
+      if (bytes.byteLength <= SHRINK_TARGET) break;
+    }
+
+    if (!best) throw new Error('nothing came back from the re-render');
+    if (best.byteLength >= before) {
+      msg.textContent = `Left alone: re-rendering made it bigger (${(best.byteLength / 1048576).toFixed(2)}MB against ${(before / 1048576).toFixed(2)}MB). This one is already compressed.`;
+      return;
+    }
+
+    const small = name.replace(/\.pdf$/i, '') + ' (small).pdf';
+    const { error: upErr } = await sb.storage.from('cot-documents')
+      .upload(`${CUR.row.id}/${small}`, new Blob([best], { type: 'application/pdf' }),
+              { contentType: 'application/pdf', upsert: true });
+    if (upErr) throw new Error(upErr.message);
+
+    const pct = Math.round((1 - best.byteLength / before) * 100);
+    await logEvent('shrank', `${WHO} shrank ${name} from ${(before / 1048576).toFixed(2)}MB to ` +
+      `${(best.byteLength / 1048576).toFixed(2)}MB (${pct}% smaller, ${used.dpi}dpi) as "${small}"`);
+    msg.textContent = `Made a smaller copy: ${(before / 1048576).toFixed(2)}MB to ${(best.byteLength / 1048576).toFixed(2)}MB, ${pct}% off. Check it reads properly before sending.`;
+    await refreshCot();
+    await pdfLoad(small);
+    $('pdfPick').value = small;
+  } catch (e) {
+    msg.textContent = 'Could not shrink it: ' + (e.message || 'unknown error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Shrink for email';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Who is on the desk, and what they have changed
+//
+// Presence over Realtime, on the cot-desk topic, which has its own RLS policy on
+// realtime.messages. Without that policy the channel subscribes and then silently receives
+// nothing, because the only existing policy is scoped to the flex desk's topic and policies
+// are OR'd rather than defaulting to open.
+//
+// It reports the name picked at sign-in. The login is shared, so that is a claim and not
+// proof, and the screen says so rather than implying an audit trail it cannot support.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+let PRES = null, PRES_JOINED = false, PEOPLE = [];
+const PRES_ID = Math.random().toString(36).slice(2, 10);
+
+async function presenceStart() {
+  if (PRES) return;
+  // A private channel is authorised against realtime.messages, so the socket has to be
+  // carrying this session's token rather than the anon key it opened with.
+  try { await sb.realtime.setAuth(); } catch (e) { /* older clients set it on sign-in */ }
+  PRES = sb.channel('cot-desk', { config: { private: true, presence: { key: PRES_ID } } });
+  PRES.on('presence', { event: 'sync' }, () => {
+    const st = PRES.presenceState() || {};
+    PEOPLE = Object.entries(st).map(([k, v]) => ({ key: k, ...(v && v[0] ? v[0] : {}) }));
+    renderPresence();
+  });
+  PRES.subscribe(async (st) => {
+    PRES_JOINED = st === 'SUBSCRIBED';
+    const dot = $('liveDot');
+    if (dot) dot.textContent = PRES_JOINED ? 'Connected' : 'Reconnecting';
+    if (PRES_JOINED) await presenceTrack();
+  });
+}
+
+async function presenceTrack() {
+  if (!PRES || !PRES_JOINED) return;
+  try {
+    await PRES.track({
+      who: WHO || 'signing in',
+      view: VIEW,
+      ref: CUR ? (CUR.row.ref || null) : null,
+      cust: CUR ? (CUR.row.customer_name_raw || null) : null,
+      since: Date.now(),
+    });
+  } catch (e) { /* presence is a nicety, never a blocker */ }
+}
+
+function presenceLine(p) {
+  if (p.view === 'form') return `on the ${p.ref || 'supplier'} form`;
+  if (p.view === 'cot' && p.ref) return `reading ${p.ref}`;
+  if (p.view === 'desk') return 'on the desk view';
+  if (p.ref) return `on ${p.ref}`;
+  return 'in the queue';
+}
+
+function renderPresence() {
+  const html = PEOPLE.length
+    ? PEOPLE.map((p) => `<span class="presone${p.key === PRES_ID ? ' me' : ''}">
+        <i></i><b>${esc(p.who || 'someone')}</b><span>${esc(presenceLine(p))}${p.key === PRES_ID ? ' · you' : ''}</span>
+      </span>`).join('')
+    : '<span style="color:var(--muted);font-size:13px;">Nobody else has this open.</span>';
+  ['whoPresence', 'deskPresence'].forEach((id) => { const el = $(id); if (el) el.innerHTML = html; });
+  const n = $('tabDeskN');
+  if (n) n.textContent = PEOPLE.length > 1 ? String(PEOPLE.length) : '';
+}
+
+// ── the change log ───────────────────────────────────────────────────────────────────
+// cot_events is not in the realtime publication, so this polls rather than subscribing.
+// Every 30s while the desk view is open, and immediately after anything is done here.
+const FEED_KINDS = { sent: 'sent', chase_sent: 'sent', send_failed: 'fail' };
+
+async function loadFeed() {
+  const target = ['whoFeed', 'deskFeed'].map($).filter(Boolean);
+  if (!target.length) return;
+  const { data, error } = await sb.from('cot_events')
+    .select('at, actor, kind, detail, cot_id, cot_requests(ref, customer_name_raw)')
+    .order('at', { ascending: false }).limit(60);
+  if (error) {
+    target.forEach((el) => el.innerHTML = `<p style="color:var(--muted);font-size:12.5px;">Could not read the log: ${esc(error.message)}</p>`);
+    return;
+  }
+  const html = (data || []).length
+    ? data.map((e) => {
+        const t = String(e.at || '').slice(11, 16);
+        const ref = e.cot_requests?.ref || '';
+        const cust = e.cot_requests?.customer_name_raw || '';
+        return `<div class="fd">
+          <div class="t">${esc(t)}</div>
+          <div>
+            <span class="who">${esc(e.actor || 'system')}</span>
+            <span class="kind ${FEED_KINDS[e.kind] || ''}">${esc(e.kind || '')}</span>
+            ${ref ? `<span class="mono" style="color:var(--muted);font-size:11px;margin-left:6px;">${esc(ref)}</span>` : ''}
+            ${cust ? `<span style="color:var(--text-2);font-size:11.5px;margin-left:6px;">${esc(cust)}</span>` : ''}
+            <div class="d">${esc(e.detail || '')}</div>
+          </div>
+        </div>`;
+      }).join('')
+    : '<p style="color:var(--muted);font-size:13px;">Nothing recorded yet.</p>';
+  target.forEach((el) => el.innerHTML = html);
+}
+
+setInterval(() => { if (VIEW === 'desk' || !$('whoami').classList.contains('hide')) loadFeed(); }, 30000);
+
+// ── the name list ────────────────────────────────────────────────────────────────────
+// A pick list the desk maintains itself. Free text still works, because on the first sign-in
+// the list is empty and a locked dropdown would be a dead end; whatever is typed is added,
+// so it is one click for everyone after that.
+async function loadDeskMembers() {
+  try {
+    const { data } = await sb.from('cot_desk_members')
+      .select('name, active').eq('active', true).order('name');
+    const names = (data || []).map((r) => r.name).filter(Boolean);
+    const pick = $('whoPick');
+    if (pick) {
+      pick.innerHTML = names.map((n) => `<button class="chip" data-who="${esc(n)}">${esc(n)}</button>`).join('');
+      [...pick.querySelectorAll('[data-who]')].forEach((b) => b.onclick = () => {
+        $('whoName').value = b.dataset.who; setWho();
+      });
+    }
+    const dl = $('cotPeople');
+    if (dl) dl.innerHTML = names.map((n) => `<option value="${esc(n)}">`).join('');
+  } catch (e) { /* the list is a convenience */ }
+}
+
+async function rememberName(name) {
+  try {
+    // Upsert by hand: the unique index is on lower(btrim(name)), which on-conflict cannot
+    // target by column name, so read first and insert only when it is genuinely new.
+    const { data } = await sb.from('cot_desk_members').select('id, name').limit(200);
+    const hit = (data || []).find((r) => String(r.name).trim().toLowerCase() === name.trim().toLowerCase());
+    if (hit) await sb.from('cot_desk_members').update({ last_claim: new Date().toISOString(), active: true }).eq('id', hit.id);
+    else await sb.from('cot_desk_members').insert({ name: name.trim(), last_claim: new Date().toISOString() });
+  } catch (e) { /* never block getting to work */ }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -1188,21 +2175,48 @@ $('btnSwitch').onclick = () => {
   $('app').classList.add('hide'); $('whoami').classList.remove('hide');
   $('whoName').value = ''; $('whoName').focus();
 };
-$('btnOut').onclick = async () => { localStorage.removeItem('cot_who'); await sb.auth.signOut(); location.reload(); };
+$('btnOut').onclick = async () => {
+  localStorage.removeItem('cot_who');
+  try { if (PRES) await PRES.untrack(); } catch (e) { /* going anyway */ }
+  await sb.auth.signOut();
+  location.reload();
+};
 
-// Names already seen on this desk, so the second person to sign in gets a suggestion rather
-// than a blank box, and "Laverne" does not become "laverne" and "Lav" in the audit trail.
+// ── the tab strip ────────────────────────────────────────────────────────────────────
+[...document.querySelectorAll('.tab')].forEach((b) => b.onclick = () => {
+  const v = b.dataset.view;
+  if (v === 'form') { openForm(); return; }
+  // Queue from inside a COT means "come back out", which also reloads the queue.
+  if (v === 'queue' && (VIEW === 'cot' || VIEW === 'form')) { backToQueue(); return; }
+  showView(v);
+  if (v === 'desk') loadFeed();
+});
+
+// ── the form tab's controls ──────────────────────────────────────────────────────────
+$('btnFormBack').onclick = () => { if (CUR) { showView('cot'); } else { backToQueue(); } };
+$('pdfPick').onchange = () => pdfLoad($('pdfPick').value);
+$('pdfOpen').onclick = () => { if (_pdfName) openDoc(_pdfName); };
+$('pdfShrink').onclick = shrinkCurrent;
+$('pdfFull').onclick = () => pdfFullscreen();
+$('pdfZoomIn').onclick = () => { _zoom = Math.min(2.5, _zoom + 0.25); pdfPaint(); };
+$('pdfZoomOut').onclick = () => { _zoom = Math.max(0.5, _zoom - 0.25); pdfPaint(); };
+$('btnBoxSave').onclick = saveBoxes;
+$('btnBoxBlank').onclick = () => { BLANKS_ONLY = !BLANKS_ONLY; renderBoxes(); };
+$('fGo').onclick = () => askFields();
+$('fAsk').addEventListener('keydown', (e) => { if (e.key === 'Enter') askFields(); });
+// Esc out of full screen. Without it the only way back is the button, which is off screen
+// on a phone once the pane covers the viewport.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('pdfPane').classList.contains('full')) pdfFullscreen(false);
+});
+
 (async () => {
   const { data: s } = await sb.auth.getSession();
   if (s && s.session) await afterSignIn(); else showSignIn();
-  try {
-    const { data } = await sb.from('cot_events').select('actor').limit(300);
-    const names = [...new Set((data || []).map((e) => e.actor).filter((a) => a && a !== 'COT team'))].sort();
-    $('cotPeople').innerHTML = names.map((n) => `<option value="${esc(n)}">`).join('');
-  } catch (e) { /* suggestions are a nicety */ }
 })();
 
-// COT desk build 2026-09-07a
+// COT desk build 2026-09-07b — form tab (pdf.js viewer + box editor + fields assistant),
+// desk presence and change log, and the in-portal shrink tool.
 </script>
 </body>
 </html>
