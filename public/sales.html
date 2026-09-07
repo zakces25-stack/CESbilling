@@ -1915,6 +1915,28 @@
             <div class="success-box" id="cotOk" style="display:none;"></div>
             <div class="error-box" id="cotErr" style="display:none;"></div>
 
+            <!-- 0. The form you send the customer -->
+            <!--
+              Sits above everything because it is the FIRST thing that happens: you cannot
+              submit a COT until the customer has filled a form in, and this is that form.
+              It is CES's own document with the extra rows that particular supplier insists
+              on, asterisks on the ones they will reject it without, and the boxes we already
+              know filled in.
+
+              It needs the customer and their meters picked first, because that is what tells
+              it which supplier. So it starts as a prompt rather than a button.
+            -->
+            <div class="card" style="margin-bottom:16px;border-left:3px solid #7ab800;">
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Send the customer their form</h3>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">
+                Pick the customer and their meters below, then download the form here and email it to them.
+                It comes back with the site, the MPANs and the postcode already on it, and it asks for
+                exactly what <strong>that supplier</strong> needs — nothing more.
+              </p>
+              <div id="cotDlWrap"></div>
+              <div id="cotDlMsg" style="font-size:12.5px;margin-top:10px;"></div>
+            </div>
+
             <!-- 1. Customer -->
             <div class="card" style="margin-bottom:16px;">
               <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">1. Customer</h3>
@@ -8175,6 +8197,135 @@
       });
       return Object.keys(groups).map(function(k){ return groups[k]; });
     }
+    // ── 0. the form the broker sends the customer ────────────────────────────────────
+    //
+    // CES's own COT form, with the extra rows the chosen supplier insists on appended and
+    // the boxes CES already holds filled in. Drawn by cot-fill's mode:"blank" — the same
+    // code, the same geometry and the same fonts that fill the form we send the supplier,
+    // rather than a second implementation in the browser that drifts from it.
+    //
+    // ONE FORM PER SUPPLIER, because the extra rows are the supplier's. A COT covering an
+    // electricity supply with EDF and a gas supply with Corona is two customer forms, the
+    // same way it is already two COT requests.
+    var _cotDlGroups = [];
+    var _cotDlSig = null;
+    function cotDlRender(){
+      var wrap = document.getElementById('cotDlWrap');
+      if (!wrap) return;
+      var msg = document.getElementById('cotDlMsg');
+      _cotDlGroups = cotGroupBySupplier(cotSelectedMeters());
+
+      // Wipe the "here is what we filled in" note ONLY when the picks have actually moved
+      // on, never on every render.
+      //
+      // #cotFormWrap carries a delegated input/change listener that debounces cotPreflight
+      // by 120ms, and cotPreflight renders this card. Clicking Download blurs whatever field
+      // the broker was last in, that fires `change`, and 120ms later the note they had just
+      // been given disappeared. Rendering the page is the only way this shows up: calling
+      // the same function from the console works perfectly, because nothing blurred.
+      var sig = _cotDlGroups.map(function(g){
+        return (g.key || g.display) + ':' + g.meters.map(function(m){ return m.identifier; }).sort().join('+');
+      }).join('|');
+      if (msg && sig !== _cotDlSig) msg.innerHTML = '';
+      _cotDlSig = sig;
+
+      if (!_cotDlGroups.length) {
+        wrap.innerHTML = '<div class="empty-state" style="padding:12px;">Pick a customer and tick at least one meter below, ' +
+          'then the form for their supplier appears here.</div>';
+        return;
+      }
+      wrap.innerHTML = _cotDlGroups.map(function(g, i){
+        var known = !!g.key;
+        return '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;">' +
+          '<button class="btn-primary" style="width:auto;padding:10px 18px;" id="cotDlBtn' + i + '" ' +
+            'onclick="cotDlGet(' + i + ')">&#11015; ' + escapeHtml(g.display) + ' form</button>' +
+          '<span style="font-size:12.5px;color:var(--muted);">' +
+            g.meters.length + (g.meters.length === 1 ? ' supply' : ' supplies') +
+            (known ? '' : ' · we hold no COT requirements for this supplier, so this is the standard CES form') +
+          '</span></div>';
+      }).join('');
+    }
+
+    async function cotDlGet(i){
+      var g = _cotDlGroups[i];
+      if (!g) return;
+      var btn = document.getElementById('cotDlBtn' + i);
+      var msg = document.getElementById('cotDlMsg');
+      var was = btn ? btn.innerHTML : '';
+      if (btn) { btn.disabled = true; btn.innerHTML = 'Building…'; }
+      if (msg) msg.innerHTML = '';
+      try {
+        // The site address: whatever is on the meter if `sites` has it, else what the broker
+        // typed in section 5. Neither is guessed — an empty address prints an empty box.
+        var addr = (g.meters.map(function(m){ return m.site_address; }).find(Boolean) || '').trim();
+        if (!addr) addr = ((document.getElementById('cotSiteAddress') || {}).value || '').trim();
+        var pc = (g.meters.map(function(m){ return m.postcode; }).find(Boolean) || '').trim();
+        if (!pc) pc = ((document.getElementById('cotPostcode') || {}).value || '').trim();
+
+        var rep = ((document.getElementById('cotRepresenting') || {}).value || '');
+        var body = {
+          mode: 'blank',
+          supplier_key: g.key || '',
+          supplier_name: g.display || '',
+          customer_id: _cot.cid || '',
+          customer_name: _cot.cname || '',
+          // ids for the meters on file; typed-in ones go separately and are reported back
+          meter_ids: g.meters.filter(function(m){ return m.meter_id; }).map(function(m){ return m.meter_id; }),
+          extra_meters: g.meters.filter(function(m){ return !m.meter_id; })
+            .map(function(m){ return { identifier: m.identifier, utility: m.utility }; }),
+          site_address: addr,
+          postcode: pc,
+          changeover_date: ((document.getElementById('cotChangeover') || {}).value || '') || null,
+          // "both" is a group restructure and there is no single side, so state nothing and
+          // let the customer name both parties themselves.
+          representing: (rep === 'outgoing' || rep === 'incoming') ? rep : '',
+          incoming_party: ((document.getElementById('cotIncoming') || {}).value || '').trim(),
+          outgoing_party: ((document.getElementById('cotOutgoing') || {}).value || '').trim()
+        };
+        var r = await sb.functions.invoke('cot-fill', { body: body });
+        if (r.error) throw new Error(r.error.message || 'cot-fill failed');
+        var d = r.data || {};
+        if (!d.ok || !d.pdf_b64) throw new Error(d.error || 'no form came back');
+
+        var bin = atob(d.pdf_b64);
+        var bytes = new Uint8Array(bin.length);
+        for (var k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+        var url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+        var a = document.createElement('a');
+        a.href = url; a.download = d.filename || 'CES - Change of Tenancy Form.pdf';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+
+        if (msg) {
+          var lines = [];
+          lines.push('<strong>' + escapeHtml(d.filename) + '</strong> downloaded.');
+          if (!d.personalised) {
+            lines.push('This is the standard CES form — we have no extra rows mapped for ' +
+              escapeHtml(g.display) + ', so the billing team will ask the customer for anything else.');
+          }
+          if ((d.filled || []).length) {
+            lines.push('Filled in for them: ' +
+              d.filled.map(function(f){ return escapeHtml(f.label); }).join(', ') + '.');
+          }
+          if (!addr) {
+            lines.push('<span style="color:#8b2015;">No site address on file for this supply, so that box is blank. ' +
+              'Fill it in in section 5 and download again if you want it on the form.</span>');
+          }
+          if ((d.typed_meters || []).length) {
+            lines.push('Typed in rather than picked off file: ' +
+              d.typed_meters.map(escapeHtml).join(', ') + ' — check them before you send.');
+          }
+          msg.innerHTML = lines.join('<br>');
+        }
+      } catch (e) {
+        console.error('cotDlGet', e);
+        if (msg) msg.innerHTML = '<span style="color:#8b2015;">Could not build the form: ' +
+          escapeHtml(e.message || String(e)) + '</span>';
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = was; }
+      }
+    }
+
     function cotSupplierNote(){
       var el = document.getElementById('cotSupplierNote');
       var groups = cotGroupBySupplier(cotSelectedMeters());
@@ -8247,6 +8398,10 @@
 
     // ── preflight: advisory, never blocks except where a supplier truly will ─────────
     function cotPreflight(){
+      // The download card keys off the same picks, and cotPreflight is already called from
+      // every handler that can change them. Guarded so a preflight from the submit path or
+      // cotInit cannot throw on a form that is not rendered yet.
+      try { cotDlRender(); } catch (e) { console.warn('cotDlRender:', e); }
       var el = document.getElementById('cotPreflight');
       if (!el) return { stop: [], warn: [] };
       // Guard every lookup. cotPreflight is reachable from cotShowForm, cotInit, the field
