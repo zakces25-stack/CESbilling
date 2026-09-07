@@ -187,6 +187,12 @@
     #bar .wrap { display: flex; flex-direction: column; gap: 9px; }
     #barChat { max-height: 40vh; overflow-y: auto; display: none; padding-bottom: 4px; }
     #barChat.on { display: flex; flex-direction: column; }
+    #barHead { display: flex; align-items: center; gap: 10px; }
+    /* Collapsed: the head row and nothing else, which is about 30px instead of a third of
+       the screen. The body's bottom padding is measured from the bar, so the page gets the
+       room back on its own. */
+    #bar.min #barChat, #bar.min #barSugg, #bar.min .barbox { display: none !important; }
+    #bar.min { padding: 7px 0 9px; }
     .barbox { display: flex; gap: 9px; align-items: center; border: 1px solid var(--cyan-dim);
       border-radius: 11px; background: var(--bg-2); padding: 5px 6px 5px 14px;
       box-shadow: 0 0 0 3px rgba(34,211,238,0.05); }
@@ -558,10 +564,17 @@
   -->
   <div id="bar">
     <div class="wrap">
+      <!-- Its own row, so the bar can be collapsed to just this. With a COT open the page
+           underneath is the work, and a chat box holding the bottom third of the screen is
+           in the way of it. -->
+      <div id="barHead">
+        <span class="scope" id="barScope">QUEUE</span>
+        <span id="barHint" style="font-size:11px;color:var(--muted);"></span>
+        <button class="btn btn-sec" id="barMin" style="margin-left:auto;padding:3px 10px;font-size:11px;">Minimise</button>
+      </div>
       <div id="barChat"></div>
       <div class="sugg" id="barSugg"></div>
       <div class="barbox">
-        <span class="scope" id="barScope">QUEUE</span>
         <input type="text" id="barInput" placeholder="Ask about the queue…" autocomplete="off" />
         <button id="barSend" title="Ask">&#8593;</button>
       </div>
@@ -1360,6 +1373,9 @@ function bubble(who, text, tag) {
 async function ask(q) {
   q = String(q || '').trim();
   if (!q) return;
+  // Asking something while it is collapsed opens it, otherwise the answer arrives somewhere
+  // nobody can see.
+  if ($('bar').classList.contains('min')) setBarMin(false);
   $('barInput').value = '';
   $('barSend').disabled = true;
   bubble('me', q);
@@ -1621,6 +1637,9 @@ async function pdflib() {
 }
 
 function pdfClose() {
+  // Invalidate every load still in flight. Leaving the form empties this pane, and without
+  // this an arriving 4MB scan would carry on and paint a canvas into it afterwards.
+  _pdfSeq++;
   try { if (_pdfDoc) _pdfDoc.destroy(); } catch (e) { /* already gone */ }
   _pdfDoc = null; _pdfPages = []; _pdfBytes = null; _pdfName = '';
   const s = $('pdfScroll'); if (s) s.innerHTML = '';
@@ -1750,7 +1769,7 @@ async function openForm() {
     await pdfLoad(files[0].name);
   } else {
     EDIT_TARGET = null;
-    await renderBoxes();
+    await renderBoxes(_pdfSeq);
   }
 }
 
@@ -1775,7 +1794,18 @@ function buildPicker() {
   return files;
 }
 
-async function renderBoxes() {
+/**
+ * Which document load owns the screen.
+ *
+ * Every pdfLoad takes a ticket. A 4MB lease takes seconds, and picking another document while
+ * it works used to leave the older load free to write its own box list over the newer one —
+ * so the viewer showed CES's form and the editor showed the lease's "nothing to edit here".
+ * Anything that can finish late compares its ticket before it touches the screen.
+ */
+let _pdfSeq = 0;
+
+async function renderBoxes(seq) {
+  const stale = () => seq !== undefined && seq !== _pdfSeq;
   const list = $('boxList'), run = CUR.run;
 
   // ── whose boxes are these ─────────────────────────────────────────────────────────
@@ -1814,6 +1844,7 @@ async function renderBoxes() {
   let boxes = [];
   try {
     const geo = await geometry();
+    if (stale()) return;                    // another document was picked while that resolved
     const form = target === 'ces' ? geo.forms?.ces_form : geo.forms?.[CUR.row.supplier_key || ''];
     boxes = geoBoxes(form);
   } catch (e) {
@@ -1829,18 +1860,14 @@ async function renderBoxes() {
   // A COT filled before cot-fill recorded the CES form's boxes has geometry but no values.
   // Rather than showing a form full of false blanks, offer to read them back: a no-op redraw
   // rebuilds them from the same fixed map that drew the document in the first place.
-  const cesUnrecorded = target === 'ces' && !written.length && boxes.length;
-  if (cesUnrecorded) {
+  if (target === 'ces' && !written.length && boxes.length) {
+    const first = CES_READBACK !== CUR.row.id;
     $('boxCount').textContent = '';
-    list.innerHTML = `<div style="padding:16px;">
-      <p style="font-size:13px;color:var(--text-2);line-height:1.5;">
-        This CES form was filled before the portal kept a record of its boxes, so their values
-        are not stored anywhere. Reading them back rebuilds the list from the same fixed map
-        that drew the document — nothing on the form changes.</p>
-      <button class="btn btn-primary" id="btnCesLoad" style="margin-top:10px;">Read this form's boxes</button>
-      <span id="cesLoadMsg" style="font-size:12.5px;color:var(--muted);margin-left:8px;"></span>
-    </div>`;
-    $('btnCesLoad').onclick = loadCesBoxes;
+    list.innerHTML = `<p style="padding:16px;color:var(--muted);font-size:13px;">${
+      first ? 'Reading this form&rsquo;s boxes&hellip;'
+            : 'Could not read this form&rsquo;s boxes. Rebuild the forms on the COT screen, then come back.'
+    }</p>`;
+    if (first) { CES_READBACK = CUR.row.id; loadCesBoxes(); }
     drawPreviews();
     return;
   }
@@ -1889,19 +1916,24 @@ async function renderBoxes() {
  * Materialise the CES form's box list for a COT filled before it was recorded.
  *
  * An override call with nothing in it: cot-fill rebuilds the baseline from cesFormPlan, draws
- * the same document again and writes ces_written. Deterministic, so the file that comes back
- * is the file that was already there.
+ * the same document again and writes ces_written. The map is fixed and deterministic, so the
+ * file that comes back is the file that was already there — which is why this can be done
+ * without asking anybody.
+ *
+ * Once per COT per session, tracked by CES_READBACK, so a form that genuinely cannot be read
+ * says so rather than retrying for ever.
  */
+let CES_READBACK = null;
+
 async function loadCesBoxes() {
-  const btn = $('btnCesLoad'), msg = $('cesLoadMsg');
-  btn.disabled = true; btn.textContent = 'Reading…';
+  const want = _pdfName;                    // the document this read-back is for
   try {
     const { res, j } = await fn('cot-fill', { cot_id: CUR.row.id, target: 'ces', overrides: {}, notify: false });
     if (!res.ok || j.error) throw new Error(j.error || ('HTTP ' + res.status));
-    await refreshCot();
+    await refreshCot(want);
   } catch (e) {
-    msg.textContent = 'Could not read them: ' + (e.message || 'unknown error');
-    btn.disabled = false; btn.textContent = "Read this form's boxes";
+    console.warn('ces read-back', e);
+    await renderBoxes(_pdfSeq);   // falls through to the "could not read" line
   }
 }
 
@@ -1992,7 +2024,8 @@ async function pdfLoad(name) {
   if (!name) return;
   const scroll = $('pdfScroll');
   scroll.innerHTML = '<p style="color:var(--muted);font-size:13px;">Loading…</p>';
-  pdfClose();
+  pdfClose();                               // tears down whatever was there, and invalidates it
+  const seq = ++_pdfSeq;                    // this load's ticket, taken after that teardown
   _pdfName = name;
   $('pdfPick').value = name;
 
@@ -2000,14 +2033,17 @@ async function pdfLoad(name) {
   // boxes, switching back switches it back, and a lease switches it off.
   EDIT_TARGET = formKindOf(name);
   SEL = null; DBQ = {};
-  await renderBoxes();
+  await renderBoxes(seq);
+  if (seq !== _pdfSeq) return;
 
   try {
     _pdfBytes = await dlBytes(name);
   } catch (e) {
+    if (seq !== _pdfSeq) return;
     scroll.innerHTML = `<p style="color:var(--fail);font-size:13px;">Could not open that file: ${esc(e.message || e)}</p>`;
     return;
   }
+  if (seq !== _pdfSeq) return;              // a 4MB scan can still be arriving after a switch
   sizeLine();
 
   if (!/\.pdf$/i.test(name)) {
@@ -2061,8 +2097,16 @@ async function pdfPaint() {
     num.textContent = `page ${n} of ${doc.numPages}`;
     scroll.appendChild(num);
 
-    await page.render({ canvasContext: cv.getContext('2d'),
-                        viewport: page.getViewport({ scale: scale * dpr }) }).promise;
+    try {
+      await page.render({ canvasContext: cv.getContext('2d'),
+                          viewport: page.getViewport({ scale: scale * dpr }) }).promise;
+    } catch (e) {
+      // pdf.js rejects with RenderingCancelledException when the document is destroyed part
+      // way through a page, which is exactly what leaving the form or picking another file
+      // does. That is the teardown working, not a fault, and it must not surface as an error.
+      if (_pdfDoc !== doc || /cancel/i.test(String((e && e.name) || e))) return;
+      throw e;
+    }
 
     // Widget rectangles by field name, for outlining a box on an AcroForm.
     let annots = null;
@@ -2108,7 +2152,7 @@ function pdfFullscreen(on) {
   document.body.classList.toggle('zoomed', want);
   $('pdfFull').textContent = want ? 'Close full screen' : 'Full screen';
   // The pane is a different width now, so the page has to be laid out again.
-  if (_pdfDoc) setTimeout(pdfPaint, 30);
+  if (_pdfDoc) setTimeout(() => pdfPaint().catch(() => { /* torn down mid-paint */ }), 30);
 }
 
 // ── saving ───────────────────────────────────────────────────────────────────────────
@@ -2120,7 +2164,7 @@ function pdfFullscreen(on) {
  * which is right for the boxes the database does not hold.
  */
 async function saveBoxes() {
-  const msg = $('boxMsg'), btn = $('btnBoxSave');
+  const msg = $('boxMsg'), btn = $('btnBoxSave'), showing = _pdfName;
   const overrides = {};
   [...document.querySelectorAll('#boxList input[data-bid]')].forEach((i) => {
     const id = i.dataset.bid;
@@ -2143,7 +2187,7 @@ async function saveBoxes() {
           j.refused.map((r) => esc(r.why)).join('; ') + '</span>'
         : '');
     DBQ = {};
-    await refreshCot();
+    await refreshCot(showing);
   } catch (e) {
     msg.textContent = 'Could not save: ' + (e.message || 'unknown error');
   } finally {
@@ -2152,8 +2196,8 @@ async function saveBoxes() {
 }
 
 /** Reload the COT under the form tab without bouncing the desk back to the queue. */
-async function refreshCot() {
-  const id = CUR.row.id, showing = _pdfName;
+async function refreshCot(keep) {
+  const id = CUR.row.id, showing = keep || _pdfName;
   const [{ data: row }, { data: runs }, { data: files }] = await Promise.all([
     sb.from('cot_requests').select('*').eq('id', id).single(),
     sb.from('cot_fill_runs').select('*').eq('cot_id', id).order('created_at', { ascending: false }).limit(1),
@@ -2163,7 +2207,7 @@ async function refreshCot() {
   CUR.run = (runs && runs[0]) || CUR.run;
   CUR.files = files ? realFiles(files) : CUR.files;
   buildPicker();
-  await renderBoxes();
+  await renderBoxes(_pdfSeq);
   if (showing && CUR.files.some((f) => f.name === showing)) await pdfLoad(showing);
   loadFeed();
 }
@@ -2341,8 +2385,7 @@ async function shrinkCurrent() {
       `${(best.byteLength / 1048576).toFixed(2)}MB (${pct}% off, ${used.dpi}dpi). Original kept in originals/.`);
     msg.textContent = `Replaced: ${(before / 1048576).toFixed(2)}MB to ${(best.byteLength / 1048576).toFixed(2)}MB, ` +
       `${pct}% off. Read it before sending — the original is in this COT's originals folder.`;
-    await refreshCot();
-    await pdfLoad(name);
+    await refreshCot(name);
   } catch (e) {
     msg.textContent = 'Could not shrink it: ' + (e.message || 'unknown error');
   } finally {
@@ -2547,6 +2590,19 @@ $('whoName').addEventListener('keydown', (e) => { if (e.key === 'Enter') setWho(
 $('barSend').onclick = () => ask($('barInput').value);
 $('barInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') ask($('barInput').value); });
 
+// ── minimising the assistant ─────────────────────────────────────────────────────────
+// The bar is pinned and, with the chat open, holds the bottom of the screen. On a COT the
+// page underneath is the work. Remembered per browser, because whoever wants it out of the
+// way wants it out of the way tomorrow too.
+function setBarMin(on) {
+  $('bar').classList.toggle('min', !!on);
+  $('barMin').textContent = on ? 'Open assistant' : 'Minimise';
+  $('barHint').textContent = on ? 'hidden' : '';
+  try { localStorage.setItem('cot_bar_min', on ? '1' : '0'); } catch (e) { /* private window */ }
+}
+$('barMin').onclick = () => setBarMin(!$('bar').classList.contains('min'));
+try { setBarMin(localStorage.getItem('cot_bar_min') === '1'); } catch (e) { /* default open */ }
+
 /**
  * The bar is fixed to the bottom, so the page needs exactly as much bottom padding as the
  * bar is tall. Hard-coding it left the last row of the queue underneath the bar and
@@ -2610,8 +2666,9 @@ $('pdfPick').onchange = () => {
 $('pdfOpen').onclick = () => { if (_pdfName) openDoc(_pdfName); };
 $('pdfShrink').onclick = shrinkCurrent;
 $('pdfFull').onclick = () => pdfFullscreen();
-$('pdfZoomIn').onclick = () => { _zoom = Math.min(2.5, _zoom + 0.25); pdfPaint(); };
-$('pdfZoomOut').onclick = () => { _zoom = Math.max(0.5, _zoom - 0.25); pdfPaint(); };
+const repaint = () => pdfPaint().catch(() => { /* the document went away mid-paint */ });
+$('pdfZoomIn').onclick = () => { _zoom = Math.min(2.5, _zoom + 0.25); repaint(); };
+$('pdfZoomOut').onclick = () => { _zoom = Math.max(0.5, _zoom - 0.25); repaint(); };
 $('btnBoxSave').onclick = saveBoxes;
 $('btnBoxBlank').onclick = () => { BLANKS_ONLY = !BLANKS_ONLY; renderBoxes(); };
 $('fGo').onclick = () => askFields();
