@@ -398,6 +398,12 @@ th:first-child::after,td:first-child::after{content:'';position:absolute;top:0;r
   border:1px solid var(--line);overflow:hidden}
 .pct-bar-fill{height:100%;background:var(--positive-700)}
 .pct-label{font-family:var(--font-mono);font-size:11px;font-weight:700;min-width:34px;text-align:right}
+/* Target tier headings wrap instead of stretching the table — the same rule, and the same
+   120px cap, that the desk uses. `th,td` above sets white-space:nowrap for every table,
+   which on a basket with eight named tiers pushed this one far wider than the screen and
+   left the reader scrolling sideways to reach Upper Alert. */
+.fx-targets-table thead th{white-space:normal!important;overflow-wrap:anywhere;
+  word-break:break-word;max-width:120px;vertical-align:bottom;line-height:1.2}
 .pos{color:var(--positive-700)}
 .neg{color:var(--negative-500)}
 .cur{background:rgba(159,190,28,.14)}
@@ -1025,7 +1031,8 @@ function subTargets(b,host){
   }
   host.innerHTML = FlexCore.buildTable(FlexCore.TARGETS(bk), rows,
     { mktPrice: (m)=>cxMktPrice(b,m) },
-    { caption:`Buy targets by month, in ${esc(b.unit_price||'')}. A tier shown in green has been reached.`,
+    { tableClass: FlexCore.TARGETS_TABLE_CLASS,
+      caption:`Buy targets by month, in ${esc(b.unit_price||'')}. A tier shown in green has been reached.`,
       cellClass:(c,t)=> (c.tier && t['lower_t'+c.tier]!=null && FlexCore.isAchieved(bk,t,c.tier))
         ? 'achieved-cell' : '' });
 }

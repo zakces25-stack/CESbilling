@@ -663,6 +663,12 @@
 
   function clientTabs() { return TABS.filter(function (t) { return t.client; }); }
 
+  // Styling hook for the Targets table on both portals. A basket can carry eight tiers
+  // with custom names; on one line each they push the table far wider than the screen and
+  // the reader scrolls sideways forever to reach Upper Alert. Both stylesheets wrap the
+  // headings against this class. Named here so neither page can drift off it.
+  var TARGETS_TABLE_CLASS = 'fx-targets-table';
+
   /* ── GENERIC TABLE BUILDER ────────────────────────────────────────────────────────
      Both portals call this so a column added to a spec above needs no edit anywhere
      else. `opts.rowClass`, `opts.cellClass` and `opts.cellHtml` are the desk's hooks
@@ -705,7 +711,11 @@
     }
 
     var cap = opts.caption ? '<caption>' + opts.caption + '</caption>' : '';
-    return '<div class="table-wrap"><table>' + cap + '<thead><tr>' + head + '</tr></thead>'
+    // opts.tableClass is the styling hook both portals key off, so a layout rule for a
+    // given table is written against the same selector on both rather than one page
+    // using an id the other does not have.
+    var tc = opts.tableClass ? ' class="' + opts.tableClass + '"' : '';
+    return '<div class="table-wrap"><table' + tc + '>' + cap + '<thead><tr>' + head + '</tr></thead>'
          + '<tbody>' + body + foot + '</tbody></table></div>';
   }
 
@@ -730,7 +740,7 @@
     // specs
     POSITIONS: POSITIONS, SEASONS: SEASONS, TARGETS: TARGETS, TRADES: TRADES,
     normTrade: normTrade, fmtDate: fmtDate,
-    TABS: TABS, clientTabs: clientTabs,
+    TABS: TABS, clientTabs: clientTabs, TARGETS_TABLE_CLASS: TARGETS_TABLE_CLASS,
     pctCell: pctCell, buildTable: buildTable,
     VERSION: '2026-09-07'
   };

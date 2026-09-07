@@ -1096,8 +1096,11 @@ body {
 .mini-card.has-alert.advisory .mini-progress { background:rgba(124,58,237,.18)!important; }
 .mini-card.has-alert.advisory .mini-progress-fill { background:var(--advisory-500)!important; }
 /* ── Target designations: wrapped headers, hit cells & whole-row alerts (kind-aware) ── */
-#tab-targets thead th{ white-space:normal!important; overflow-wrap:anywhere; word-break:break-word; max-width:120px; vertical-align:bottom; line-height:1.2; }
-#tab-targets thead th .fx-th-lbl{ white-space:normal; overflow-wrap:anywhere; word-break:break-word; }
+/* Keyed off the shared class, not #tab-targets, so flexclient.html can carry the
+   identical rule. Without it eight named tiers stretch the table well past the screen
+   and you scroll sideways forever to reach Upper Alert. */
+.fx-targets-table thead th{ white-space:normal!important; overflow-wrap:anywhere; word-break:break-word; max-width:120px; vertical-align:bottom; line-height:1.2; }
+.fx-targets-table thead th .fx-th-lbl{ white-space:normal; overflow-wrap:anywhere; word-break:break-word; }
 .fx-kindcell{ display:inline-block; margin-left:5px; padding:0 6px; border-radius:999px; border:1.4px solid currentColor; background:#fff; font-size:8.5px; font-weight:800; letter-spacing:.4px; cursor:pointer; vertical-align:middle; text-transform:uppercase; line-height:1.6; }
 .fx-kindcell.auth{ color:var(--negative-500); }
 .fx-kindcell.adv{ color:var(--advisory-500); }
@@ -2775,6 +2778,7 @@ function renderTargets(basket) {
   // still read m.market_price, which is always Marex.
   const tCtx = { mktPrice: (m) => fxDisplayMkt(basket, m).v };
   document.getElementById('tab-targets').innerHTML = FlexCore.buildTable(cols, targets, tCtx, {
+    tableClass: FlexCore.TARGETS_TABLE_CLASS,
     // A month whose every set target is achieved goes green as a row — reads far faster
     // than checking each cell, and matches the alert being dropped on Positions.
     rowClass: (t) => FlexCore.allTargetsHit(basket, t.month) ? 'fx-trow-hit' : '',
