@@ -106,6 +106,25 @@
     .doc a:hover { text-decoration: underline; }
     .note { background: var(--surface-2); border-left: 3px solid var(--border); padding: 10px 13px;
       font-size: 12.5px; color: var(--text-2); border-radius: 4px; line-height: 1.5; }
+
+    /* ── assistant + send ────────────────────────────────────────────────────────── */
+    .chat { max-height: 340px; overflow-y: auto; padding: 4px 2px; margin-bottom: 10px; }
+    .bub { padding: 9px 13px; border-radius: 10px; margin-bottom: 8px; font-size: 13px;
+      line-height: 1.55; white-space: pre-wrap; max-width: 86%; }
+    .bub.me { background: var(--navy); color: #fff; margin-left: auto; border-bottom-right-radius: 3px; }
+    .bub.ai { background: var(--surface-2); border: 1px solid var(--border); border-bottom-left-radius: 3px; }
+    .ask { display: flex; gap: 8px; }
+    .ask input { flex: 1; }
+    .sugg { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+    .sugg button { border: 1px solid var(--border); background: var(--surface); border-radius: 999px;
+      padding: 5px 12px; font-size: 12px; cursor: pointer; color: var(--text-2); }
+    .sugg button:hover { background: var(--surface-2); }
+    .send-field { margin-bottom: 12px; }
+    .send-field textarea { min-height: 230px; resize: vertical; font-size: 13px; line-height: 1.55; }
+    .attach { display: flex; align-items: center; gap: 9px; padding: 6px 0; font-size: 12.5px; }
+    .attach input { width: auto; }
+    .danger { background: var(--fail-bg); color: var(--fail); border-left: 3px solid var(--fail);
+      padding: 10px 13px; border-radius: 5px; font-size: 12.5px; margin-bottom: 12px; line-height: 1.5; }
   </style>
 </head>
 <body>
@@ -545,11 +564,51 @@ function renderCot() {
       <button class="btn btn-primary" id="btnRefill">Build the forms</button>
       <span id="saveMsg" style="font-size:12.5px;color:var(--muted);margin-left:10px;"></span>
     </div>`}
+
+    <div class="cols" style="margin-top:16px;align-items:start;">
+
+      <!-- the assistant -->
+      <div class="card">
+        <h3 style="margin-bottom:4px;">Ask about this COT</h3>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:12px;">
+          Knows this COT, what ${esc(r.supplier_raw || 'the supplier')} requires, and everything that has happened so far.
+          It drafts; it cannot send.</p>
+        <div class="chat" id="chat"></div>
+        <div class="sugg" id="sugg">
+          <button data-q="What does this supplier need before I send it?">What does this supplier need?</button>
+          <button data-q="Is anything missing or wrong that would get this rejected?">Anything that would get it rejected?</button>
+          <button data-q="What should I do with this one next?">What should I do next?</button>
+        </div>
+        <div class="ask">
+          <input type="text" id="askBox" placeholder="Ask anything about this COT…" />
+          <button class="btn btn-primary" id="btnAsk">Ask</button>
+        </div>
+      </div>
+
+      <!-- the email -->
+      <div class="card">
+        <h3 style="margin-bottom:4px;">Send to the supplier</h3>
+        <p style="color:var(--muted);font-size:12px;margin-bottom:12px;">
+          ${r.submitted_at
+            ? 'Already sent on ' + ukDate(r.submitted_at) + '. Anything sent now goes as a chase.'
+            : 'Nothing has gone to the supplier yet.'}</p>
+        <div id="sendWrap">
+          <button class="btn btn-primary" id="btnDraft">Draft the email</button>
+          <span id="draftMsg" style="font-size:12.5px;color:var(--muted);margin-left:10px;"></span>
+        </div>
+      </div>
+
+    </div>
   `;
 
   $('btnBack').onclick = backToQueue;
   const save = $('btnSave'); if (save) save.onclick = saveEdits;
   const refill = $('btnRefill'); if (refill) refill.onclick = rebuild;
+  $('btnAsk').onclick = () => ask($('askBox').value);
+  $('askBox').addEventListener('keydown', (e) => { if (e.key === 'Enter') ask($('askBox').value); });
+  [...document.querySelectorAll('#sugg button')].forEach((b) => b.onclick = () => ask(b.dataset.q));
+  $('btnDraft').onclick = draftEmail;
+  CHAT = [];
   [...document.querySelectorAll('#fields input')].forEach((i) => {
     const original = i.value;
     i.oninput = () => i.classList.toggle('edited', i.value !== original);
@@ -643,6 +702,159 @@ async function rebuild() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// The assistant
+// ═══════════════════════════════════════════════════════════════════════════════════════
+let CHAT = [];
+
+async function fn(name, payload) {
+  const { data: s } = await sb.auth.getSession();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON,
+               Authorization: 'Bearer ' + s.session.access_token },
+    body: JSON.stringify(payload),
+  });
+  const j = await res.json().catch(() => ({}));
+  return { res, j };
+}
+
+function bubble(who, text) {
+  const el = $('chat');
+  if (!el) return;
+  el.insertAdjacentHTML('beforeend', `<div class="bub ${who}">${esc(text)}</div>`);
+  el.scrollTop = el.scrollHeight;
+}
+
+async function ask(q) {
+  q = String(q || '').trim();
+  if (!q) return;
+  $('askBox').value = '';
+  bubble('me', q);
+  CHAT.push({ role: 'user', content: q });
+  bubble('ai', 'Thinking…');
+  const thinking = $('chat').lastElementChild;
+  try {
+    const { res, j } = await fn('cot-assist', { cot_id: CUR.row.id, mode: 'chat', messages: CHAT });
+    if (!res.ok || j.error) throw new Error(j.error || ('HTTP ' + res.status));
+    thinking.textContent = j.reply;
+    CHAT.push({ role: 'assistant', content: j.reply });
+  } catch (e) {
+    thinking.textContent = 'Could not answer: ' + (e.message || 'unknown error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// The email
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Draft, then show every part of it for review.
+ *
+ * Nothing here sends. The draft comes back from cot-assist as separate fields — recipient,
+ * subject, body, attachments — precisely so the person can see and change each one before
+ * cot-send is called with exactly what they approved.
+ */
+async function draftEmail() {
+  const btn = $('btnDraft'), msg = $('draftMsg');
+  if (btn) { btn.disabled = true; btn.textContent = 'Drafting…'; }
+  if (msg) msg.textContent = '';
+  try {
+    const { res, j } = await fn('cot-assist', { cot_id: CUR.row.id, mode: 'draft', messages: CHAT });
+    if (!res.ok || j.error) throw new Error(j.error || ('HTTP ' + res.status));
+    renderSend(j);
+  } catch (e) {
+    if (msg) msg.textContent = 'Could not draft: ' + (e.message || 'unknown error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Draft the email'; }
+  }
+}
+
+function renderSend(d) {
+  const files = CUR.files.map((f) => f.name);
+  const chosen = new Set(d.attach || []);
+  const sent = !!CUR.row.submitted_at;
+
+  $('sendWrap').innerHTML =
+    (d.omitted && d.omitted.length ? `<div class="danger">
+       <strong>${esc(CUR.row.supplier_raw)} also wants:</strong> ${d.omitted.map(esc).join(', ')}.
+       Not on this COT, so it cannot go with this email.</div>` : '') +
+    (d.dropped_attachments && d.dropped_attachments.length ? `<div class="danger">
+       Dropped ${d.dropped_attachments.map(esc).join(', ')} — not a document on this COT.</div>` : '') +
+    (!d.to || !d.to.length ? `<div class="danger">
+       No address on file for this supplier. Type one in before sending.</div>` : '') +
+    (d.note ? `<div class="note" style="margin-bottom:12px;"><strong>Before you send:</strong> ${esc(d.note)}</div>` : '') +
+
+    `<div class="send-field">
+      <label class="fl">To ${d.to && d.to.length ? '<span style="text-transform:none;font-weight:600;">— from the supplier requirements matrix</span>' : ''}</label>
+      <input type="text" id="sTo" value="${esc((d.to || []).join(', '))}" placeholder="supplier@example.co.uk" />
+    </div>
+    <div class="send-field">
+      <label class="fl">Subject</label>
+      <input type="text" id="sSubj" value="${esc(d.subject || '')}" />
+    </div>
+    <div class="send-field">
+      <label class="fl">Message</label>
+      <textarea id="sBody">${esc(d.body || '')}</textarea>
+    </div>
+    <div class="send-field">
+      <label class="fl">Attach</label>
+      ${files.map((f) => `<label class="attach">
+        <input type="checkbox" data-att="${esc(f)}" ${chosen.has(f) ? 'checked' : ''} />
+        <span>${esc(f)}</span></label>`).join('') || '<p style="color:var(--muted);font-size:12.5px;">Nothing on this COT to attach.</p>'}
+    </div>` +
+
+    (sent ? `<label class="attach" style="color:var(--fail);font-weight:700;">
+        <input type="checkbox" id="sForce" />
+        <span>This COT has already been sent. Send it again anyway.</span></label>` : '') +
+
+    `<div style="display:flex;gap:8px;align-items:center;margin-top:10px;">
+      <button class="btn btn-primary" id="btnSend">${sent ? 'Send chase from cot@cesgb.com' : 'Send to supplier from cot@cesgb.com'}</button>
+      <button class="btn btn-sec" id="btnRedraft">Draft again</button>
+      <span id="sendMsg" style="font-size:12.5px;color:var(--muted);"></span>
+    </div>
+    <p style="color:var(--muted);font-size:11.5px;margin-top:10px;">
+      Sends as cot@cesgb.com. Replies come back there and are picked up automatically twice a day.</p>`;
+
+  $('btnSend').onclick = sendToSupplier;
+  $('btnRedraft').onclick = () => {
+    $('sendWrap').innerHTML = `<button class="btn btn-primary" id="btnDraft">Draft the email</button>
+      <span id="draftMsg" style="font-size:12.5px;color:var(--muted);margin-left:10px;"></span>`;
+    $('btnDraft').onclick = draftEmail;
+  };
+}
+
+async function sendToSupplier() {
+  const btn = $('btnSend'), msg = $('sendMsg');
+  const to = ($('sTo').value || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const subject = ($('sSubj').value || '').trim();
+  const bodyText = ($('sBody').value || '').trim();
+  const attach = [...document.querySelectorAll('[data-att]')].filter((c) => c.checked).map((c) => c.dataset.att);
+  const force = !!($('sForce') && $('sForce').checked);
+
+  // Confirm in the browser as well as on the server. The server refusal is the real guard;
+  // this is so nobody sends to a supplier by muscle memory.
+  if (!confirm(`Send to ${to.join(', ')} from cot@cesgb.com` +
+      `${attach.length ? ' with ' + attach.length + ' attachment' + (attach.length === 1 ? '' : 's') : ' with NO attachments'}?`)) return;
+
+  btn.disabled = true; btn.textContent = 'Sending…';
+  msg.textContent = '';
+  try {
+    const { res, j } = await fn('cot-send', {
+      cot_id: CUR.row.id, to, subject, body: bodyText, attach, actor: WHO, force,
+    });
+    if (j.error === 'already_sent') { msg.textContent = j.message; return; }
+    if (!res.ok || j.error) throw new Error(j.error + (j.detail ? ' — ' + j.detail : ''));
+    msg.textContent = `Sent to ${j.sent_to.join(', ')}${j.attachments ? ' with ' + j.attachments + ' attachment(s)' : ''}.`;
+    if (j.warning) msg.textContent += ' ' + j.warning;
+    setTimeout(() => openCot(CUR.row.id), 1200);
+  } catch (e) {
+    msg.textContent = 'Not sent: ' + (e.message || 'unknown error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = CUR.row.submitted_at ? 'Send chase from cot@cesgb.com' : 'Send to supplier from cot@cesgb.com';
+  }
+}
+
 /**
  * The audit trail.
  *
@@ -685,7 +897,7 @@ $('btnOut').onclick = async () => { localStorage.removeItem('cot_who'); await sb
   } catch (e) { /* suggestions are a nicety */ }
 })();
 
-// COT desk build 2026-09-06a
+// COT desk build 2026-09-06b
 </script>
 </body>
 </html>
