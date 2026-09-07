@@ -1622,6 +1622,8 @@ button{transition:all .14s ease}
 .fx-auto-tag{margin-left:5px;font-size:8.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;opacity:.62;font-family:inherit}
 /* a month whose targets are all achieved — the achieved cells keep their stronger green */
 .fx-trow-hit > td{background:#e9f6ee}
+/* admin tab: a broker / customer-split band */
+.fx-admgrp > td{background:#eef1fb;color:#2f3d7e;font-weight:800;font-size:11.5px;text-transform:uppercase;letter-spacing:.5px;padding:7px 9px;border-top:2px solid #cfd6ef}
 /* preview: this month's requirement was pulled in to its baseload */
 .fx-cap-tag{margin-left:5px;font-size:8.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#8a6d1f;background:#fdf4e0;border:1px solid #efdfb4;border-radius:999px;padding:0 5px}
 /* draggable session chip */
@@ -2001,7 +2003,7 @@ function fxBuildData(){
       months_list: (adminMonths||[]).map(r => String(r.month).slice(0,10)).sort(),
       month_label_map: Object.fromEntries((adminMonths||[]).map(r => [String(r.month).slice(0,10), r.label || null])),
       columns: (adminCols||[]).map(c => ({ id: c.id, key: c.col_key, kind: c.kind, label: c.label, sort: c.sort_order })),
-      rows: admin.map(r => ({ id: r.id, detail: r.detail || {} })) },
+      rows: admin.map(r => ({ id: r.id, group: r.group_name || '', detail: r.detail || {} })) },
     sites: (sites||[]).map(s => ({ id:s.id, basket_id:s.basket_id, basket_name:s.basket_name, commodity:s.commodity, customer:s.customer, mpxn:s.mpxn, contract_start:s.contract_start?String(s.contract_start).slice(0,10):null, contract_end:s.contract_end?String(s.contract_end).slice(0,10):null, nec_unit_rate:_num(s.nec_unit_rate), nec_standing_charge:_num(s.nec_standing_charge), source:s.source, archived:!!s.archived })),
     necs: (necs||[]).map(n => ({ id:n.id, basket_name:n.basket_name, commodity:n.commodity, season:n.season, nec:_num(n.nec), sort_order:n.sort_order, basket_id:n.basket_id })),
     contacts: { suppliers: contacts.map(c => ({ id: c.id, supplier: c.supplier, note: c.note, details: c.details || [] })),
@@ -2041,6 +2043,13 @@ function fmtK(n) {
   const sign = n < 0 ? '-' : '';
   return sign + '£' + Math.abs(Math.round(n)).toLocaleString('en-GB');
 }
+
+// Costs (secured_cost, mtm_cost) are stored in POUNDS. Power prices are £/MWh, so
+// £ ÷ MWh already lands in the right unit — but gas prices are p/th, and £ ÷ therms
+// lands in £/th, which reads 100x too small under a "p/th" header. Anywhere a WAP or a
+// price is DERIVED from a cost rather than read from flex_positions.secured_wap (which
+// is already in the basket's own price unit), scale by this so the two always agree.
+function fxCostToPrice(basket){ return (basket && basket.commodity === 'power') ? 1 : 100; }
 
 function fmtFull(n) {
   if (n == null || isNaN(n)) return '-';
@@ -2774,7 +2783,10 @@ function fxTargetScenario(basket, m, necMap, trades){
   if (!list.length) return null;
   const baseTot = m.baseload_vol_total || 0;
   const secTot  = m.secured_vol_total  || 0;
-  const secCost = m.secured_cost       || 0;
+  // Scenario cost below is volume x price (pence for gas), so the stored £ cost has to be
+  // lifted into the same units before they are added — otherwise a gas basket mixes
+  // pounds and pence and both the Targeted WAP and Targeted delivered columns come out wrong.
+  const secCost = (m.secured_cost || 0) * fxCostToPrice(basket);
   let addTot = 0, addCost = 0;
   for (const t of list){
     const v = fxTTVolTotal(basket, m, t);
@@ -2858,7 +2870,7 @@ function renderPositionsTable(rows, basket) {
   const tMtm  = rows.reduce((s,m) => s + (m.mtm_cost||0), 0);
   // WAP weighted by actual energy (secured_vol_total)
   const tSecEnergy = rows.reduce((s,m) => s + (m.secured_vol_total||0), 0);
-  const tWAP  = tSecEnergy > 0 ? tCost / tSecEnergy : 0;
+  const tWAP  = tSecEnergy > 0 ? (tCost / tSecEnergy) * fxCostToPrice(basket) : 0;
   const tBaseEnergy = rows.reduce((s,m) => s + (m.baseload_vol_total||0), 0);
   const tPct  = tBaseEnergy > 0 ? tSecEnergy/tBaseEnergy : 0;
   const _necMap = fxNecFor(basket);
@@ -3103,7 +3115,7 @@ function renderSeasons(basket) {
     const totalSec  = mths.reduce((s,m) => s + (m.secured_vol_total||0), 0);
     const totalCost = mths.reduce((s,m) => s + (m.secured_cost||0), 0);
     const totalMtm  = mths.reduce((s,m) => s + (m.mtm_cost||0), 0);
-    const wap       = totalSec > 0 ? totalCost / totalSec : 0;
+    const wap       = totalSec > 0 ? (totalCost / totalSec) * fxCostToPrice(basket) : 0;
     const pct       = totalBase > 0 ? totalSec / totalBase : 0;
     const mtmClass  = totalMtm > 0 ? 'mtm-positive' : totalMtm < 0 ? 'mtm-negative' : 'mtm-zero';
     const baseDisplay = isPower ? mths.reduce((s,m) => s + (m.baseload_vol||0), 0) : totalBase;
@@ -4886,7 +4898,15 @@ renderAdmin = function(){
       ? `<span class="fx-admh-mlbl" data-month="${mo}" title="Click to rename this month header (clear it to go back to ${escape(fmtMonth(mo))})">${escape(mLbl(mo))}</span>`
       : escape(mLbl(mo))}${mo===nowM2?' &middot; current':''}${EDIT?` <button class="fx-admh-x" title="Remove this month" onclick="event.stopPropagation();fxAdmRemoveMonth('${mo}')">&times;</button>`:''}</th>`).join('');
   const subTh=months.map(([mo,g])=> (taskCols.length?taskCols:[{id:0}]).map((c,ci)=>`<th class="fx-g${g}${ci===0?' fx-gs':''} fx-admh">${c.id?headLbl(c):dash}</th>`).join('') ).join('');
+  // Cells actually emitted per row — the group heading spans exactly these.
+  const _span=(detailCols.length||1) + (taskCols.length||1)*months.length + (EDIT?1:0);
+  let _lastGrp=null;
   const tr=rows.map(r=>{
+    // Rows arrive in id order, which after an Excel import is spreadsheet order, so a
+    // simple change-of-value test reproduces the bands without needing a sort key.
+    const _g=(r.group||'').trim();
+    let _head='';
+    if(_g!==_lastGrp){ _lastGrp=_g; if(_g) _head=`<tr class="fx-admgrp"><td colspan="${_span}">${escape(_g)}</td></tr>`; }
     let tds=(detailCols.length?detailCols:[{id:0}]).map(c=> c.id
       ? `<td class="lbl fx-admd${EDIT?' fx-editable':''}" data-row="${r.id}" data-key="${escape(c.key)}" style="text-align:left">${escape((r.detail&&r.detail[c.key])||'')||dash}</td>`
       : `<td>${dash}</td>`).join('');
@@ -4896,11 +4916,11 @@ renderAdmin = function(){
         : `<td class="fx-g${g}">${dash}</td>`;
     }));
     if(EDIT) tds+=`<td class="fx-actions"><button class="fx-icon" title="Delete row" onclick="fxAdminRowDelete(${r.id})">&#128465;</button></td>`;
-    return `<tr>${tds}</tr>`;
+    return _head+`<tr>${tds}</tr>`;
   }).join('');
   const colCount=detailCols.length + taskCols.length*months.length + (EDIT?1:0) + 3;
   el.innerHTML=`<div class="extra-tab-inner">
-    ${EDIT?`<div class="fx-toolbar"><button class="fx-btn green" onclick="fxAdminAddRow()">+ Add row</button><button class="fx-btn" onclick="fxAdmAddColumn('detail')">+ Add detail column</button><button class="fx-btn" onclick="fxAdmAddColumn('task')">+ Add task column</button><button class="fx-btn" onclick="fxAdmAddMonth()">+ Add month</button><span style="font-size:11px;color:#6b7280">Click a cell to edit &middot; click a header to rename &middot; &times; removes that column or month &middot; + Add month adds the next month section</span></div>`:''}
+    ${EDIT?`<div class="fx-toolbar"><button class="fx-btn green" onclick="fxAdmImportModal()">&#8624; Update from Excel</button><button class="fx-btn" onclick="fxAdminAddRow()">+ Add row</button><button class="fx-btn" onclick="fxAdmAddColumn('detail')">+ Add detail column</button><button class="fx-btn" onclick="fxAdmAddColumn('task')">+ Add task column</button><button class="fx-btn" onclick="fxAdmAddMonth()">+ Add month</button><span style="font-size:11px;color:#6b7280">Click a cell to edit &middot; click a header to rename &middot; &times; removes that column or month &middot; + Add month adds the next month section</span></div>`:''}
     <div class="extra-section" style="overflow-x:auto">
       <div class="extra-section-title">Admin — trade &amp; reporting schedule</div>
       <table class="extra-table" style="width:100%;border-collapse:collapse;font-size:12px">
@@ -4986,6 +5006,248 @@ async function fxAdminRowDelete(id){
   if(!confirm('Delete this admin row (and its month cells)?')) return;
   await FLEX.sb.from('flex_admin_cells').delete().eq('row_id',id);
   await fxWrite(FLEX.sb.from('flex_admin_schedule').delete().eq('id',id),'Admin row deleted');
+}
+
+
+// ── ADMIN BULK IMPORT: paste (or .xlsx) straight from the Excel database ──────────
+// The spreadsheet and the portal run side by side, so this tab has to be refreshable in
+// one go rather than cell by cell. Both entry points feed ONE parser that takes a plain
+// grid of strings — clipboard TSV out of Excel, or a sheet read with SheetJS — so the
+// two routes can never drift apart.
+//
+// The layout it reads (the CES "Customer Split" tab, exactly as it stands):
+//    row N     [group]                       <month 1>              <month 2>
+//    row N+1   [name]  C.E.D    Supplier     t1    t2    t3         t1    t2    t3
+//    data      name    30.09.28 SEFE         30/07/26  …            …
+//    group     name only, every other cell blank
+//
+// NOTHING about the headers is hard-coded. Column names, how many detail columns, how
+// many task columns and which months are present are all read off the sheet — which is
+// the whole reason the portal keeps them editable. Rename a column in Excel and the next
+// paste renames it here.
+
+// Excel dates arrive as Date objects from SheetJS and as pre-formatted text from the
+// clipboard. Normalise the first to match the second so both routes store the same string.
+function fxAdmCellStr(v){
+  if (v == null) return '';
+  // Object.prototype.toString rather than `instanceof Date`: a Date handed over from
+  // another execution context (a worker, or the library's own realm) is still a Date but
+  // fails instanceof, and it would then be stringified as "Wed Jul 01 2026 00:00:00 GMT…".
+  if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime()))
+    return String(v.getDate()).padStart(2,'0')+'/'+String(v.getMonth()+1).padStart(2,'0')+'/'+v.getFullYear();
+  return String(v).trim();
+}
+function fxAdmGridFromText(txt){
+  return String(txt||'').replace(/\r\n?/g,'\n').split('\n').map(l=>l.split('\t'));
+}
+
+function fxAdmParseGrid(aoa){
+  const warn=[];
+  const G=(aoa||[]).map(r=>(r||[]).map(fxAdmCellStr));
+  // 1. The month heading row is the first row carrying a readable month somewhere to the
+  //    right of the detail columns. Everything else is located relative to it.
+  let mIdx=-1, monthCols=[];
+  for(let i=0;i<G.length;i++){
+    const hits=[];
+    for(let c=2;c<G[i].length;c++){ const mo=fxTeMonth(G[i][c]); if(mo) hits.push([c,mo]); }
+    if(hits.length){ mIdx=i; monthCols=hits; break; }
+  }
+  if(mIdx<0) throw new Error('No month headings found. Include the row that carries a date above each month block.');
+  const hIdx=mIdx+1;
+  if(hIdx>=G.length) throw new Error('Found the month headings but no column-name row underneath them.');
+  const H=G[hIdx];
+  // 2. One month block is as wide as the gap to the next month heading; with a single
+  //    month, it runs to the end of the header row.
+  const firstCol=monthCols[0][0];
+  const width = monthCols.length>1 ? (monthCols[1][0]-firstCol) : Math.max(1, H.length-firstCol);
+  const taskLabels=[];
+  for(let k=0;k<width;k++) taskLabels.push(H[firstCol+k]||'');
+  while(taskLabels.length && !taskLabels[taskLabels.length-1]) taskLabels.pop();
+  if(!taskLabels.length) throw new Error('No task column names found under the first month heading.');
+  // 3. Detail columns are everything left of the first month block that is actually used.
+  let startCol=firstCol;
+  for(let c=0;c<firstCol;c++){
+    let used=!!H[c];
+    if(!used) for(let i=hIdx+1;i<G.length;i++) if(G[i][c]){ used=true; break; }
+    if(used){ startCol=c; break; }
+  }
+  if(startCol>=firstCol) throw new Error('No name or detail columns found to the left of the months.');
+  const detailCols=[];
+  for(let c=startCol;c<firstCol;c++){
+    let lbl=H[c];
+    // The name column usually has a blank header and a title sitting above it
+    // ("Customer Split"), so fall back to the nearest label overhead.
+    if(!lbl) for(let i=mIdx-1;i>=0;i--){ if(G[i][c]){ lbl=G[i][c]; break; } }
+    detailCols.push({ col:c, key:'d'+(c-startCol+1), label: lbl || ('Column '+(c-startCol+1)) });
+  }
+  // 4. Months, de-duplicated and in sheet order.
+  const seen=new Set(), months=[];
+  monthCols.forEach(([c,mo])=>{ if(seen.has(mo)){ warn.push(fmtMonth(mo)+' appears more than once — the later block wins.'); } seen.add(mo); });
+  monthCols.forEach(([c,mo])=>{ if(months.indexOf(mo)===-1) months.push(mo); });
+  // 5. Rows. A row with a name and nothing else is a group heading; the first group can
+  //    share the month-heading row, which is how the CES sheet is laid out.
+  const nameCol=startCol;
+  let curGroup=G[mIdx][nameCol]||'';
+  const rows=[];
+  for(let r=hIdx+1;r<G.length;r++){
+    const line=G[r]||[];
+    const name=line[nameCol]||'';
+    let other=false;
+    for(let c=0;c<line.length;c++){ if(c!==nameCol && line[c]){ other=true; break; } }
+    if(!name && !other) continue;                       // spacer
+    if(name && !other){ curGroup=name; continue; }       // group heading
+    if(!name){ warn.push('Row '+(r+1)+' has values but no name — skipped.'); continue; }
+    const detail={};
+    detailCols.forEach(d=>{ const v=line[d.col]; if(v) detail[d.key]=v; });
+    const cells={};
+    monthCols.forEach(([c0,mo])=>{
+      const vals={};
+      taskLabels.forEach((lbl,k)=>{ const v=line[c0+k]; if(v) vals['t'+(k+1)]=v; });
+      if(Object.keys(vals).length) cells[mo]=vals;
+    });
+    rows.push({ group:curGroup, name:name, detail:detail, cells:cells });
+  }
+  if(!rows.length) throw new Error('No data rows found under the column names.');
+  return {
+    detail: detailCols.map(d=>({key:d.key,label:d.label})),
+    tasks:  taskLabels.map((l,i)=>({key:'t'+(i+1), label:(l||('Task '+(i+1)))})),
+    months: months, rows: rows, warn: warn
+  };
+}
+
+let FX_ADM_IMP=null;
+
+function fxAdmImportModal(){
+  FX_ADM_IMP=null;
+  fxModal(`<h3>Update the Admin tab from Excel</h3>
+  <div style="font-size:12px;color:#4b5563;margin:-8px 0 12px">In the spreadsheet select the whole block &mdash; the row with the month dates, the column-name row under it, and every row below including the group names &mdash; then paste it here. Column names, months and groups are all read from what you paste, so renaming a column in Excel renames it on the portal.</div>
+  <textarea id="fAI_txt" placeholder="Click here and press Ctrl+V…" style="width:100%;min-height:130px;font-family:ui-monospace,monospace;font-size:11px;white-space:pre;overflow:auto"></textarea>
+  <div class="fx-toolbar" style="margin:10px 0 0">
+    <label class="fx-btn" style="cursor:pointer;display:inline-flex;align-items:center">&#8624; Or choose an .xlsx<input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])fxAdmImportFile(this.files[0]);this.value=''"></label>
+    <span style="font-size:11px;color:#6b7280">Pasting is quicker &mdash; Ctrl+C in Excel, Ctrl+V above.</span>
+  </div>
+  <div id="fAI_prev"></div>
+  <div class="fx-err" id="fxMErr"></div>
+  <div class="fx-modal-foot"><button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
+  <button class="fx-btn green" id="fAI_go" onclick="fxAdmImportApply()" disabled>Replace the Admin tab</button></div>`);
+  const ta=document.getElementById('fAI_txt');
+  ta.oninput=()=>fxAdmImportPreview(fxAdmGridFromText(ta.value));
+  setTimeout(()=>{ try{ ta.focus(); }catch(e){} },50);
+}
+
+async function fxAdmImportFile(file){
+  if(typeof XLSX==='undefined') return fxMErr('Excel engine not loaded — reload the page.');
+  let wb; try{ wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true}); }
+  catch(e){ return fxMErr('Could not read that file.'); }
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  if(!ws) return fxMErr('No sheet found in that file.');
+  // Absolute column indices — the CES sheet starts at column B, and without this the
+  // detail columns would shift left by one.
+  fxNormRange(ws);
+  // raw:true + cellDates:true hands back real Date objects, which fxAdmCellStr renders
+  // dd/mm/yyyy. Reading formatted text instead would use the cell's own number format —
+  // on this workbook that is m/d/yy, so 30 July came through as "7/30/26" and disagreed
+  // with what the same sheet puts on the clipboard.
+  fxAdmImportPreview(XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null}));
+}
+
+function fxAdmImportPreview(grid){
+  const el=document.getElementById('fAI_prev'), go=document.getElementById('fAI_go');
+  const err=document.getElementById('fxMErr'); if(err) err.style.display='none';
+  FX_ADM_IMP=null; if(go) go.disabled=true;
+  if(!el) return;
+  const nonEmpty=(grid||[]).filter(r=>(r||[]).some(c=>c!=null&&String(c).trim()!==''));
+  if(nonEmpty.length<3){ el.innerHTML=''; return; }
+  let P; try{ P=fxAdmParseGrid(grid); }
+  catch(e){ el.innerHTML=''; fxMErr((e&&e.message)||'Could not read that layout.'); return; }
+  FX_ADM_IMP=P; if(go) go.disabled=false;
+  const groups=[]; P.rows.forEach(r=>{ if(r.group && groups.indexOf(r.group)===-1) groups.push(r.group); });
+  let cellCount=0; P.rows.forEach(r=>{ cellCount+=Object.keys(r.cells).length; });
+  const sample=P.rows.slice(0,8).map(r=>`<tr>
+      <td style="color:#6b7280">${escape(r.group||'—')}</td>
+      <td>${escape(r.name)}</td>
+      ${P.detail.slice(1).map(d=>`<td>${escape(r.detail[d.key]||'—')}</td>`).join('')}
+      ${P.months.map(mo=>`<td style="white-space:nowrap">${P.tasks.map(t=>escape((r.cells[mo]||{})[t.key]||'·')).join(' / ')}</td>`).join('')}
+    </tr>`).join('');
+  el.innerHTML=`
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin:14px 0 8px;font-size:11.5px;color:#4b5563">
+      <span><b>${P.rows.length}</b> rows</span><span><b>${groups.length}</b> groups</span>
+      <span><b>${P.months.length}</b> months</span><span><b>${P.detail.length}</b> detail + <b>${P.tasks.length}</b> task columns</span>
+      <span><b>${cellCount}</b> filled month cells</span></div>
+    <div style="font-size:11.5px;color:#4b5563;margin-bottom:6px">
+      <b>Detail columns:</b> ${P.detail.map(d=>escape(d.label)).join(' &middot; ')}<br>
+      <b>Task columns:</b> ${P.tasks.map(t=>escape(t.label)).join(' &middot; ')}<br>
+      <b>Months:</b> ${P.months.map(m=>escape(fmtMonth(m))).join(' &middot; ')}<br>
+      <b>Groups:</b> ${groups.length?groups.map(g=>escape(g)).join(' &middot; '):'<span style="color:#9aa1ad">none found</span>'}</div>
+    ${P.warn.length?`<div style="font-size:11.5px;color:#8a6d1f;background:#fdf4e0;border:1px solid #efdfb4;border-radius:7px;padding:7px 9px;margin-bottom:8px">${P.warn.map(w=>escape(w)).join('<br>')}</div>`:''}
+    <div class="fx-preview" style="max-height:230px"><table class="fx-tt-table">
+      <thead><tr><th>Group</th><th>${escape(P.detail[0]?P.detail[0].label:'Name')}</th>
+        ${P.detail.slice(1).map(d=>`<th>${escape(d.label)}</th>`).join('')}
+        ${P.months.map(mo=>`<th>${escape(fmtMonth(mo))}</th>`).join('')}</tr></thead>
+      <tbody>${sample}</tbody></table></div>
+    <div style="font-size:11px;color:#6b7280;margin-top:6px">First ${Math.min(8,P.rows.length)} of ${P.rows.length} rows &middot; month cells shown as ${P.tasks.map(t=>escape(t.label)).join(' / ')}</div>`;
+}
+
+// Snapshot the tab to a file before anything is deleted. Cheap insurance on a full
+// replace — the spreadsheet is the source of truth, but this makes the wipe reversible.
+function fxAdmBackup(){
+  try{
+    const snap={ saved_at:new Date().toISOString(),
+      columns:(DATA.admin&&DATA.admin.columns)||[],
+      months:(DATA.admin&&DATA.admin.months_list)||[],
+      month_labels:(DATA.admin&&DATA.admin.month_label_map)||{},
+      rows:(DATA.admin&&DATA.admin.rows)||[],
+      cells:DATA.adminCells||[] };
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([JSON.stringify(snap,null,2)],{type:'application/json'}));
+    a.download='CES-flex-admin-backup-'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')+'.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  }catch(e){ console.warn('admin backup failed', e); }
+}
+
+async function fxAdmImportApply(){
+  const P=FX_ADM_IMP; if(!P) return;
+  let cellCount=0; P.rows.forEach(r=>{ cellCount+=Object.keys(r.cells).length; });
+  if(!confirm('Replace the whole Admin tab?\n\n'
+    + P.rows.length+' rows, '+P.months.length+' months, '
+    + (P.detail.length+P.tasks.length)+' columns, '+cellCount+' month cells.\n\n'
+    + 'Everything on the tab now — rows, columns, months and values — is removed and rebuilt from this paste.\n'
+    + 'A backup file is saved to your downloads first.')) return;
+  const go=document.getElementById('fAI_go');
+  if(go){ go.disabled=true; go.textContent='Working…'; }
+  const step=async (label, q)=>{ const { error }=await q; if(error) throw new Error(label+': '+(error.message||'failed')); };
+  try{
+    fxAdmBackup();
+    // Cells first — they point at the schedule rows.
+    await step('clearing cells',   FLEX.sb.from('flex_admin_cells').delete().not('id','is',null));
+    await step('clearing rows',    FLEX.sb.from('flex_admin_schedule').delete().not('id','is',null));
+    await step('clearing columns', FLEX.sb.from('flex_admin_columns').delete().not('id','is',null));
+    await step('clearing months',  FLEX.sb.from('flex_admin_months').delete().not('month','is',null));
+    await step('saving columns', FLEX.sb.from('flex_admin_columns').insert(
+      P.detail.map((d,i)=>({col_key:d.key, kind:'detail', label:d.label, sort_order:i+1, updated_by:FLEX.user}))
+      .concat(P.tasks.map((t,i)=>({col_key:t.key, kind:'task', label:t.label, sort_order:i+1, updated_by:FLEX.user})))));
+    await step('saving months', FLEX.sb.from('flex_admin_months').insert(
+      P.months.map((m,i)=>({month:m, sort_order:i+1, updated_by:FLEX.user}))));
+    // Rows go in as one ordered insert. The tab reads them back by id, and a table just
+    // emptied hands ids out in insert order, so sheet order is preserved.
+    const { data:made, error:rErr } = await FLEX.sb.from('flex_admin_schedule')
+      .insert(P.rows.map(r=>({group_name:r.group||null, detail:r.detail, updated_by:FLEX.user})))
+      .select('id');
+    if(rErr) throw new Error('saving rows: '+(rErr.message||'failed'));
+    if(!made || made.length!==P.rows.length)
+      throw new Error('saved '+((made||[]).length)+' of '+P.rows.length+' rows — stopped before writing any cells');
+    const cells=[];
+    P.rows.forEach((r,i)=>{ for(const mo in r.cells) cells.push({row_id:made[i].id, month:mo, vals:r.cells[mo], updated_by:FLEX.user}); });
+    if(cells.length) await step('saving cells', FLEX.sb.from('flex_admin_cells').insert(cells));
+    fxToast('Admin tab replaced — '+P.rows.length+' rows, '+cells.length+' cells');
+    fxCloseModal();
+    const el=document.getElementById('main-tab-admin'); if(el) delete el.dataset.rendered;
+    fxScheduleReload(['flex_admin_schedule','flex_admin_cells','flex_admin_columns','flex_admin_months']);
+  }catch(err){
+    fxMErr('Import stopped — '+((err&&err.message)||err)+'. The backup file just saved to your downloads has the previous contents.');
+    if(go){ go.disabled=false; go.textContent='Replace the Admin tab'; }
+  }
 }
 
 // ── SITES (per basket): active + archive, full edit, add/remove, bulk Excel ──
