@@ -48,7 +48,14 @@
   <FilesMatch "^sales\.webmanifest$">
     Header set Cache-Control "public, max-age=3600, must-revalidate"
   </FilesMatch>
-
+  # Shared flex render core — MUST override the 30-day .js rule above (last match wins).
+  # flex.html and flexclient.html both load this file, and the whole point of it is that
+  # a change reaches both portals at the same moment. Cached immutable for 30 days it
+  # would reach the desk on deploy and the customer weeks later, which is the exact
+  # drift the file exists to prevent. Revalidation is a 304 on a ~25KB file — cheap.
+  <FilesMatch "^flex-shared\.js$">
+    Header set Cache-Control "no-cache, max-age=0, must-revalidate"
+  </FilesMatch>
 </IfModule>
 
 # ───── 1b. MIME type for web app manifests ─────────────────────────────
