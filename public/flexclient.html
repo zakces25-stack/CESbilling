@@ -29,6 +29,10 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://*.supabase.co https://cdnjs.cloudflare.com; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'self';" />
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<!-- Shared render core, identical file to the one flex.html loads. Every figure, unit
+     and column heading on this page comes from it, so the customer and the trading desk
+     cannot be shown the same position two different ways. -->
+<script src="flex-shared.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -369,6 +373,31 @@ th:first-child::after,td:first-child::after{content:'';position:absolute;top:0;r
 
 /* tabular-nums keeps digits the same width so columns line up down the page. */
 .num{text-align:right;font-family:var(--font-mono);font-weight:600;font-variant-numeric:tabular-nums}
+
+/* ── Shared render core (flex-shared.js) ──────────────────────────────────────────
+   The core emits the trading desk's class names so one set of markup serves both
+   portals. These rules dress that markup in this page's tokens; the numbers, headings
+   and alignment come from the core and are identical on both. */
+.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface)}
+.td-right{text-align:right;font-family:var(--font-mono);font-weight:600;font-variant-numeric:tabular-nums}
+.td-center{text-align:center;font-family:var(--font-mono);font-weight:600;font-variant-numeric:tabular-nums}
+/* A positive mark-to-market is money the book is down, so it reads as the warning
+   colour — matching the desk exactly. This page previously coloured it the opposite
+   way, so the same figure looked like good news here and bad news to the trader. */
+.mtm-positive{color:var(--negative-500);font-weight:700}
+.mtm-negative{color:var(--positive-700);font-weight:700}
+.mtm-zero{color:var(--ink-3)}
+.achieved-cell{background:var(--positive-700);color:var(--surface);font-weight:700}
+.fx-allhit{color:var(--positive-700);font-weight:700}
+.fx-dash{color:var(--ink-3)}
+.totals-row td{border-top:2px solid var(--line-strong,var(--line));font-weight:800;
+  background:var(--surface-2)}
+/* Secured % is a bar plus a whole-number label, same as the desk. */
+.pct-cell{display:flex;align-items:center;gap:8px;min-width:104px}
+.pct-bar{flex:1;height:6px;border-radius:999px;background:var(--surface-2);
+  border:1px solid var(--line);overflow:hidden}
+.pct-bar-fill{height:100%;background:var(--positive-700)}
+.pct-label{font-family:var(--font-mono);font-size:11px;font-weight:700;min-width:34px;text-align:right}
 .pos{color:var(--positive-700)}
 .neg{color:var(--negative-500)}
 .cur{background:rgba(159,190,28,.14)}
@@ -509,7 +538,7 @@ const CX = (() => {
   return { sb, company:'' };
 })();
 
-let D = { baskets:[], positions:{}, trades:{}, targets:{}, sites:{}, curve:{}, te:{gas:{},power:{}}, reports:[] };
+let D = { baskets:[], positions:{}, trades:{}, targets:{}, sites:{}, curve:{}, te:{gas:{},power:{}}, necs:[], reports:[] };
 let VIEW = 'baskets', OPEN = null, SUB = 'positions';
 const CHARTS = {};
 
@@ -585,14 +614,15 @@ function bootMsg(html){ document.getElementById('bootTxt').innerHTML = html; }
 
 /* ── load ────────────────────────────────────────────────────────────── */
 async function load(){
-  const [bk,ps,tr,tg,st,cv,te,rp,me] = await Promise.all([
-    CX.sb.from('flex_client_baskets').select('id,name,commodity,unit_vol,unit_price').order('name'),
+  const [bk,ps,tr,tg,st,cv,te,nx,rp,me] = await Promise.all([
+    CX.sb.from('flex_client_baskets').select('id,name,commodity,unit_vol,unit_price,target_count,target_labels,target_kinds,target_rules').order('name'),
     CX.sb.from('flex_client_positions').select('*').order('month'),
     CX.sb.from('flex_client_trades').select('*').order('trade_date'),
     CX.sb.from('flex_client_targets').select('*').order('month'),
     CX.sb.from('flex_client_sites').select('*').order('mpxn'),
     CX.sb.from('flex_client_curves').select('commodity,period_type,period_label,month,mid,updated_at'),
     CX.sb.from('flex_client_te_curves').select('commodity,month,mid').order('month'),
+    CX.sb.from('flex_client_necs').select('basket_name,commodity,season,nec'),
     CX.sb.from('flex_reports').select('id,kind,title,period_label,report_date,body,pdf_path,pdf_name,pdf_size')
          .eq('published',true).order('report_date',{ascending:false}),
     CX.sb.from('customers').select('customer_id,company_name').maybeSingle()
@@ -623,6 +653,11 @@ async function load(){
   // from flex_client_positions, which resolves off Marex and is not touched by any of this.
   D.te = {gas:{}, power:{}};
   for(const r of (te.data||[])) if(D.te[r.commodity] && r.month) D.te[r.commodity][String(r.month).slice(0,10)] = (r.mid==null?null:+r.mid);
+  // NECs feed the delivered rate through the same FlexCore formula the desk uses. If
+  // they are unavailable the rate simply blanks — better than a rate missing its
+  // non-energy costs, which would read as a real (and much too low) number.
+  if(nx.error) console.warn('non-energy costs unavailable:', nx.error.message);
+  D.necs = nx.data||[];
   D.reports = rp.data||[];
   if(me.error) console.warn('company name unavailable:', me.error.message);
   CX.company = (me.data && me.data.company_name) || '';
@@ -715,37 +750,53 @@ function statVal(text, full, cls){
    means: WAP is weighted by secured volume, MtM price and delivered rate by
    baseload volume. A simple mean across months of unequal size is wrong and
    would quietly disagree with the desk's own number. */
-function statsOf(rows, b){
-  const isP = b.commodity === 'power';
-  let base=0, sec=0, wapNum=0, wapDen=0, mtmNum=0, mtmDen=0,
-      drNum=0, drDen=0, mtmCost=0, baseMW=0, secMW=0, openMW=0, openTot=0;
-  for(const r of rows||[]){
-    const bt=+(r.baseload_vol_total||0), st=+(r.secured_vol_total||0);
-    base+=bt; sec+=st;
-    baseMW+=+(r.baseload_vol||0); secMW+=+(r.secured_vol||0);
-    openMW+=+(r.open_vol||0);     openTot+=+(r.open_vol_total||0);
-    mtmCost+=+(r.mtm_cost||0);
-    if(r.secured_wap!=null && st>0){ wapNum+=(+r.secured_wap)*st; wapDen+=st; }
-    if(r.mtm_price!=null && bt>0){   mtmNum+=(+r.mtm_price)*bt;   mtmDen+=bt; }
-    if(r.delivered_rate!=null && bt>0){ drNum+=(+r.delivered_rate)*bt; drDen+=bt; }
-  }
-  return {
-    avgWap: wapDen? wapNum/wapDen : null,
-    avgMtm: mtmDen? mtmNum/mtmDen : null,
-    pct:    base?   sec/base      : null,
-    baseCard: isP? baseMW : base,
-    secCard:  isP? secMW  : sec,
-    openCard: isP? openMW : openTot,
-    avgDr:  drDen? drNum/drDen : null,
-    mtmCost, base, sec, isP
-  };
+/* Shape a client basket the way FlexCore expects: months + targets attached, month
+   keys normalised to YYYY-MM-DD, and every numeric coerced to a Number.
+
+   The coercion matters. PostgREST can hand back a `numeric` column as a JSON string,
+   and the core calls .toFixed() on these directly — the desk never hit it because
+   flex.html builds its own rows. Coercing once here keeps the core free of defensive
+   "+x" noise and means a string can never reach a formatter. */
+const NUMF = ['days','baseload_vol','baseload_vol_total','secured_vol','secured_vol_total',
+  'secured_wap','secured_pct','open_vol','open_vol_total','open_pct','market_price',
+  'secured_cost','residual_cost','mtm_cost','mtm_price','delivered_rate'];
+function normRow(r){
+  const o = Object.assign({}, r);
+  o.month = String(r.month).slice(0,10);
+  for(const k of NUMF) if(o[k]!=null && o[k]!=='') o[k] = +o[k];
+  return o;
 }
+function normTarget(t){
+  const o = Object.assign({}, t);
+  o.month = String(t.month).slice(0,10);
+  for(let i=1;i<=8;i++){ const k='lower_t'+i; if(o[k]!=null && o[k]!=='') o[k] = +o[k]; }
+  if(o.upper_alert!=null && o.upper_alert!=='') o.upper_alert = +o.upper_alert;
+  return o;
+}
+// Cached because FlexCore's target rules walk basket.months for every tier of every row.
+const _BK = {};
+function deskBasket(b){
+  if(_BK[b.id]) return _BK[b.id];
+  const bb = Object.assign({}, b, {
+    months:  (D.positions[b.id]||[]).map(normRow)
+               .sort((x,y)=> x.month<y.month?-1:1),
+    targets: (D.targets[b.id]||[]).map(normTarget)
+               .sort((x,y)=> x.month<y.month?-1:1)
+  });
+  _BK[b.id] = bb;
+  return bb;
+}
+
+/* The eight stat cards — figures, decimals and labels all from FlexCore.stats(), the
+   same call flex.html makes. Only the card markup below is this page's own. */
+function statsOf(rows, b){ return FlexCore.stats(rows, deskBasket(b), D.necs); }
 
 /* Filter state for the Positions tab, mirroring the desk's filter bar. */
 let FLT = { season:'', from:'', to:'', hideHist:false };
 
 function monthsOf(id){
-  return (D.positions[id]||[]).slice().sort((a,b)=>String(a.month)<String(b.month)?-1:1);
+  const b = D.baskets.find(x=>x.id===id);
+  return b ? deskBasket(b).months.slice() : [];
 }
 function applyFilters(rows){
   const now = nowMonth();
@@ -841,8 +892,10 @@ function renderBaskets(){
 }
 
 /* ── basket detail ───────────────────────────────────────────────────── */
-const SUBS=[['positions','Positions'],['trades','Trades'],['seasons','Seasons'],
-            ['targets','Targets'],['graphs','Graphs'],['sites','Sites']];
+// The tab list lives in flex-shared.js. Adding a tab there with client:true is all it
+// takes for it to appear here as well as on the desk; desk-only tabs (notes, admin) are
+// client:false and never reach this page.
+const SUBS = FlexCore.clientTabs().map(t=>[t.key,t.label]);
 
 function renderBasket(){
   const b=D.baskets.find(x=>x.id===OPEN); if(!b){renderBaskets();return;}
@@ -856,26 +909,10 @@ function renderBasket(){
       <span class="tag ${isP?'power':'gas'}"><span aria-hidden="true">${isP?'&#9889;':'&#128293;'}</span> ${isP?'Electricity':'Gas'}</span>
     </div>
     <div class="statrow">
-      <div class="statcard"><div class="l">Avg WAP</div>${statVal(n2(S.avgWap))}
-        <div class="s">${esc(b.unit_price||'')} secured</div></div>
-      <div class="statcard"><div class="l">Avg MtM Price</div>${statVal(n2(S.avgMtm))}
-        <div class="s">${esc(b.unit_price||'')} mark-to-market</div></div>
-      <div class="statcard"><div class="l">Secured</div>${statVal(S.pct==null?'—':(S.pct*100).toFixed(2)+'%')}
-        <div class="s">Forward position</div></div>
-      <div class="statcard"><div class="l">Total Baseload</div>
-        ${statVal(isP?n4(S.baseCard):n0(S.baseCard))}
-        <div class="s">${isP?'MW total':'th total'}</div></div>
-      <div class="statcard"><div class="l">Secured Vol</div>
-        ${statVal(isP?n4(S.secCard):n0(S.secCard))}
-        <div class="s">${isP?'MW total secured':'th hedged'}</div></div>
-      <div class="statcard"><div class="l">Open Vol</div>
-        ${statVal(isP?n4(S.openCard):n0(S.openCard))}
-        <div class="s">${isP?'MW open':'th open'}</div></div>
-      <div class="statcard"><div class="l">Avg Delivered Rate</div>
-        ${statVal(S.avgDr==null?'—':S.avgDr.toFixed(3))}
-        <div class="s">p/kWh</div></div>
-      <div class="statcard wide"><div class="l">MtM Cost</div>
-        ${statVal(fullMoney(S.mtmCost), null, S.mtmCost>0?'pos':S.mtmCost<0?'neg':'')}<div class="s">Mark-to-market</div></div>
+      ${S.cards.map(c=>`<div class="statcard${c.key==='mtmc'?' wide':''}">
+        <div class="l">${esc(c.label)}</div>
+        ${statVal(c.value, null, c.sign?('mtm-'+c.sign):'')}
+        <div class="s">${esc(c.sub)}</div></div>`).join('')}
     </div>
     <nav class="tabs subtabs" role="tablist" aria-label="Basket detail">
       ${SUBS.map(([k,l])=>`<button role="tab" data-sub="${k}" aria-selected="${k===SUB}">${l}</button>`).join('')}
@@ -891,11 +928,17 @@ function renderSub(){
   destroyCharts();
   const b=D.baskets.find(x=>x.id===OPEN); if(!b) return;
   const host=document.getElementById('subview'); if(!host) return;
-  ({positions:subPositions,trades:subTrades,seasons:subSeasons,
-    targets:subTargets,graphs:subGraphs,sites:subSites}[SUB])(b,host);
+  const R = {positions:subPositions,trades:subTrades,seasons:subSeasons,
+             targets:subTargets,graphs:subGraphs,sites:subSites}[SUB];
+  // The tab list comes from flex-shared.js, so a tab can be added there and reach this
+  // page before a renderer for it exists here. Say so rather than throwing — a missing
+  // renderer used to be `undefined(b,host)`, which killed the whole detail view.
+  if(!R){ host.innerHTML='<div class="empty">This section is not available in your portal yet.</div>'; return; }
+  R(b,host);
 }
 
 function subPositions(b,host){
+  const bk = deskBasket(b);
   const all = monthsOf(b.id);
   if(!all.length){host.innerHTML='<div class="empty">No position data for this basket.</div>';return;}
   const rows = applyFilters(all);
@@ -915,41 +958,15 @@ function subPositions(b,host){
       <label class="chk" for="fHide"><input type="checkbox" id="fHide"${FLT.hideHist?' checked':''}>Hide historic months</label>
       <span class="count">${rows.length} of ${all.length} months</span>
     </div>
-    ${rows.length?`<div class="tbwrap"><table>
-      <caption>Volumes in ${isP?'MW / MWh':'th/d / therms'}; rates in ${esc(b.unit_price||'')}.
-        Market price is your supplier's indicative forward price for that month.
-        Delivered rate is the mark-to-market price converted to p/kWh plus that season's non-energy costs.</caption>
-      <thead><tr>
-        <th scope="col">Month</th><th scope="col">Season</th>
-        <th scope="col" class="num">Baseload (${isP?'MW':'th/d'})</th>
-        <th scope="col" class="num">Secured (${isP?'MW':'th/d'})</th>
-        <th scope="col" class="num">WAP</th>
-        <th scope="col" class="num">Secured %</th>
-        <th scope="col" class="num">Sec. cost</th>
-        <th scope="col" class="num">Open (${isP?'MW':'th/d'})</th>
-        <th scope="col" class="num">Mkt price</th>
-        <th scope="col" class="num">Delivered (p/kWh)</th>
-        <th scope="col" class="num">MtM cost</th>
-        <th scope="col" class="num">Next target</th>
-        <th scope="col" class="num">Upper alert</th>
-      </tr></thead><tbody>${rows.map(r=>{
-        const mk=String(r.month).slice(0,10);
-        const t=(D.targets[b.id]||[]).find(x=>String(x.month).slice(0,10)===mk);
-        return `<tr${mk===now?' class="cur"':''}>
-          <td>${fmtMonth(r.month)}${mk===now?'<span class="curtag">now</span>':''}</td>
-          <td>${esc(r.season||'')}</td>
-          <td class="num">${n4(r.baseload_vol)}</td>
-          <td class="num">${n4(r.secured_vol)}</td>
-          <td class="num">${n2(r.secured_wap)}</td>
-          <td class="num">${pct(r.secured_pct)}</td>
-          <td class="num">${money(r.secured_cost)}</td>
-          <td class="num">${n4(r.open_vol)}</td>
-          <td class="num">${n2(cxMktPrice(b,r))}</td>
-          <td class="num">${r.delivered_rate==null?'—':(+r.delivered_rate).toFixed(3)}</td>
-          <td class="num">${signed(r.mtm_cost)}</td>
-          <td class="num">${nextTarget(t)}</td>
-          <td class="num">${t&&t.upper_alert!=null?n2(t.upper_alert):'—'}</td></tr>`;
-      }).join('')}</tbody></table></div>`
+    ${rows.length ? FlexCore.buildTable(
+        FlexCore.POSITIONS(bk), rows,
+        { nec: FlexCore.necMap(bk, D.necs), mktPrice: (m)=>cxMktPrice(b,m) },
+        { totals: FlexCore.positionsTotals(rows, bk, FlexCore.necMap(bk, D.necs)),
+          caption: `Volumes in ${isP?'MW / MWh':'th/d / therms'}; rates in ${esc(b.unit_price||'')}. `
+                 + `Mkt Price is your supplier's indicative forward price for that month. `
+                 + `Delivered rate is the mark-to-market price converted to p/kWh plus that `
+                 + `season's non-energy costs.`,
+          rowClass: (m)=> m.month===now ? 'cur' : '' })
       : '<div class="empty">No months match these filters.</div>'}`;
 
   const rerun=()=>{
@@ -964,91 +981,53 @@ function subPositions(b,host){
   });
 }
 
-// Lowest tier not yet achieved: the next price this basket is trying to buy at.
-function nextTarget(t){
-  if(!t) return '—';
-  const live=[];
-  for(let i=1;i<=8;i++){
-    const v=t['lower_t'+i], a=t['t'+i+'_achieved'];
-    const hit=a!=null&&String(a).trim()!==''&&String(a).toLowerCase()!=='false';
-    if(v!=null&&!hit) live.push(+v);
-  }
-  if(!live.length) return '<span class="hit">All hit ✓</span>';
-  return n2(Math.max(...live));
-}
 
 function subTrades(b,host){
-  const rows=(D.trades[b.id]||[]).slice().sort((x,y)=>String(x.trade_date||'')<String(y.trade_date||'')?1:-1);
+  const rows=(D.trades[b.id]||[]).slice()
+    .sort((x,y)=>String(x.trade_date||'')<String(y.trade_date||'')?1:-1)
+    .map(FlexCore.normTrade);
   if(!rows.length){host.innerHTML='<div class="empty">No trades recorded for this basket.</div>';return;}
-  const isP=b.commodity==='power';
-  host.innerHTML=`<div class="tbwrap"><table>
-    <caption>${rows.length} trade${rows.length===1?'':'s'}, most recent first.
-      Volume in ${esc(b.unit_vol||'')}; strike in ${esc(b.unit_price||'')}.
-      A negative volume is a sell-back.</caption>
-    <thead><tr>
-      <th scope="col">Trade date</th><th scope="col">Ref</th><th scope="col">Counterparty</th>
-      <th scope="col">Product</th><th scope="col">From</th><th scope="col">To</th>
-      <th scope="col" class="num">Volume</th><th scope="col" class="num">Strike</th>
-      <th scope="col">Type</th><th scope="col" class="num">Cost</th>
-    </tr></thead><tbody>${rows.map(t=>`<tr>
-        <td>${fmtDate(t.trade_date)}</td><td>${esc(t.trade_ref||'—')}</td>
-        <td>${esc(t.counterparty||'—')}</td><td>${esc(t.product||'—')}</td>
-        <td>${fmtDate(t.start_date)}</td><td>${fmtDate(t.end_date)}</td>
-        <td class="num${(+t.volume)<0?' neg':''}">${n4(t.volume)}</td>
-        <td class="num">${n2(t.strike)}</td>
-        <td>${esc(t.deal_type||'—')}</td>
-        <td class="num">${money(t.cost)}</td></tr>`).join('')}
-    </tbody></table></div>`;
+  // Same columns, order and formatting as the desk. Cost is shown to the penny here too:
+  // rounding it to whole pounds meant a trade never quite tied back to the contract note.
+  host.innerHTML = FlexCore.buildTable(FlexCore.TRADES(deskBasket(b)), rows, {}, {
+    caption:`${rows.length} trade${rows.length===1?'':'s'}, most recent first. `
+          + `A negative volume is a sell-back.`,
+    cellClass:(c,t)=> (c.key==='vol' && t.volume!=null && t.volume<0) ? 'neg' : ''
+  });
 }
 
+/* Seasons. Grouping, volumes, WAP and cover come from FlexCore.seasonGroups — the same
+   call the desk makes. This table used to divide pounds by therms with no unit scaling,
+   printing a gas WAP a hundred times too small under a "p/th" heading. */
 function subSeasons(b,host){
-  const rows=(D.positions[b.id]||[]).slice().sort((x,y)=>String(x.month)<String(y.month)?-1:1);
-  if(!rows.length){host.innerHTML='<div class="empty">No season data for this basket.</div>';return;}
+  const bk = deskBasket(b);
+  const groups = FlexCore.seasonGroups(bk.months, bk);
+  if(!groups.length){host.innerHTML='<div class="empty">No season data for this basket.</div>';return;}
   const isP=b.commodity==='power';
-  const order=[],map={};
-  for(const m of rows){const s=m.season||'Unknown';
-    if(!map[s]){map[s]={name:s,months:[]};order.push(s);} map[s].months.push(m);}
-  host.innerHTML=`<div class="tbwrap"><table>
-    <caption>Grouped by delivery season. Volumes in ${isP?'MWh':'therms'}; rates in ${esc(b.unit_price||'')}.</caption>
-    <thead><tr><th scope="col">Season</th><th scope="col" class="num">Months</th>
-      <th scope="col" class="num">Forecast</th><th scope="col" class="num">Secured</th>
-      <th scope="col" class="num">Cover</th><th scope="col" class="num">Secured WAP</th>
-      <th scope="col" class="num">Secured cost</th><th scope="col" class="num">Mark to market</th>
-    </tr></thead><tbody>${order.map(sn=>{
-      const ms=map[sn].months;
-      const base=ms.reduce((s,m)=>s+ +(m.baseload_vol_total||0),0);
-      const sec =ms.reduce((s,m)=>s+ +(m.secured_vol_total||0),0);
-      const cost=ms.reduce((s,m)=>s+ +(m.secured_cost||0),0);
-      const mtm =ms.reduce((s,m)=>s+ +(m.mtm_cost||0),0);
-      const wap = sec>0?cost/sec:null, cov = base>0?sec/base:null;
-      return `<tr><td><strong>${esc(sn)}</strong></td><td class="num">${ms.length}</td>
-        <td class="num">${n0(base)}</td><td class="num">${n0(sec)}</td>
-        <td class="num">${pct(cov)}</td><td class="num">${n2(wap)}</td>
-        <td class="num">${money(cost)}</td><td class="num">${signed(mtm)}</td></tr>`;}).join('')}
-    </tbody></table></div>`;
+  host.innerHTML = FlexCore.buildTable(FlexCore.SEASONS(bk), groups, {}, {
+    caption:`Grouped by delivery season. Volumes in ${isP?'MW':'th'}; rates in ${esc(b.unit_price||'')}.`
+  });
 }
 
+/* Targets. Which tiers show, and whether a tier counts as achieved, both come from
+   FlexCore — so a tier the desk auto-ticks because secured volume met its rule now shows
+   achieved here too. Before flex_client_baskets carried target_rules this page could only
+   see the hand-ticked flag, and showed those tiers as still pending. */
 function subTargets(b,host){
-  const rows=(D.targets[b.id]||[]).slice().sort((x,y)=>String(x.month)<String(y.month)?-1:1);
-  if(!rows.length){host.innerHTML='<div class="empty">No price targets set for this basket.</div>';return;}
-  // Only render tiers that actually carry a value somewhere in the basket.
-  const tiers=[];
-  for(let i=1;i<=8;i++) if(rows.some(r=>r['lower_t'+i]!=null)) tiers.push(i);
-  const now=nowMonth();
-  host.innerHTML=`<div class="tbwrap"><table>
-    <caption>Buy targets by month, in ${esc(b.unit_price||'')}. A tier shown in green has been reached.</caption>
-    <thead><tr><th scope="col">Month</th>
-      ${tiers.map(i=>`<th scope="col" class="num">Target ${i}</th>`).join('')}
-      <th scope="col" class="num">Upper alert</th></tr></thead>
-    <tbody>${rows.map(r=>{
-      const mk=String(r.month).slice(0,10);
-      return `<tr${mk===now?' class="cur"':''}><td>${fmtMonth(r.month)}${mk===now?'<span class="curtag">now</span>':''}</td>
-        ${tiers.map(i=>{
-          const v=r['lower_t'+i], a=r['t'+i+'_achieved'];
-          const hit=a!=null&&String(a).trim()!==''&&String(a).toLowerCase()!=='false';
-          return `<td class="num${hit?' hit':''}">${v==null?'—':n2(v)}${hit?' ✓':''}</td>`;}).join('')}
-        <td class="num">${r.upper_alert==null?'—':n2(r.upper_alert)}</td></tr>`;}).join('')}
-    </tbody></table></div>`;
+  const bk = deskBasket(b);
+  const rows = FlexCore.visibleTargets(bk);
+  if(!rows.length){
+    const had = (bk.targets||[]).length>0;
+    host.innerHTML = '<div class="empty">'+(had
+      ? 'No targets for any tradable month. Past and current months are no longer shown here.'
+      : 'No price targets set for this basket.')+'</div>';
+    return;
+  }
+  host.innerHTML = FlexCore.buildTable(FlexCore.TARGETS(bk), rows,
+    { mktPrice: (m)=>cxMktPrice(b,m) },
+    { caption:`Buy targets by month, in ${esc(b.unit_price||'')}. A tier shown in green has been reached.`,
+      cellClass:(c,t)=> (c.tier && t['lower_t'+c.tier]!=null && FlexCore.isAchieved(bk,t,c.tier))
+        ? 'achieved-cell' : '' });
 }
 
 function subSites(b,host){

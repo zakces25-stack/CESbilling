@@ -8,6 +8,11 @@
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<!-- Shared render core. Every number, unit and column heading a customer can also see
+     is defined here and in no other file, so this page and flexclient.html cannot drift
+     apart. See the header of flex-shared.js. Loaded before the inline script below,
+     which delegates its formatters and table renderers to it. -->
+<script src="flex-shared.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -1299,6 +1304,14 @@ tbody tr:hover { background: rgba(159,190,28,0.04); }
 .mtm-negative { color: var(--positive-500); font-weight: 600; }
 .mtm-zero { color: var(--grey-500); }
 
+/* Classes emitted by the shared render core (flex-shared.js). These used to be inline
+   styles inside the renderers; they are rules now because the same markup is produced
+   for the client portal, and a shared cell cannot carry this page's CSS variables. */
+.achieved-cell { background: var(--green-500); color: var(--navy-900); font-weight: 700;
+                 font-size: 12px; font-family: var(--font-mono); }
+.fx-allhit     { color: var(--positive-500); }
+.fx-dash       { color: #c8cdd8; }
+
 .deal-badge {
   display: inline-block;
   font-size: 10px;
@@ -2033,66 +2046,28 @@ function fmtDate(s) {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit', timeZone: 'UTC' });
 }
 
-function fmtNum(n, dp) {
-  if (n == null || isNaN(n)) return '-';
-  return n.toLocaleString('en-GB', { minimumFractionDigits: dp, maximumFractionDigits: dp });
-}
+/* ── DISPLAY PRECISION — delegated to FlexCore ────────────────────────────────────
+   These used to be defined here. They now forward to flex-shared.js so that this page
+   and flexclient.html cannot round the same figure two different ways: gas volumes were
+   whole numbers here and up-to-4-dp there, and a power MW rate printed "12.5000" here
+   and "12.5" there. The names are kept because ~7,000 lines of this file call them.
 
-function fmtK(n) {
-  if (n == null || isNaN(n)) return '-';
-  const sign = n < 0 ? '-' : '';
-  return sign + '£' + Math.abs(Math.round(n)).toLocaleString('en-GB');
-}
+   IMPORTANT, unchanged: this is presentation only. Nothing here feeds a calculation.
+   Every stored trade volume, baseload and WAP keeps every decimal the trader entered,
+   and flex_positions does all the maths on those full-precision values server-side.
+   volDisp() is applied at the very last step, on the way to a cell or a chart point.
+     Power (MW)    -> 4 dp
+     Gas (th/day)  -> whole numbers, half away from zero, per DR 20/08/2026
 
-// Costs (secured_cost, mtm_cost) are stored in POUNDS. Power prices are £/MWh, so
-// £ ÷ MWh already lands in the right unit — but gas prices are p/th, and £ ÷ therms
-// lands in £/th, which reads 100x too small under a "p/th" header. Anywhere a WAP or a
-// price is DERIVED from a cost rather than read from flex_positions.secured_wap (which
-// is already in the basket's own price unit), scale by this so the two always agree.
-function fxCostToPrice(basket){ return (basket && basket.commodity === 'power') ? 1 : 100; }
-
-function fmtFull(n) {
-  if (n == null || isNaN(n)) return '-';
-  const sign = n < 0 ? '-' : '';
-  return sign + '£' + Math.abs(Math.round(n)).toLocaleString('en-GB');
-}
-
-function fmtVol(n) {
-  if (n == null || isNaN(n)) return '-';
-  // up to 3 decimal places, strip trailing zeros
-  let s = n.toFixed(3);
-  s = s.replace(/\.?0+$/, '');
-  return s;
-}
-
-// Commodity-aware volume DISPLAY PRECISION. This is the front-end rounding rule
-// and the single source of truth for it:
-//   Power (MW)     -> 4 dp
-//   Gas  (th/day)  -> whole numbers (1, 0, -1 ...), per DR 20/08/2026
-// Gas rounds half away from zero so the page agrees with Excel's ROUND, and a
-// negative that rounds to nothing becomes 0 rather than JS's -0.
-//
-// IMPORTANT: this is presentation only. Nothing here feeds a calculation.
-// Every stored trade volume, baseload and WAP keeps every decimal the trader
-// entered, and flex_positions does all the maths on those full-precision values
-// server-side. volDisp() is applied at the very last step, on the way to a
-// table cell or a chart data point.
-function volDisp(n, isPower) {
-  if (n == null || isNaN(n)) return null;
-  if (isPower) return Math.round(n * 1e4) / 1e4;          // 4 dp
-  const r = (n < 0 ? -1 : 1) * Math.round(Math.abs(n));   // whole, half away from zero
-  return r === 0 ? 0 : r;                                 // normalise -0 to 0
-}
-
-// Text form of volDisp(). Used by the Positions tab, the Trades tab and the
-// volume chart tooltip, so the same number cannot appear with two different
-// precisions in two places.
-function fmtVolC(n, isPower) {
-  const v = volDisp(n, isPower);
-  if (v == null) return '-';
-  const dp = isPower ? 4 : 0;
-  return v.toLocaleString('en-GB', { minimumFractionDigits: dp, maximumFractionDigits: dp });
-}
+   Declared with `function`, not `const`: the originals were hoisted, and a const would
+   put every earlier call in the temporal dead zone.                                   */
+function fmtNum(n, dp)        { return FlexCore.fmtNum(n, dp); }
+function fmtK(n)              { return FlexCore.fmtFull(n); }
+function fmtFull(n)           { return FlexCore.fmtFull(n); }
+function fmtVol(n)            { return FlexCore.fmtVol(n); }
+function volDisp(n, isPower)  { return FlexCore.volDisp(n, isPower); }
+function fmtVolC(n, isPower)  { return FlexCore.fmtVolC(n, isPower); }
+function fxCostToPrice(basket){ return FlexCore.costToPrice(basket); }
 
 function escape(s) {
   if (!s) return '';
@@ -2398,120 +2373,22 @@ function onHideHistoricChange(checked) {
 }
 
 // ── GET NEXT TARGET FOR A MONTH ───────────────────────────────────
-function getNextTargetForMonth(basket, monthStr) {
-  if (!basket.targets) return null;
-  const t = basket.targets.find(x => x.month === monthStr);
-  if (!t) return null;
-  const numT = fxTierCount(basket);
-  for (let i = 1; i <= numT; i++) {
-    const price = t[`lower_t${i}`];
-    if (price != null && !fxIsAchieved(basket, t, i)) {
-      return { price };
-    }
-  }
-  return fxAllTargetsHit(basket, monthStr) ? { allHit: true } : null;
-}
-
-function getUpperAlertForMonth(basket, monthStr) {
-  if (!basket.targets) return null;
-  const t = basket.targets.find(x => x.month === monthStr);
-  return t && t.upper_alert != null ? t.upper_alert : null;
-}
+function getNextTargetForMonth(basket, monthStr) { return FlexCore.nextTargetForMonth(basket, monthStr); }
+function getUpperAlertForMonth(basket, monthStr)  { return FlexCore.upperAlertForMonth(basket, monthStr); }
 
 // ── STATS UPDATE ─────────────────────────────────────────────────
+/* The eight stat cards. Every figure and its decimal places now come from
+   FlexCore.stats(), which the client portal calls too — so "Avg WAP" cannot be 2 dp
+   here and thousand-separated there, and the weighted averages cannot diverge. Only
+   the card markup is local to this page. */
 function renderDetailStatsFromRows(rows, basket) {
-  const totalBaseMWh = rows.reduce((s,m) => s + (m.baseload_vol_total||0), 0);
-  const totalSecMWh  = rows.reduce((s,m) => s + (m.secured_vol_total||0), 0);
-  const totalBaseMW  = rows.reduce((s,m) => s + (m.baseload_vol||0), 0);
-  const totalSecMW   = rows.reduce((s,m) => s + (m.secured_vol||0), 0);
-  const totalBase    = totalBaseMWh;  // used for secured % calc
-  const totalSec     = totalSecMWh;   // used for secured % calc
-  const totalCost = rows.reduce((s,m) => s + (m.secured_cost||0), 0);
-  const totalMtm  = rows.reduce((s,m) => s + (m.mtm_cost||0), 0);
-  const pct = totalBase > 0 ? totalSec/totalBase : 0;
-  const isPower = basket.commodity === 'power';
-  const volUnit = isPower ? 'MW' : 'th';
-
-  // Avg Secured WAP (weighted by secured_vol_total)
-  const secVolField  = 'secured_vol_total';
-  const secRows = rows.filter(m => (m[secVolField]||0) > 0 && m.secured_wap);
-  const wapWeight = secRows.reduce((s,m) => s + (m[secVolField]||0), 0);
-  const avgWap = wapWeight > 0
-    ? secRows.reduce((s,m) => s + m.secured_wap * (m[secVolField]||0), 0) / wapWeight
-    : null;
-
-  // Avg MtM Price (weighted by baseload_vol_total)
-  const mtmRows = rows.filter(m => (m.baseload_vol_total||0) > 0 && m.mtm_price);
-  const mtmWeight = mtmRows.reduce((s,m) => s + (m.baseload_vol_total||0), 0);
-  const avgMtmPrice = mtmWeight > 0
-    ? mtmRows.reduce((s,m) => s + m.mtm_price * (m.baseload_vol_total||0), 0) / mtmWeight
-    : null;
-
-  const pu = basket.unit_price;
-
-  // Avg delivered rate (p/kWh incl. NECs) over the shown period
-  // Volume-weighted (by baseload volume): = convert(vol-wtd MtM price) + vol-wtd NEC, over months with both an MtM price and an NEC
-  const _necMapS = fxNecFor(basket);
-  let _drWSum = 0, _drW = 0;
-  rows.forEach(m => { const dr = fxDeliveredRate(basket, m, _necMapS); const w = m.baseload_vol_total || 0; if (dr != null && w > 0) { _drWSum += dr * w; _drW += w; } });
-  const avgDr = _drW > 0 ? _drWSum / _drW : null;
-
-  // Baseload card: total MW (power) or th (gas)
-  const baseCardVal = isPower ? fmtNum(totalBaseMW, 4) : fmtNum(totalBaseMWh, 0);
-  const baseCardSub = isPower ? 'MW total' : (volUnit + ' total');
-  const baseCardLabel = 'Total Baseload';
-
-  // Secured card: total MW (power) or total th (gas)
-  const secCardVal = isPower ? fmtNum(totalSecMW, 4) : fmtNum(totalSecMWh, 0);
-  const secCardSub = isPower ? 'MW total secured' : (volUnit + ' hedged');
-
-  const totalOpenMW  = rows.reduce((s,m) => s + (m.open_vol||0), 0);
-  const totalOpenTh  = rows.reduce((s,m) => s + (m.open_vol_total||0), 0);
-  const openCardVal  = isPower ? fmtNum(totalOpenMW, 4) : fmtNum(totalOpenTh, 0);
-  const openCardSub  = isPower ? 'MW open' : (volUnit + ' open');
-
-  document.getElementById('detail-stats').innerHTML = `
+  const S = FlexCore.stats(rows, basket, DATA.necs);
+  document.getElementById('detail-stats').innerHTML = S.cards.map(c => `
     <div class="stat-card">
-      <div class="stat-label">Avg WAP</div>
-      <div class="stat-value">${avgWap != null ? avgWap.toFixed(2) : '—'}</div>
-      <div class="stat-sub">${pu} secured</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Avg MtM Price</div>
-      <div class="stat-value">${avgMtmPrice != null ? avgMtmPrice.toFixed(2) : '—'}</div>
-      <div class="stat-sub">${pu} mark-to-market</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Secured</div>
-      <div class="stat-value">${(pct*100).toFixed(2)}%</div>
-      <div class="stat-sub">Forward position</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">${baseCardLabel}</div>
-      <div class="stat-value">${baseCardVal}</div>
-      <div class="stat-sub">${baseCardSub}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Secured Vol</div>
-      <div class="stat-value">${secCardVal}</div>
-      <div class="stat-sub">${secCardSub}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Open Vol</div>
-      <div class="stat-value">${openCardVal}</div>
-      <div class="stat-sub">${openCardSub}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Avg Delivered Rate</div>
-      <div class="stat-value">${avgDr != null ? avgDr.toFixed(3) : '—'}</div>
-      <div class="stat-sub">p/kWh incl. NECs</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">MtM Cost</div>
-      <div class="stat-value ${totalMtm > 0 ? 'mtm-positive' : totalMtm < 0 ? 'mtm-negative' : 'mtm-zero'}">${fmtK(totalMtm)}</div>
-      <div class="stat-sub">Mark-to-market</div>
-    </div>
-  `;
+      <div class="stat-label">${c.label}</div>
+      <div class="stat-value${c.sign ? ' mtm-' + c.sign : ''}">${c.value}</div>
+      <div class="stat-sub">${c.sub}</div>
+    </div>`).join('');
 }
 
 function renderDetailStats(basket) {
@@ -2523,153 +2400,24 @@ function renderDetailStats(basket) {
 // ── POSITIONS TABLE RENDERER ─────────────────────────────────────
 // ── ALERT HELPERS ───────────────────────────────────────────────
 // Number of visible target tiers for a basket (per-basket override, else commodity default)
-function fxTierCount(basket) {
-  const n = basket && basket.target_count;
-  if (n != null && n >= 1 && n <= 8) return n;
-  return (basket && basket.commodity === 'gas') ? 8 : 5;
-}
-// Designation of an INDIVIDUAL target cell: 'advisory' (purple) or 'authorised' (red, default).
-// Stored per target row per tier as t{n}_kind on flex_targets.
-function fxTargetKind(t, i) {
-  return (t && t['t' + i + '_kind'] === 'advisory') ? 'advisory' : 'authorised';
-}
-
-// ── AUTO-ACHIEVEMENT: volume rules per target column ──────────────
-// A target column can carry a VOLUME rule, stored per basket in
-// flex_baskets.target_rules (index 0 = T1, mirroring target_labels). The rule says how
-// much volume that target is meant to secure, so achievement is derived from the
-// month's real secured volume instead of being ticked by hand:
-//
-//   volume      — a flat amount in the basket's own unit (0.1 MW / 100 th/d)
-//   percent     — a share of that month's baseload (20%)
-//   open        — everything still open: met at 100% secured
-//   open_minus  — everything except `amount`, i.e. leave `amount` open
-//   none        — no rule; the manual tick is the only way to mark it achieved
-//
-// Columns are CUMULATIVE. Two 0.1 MW targets mean 0.1 MW secured achieves T1 only and
-// 0.2 MW achieves both, so each column's requirement stacks on the ones before it.
-// `open` and `open_minus` are absolute caps rather than increments, so they set the
-// cumulative requirement outright instead of adding to it.
-//
-// Nothing here writes to the database. Achievement is computed at render time from
-// flex_positions, which means it follows the position: delete a trade and a target that
-// is no longer covered goes back to pending on its own. A manual tick still overrides
-// upward for anything the volume maths cannot see.
+/* ── TARGET RULES & TIERS — delegated to FlexCore ──────────────────────────────────
+   Moved to flex-shared.js so the client portal applies the SAME auto-achieved logic.
+   Until it could, a tier the desk showed green (secured volume meets the tier's rule)
+   read as still pending to the customer: flex_client_baskets carried no target_rules,
+   so the client could only see the hand-ticked flag. The rules, the baseload cap, the
+   display-precision comparison and "all targets hit" now live in one place.           */
+function fxTierCount(basket)            { return FlexCore.tierCount(basket); }
+function fxTargetKind(t, i)             { return FlexCore.targetKind(t, i); }
+function fxTargetRule(basket, i)        { return FlexCore.targetRule(basket, i); }
+function fxRuleLabel(basket, i)         { return FlexCore.ruleLabel(basket, i); }
+function fxRequiredRaw(basket, i, base) { return FlexCore.requiredRaw(basket, i, base); }
+function fxRequiredSecured(basket, m, i){ return FlexCore.requiredSecured(basket, m, i); }
+function fxVolMeets(basket, have, need) { return FlexCore.volMeets(basket, have, need); }
+function fxAutoAchieved(basket, t, i)   { return FlexCore.autoAchieved(basket, t, i); }
+function fxIsAchieved(basket, t, i)     { return FlexCore.isAchieved(basket, t, i); }
+function fxAllTargetsHit(basket, month) { return FlexCore.allTargetsHit(basket, month); }
+function fxVisibleTargets(basket)       { return FlexCore.visibleTargets(basket); }
 const FX_RULE_TYPES = ['none', 'volume', 'percent', 'open', 'open_minus'];
-
-function fxTargetRule(basket, i) {
-  const r = (basket && basket.target_rules && basket.target_rules[i - 1]) || null;
-  const type = (r && FX_RULE_TYPES.indexOf(r.type) !== -1) ? r.type : 'none';
-  const amount = (r && r.amount != null && !isNaN(+r.amount)) ? +r.amount : null;
-  return { type: type, amount: amount };
-}
-
-// Short human form of a rule — column headers and the modal preview.
-function fxRuleLabel(basket, i) {
-  const r = fxTargetRule(basket, i), u = (basket && basket.unit_vol) || '';
-  if (r.type === 'volume')     return r.amount != null ? fmtVol(r.amount) + ' ' + u : null;
-  if (r.type === 'percent')    return r.amount != null ? fmtVol(r.amount) + '%' : null;
-  if (r.type === 'open')       return 'All open';
-  if (r.type === 'open_minus') return r.amount != null ? 'All but ' + fmtVol(r.amount) + ' ' + u : null;
-  return null;
-}
-
-// Cumulative requirement for column `i` BEFORE the baseload cap. Split out from
-// fxRequiredSecured so the rule preview can show when a rule has been pulled in, rather
-// than silently displaying a number that differs from what was typed.
-// null = not evaluable: column i carries no rule, an amount is missing, or there is no
-// baseload to measure a share against.
-function fxRequiredRaw(basket, i, base) {
-  if (fxTargetRule(basket, i).type === 'none') return null;
-  let cum = 0;
-  for (let n = 1; n <= i; n++) {
-    const r = fxTargetRule(basket, n);
-    if (r.type === 'none') continue;
-    if (r.type === 'volume') {
-      if (r.amount == null) return null;
-      cum += r.amount;
-    } else if (r.type === 'percent') {
-      if (r.amount == null || base == null) return null;
-      cum += base * r.amount / 100;
-    } else if (r.type === 'open') {
-      if (base == null) return null;
-      cum = base;
-    } else if (r.type === 'open_minus') {
-      if (r.amount == null || base == null) return null;
-      cum = Math.max(0, base - r.amount);
-    }
-  }
-  return cum;
-}
-
-// Cumulative secured volume (in the basket's unit) that column `i` requires in month `m`.
-function fxRequiredSecured(basket, m, i) {
-  const base = (m && m.baseload_vol != null) ? m.baseload_vol : null;
-  // No baseload to hedge means no meaningful test — better "not evaluable" than every
-  // target ticking green on a month that carries no volume.
-  if (base != null && !(base > 0)) return null;
-  const raw = fxRequiredRaw(basket, i, base);
-  if (raw == null) return null;
-  // A month can never secure more than its own baseload, so a requirement above it is
-  // unsatisfiable by construction: a 0.1 MW-per-tranche ladder asks 0.3 MW of a 0.25 MW
-  // meter, and that last target would sit pending forever — dragging the month out of
-  // "all hit" and putting its alert back on Positions. Capping means a full hedge always
-  // finishes the ladder, while the earlier rungs keep their real thresholds.
-  return (base != null) ? Math.min(raw, base) : raw;
-}
-
-// Compare at the precision the Positions tab displays, so a target can never read as
-// missed because of a rounding tail nobody can see on screen.
-function fxVolMeets(basket, have, need) {
-  if (have == null || need == null) return false;
-  const isPower = basket && basket.commodity === 'power';
-  const h = volDisp(have, isPower), n = volDisp(need, isPower);
-  if (h == null || n == null) return false;
-  return h >= n - (isPower ? 1e-9 : 0);
-}
-
-// true / false when a rule governs this column, null when it is manual-only.
-function fxAutoAchieved(basket, t, i) {
-  if (!basket || !t) return null;
-  const m = (basket.months || []).find(x => x.month === t.month);
-  if (!m) return null;
-  const need = fxRequiredSecured(basket, m, i);
-  if (need == null) return null;
-  return fxVolMeets(basket, m.secured_vol, need);
-}
-
-// Single source of truth for "is this target achieved?". A manual tick always wins.
-function fxIsAchieved(basket, t, i) {
-  if (t && t['t' + i + '_achieved'] === 'Yes') return true;
-  return fxAutoAchieved(basket, t, i) === true;
-}
-
-// Every target that actually carries a PRICE for this month is achieved. Columns left
-// blank are skipped, so a basket using only T1 and T2 counts as complete on those two
-// even where T3 is empty for the period. A month with no priced target at all returns
-// false — nothing was ever asked of it, so it cannot be "done".
-function fxAllTargetsHit(basket, monthStr) {
-  const t = (basket.targets || []).find(x => x.month === monthStr);
-  if (!t) return false;
-  const n = fxTierCount(basket);
-  let priced = 0;
-  for (let i = 1; i <= n; i++) {
-    if (t['lower_t' + i] == null) continue;
-    priced++;
-    if (!fxIsAchieved(basket, t, i)) return false;
-  }
-  return priced > 0;
-}
-
-// Months the targets tab will show: tradable ones only. The current month is already
-// spot and anything before it has settled, so neither can still be traded to a target.
-// Reads the live month clock rather than a value fixed at load, so the tab sheds a month
-// on its own the moment the 1st ticks over.
-function fxVisibleTargets(basket) {
-  const cut = fxNowMonth();
-  return (basket.targets || []).filter(t => t.month > cut);
-}
-
 
 function getNextUnachievedTarget(basket, monthStr) {
   const t = (basket.targets || []).find(t => t.month === monthStr);
@@ -2740,9 +2488,9 @@ function basketHasAlert(basket) { return basketAlertKind(basket) != null; }
 
 // ── NECs / delivered rate ────────────────────────────────────────
 // Season key for a month: Apr-Sep = S-YY, Oct-Mar = W-(start year)
-function fxSeasonKey(mIso){ const d=new Date(mIso); if(isNaN(d)) return null; const y=d.getUTCFullYear(), mo=d.getUTCMonth();
-  if(mo>=3 && mo<=8) return 'S-'+String(y).slice(2);
-  const sy=(mo>=9)?y:y-1; return 'W-'+String(sy).slice(2); }
+// Must stay identical to the season CASE inside flex_client_positions_rows(), or a
+// delivered rate computed here and one read from the client view pick different NECs.
+function fxSeasonKey(mIso){ return FlexCore.seasonKey(mIso); }
 // Ordered season columns W-21 → S-32, auto-extending as time passes
 function fxSeasonList(){ const out=[]; const now=new Date();
   const endMs=Math.max(Date.UTC(2032,3,1), Date.UTC(now.getUTCFullYear()+1, now.getUTCMonth(), 1));
@@ -2751,13 +2499,12 @@ function fxSeasonList(){ const out=[]; const now=new Date();
     if(mo===9) out.push('W-'+String(yr).slice(2)); else if(mo===3) out.push('S-'+String(yr).slice(2));
     cur=new Date(Date.UTC(yr, mo+6, 1)); }
   return out; }
-// NEC (p/kWh) per season for a basket, matched by name + commodity
-function fxNecFor(basket){ const map={}; (DATA.necs||[]).forEach(n=>{ if(n.nec==null || n.commodity!==basket.commodity) return; if(n.basket_name===basket.name) map[n.season]=n.nec; }); return map; }
-// Convert wholesale market price to p/kWh: power £/MWh ÷ 10; gas p/therm ÷ 29.3071
-function fxConvPkwh(basket, mkt){ if(mkt==null) return null; return basket.commodity==='power' ? mkt/10 : mkt/29.3071; }
-// Delivered rate (p/kWh) = converted MtM price (mark-to-market) + NEC for that month's season.
-// Blank when there is no MtM price or no NEC for the period.
-function fxDeliveredRate(basket, m, necMap){ const nm=necMap||fxNecFor(basket); const nec=nm[fxSeasonKey(m.month)]; const mtm=m.mtm_price; if(nec==null || !mtm) return null; return fxConvPkwh(basket, mtm)+nec; }
+// NEC (p/kWh) per season for a basket, matched by name + commodity. The desk feeds
+// DATA.necs; the client feeds the equivalent flex_client_necs rows into the same
+// FlexCore.necMap(), so delivered rate is one formula on both portals.
+function fxNecFor(basket){ return FlexCore.necMap(basket, DATA.necs); }
+function fxConvPkwh(basket, mkt){ return FlexCore.convPkwh(basket, mkt); }
+function fxDeliveredRate(basket, m, necMap){ return FlexCore.deliveredRate(basket, m, necMap || fxNecFor(basket)); }
 
 // ── TARGETED WAP (scenario engine) ───────────────────────────────
 // "What would our weighted average price be if the targets were struck?"
@@ -2848,133 +2595,42 @@ function fxDisplayMkt(basket, m){
   return (v != null) ? { v: v, te: true } : { v: m.market_price, te: false };
 }
 
+/* Positions. Columns, headings, cell text and the totals row all come from
+   FlexCore.POSITIONS / positionsTotals, shared with the client portal. Everything this
+   page adds on top — the alert colouring, the hedged/future shading, the current-month
+   marker, the TE-vs-Marex source tint — arrives through buildTable's hooks and can
+   therefore never change a number or a heading. */
 function renderPositionsTable(rows, basket) {
-  const pu = basket.unit_price;
-  const isPower = basket.commodity === 'power';
-  // Power: show MW rate in vol columns; Gas: show th/d rate
-  const volUnit = isPower ? 'MW' : 'th/d';
-  const volField_base    = isPower ? 'baseload_vol' : 'baseload_vol';
-  const volField_secured = isPower ? 'secured_vol'  : 'secured_vol';
-  const volField_open    = isPower ? 'open_vol'      : 'open_vol';
-
   if (rows.length === 0) {
-    document.getElementById('pos-table-container').innerHTML = '<div class="no-targets">No months match the current filters.</div>';
+    document.getElementById('pos-table-container').innerHTML =
+      '<div class="no-targets">No months match the current filters.</div>';
     return;
   }
+  const nec  = fxNecFor(basket);
+  const nowM = fxNowMonth();
+  // The desk's Mkt price column follows the Marex/TE toggle; the client always sees the
+  // supplier price. This is the one value either portal is allowed to resolve itself.
+  const ctx  = { nec: nec, mktPrice: (m) => fxDisplayMkt(basket, m).v };
+  const cols = FlexCore.POSITIONS(basket);
+  const totals = FlexCore.positionsTotals(rows, basket, nec);
 
-  // Totals: for power use MW rates (sum of rate fields); for gas same
-  const tBase = rows.reduce((s,m) => s + (m[volField_base]||0), 0);
-  const tSec  = rows.reduce((s,m) => s + (m[volField_secured]||0), 0);
-  const tCost = rows.reduce((s,m) => s + (m.secured_cost||0), 0);
-  const tOpen = rows.reduce((s,m) => s + (m[volField_open]||0), 0);
-  const tMtm  = rows.reduce((s,m) => s + (m.mtm_cost||0), 0);
-  // WAP weighted by actual energy (secured_vol_total)
-  const tSecEnergy = rows.reduce((s,m) => s + (m.secured_vol_total||0), 0);
-  const tWAP  = tSecEnergy > 0 ? (tCost / tSecEnergy) * fxCostToPrice(basket) : 0;
-  const tBaseEnergy = rows.reduce((s,m) => s + (m.baseload_vol_total||0), 0);
-  const tPct  = tBaseEnergy > 0 ? tSecEnergy/tBaseEnergy : 0;
-  const _necMap = fxNecFor(basket);
-  const _drVals = rows.map(m => fxDeliveredRate(basket, m, _necMap)).filter(v => v != null);
-  const tDr = _drVals.length ? _drVals.reduce((a,b)=>a+b,0)/_drVals.length : null;
-
-  const tableRows = rows.map(m => {
-    const alert = currentBasket ? fxRowAlert(currentBasket, m) : null;   // always Marex — fxRowAlert reads m.market_price
-    const _dm = fxDisplayMkt(basket, m);                                 // printed price only
-    const alertCls = alert ? (alert.kind === 'authorised' ? 'fx-alert-auth' : 'fx-alert-adv') : '';
-    const alertTitle = alert ? ` title="${alert.label}"` : '';
-    const pct = m.secured_pct || 0;
-    const mtmClass = m.mtm_cost > 0 ? 'mtm-positive' : m.mtm_cost < 0 ? 'mtm-negative' : 'mtm-zero';
-    const isFuture = m.month >= CUTOFF;
-
-    // Next Target
-    const ntResult = getNextTargetForMonth(basket, m.month);
-    let ntCell = '<td class="td-center">—</td>';
-    if (ntResult) {
-      if (ntResult.allHit) {
-        ntCell = `<td class="td-center"><span style="color:var(--positive-500)">All hit ✓</span></td>`;
-      } else {
-        ntCell = `<td class="td-center">${ntResult.price}</td>`;
-      }
-    }
-
-    // Upper Alert
-    const ua = getUpperAlertForMonth(basket, m.month);
-    const uaCell = `<td class="td-center">${ua != null ? ua : '—'}</td>`;
-
-    const nowM = fxNowMonth();
-    let rowCls;
-    if (m.month === nowM) rowCls = 'fx-row-current';
-    else if (alertCls) rowCls = alertCls;              // a hit target colours the WHOLE row and beats future/hedged shading
-    else rowCls = (m.secured_pct||0) >= 0.995 ? 'fx-row-hedged' : (isFuture ? 'future-month' : '');
-    return `<tr${rowCls ? ` class="${rowCls}"` : ''}${alertTitle}>
-      <td>${fmtMonth(m.month)}</td>
-      <td>${escape(m.season||'')}</td>
-      <td class="td-right">${fmtVolC(m[volField_base], isPower)}</td>
-      <td class="td-right">${fmtVolC(m[volField_secured], isPower)}</td>
-      <td class="td-right">${m.secured_wap ? m.secured_wap.toFixed(2) : '-'}</td>
-      <td>
-        <div class="pct-cell">
-          <div class="pct-bar"><div class="pct-bar-fill" style="width:${Math.min(pct*100,100).toFixed(1)}%"></div></div>
-          <div class="pct-label">${(pct*100).toFixed(0)}%</div>
-        </div>
-      </td>
-      <td class="td-right">${fmtFull(m.secured_cost)}</td>
-      <td class="td-right">${fmtVolC(m[volField_open], isPower)}</td>
-      <td class="td-right${_dm.te ? ' fx-te-cell' : ''}">${_dm.v ? _dm.v.toFixed(2) : '-'}</td>
-      <td class="td-right">${(function(){ const dr=fxDeliveredRate(basket,m,_necMap); return dr!=null? dr.toFixed(3) : '<span style="color:#c8cdd8">—</span>'; })()}</td>
-      <td class="td-right ${mtmClass}">${m.mtm_cost != null ? fmtFull(m.mtm_cost) : '-'}</td>
-      ${ntCell}
-      ${uaCell}
-    </tr>`;
-  }).join('');
-
-  const totalMtmClass = tMtm > 0 ? 'mtm-positive' : tMtm < 0 ? 'mtm-negative' : 'mtm-zero';
-
-  document.getElementById('pos-table-container').innerHTML = `
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Month</th>
-            <th>Season</th>
-            <th class="td-right">Baseload (${volUnit})</th>
-            <th class="td-right">Secured (${volUnit})</th>
-            <th class="td-right">WAP (${pu})</th>
-            <th>Secured %</th>
-            <th class="td-right">Sec. Cost</th>
-            <th class="td-right">Open (${volUnit})</th>
-            <th class="td-right">Mkt Price (${isPower?'£/MWh':'p/th'})</th>
-            <th class="td-right">Delivered rate (p/kWh)</th>
-            <th class="td-right">MtM Cost</th>
-            <th class="td-center">Next Target</th>
-            <th class="td-center">Upper Alert</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${tableRows}
-          <tr class="totals-row">
-            <td><strong>TOTAL</strong></td>
-            <td></td>
-            <td class="td-right">${fmtVolC(tBase, isPower)}</td>
-            <td class="td-right">${fmtVolC(tSec, isPower)}</td>
-            <td class="td-right">${tWAP > 0 ? tWAP.toFixed(2) : '-'}</td>
-            <td>
-              <div class="pct-cell">
-                <div class="pct-bar"><div class="pct-bar-fill" style="width:${Math.min(tPct*100,100).toFixed(1)}%"></div></div>
-                <div class="pct-label">${(tPct*100).toFixed(0)}%</div>
-              </div>
-            </td>
-            <td class="td-right">${fmtFull(tCost)}</td>
-            <td class="td-right">${fmtVolC(tOpen, isPower)}</td>
-            <td></td>
-            <td class="td-right">${tDr != null ? tDr.toFixed(3) : ''}</td>
-            <td class="td-right ${totalMtmClass}">${fmtFull(tMtm)}</td>
-            <td></td>
-            <td></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>`;
+  document.getElementById('pos-table-container').innerHTML = FlexCore.buildTable(cols, rows, ctx, {
+    totals: totals,
+    rowClass: (m) => {
+      const alert = currentBasket ? fxRowAlert(currentBasket, m) : null;  // always Marex
+      if (m.month === nowM) return 'fx-row-current';
+      if (alert) return alert.kind === 'authorised' ? 'fx-alert-auth' : 'fx-alert-adv';
+      if ((m.secured_pct || 0) >= 0.995) return 'fx-row-hedged';
+      return m.month >= CUTOFF ? 'future-month' : '';
+    },
+    rowAttr: (m) => {
+      const alert = currentBasket ? fxRowAlert(currentBasket, m) : null;
+      return alert ? ` title="${alert.label}"` : '';
+    },
+    // Tint the Mkt price cell when the printed figure came from TotalEnergies rather
+    // than Marex, so it is obvious which curve is on screen.
+    cellClass: (c, m) => (c.key === 'mkt' && fxDisplayMkt(basket, m).te) ? 'fx-te-cell' : ''
+  });
 }
 
 // ── POSITIONS FULL RENDERER (filter bar + table) ─────────────────
@@ -3039,202 +2695,139 @@ function renderTrades(basket) {
     </div>` : '';
 
   if (trades.length === 0) {
-    document.getElementById('tab-trades').innerHTML = filterBar + '<div class="no-targets">No trades recorded for this basket.</div>';
+    document.getElementById('tab-trades').innerHTML = filterBar
+      + '<div class="no-targets">No trades recorded for this basket.</div>';
     return;
   }
 
-  const pu = basket.unit_price;
-  const vu = basket.unit_vol;
-  const isPower = basket.commodity === 'power';
-
-  const rows = trades.map(t => {
-    const dealClass = (t.deal_type || '').toLowerCase() === 'buy' ? 'buy' : 'sell';
-    return `<tr>
-      <td>${fmtDate(t.date)}</td>
-      <td style="font-size:10px;color:var(--grey-500);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escape(t.ref)}">${escape(t.ref)}</td>
-      <td>${escape(t.counterparty||'')}</td>
-      <td style="white-space:nowrap">${fmtMonth(t.start)} &rarr; ${fmtMonth(t.end)}</td>
-      <td class="td-right" title="${t.volume != null ? t.volume : ''}">${fmtVolC(t.volume, isPower)}</td>
-      <td>${escape(t.product||'')}</td>
-      <td class="td-right">${t.strike != null ? t.strike.toFixed(2) : '-'}</td>
-      <td class="td-center"><span class="deal-badge ${dealClass}">${escape(t.deal_type||'')}</span></td>
-      <td class="td-right">£${t.cost != null ? t.cost.toFixed(2) : '-'}</td>
-    </tr>`;
-  }).join('');
-
-  document.getElementById('tab-trades').innerHTML = filterBar + `
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Trade Ref</th>
-            <th>Counterparty</th>
-            <th>Period</th>
-            <th class="td-right">Vol (${vu})</th>
-            <th>Product</th>
-            <th class="td-right">Strike (${pu})</th>
-            <th class="td-center">Type</th>
-            <th class="td-right">Cost (£)</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
+  /* Columns and cell text from FlexCore.TRADES, shared with the client portal — the two
+     used to list the same trades in a different column order, with the volume, strike and
+     cost each formatted differently. The deal-type badge stays desk-side styling. */
+  document.getElementById('tab-trades').innerHTML = filterBar
+    + FlexCore.buildTable(FlexCore.TRADES(basket), trades.map(FlexCore.normTrade), {}, {
+        cellHtml: (c, t) => {
+          if (c.key !== 'type') return null;
+          const cls = (t.deal_type || '').toLowerCase() === 'buy' ? 'buy' : 'sell';
+          return `<span class="deal-badge ${cls}">${FlexCore.esc(t.deal_type || '')}</span>`;
+        }
+      });
 }
 
 // ── SEASONS ───────────────────────────────────────────────────────
+/* Seasons. Grouping, volumes, WAP and cover come from FlexCore.seasonGroups, which
+   applies the gas cost-to-price scaling — the client portal's own copy of this table
+   divided pounds by therms and printed a gas WAP 100x too small under a p/th heading. */
 function renderSeasons(basket) {
-  const allMonths = basket.months.slice().sort((a,b) => a.month.localeCompare(b.month));
-  const futureMths2 = allMonths;
-
-  const seasonOrder = [];
-  const seasonMap = {};
-  futureMths2.forEach(m => {
-    const s = m.season || 'Unknown';
-    if (!seasonMap[s]) {
-      seasonMap[s] = { name: s, months: [], firstMonth: m.month };
-      seasonOrder.push(s);
-    }
-    seasonMap[s].months.push(m);
-  });
-
-  if (seasonOrder.length === 0) {
-    document.getElementById('tab-seasons').innerHTML = '<div class="no-targets">No future season data available.</div>';
+  const groups = FlexCore.seasonGroups(basket.months, basket);
+  if (!groups.length) {
+    document.getElementById('tab-seasons').innerHTML =
+      '<div class="no-targets">No future season data available.</div>';
     return;
   }
-
-  const isPower = basket.commodity === 'power';
-  const volUnit = isPower ? 'MW' : 'th';
-  const pu = basket.unit_price;
-
-  const rows = seasonOrder.map(sn => {
-    const sg = seasonMap[sn];
-    const mths = sg.months;
-    const totalBase = mths.reduce((s,m) => s + (m.baseload_vol_total||0), 0);
-    const totalSec  = mths.reduce((s,m) => s + (m.secured_vol_total||0), 0);
-    const totalCost = mths.reduce((s,m) => s + (m.secured_cost||0), 0);
-    const totalMtm  = mths.reduce((s,m) => s + (m.mtm_cost||0), 0);
-    const wap       = totalSec > 0 ? (totalCost / totalSec) * fxCostToPrice(basket) : 0;
-    const pct       = totalBase > 0 ? totalSec / totalBase : 0;
-    const mtmClass  = totalMtm > 0 ? 'mtm-positive' : totalMtm < 0 ? 'mtm-negative' : 'mtm-zero';
-    const baseDisplay = isPower ? mths.reduce((s,m) => s + (m.baseload_vol||0), 0) : totalBase;
-    const secDisplay  = isPower ? mths.reduce((s,m) => s + (m.secured_vol||0), 0) : totalSec;
-
-    return `<tr>
-      <td><strong>${escape(sn)}</strong></td>
-      <td class="td-center">${mths.length}</td>
-      <td class="td-right">${fmtNum(baseDisplay, isPower ? 4 : 0)}</td>
-      <td class="td-right">${fmtNum(secDisplay, isPower ? 4 : 0)}</td>
-      <td class="td-right">${wap > 0 ? wap.toFixed(2) : '-'}</td>
-      <td>
-        <div class="pct-cell">
-          <div class="pct-bar"><div class="pct-bar-fill" style="width:${Math.min(pct*100,100).toFixed(1)}%"></div></div>
-          <div class="pct-label">${(pct*100).toFixed(0)}%</div>
-        </div>
-      </td>
-      <td class="td-right">${fmtK(totalCost)}</td>
-      <td class="td-right ${mtmClass}">${fmtK(totalMtm)}</td>
-    </tr>`;
-  }).join('');
-
-  document.getElementById('tab-seasons').innerHTML = `
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Season</th>
-            <th class="td-center">Months</th>
-            <th class="td-right">Baseload (${volUnit})</th>
-            <th class="td-right">Secured (${volUnit})</th>
-            <th class="td-right">WAP (${pu})</th>
-            <th>Secured %</th>
-            <th class="td-right">Sec. Cost</th>
-            <th class="td-right">MtM Cost</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
+  document.getElementById('tab-seasons').innerHTML =
+    FlexCore.buildTable(FlexCore.SEASONS(basket), groups, {}, {});
 }
 
 // ── TARGETS ───────────────────────────────────────────────────────
+/* Targets. Month, Mkt Price, the tier columns and Upper Alert are shared with the
+   client portal, including how many tiers show (fxTierCount, not "however many happen
+   to carry a value") and whether a tier counts as achieved (hand tick OR the volume
+   rule). The desk keeps three things of its own on top: which way a tier was achieved,
+   authorised-vs-advisory colouring on a hit, and the Targeted WAP scenario columns. */
 function renderTargets(basket) {
-  const targets = fxVisibleTargets(basket);
-
+  const targets = FlexCore.visibleTargets(basket);
   if (targets.length === 0) {
     // Distinguish "never had any" from "all of them have rolled into the past", or the
     // tab looks broken on a basket whose targets were simply all delivered.
-    const _had = (basket.targets || []).length > 0;
-    document.getElementById('tab-targets').innerHTML = '<div class="no-targets">' + (_had
+    const had = (basket.targets || []).length > 0;
+    document.getElementById('tab-targets').innerHTML = '<div class="no-targets">' + (had
       ? 'No targets for any tradable month. Past and current months are no longer shown here.'
       : 'No active targets for this basket.') + '</div>';
     return;
   }
 
-  const numT = fxTierCount(basket);
-  // Targeted WAP columns appear only once a scenario has been saved for this basket.
-  const _hasTT  = (basket.target_trades || []).length > 0;
-  const _necMapT = fxNecFor(basket);
+  const necT   = fxNecFor(basket);
+  const hasTT  = (basket.target_trades || []).length > 0;
+  const nowM   = fxNowMonth();
+  let cols     = FlexCore.TARGETS(basket);
 
-  let thCols = '<th>Month</th><th class="td-right">Mkt Price</th>';
-  for (let i = 1; i <= numT; i++) thCols += `<th class="td-center">T${i}</th>`;
-  thCols += '<th class="td-right">Upper Alert</th>';
-  if (_hasTT) thCols += `<th class="td-right fx-twap-h" title="Weighted average price if the modelled target trades were struck">Targeted WAP <span class="fx-twap-u">(${escape(basket.unit_price)})</span></th>`
-                      + `<th class="td-right fx-twap-h" title="Targeted WAP blended with open volume at market, converted and with the season NEC added">Targeted delivered <span class="fx-twap-u">(p/kWh)</span></th>`;
+  // Desk-only: the modelled-trade scenario. Appended, never interleaved, so the shared
+  // columns keep their order and the client's table is a prefix of this one.
+  if (hasTT) {
+    cols = cols.concat([
+      { key: 'twap', head: 'Targeted WAP <span class="fx-twap-u">(' + FlexCore.esc(basket.unit_price) + ')</span>',
+        align: 'right',
+        value: (t) => { const sc = scenarioFor(t); return sc && sc.wap != null ? sc.wap.toFixed(2) : '<span style="color:#c8cdd8">—</span>'; } },
+      { key: 'tdel', head: 'Targeted delivered <span class="fx-twap-u">(p/kWh)</span>',
+        align: 'right',
+        value: (t) => { const sc = scenarioFor(t); return sc && sc.deliv != null ? sc.deliv.toFixed(3) : '<span style="color:#c8cdd8">—</span>'; } }
+    ]);
+  }
+  function scenarioFor(t) {
+    const mm = (basket.months || []).find(x => x.month === t.month);
+    return mm ? fxTargetScenario(basket, mm, necT) : null;
+  }
 
-  const rows = targets.map(t => {
-    const mm = basket.months.find(m => m.month === t.month);
-    const mpNum = mm && mm.market_price != null ? mm.market_price : null;
-    const mp = mpNum != null ? mpNum.toFixed(2) : '-';
-    const isCur = (t.month === fxNowMonth()); // current month uses day-ahead pricing — never counts as "hit"
-    let tds = `<td>${fmtMonth(t.month)}</td><td class="td-right">${mp}</td>`;
-    for (let i = 1; i <= numT; i++) {
-      const price = t[`lower_t${i}`];
-      const autoAch = fxAutoAchieved(basket, t, i);
-      const achieved = (t[`t${i}_achieved`] === 'Yes') || autoAch === true;
-      if (price == null) {
-        tds += `<td class="td-center" style="color:var(--grey-200)">—</td>`;
-      } else if (achieved) {
-        // Say WHICH way it was achieved — an auto tick the user cannot explain is worse
-        // than no auto tick at all.
-        const _atip = autoAch === true
-          ? `Achieved automatically — secured volume meets ${escape(fxRuleLabel(basket, i) || 'this column\'s rule')}`
-          : 'Target achieved — ticked by hand';
-        tds += `<td class="achieved-cell td-center" style="background:var(--green-500);color:var(--navy-900);font-weight:700;font-size:12px;font-family:var(--font-mono);" title="${_atip}">${price} &#10003;${autoAch === true ? '<span class="fx-auto-tag">auto</span>' : ''}</td>`;
-      } else if (!isCur && mpNum != null && mpNum < price) {
-        // Hit: market has reached this buy target — colour the cell by its designation
-        const advisory = fxTargetKind(t, i) === 'advisory';
-        const cls = advisory ? 'fx-hit-adv' : 'fx-hit-auth';
-        const lbl = advisory ? 'Advisory target hit' : 'Authorised target hit';
-        tds += `<td class="td-center ${cls}" title="${lbl} — market ${mp} below ${price}">${price}</td>`;
-      } else {
-        tds += `<td class="td-center"><span class="target-pending" title="Pending">&#9711;</span><span class="target-price">${price}</span></td>`;
+  // Same Mkt price resolver as the Positions tab. This column used to read
+  // m.market_price directly and so ignored the Marex/TotalEnergies toggle that the
+  // toggle's own label promises applies to "the Mkt price column" — one tab followed it
+  // and the other did not. Calculations are untouched: fxRowAlert and every target test
+  // still read m.market_price, which is always Marex.
+  const tCtx = { mktPrice: (m) => fxDisplayMkt(basket, m).v };
+  document.getElementById('tab-targets').innerHTML = FlexCore.buildTable(cols, targets, tCtx, {
+    // A month whose every set target is achieved goes green as a row — reads far faster
+    // than checking each cell, and matches the alert being dropped on Positions.
+    rowClass: (t) => FlexCore.allTargetsHit(basket, t.month) ? 'fx-trow-hit' : '',
+    rowAttr:  (t) => FlexCore.allTargetsHit(basket, t.month)
+      ? ' title="Every target set for this month is achieved"' : '',
+    cellClass: (c, t) => {
+      if (c.key === 'twap' || c.key === 'tdel') {
+        const sc = scenarioFor(t);
+        return 'fx-twap' + (sc && sc.over ? ' fx-twap-over' : '');
       }
+      const mm = (basket.months || []).find(x => x.month === t.month);
+      const mp = mm && mm.market_price != null ? mm.market_price : null;
+      const isCur = (t.month === nowM);   // current month prices day-ahead — never "hit"
+      if (c.tier) {
+        const price = t['lower_t' + c.tier];
+        if (price == null) return '';
+        if (FlexCore.isAchieved(basket, t, c.tier)) return 'achieved-cell';
+        if (!isCur && mp != null && mp < price) {
+          return FlexCore.targetKind(t, c.tier) === 'advisory' ? 'fx-hit-adv' : 'fx-hit-auth';
+        }
+        return '';
+      }
+      if (c.key === 'ua') {
+        const ua = t.upper_alert;
+        return (!isCur && mp != null && ua != null && mp > ua) ? 'fx-hit-adv' : '';
+      }
+      return '';
+    },
+    cellAttr: (c, t) => {
+      if (!c.tier) return '';
+      const price = t['lower_t' + c.tier];
+      if (price == null) return '';
+      if (FlexCore.isAchieved(basket, t, c.tier)) {
+        // Say WHICH way it was achieved — an auto tick nobody can explain is worse than
+        // no auto tick at all.
+        return FlexCore.autoAchieved(basket, t, c.tier) === true
+          ? ` title="Achieved automatically — secured volume meets ${FlexCore.esc(FlexCore.ruleLabel(basket, c.tier) || "this column's rule")}"`
+          : ' title="Target achieved — ticked by hand"';
+      }
+      return '';
+    },
+    // The only thing the desk adds to a shared tier cell: the "auto" tag saying the tick
+    // came from the volume rule rather than a hand. Achieved / hit / pending all come
+    // from FlexCore, so the customer's cell and this one cannot say different things.
+    cellHtml: (c, t) => {
+      if (!c.tier) return null;
+      const price = t['lower_t' + c.tier];
+      if (price == null) return null;
+      if (FlexCore.autoAchieved(basket, t, c.tier) !== true) return null;
+      if (!FlexCore.isAchieved(basket, t, c.tier)) return null;
+      return FlexCore.fmtTyped(price) + ' &#10003;<span class="fx-auto-tag">auto</span>';
     }
-    const uaHit = (!isCur && mpNum != null && t.upper_alert != null && mpNum > t.upper_alert);
-    tds += `<td class="td-right${uaHit ? ' fx-hit-adv' : ''}"${uaHit ? ` title="Upper alert hit — market ${mp} above ${t.upper_alert}"` : ''}>${t.upper_alert != null ? t.upper_alert : '-'}</td>`;
-    if (_hasTT) {
-      const sc = mm ? fxTargetScenario(basket, mm, _necMapT) : null;
-      const dash = '<span style="color:#c8cdd8">—</span>';
-      const warn = sc && sc.over ? ' fx-twap-over' : '';
-      const tip  = sc && sc.over ? ` title="Modelled volume is ${(sc.pct*100).toFixed(0)}% of baseload — over-hedged"` : '';
-      tds += `<td class="td-right fx-twap${warn}"${tip}>${sc && sc.wap != null ? sc.wap.toFixed(2) : dash}</td>`
-           + `<td class="td-right fx-twap${warn}">${sc && sc.deliv != null ? sc.deliv.toFixed(3) : dash}</td>`;
-    }
-    // Whole row goes green once every target set for the month is achieved. Reads far
-    // faster than checking each cell, and matches the alert being dropped on Positions.
-    const _rowHit = fxAllTargetsHit(basket, t.month);
-    return `<tr${_rowHit ? ' class="fx-trow-hit" title="Every target set for this month is achieved"' : ''}>${tds}</tr>`;
-  }).join('');
-
-  document.getElementById('tab-targets').innerHTML = `
-    <div class="table-wrap">
-      <table>
-        <thead><tr>${thCols}</tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
+  });
 }
 
 // ── CHARTS ────────────────────────────────────────────────────────
