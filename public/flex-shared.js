@@ -555,7 +555,9 @@
     var cols = [
       { key: 'month', head: 'Month', align: 'left',
         value: function (t) { return fmtMonth(t.month); } },
-      { key: 'mkt',   head: 'Mkt Price', align: 'right',
+      // Unit in the heading, matching POSITIONS above — the two tabs print the same figure
+      // and used to label it differently, which is the drift this file exists to stop.
+      { key: 'mkt',   head: 'Mkt Price (' + (isPower(basket) ? '£/MWh' : 'p/th') + ')', align: 'right',
         value: function (t, ctx) {
           var m = (basket.months || []).find(function (x) { return x.month === t.month; });
           var v = m && m.market_price != null ? m.market_price : null;
