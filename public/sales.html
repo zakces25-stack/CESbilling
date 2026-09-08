@@ -2019,6 +2019,7 @@
               <label class="btn-primary" style="width:auto;padding:10px 16px;cursor:pointer;display:inline-block;">&#8679; Attach legal proof of occupation
                 <input type="file" id="cotProofFiles" multiple accept=".pdf,.jpg,.jpeg,.png,.heic,.tif,.tiff,.doc,.docx" style="display:none;" onchange="cotFileList('proof')" />
               </label>
+              <span style="font-size:12px;color:var(--muted);margin-left:10px;">Attach as many as you need &mdash; press it again to add another.</span>
               <div id="cotProofList" style="font-size:12.5px;margin-top:10px;"></div>
 
               <div style="border-top:1px solid #e6e9f4;margin:18px 0 14px;"></div>
@@ -2981,6 +2982,23 @@
       if (profile.cot_team && !currentUser.isBroker) {
         logAction('login', null, { role: currentUser.role, portal: 'cot' });
         window.location.href = '/cot.html';
+        return;
+      }
+
+      // ── Pricing team sign in here too, and get sent to their own desk ──
+      //
+      // Same reasoning and the same shape as the COT redirect above: one login page for
+      // everyone on the CES side. The pricing team's account is not a broker account, so
+      // without this it would fall through to the "not a sales account" message and look
+      // broken. The session is already established and persisted against this origin, so
+      // pricing.html finds it and does not ask again; it asks for a name instead, because
+      // the desk shares one login and "who put that pricebook live" needs an answer.
+      //
+      // A broker who is ALSO on the pricing team stays here, exactly as with COT: the sales
+      // portal is their day job.
+      if (profile.pricing_team && !currentUser.isBroker) {
+        logAction('login', null, { role: currentUser.role, portal: 'pricing' });
+        window.location.href = '/pricing.html';
         return;
       }
 
@@ -8053,6 +8071,12 @@
     }
     function cotCustState(typed){
       var el = document.getElementById('cotCustState');
+      // Keep the name we are going with, and redraw the meter panel, because its empty state
+      // depends on it. Without this the panel went on saying "Pick a customer first" after a
+      // name had just been accepted, which reads as nothing having happened — and it is the
+      // panel the read boxes live in, so it made them look absent rather than one click away.
+      if (!_cot.cid) _cot.cname = (typed || '').length >= 2 ? String(typed).trim() : '';
+      if (typeof cotRenderMeterPick === 'function') cotRenderMeterPick();
       if (_cot.cid) {
         el.innerHTML = '<span style="color:#1b7a3d;">&#10003; ' + escapeHtml(_cot.cname) +
           ' — on your portfolio.</span> <a href="#" style="font-weight:700;" onclick="cotClearCustomer(true);return false;">change</a>';
@@ -8329,6 +8353,15 @@
       if (field === 'utility') { r.rate_structure = v === 'gas' ? 'gas' : (v === 'water' ? 'water' : 'single'); cotRenderManualMeters(); }
       if (field === 'identifier') cotRenderManualMeters();
       if (field === 'supplier') { cotRenderManualMeters(); cotSupplierNote(); }
+      // THE READ BOXES COME FROM THE RATE STRUCTURE, so changing it has to redraw them.
+      //
+      // This line was missing. Picking "Economy 7 (day + night)" on a manually added meter
+      // updated the state and left one box on screen still labelled "Read" — so a two-rate
+      // or three-rate meter could only ever be given one reading. Laverne reported it as
+      // "when we select 2 read, 3 read we should have separate boxes", which is exactly
+      // what it looked like from the outside. The picker path (cotSetPickRate) always
+      // redrew; only the manual path did not, so it went unnoticed on portfolio customers.
+      if (field === 'rate_structure') cotRenderManualMeters();
       cotPreflight();
     }
     function cotIdentValid(utility, v){
@@ -8840,25 +8873,80 @@
     }
 
     // ── 4. files ─────────────────────────────────────────────────────────────────────
+    var COT_FILE_INPUTS = { cesform: 'cotCesFormFiles', proof: 'cotProofFiles', extra: 'cotExtraFiles' };
+    var COT_FILE_LISTS  = { cesform: 'cotCesFormList',  proof: 'cotProofList',  extra: 'cotExtraList'  };
+
+    // ── attaching files ADDS to what is there ────────────────────────────────────────
+    //
+    // This used to assign `input.files` straight over the list, which meant a second visit
+    // to the picker REPLACED the first. Attaching a lease and then a completion letter left
+    // you with only the completion letter, and nothing said so — the list just redrew with
+    // one file in it. Laverne reported it as "only allows you to submit one evidence of
+    // proof", which is exactly what it looked like: the input has had `multiple` on it all
+    // along, so it only worked if you thought to ctrl-click both at once in the dialog.
+    //
+    // So: accumulate, drop exact repeats, and give every file its own remove button —
+    // because once a list accumulates, a wrong file has to be removable.
     function cotFileList(which){
-      var INPUTS = { cesform: 'cotCesFormFiles', proof: 'cotProofFiles', extra: 'cotExtraFiles' };
-      var LISTS  = { cesform: 'cotCesFormList',  proof: 'cotProofList',  extra: 'cotExtraList'  };
-      var input = document.getElementById(INPUTS[which]);
-      _cot.files[which] = Array.prototype.slice.call(input.files || []);
-      var el = document.getElementById(LISTS[which]);
-      if (!_cot.files[which].length) {
-        el.innerHTML = ''; cotPreflight();
-        if (which === 'cesform') cotParseAttached();
-        return;
-      }
-      var tot = _cot.files[which].reduce(function(s, f){ return s + f.size; }, 0);
-      el.innerHTML = _cot.files[which].map(function(f){
-        return '<div>&#128196; ' + escapeHtml(f.name) + ' <span style="color:var(--muted);">(' + (f.size / 1048576).toFixed(1) + ' MB)</span></div>';
-      }).join('') + '<div style="color:var(--muted);margin-top:4px;">' + _cot.files[which].length + ' file(s), ' + (tot / 1048576).toFixed(1) + ' MB total</div>';
-      cotPreflight();
+      var input = document.getElementById(COT_FILE_INPUTS[which]);
+      var added = Array.prototype.slice.call((input && input.files) || []);
+      // THE CES FORM IS ONE DOCUMENT; PROOF IS A PILE OF THEM.
+      //
+      // A COT has a single completed CES COT Form, and cotParseAttached reads files[0], so
+      // accumulating there meant a second attach left the FIRST file being parsed — a
+      // correction that silently did nothing. One trip to the picker can still bring several
+      // files (a form photographed page by page), so the whole set is replaced per trip
+      // rather than per file.
+      //
+      // Proof is the opposite: a lease AND a completion letter AND the business rates is a
+      // normal submission, which is what Laverne was trying to do.
+      if (which === 'cesform') _cot.files[which] = [];
+      var have = _cot.files[which] || (_cot.files[which] = []);
+      // Name and size, not lastModified: the same file picked twice from the same folder can
+      // arrive with a different timestamp, which let a duplicate through and would have sent
+      // the supplier the same lease twice. Two genuinely different files sharing a name AND a
+      // byte count is rare enough to accept, and the list shows what is attached either way.
+      var key = function(f){ return f.name + '|' + f.size; };
+      var seen = {};
+      have.forEach(function(f){ seen[key(f)] = 1; });
+      added.forEach(function(f){
+        if (seen[key(f)]) return;
+        seen[key(f)] = 1;
+        have.push(f);
+      });
+      // Clearing the input matters: without it, picking the SAME file again fires no change
+      // event, so a file removed by mistake could not be re-added.
+      if (input) input.value = '';
+      cotFileRender(which);
       // Reading the returned form is what fills the rest of this screen in, so it starts the
       // moment the file is attached rather than waiting for a button nobody would press.
       if (which === 'cesform') cotParseAttached();
+    }
+
+    function cotFileDrop(which, i){
+      (_cot.files[which] || []).splice(i, 1);
+      cotFileRender(which);
+      if (which === 'cesform') cotParseAttached();
+    }
+
+    function cotFileRender(which){
+      var el = document.getElementById(COT_FILE_LISTS[which]);
+      if (!el) return;
+      var list = _cot.files[which] || [];
+      if (!list.length) { el.innerHTML = ''; cotPreflight(); return; }
+      var tot = list.reduce(function(s, f){ return s + f.size; }, 0);
+      el.innerHTML = list.map(function(f, i){
+        return '<div style="display:flex;align-items:center;gap:8px;padding:2px 0;">' +
+               '<span>&#128196; ' + escapeHtml(f.name) +
+               ' <span style="color:var(--muted);">(' + (f.size / 1048576).toFixed(1) + ' MB)</span></span>' +
+               '<button type="button" onclick="cotFileDrop(\'' + which + '\',' + i + ')" ' +
+               'title="Remove this file" style="border:0;background:none;cursor:pointer;color:#9b2226;' +
+               'font-size:12px;font-weight:700;padding:0 4px;">Remove</button></div>';
+      }).join('') +
+        '<div style="color:var(--muted);margin-top:4px;">' + list.length + ' file' +
+        (list.length === 1 ? '' : 's') + ', ' + (tot / 1048576).toFixed(1) + ' MB total' +
+        (list.length > 1 ? ' &mdash; attach as many as you need' : '') + '</div>';
+      cotPreflight();
     }
 
     // ── preflight: advisory, never blocks except where a supplier truly will ─────────
@@ -9379,7 +9467,7 @@
       cotRenderLegend();
       t.innerHTML = '<tbody><tr><td class="empty-state" style="padding:22px;">Loading…</td></tr></tbody>';
       var r = await sb.from('cot_requests')
-        .select('id, ref, customer_name_raw, supplier_raw, representing, changeover_date, status, gate, outstanding, urgent, created_at, notified_at, notify_error')
+        .select('id, ref, customer_name_raw, supplier_raw, representing, changeover_date, status, gate, outstanding, urgent, created_at, notified_at, notify_error, sent_manually_at, sent_manually_by, sent_manually_how')
         .order('created_at', { ascending: false }).limit(200);
       if (r.error) { console.error('cot list', r.error); t.innerHTML = '<tbody><tr><td class="empty-state" style="padding:22px;">Could not load your COT requests.</td></tr></tbody>'; return; }
       var rows = r.data || [];
@@ -9406,6 +9494,15 @@
             '<td>' + (c.changeover_date ? fmtDateUK(c.changeover_date) : '—') + '</td>' +
             '<td style="color:var(--muted);">' + (c.created_at ? fmtDateUK(String(c.created_at).slice(0, 10)) : '—') + '</td>' +
             '<td>' + cotStatusPill(c.status, c.gate) +
+              // Some suppliers take a COT only through their own portal, so "With the
+              // supplier" can mean a person submitted it by hand. Saying which stops the
+              // broker asking why there is no email to point at.
+              (c.sent_manually_at
+                ? ' <span title="Submitted outside the portal' +
+                  (c.sent_manually_by ? ' by ' + escapeHtml(c.sent_manually_by) : '') +
+                  (c.sent_manually_how ? ' — ' + escapeHtml(c.sent_manually_how) : '') +
+                  '" style="color:#1b7a3d;font-weight:800;">&#10003; sent by hand</span>'
+                : '') +
               (c.notified_at ? '' : ' <span title="cot@cesgb.com has not been emailed about this" style="color:#9b2226;font-weight:800;">not emailed</span>') + '</td>' +
             '<td style="text-align:right;color:var(--navy);font-weight:800;">View &rarr;</td>' +
           '</tr>' +

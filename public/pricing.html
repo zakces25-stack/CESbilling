@@ -98,6 +98,12 @@
     #signin label{margin-top:12px}
     #signin button{width:100%;margin-top:18px}
     #loginErr{margin-top:12px;font-size:12px;color:var(--fail);line-height:1.5}
+    .chips{display:flex;flex-wrap:wrap;gap:8px}
+    .chip{background:var(--panel-2);border:1px solid var(--line-2);color:var(--text);font:inherit;
+      font-size:12.5px;font-weight:600;padding:7px 13px;border-radius:999px;cursor:pointer}
+    .chip:hover{border-color:var(--cyan-dim);background:var(--cyan-glow);color:var(--cyan)}
+    #whoami{min-height:100vh;display:grid;place-items:center;padding:24px}
+    #whoami .card{width:100%;max-width:520px}
     .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:12.5px}
     .kv dt{color:var(--muted);white-space:nowrap}
     .kv dd{font-family:'JetBrains Mono',monospace}
@@ -116,6 +122,33 @@
   <div id="loginErr" class="hide"></div>
 </div>
 
+<!--
+  Who is at the keyboard?
+
+  The pricing team shares one login, exactly as the COT desk does, so the portal cannot
+  prove who is here. It asks. This is NOT a security control and is not meant to be:
+  nothing stops someone picking the wrong name. It is here so that in three weeks
+  "who put that pricebook live" and "who quoted that meter" have an answer.
+-->
+<div id="whoami" class="hide">
+  <div class="card">
+    <h2>Who's on the desk?</h2>
+    <div class="sub">
+      Everyone shares this login, so your name goes on what you do here. Pick yours.
+    </div>
+    <!-- The pick list the desk maintains itself. Free text still works, because on the
+         first ever sign-in the list is empty and a locked dropdown would be a dead end;
+         whatever is typed is added, so it is one click for everyone after that. -->
+    <div id="whoPick" class="chips" style="margin-bottom:14px"></div>
+    <label for="whoName">Your name</label>
+    <input id="whoName" list="pricingPeople" placeholder="First and last name" spellcheck="false" />
+    <datalist id="pricingPeople"></datalist>
+    <button class="act" id="whoBtn" style="width:100%;margin-top:16px" onclick="setWho()">Start</button>
+    <p style="color:var(--muted);font-size:11.5px;margin-top:12px">
+      Remembered on this computer until you sign out.</p>
+  </div>
+</div>
+
 <div id="app" class="hide">
   <header>
     <h1>CES <span>Pricing Desk</span></h1>
@@ -125,7 +158,8 @@
       <button id="tab-ref" onclick="showTab('ref')">Reference</button>
     </nav>
     <div class="spacer"></div>
-    <div class="whoami" id="whoami"></div>
+    <div class="whoami"><span id="whoLabel"></span> <span id="acctLabel" style="opacity:.6"></span></div>
+    <button class="act ghost sm" onclick="changeWho()">Not you?</button>
     <button class="act ghost sm" onclick="signOut()">Sign out</button>
   </header>
 
@@ -319,6 +353,7 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
 const uk  = (d) => { if (!d) return '—'; const [y,m,dd] = String(d).slice(0,10).split('-'); return `${dd}/${m}/${y}`; };
 const n2  = (v,dp=2) => (v==null || v==='' ) ? '—' : Number(v).toFixed(dp);
 
+let WHO = '';              // the person on the desk, for the audit trail
 let SUPPLIERS = [];
 let METER = null;          // the meter being priced
 let PENDING = null;        // an inspected file waiting to be uploaded
@@ -377,15 +412,78 @@ async function afterSignIn() {
     err.classList.remove('hide');
     return;
   }
-  $('signin').classList.add('hide');
-  $('app').classList.remove('hide');
-  $('whoami').textContent = prof.display_name || user.email.replace('@'+LOGIN_DOMAIN,'');
+  $('acctLabel').textContent = prof.display_name || user.email.replace('@'+LOGIN_DOMAIN,'');
   $('qStart').value = new Date(Date.now() + 30*864e5).toISOString().slice(0,10);
+  WHO = localStorage.getItem('pricing_who') || '';
+  loadDeskMembers();                       // so the name screen can already show the list
+  if (WHO) startDesk();
+  else { $('signin').classList.add('hide'); $('whoami').classList.remove('hide'); $('whoName').focus(); }
+}
+
+function startDesk() {
+  $('signin').classList.add('hide');
+  $('whoami').classList.add('hide');
+  $('app').classList.remove('hide');
+  $('whoLabel').textContent = WHO;
   loadSuppliers();
   loadLedger();
 }
-function showSignIn(){ $('signin').classList.remove('hide'); $('app').classList.add('hide'); }
-async function signOut(){ await sb.auth.signOut(); location.reload(); }
+
+function setWho() {
+  const v = ($('whoName').value || '').trim();
+  if (v.length < 2) { $('whoName').focus(); return; }
+  WHO = v;
+  localStorage.setItem('pricing_who', v);
+  rememberName(v);            // so the next person clicks it rather than retyping it
+  startDesk();
+}
+
+function changeWho() {
+  localStorage.removeItem('pricing_who');
+  WHO = '';
+  $('app').classList.add('hide');
+  $('whoami').classList.remove('hide');
+  $('whoName').value = '';
+  $('whoName').focus();
+}
+
+/**
+ * A pick list the desk maintains itself. Free text still works: on the first sign-in the
+ * list is empty and a locked dropdown would be a dead end.
+ */
+async function loadDeskMembers() {
+  try {
+    const names = (await q(sb.from('pricing_desk_members')
+      .select('name').eq('active', true).order('name'), 'desk members'))
+      .map(r => r.name).filter(Boolean);
+    $('whoPick').innerHTML = names
+      .map(n => `<button class="chip" data-who="${esc(n)}">${esc(n)}</button>`).join('');
+    [...$('whoPick').querySelectorAll('[data-who]')].forEach(b => b.onclick = () => {
+      $('whoName').value = b.dataset.who; setWho();
+    });
+    $('pricingPeople').innerHTML = names.map(n => `<option value="${esc(n)}">`).join('');
+  } catch (e) { /* the list is a convenience, never a gate */ }
+}
+
+async function rememberName(name) {
+  try {
+    // Upsert by hand: the unique index is on lower(btrim(name)), which on-conflict cannot
+    // target by column name, so read first and insert only when it is genuinely new.
+    const rows = await q(sb.from('pricing_desk_members').select('id, name').limit(200), 'desk members');
+    const hit = rows.find(r => String(r.name).trim().toLowerCase() === name.trim().toLowerCase());
+    if (hit) await sb.from('pricing_desk_members')
+      .update({ last_claim: new Date().toISOString(), active: true }).eq('id', hit.id);
+    else await sb.from('pricing_desk_members')
+      .insert({ name: name.trim(), last_claim: new Date().toISOString() });
+  } catch (e) { /* never block getting to work */ }
+}
+
+function showSignIn(){
+  $('signin').classList.remove('hide');
+  $('whoami').classList.add('hide');
+  $('app').classList.add('hide');
+}
+async function signOut(){ localStorage.removeItem('pricing_who'); await sb.auth.signOut(); location.reload(); }
 
 function showTab(t) {
   for (const k of ['books','price','ref']) {
@@ -549,6 +647,7 @@ async function doUpload() {
       source_filename: PENDING.file.name, storage_path: path,
       file_sha256: PENDING.fileSha, header_sha256: PENDING.hSha,
       parser_key: PENDING.parser_key, status: 'pending', uploaded_by: user.id,
+      uploaded_by_name: WHO,
       notes: `sheet=${PENDING.sheet || 'csv'} cols=${PENDING.cols}`
     }), 'create upload');
     $('upInspect').innerHTML = `<div class="note good">Uploaded and queued. It stays
@@ -601,7 +700,8 @@ async function setStatus(id, status, btn) {
       const row = await q(sb.from('pricebook_uploads').select('supplier_key,fuel').eq('id', id).single(), 'upload');
       await q(sb.from('pricebook_uploads').update({ status: 'superseded' })
         .eq('supplier_key', row.supplier_key).eq('fuel', row.fuel).eq('status', 'live'), 'retire previous');
-      await q(sb.from('pricebook_uploads').update({ status, went_live_at: new Date().toISOString() })
+      await q(sb.from('pricebook_uploads')
+        .update({ status, went_live_at: new Date().toISOString(), went_live_by_name: WHO })
         .eq('id', id), 'go live');
     } else {
       await q(sb.from('pricebook_uploads').update({ status }).eq('id', id), 'set status');
@@ -879,6 +979,8 @@ async function lookupBand() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
+$('whoName').addEventListener('keydown', (e) => { if (e.key === 'Enter') setWho(); });
+['u','p'].forEach(id => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') signIn(); }));
 sb.auth.getSession().then(({ data: { session } }) => { if (session) afterSignIn(); });
 </script>
 </body>

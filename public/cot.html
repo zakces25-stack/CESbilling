@@ -1478,15 +1478,43 @@ function renderSend(d) {
         <input type="checkbox" id="sForce" />
         <span>This COT has already been sent. Send it again anyway.</span></label>` : '') +
 
-    `<div style="display:flex;gap:8px;align-items:center;margin-top:10px;">
+    `<div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
       <button class="btn btn-primary" id="btnSend">${sent ? 'Send chase from cot@cesgb.com' : 'Send to supplier from cot@cesgb.com'}</button>
       <button class="btn btn-sec" id="btnRedraft">Draft again</button>
       <span id="sendMsg" style="font-size:12.5px;color:var(--muted);"></span>
     </div>
     <p style="color:var(--muted);font-size:11.5px;margin-top:10px;">
-      Sends as cot@cesgb.com. Replies come back there and are picked up automatically twice a day.</p>`;
+      Sends as cot@cesgb.com. Replies come back there and are picked up automatically twice a day.</p>
+
+    <!--
+      SOME COTs DO NOT GO BY EMAIL AT ALL. British Gas Business, UGP and Ruby Energy are
+      submitted through the supplier's own portal, and Pozitive is often done by hand too.
+      There was nowhere to say so, so those COTs sat on the desk reading "Ready" forever and
+      the broker's portal never moved — the work had been done and the portal disagreed.
+
+      It records the same status as an email send, deliberately: it IS with the supplier, so
+      the chase clock and the SLA should keep running exactly as they do for the rest. The
+      only difference is the badge saying a person did it, and who.
+    -->
+    <div style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px;">
+      ${CUR.row.sent_manually_at ? `<p style="font-size:12.5px;font-weight:700;color:#1b7a3d;margin-bottom:8px;">
+        &#10003; Sent by hand${CUR.row.sent_manually_by ? ' by ' + esc(CUR.row.sent_manually_by) : ''}
+        on ${esc(String(CUR.row.sent_manually_at).slice(8, 10) + '/' + String(CUR.row.sent_manually_at).slice(5, 7) + '/' + String(CUR.row.sent_manually_at).slice(0, 4))}${
+          CUR.row.sent_manually_how ? ' &mdash; ' + esc(CUR.row.sent_manually_how) : ''}</p>` : ''}
+      <p style="font-size:12.5px;font-weight:700;margin-bottom:4px;">Submitted outside the portal?</p>
+      <p style="color:var(--muted);font-size:11.5px;margin-bottom:8px;">
+        For a supplier whose COT goes through their own portal or gets sent by hand. Marks it
+        with the supplier so the broker sees it has gone, and keeps the chase running.</p>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <button class="btn btn-sec" id="btnManual">I sent this manually</button>
+        <input id="manualHow" placeholder="Where, e.g. British Gas Business portal"
+               style="flex:1;min-width:220px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:12.5px;" />
+        <span id="manualMsg" style="font-size:12.5px;color:var(--muted);"></span>
+      </div>
+    </div>`;
 
   $('btnSend').onclick = sendToSupplier;
+  $('btnManual').onclick = markSentManually;
   // Keep the total honest as boxes are ticked: the number that decides whether this goes in
   // one email must not be the number from when the screen was drawn.
   const retot = () => {
@@ -1537,6 +1565,68 @@ async function sendToSupplier() {
   } finally {
     btn.disabled = false;
     btn.textContent = CUR.row.submitted_at ? 'Send chase from cot@cesgb.com' : 'Send to supplier from cot@cesgb.com';
+  }
+}
+
+/**
+ * "I sent this manually" — the COT went through a supplier's portal, or by hand.
+ *
+ * Written straight from the page rather than through cot-send, because there is nothing to
+ * send: the person has already done it. What matters is that the record catches up, so the
+ * broker's portal stops showing work that is finished as outstanding.
+ *
+ * submitted_at is set to now, which is what starts the chase clock, and the status goes to
+ * "With the supplier" like any other send. The event is kind "send" with manual: true in its
+ * meta, so the history reads in one sequence instead of splitting into two kinds of sending.
+ *
+ * Every write is checked. An unchecked insert is how this system spent weeks logging nothing
+ * at all, and a manual send that silently failed to record is worse than no button: the
+ * person would believe the portal knew.
+ */
+async function markSentManually() {
+  const btn = $('btnManual'), msg = $('manualMsg');
+  const how = ($('manualHow').value || '').trim();
+  const sup = CUR.row.supplier_display || CUR.row.supplier_raw || 'the supplier';
+  if (!confirm(`Mark ${CUR.row.ref} as sent to ${sup} by hand?\n\n` +
+               `It moves to "With the supplier" and the broker will see it has gone. ` +
+               `Only do this if you have actually submitted it.`)) return;
+  btn.disabled = true;
+  msg.style.color = 'var(--muted)';
+  msg.textContent = 'Recording…';
+  try {
+    const when = new Date().toISOString();
+    const detail = `Sent to ${sup} manually by ${WHO}` + (how ? ` — ${how}` : '');
+    const { error: upErr } = await sb.from('cot_requests').update({
+      status: 'With the supplier',
+      submitted_at: CUR.row.submitted_at || when,
+      owner: CUR.row.owner || WHO,
+      updated_at: when,
+      // Stored on the row, not only in the event log, so both portals can show the badge
+      // without a second query — and so "which of these went by hand" is a question the
+      // database can answer.
+      sent_manually_at: when,
+      sent_manually_by: WHO,
+      sent_manually_how: how || null,
+    }).eq('id', CUR.row.id);
+    if (upErr) throw new Error(upErr.message);
+
+    const { error: evErr } = await sb.from('cot_events').insert({
+      cot_id: CUR.row.id, actor: WHO, kind: 'send', detail,
+      meta: { manual: true, how: how || null, supplier: sup },
+    });
+    // The status moved even if the note did not. Say so rather than implying both landed.
+    if (evErr) {
+      msg.style.color = 'var(--warn)';
+      msg.textContent = 'Marked as sent, but the history note failed: ' + evErr.message;
+    } else {
+      msg.textContent = 'Recorded. The broker can see it has gone.';
+    }
+    setTimeout(() => openCot(CUR.row.id), 1000);
+  } catch (e) {
+    msg.style.color = 'var(--fail)';
+    msg.textContent = 'Not recorded: ' + (e.message || 'unknown error');
+  } finally {
+    btn.disabled = false;
   }
 }
 
