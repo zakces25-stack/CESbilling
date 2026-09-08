@@ -1857,6 +1857,13 @@
                 <div class="form-group"><label>LLFC</label><input type="text" id="bkLlfc" placeholder="523" /></div>
               </div>
               <div class="form-row-2">
+                <div class="form-group"><label>Profile class</label><input type="text" id="bkProfile" placeholder="03" /></div>
+                <div class="form-group"><label>SSC / MTC</label><input type="text" id="bkSscMtc" placeholder="801" /></div>
+              </div>
+              <div class="form-row-2">
+                <div class="form-group" style="grid-column:1/-1;"><div style="font-size:11.5px;color:var(--muted);">MPAN top line — profile class, SSC/MTC and LLFC. Electricity only; leave blank for gas and water. UtilityClick holds the SSC and the MTC in one field, so that is how it is stored here.</div></div>
+              </div>
+              <div class="form-row-2">
                 <div class="form-group"><label>Site name</label><input type="text" id="bkSiteName" placeholder="Unit 6 Heron Business Park" /></div>
                 <div class="form-group"><label>Meter serial number</label><input type="text" id="bkSerial" placeholder="E14Z005424" /></div>
               </div>
@@ -3008,6 +3015,23 @@
       var u = m.utility === 'gas' ? 'Gas' : (m.utility === 'water' ? 'Water' : 'Elec');
       return u + (m.supply_type ? ' · ' + m.supply_type : '');
     }
+    // The MPAN top line: Profile Class, then UC's combined SSC/MTC, then LLFC.
+    // Electricity only — an MPRN and a SPID have no top line, so gas and water show a dash
+    // rather than an empty-looking gap. Profile Class is padded to the 2 digits it is
+    // written as on a bill; the SSC/MTC is shown exactly as UtilityClick holds it, because
+    // UC pads the two inconsistently and they cannot be told apart by digit count.
+    function _bkTopLineCell(m) {
+      if (m.utility !== 'electricity')
+        return '<td style="color:var(--muted);" title="Only an MPAN has a top line">—</td>';
+      var pc = (m.profile_class || '').trim(), sm = (m.ssc_mtc || '').trim(), lf = (m.llfc || '').trim();
+      if (!pc && !sm && !lf) return '<td style="color:var(--muted);">—</td>';
+      var pad = function(v, n){ return /^\d+$/.test(v) ? String(v).padStart(n, '0') : v; };
+      var part = function(v, n){ return v ? escapeHtml(pad(v, n)) : '<span style="color:var(--muted);">··</span>'; };
+      return '<td style="white-space:nowrap;">' +
+        '<span class="mono">' + part(pc, 2) + ' ' + part(sm, 3) + ' ' + part(lf, 3) + '</span>' +
+        '<div style="font-size:10px;color:var(--muted);font-weight:400;letter-spacing:0.3px;">PC · SSC/MTC · LLFC</div>' +
+        '</td>';
+    }
     // Site cell: name on top, full address (incl. postcode) beneath. Both come off the
     // meter row, and the same address feeds the COT form via the sites table.
     function _bkSiteCell(m) {
@@ -3351,7 +3375,7 @@
         '<th>CSD</th><th>CED</th>' +
         '<th class="num">Agreed kVA</th><th class="num">EAC (kWh)</th><th>Rates (p/kWh)</th>' +
         '<th class="num">Standing p/day</th><th class="num">Capacity p/kVA/day</th>' +
-        '<th>LLFC</th><th></th></tr></thead>';
+        '<th>Top line</th><th></th></tr></thead>';
       if (!list.length) {
         var empty = { live: 'No live contracts for this customer.',
           registering: 'Nothing locked in and waiting to start.',
@@ -3383,7 +3407,7 @@
           '<td style="white-space:nowrap;">' + rt + '</td>' +
           '<td class="num">' + _bkNum(c.standing_charge, 2) + '</td>' +
           '<td class="num">' + _bkNum(c.capacity_rate, 2) + '</td>' +
-          '<td>' + escapeHtml(m.llfc || '—') + '</td>' +
+          _bkTopLineCell(m) +
           '<td style="white-space:nowrap;">' + (m.id
             ? '<button class="btn-secondary" style="padding:4px 8px;font-size:11.5px;margin-right:3px;" onclick="bkEditMeter(\'' + m.id + '\')">Edit</button>' +
               '<button class="btn-danger" style="padding:4px 8px;font-size:11.5px;margin-right:3px;" onclick="bkDeleteMeter(\'' + m.id + '\')">Del</button>' +
@@ -3443,7 +3467,7 @@
       else { f.style.display = 'none'; }
     }
     function bkResetMeterForm(hide) {
-      ['bkEditId','bkMpan','bkSupplier','bkArea','bkLlfc','bkSiteName','bkSerial','bkSiteAddress','bkPostcode','bkKva','bkEac','bkUnit','bkDay','bkNight','bkEve','bkSc','bkCap','bkEnd'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
+      ['bkEditId','bkMpan','bkSupplier','bkArea','bkLlfc','bkProfile','bkSscMtc','bkSiteName','bkSerial','bkSiteAddress','bkPostcode','bkKva','bkEac','bkUnit','bkDay','bkNight','bkEve','bkSc','bkCap','bkEnd'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
       var u=document.getElementById('bkUtility'); if(u) u.value='electricity';
       var s=document.getElementById('bkSupplyType'); if(s) s.value='';
       var t=document.getElementById('bkMeterFormTitle'); if(t) t.textContent='Add a meter';
@@ -3459,6 +3483,8 @@
       document.getElementById('bkSupplyType').value=m.supply_type||'';
       document.getElementById('bkArea').value=m.area_code||'';
       document.getElementById('bkLlfc').value=m.llfc||'';
+      document.getElementById('bkProfile').value=m.profile_class||'';
+      document.getElementById('bkSscMtc').value=m.ssc_mtc||'';
       document.getElementById('bkSiteName').value=m.site_name||'';
       document.getElementById('bkSerial').value=m.meter_serial||'';
       document.getElementById('bkSiteAddress').value=m.site_address||'';
@@ -3488,6 +3514,8 @@
         supply_type:document.getElementById('bkSupplyType').value||null,
         area_code:document.getElementById('bkArea').value.trim()||null,
         llfc:document.getElementById('bkLlfc').value.trim()||null,
+        profile_class:document.getElementById('bkProfile').value.trim()||null,
+        ssc_mtc:document.getElementById('bkSscMtc').value.trim()||null,
         site_name:document.getElementById('bkSiteName').value.trim()||null,
         meter_serial:document.getElementById('bkSerial').value.trim()||null,
         site_address:document.getElementById('bkSiteAddress').value.trim()||null,
@@ -3513,15 +3541,15 @@
       logAction('delete_meter', null, { id:id });
       if(window._bkCid) openBrokerCustomer(encodeURIComponent(window._bkCid));
     }
-    var BK_TEMPLATE_COLS = ['MPAN / MPRN / SPID','Site Name','Site Address','Postcode','Meter Serial','Supplier','Utility','Supply Type','Area/DNO Code','LLFC','Agreed kVA','EAC (kWh/yr)','Unit Rate (p/kWh)','Day Rate (p/kWh)','Night Rate (p/kWh)','Evening/Weekend Rate (p/kWh)','Standing Charge (p/day)','Capacity Rate (p/kVA/day)','Contract End (YYYY-MM-DD)','Notes'];
+    var BK_TEMPLATE_COLS = ['MPAN / MPRN / SPID','Site Name','Site Address','Postcode','Meter Serial','Supplier','Utility','Supply Type','Area/DNO Code','LLFC','Profile Class','SSC / MTC','Agreed kVA','EAC (kWh/yr)','Unit Rate (p/kWh)','Day Rate (p/kWh)','Night Rate (p/kWh)','Evening/Weekend Rate (p/kWh)','Standing Charge (p/day)','Capacity Rate (p/kVA/day)','Contract End (YYYY-MM-DD)','Notes'];
     function bkDownloadTemplate() {
       if (typeof XLSX === 'undefined') { alert('Spreadsheet library still loading — try again in a second.'); return; }
       var examples = [
-        ['1050002996278','Touchwood Solihull','18 Jubilee Walk, Touchwood, Solihull, B91 3HT','B91 3HT','E14Z005424','Marble Power','electricity','HH','10','072',120,380280,'',21.48,18.20,'',794.0,6.25,'2026-09-30','Day/Night (2-rate): fill Day + Night, leave Unit blank.'],
-        ['1234567890123','Example Site','1 Example Street, Exampletown, EX1 1AA','EX1 1AA','','Example Supplier','electricity','NHH','11','123','',25000,12.50,'','','',45.0,'','2027-03-31','Single rate: fill Unit only.'],
-        ['9876543210987','Example Site','1 Example Street, Exampletown, EX1 1AA','EX1 1AA','','Example Supplier','electricity','HH','12','456',200,500000,'',24.10,15.80,9.90,610.0,7.00,'2028-01-31','3-rate: Day + Night + Evening/Weekend.'],
-        ['9123456','Example Site','1 Example Street, Exampletown, EX1 1AA','EX1 1AA','','Example Gas Co','gas','','','','',300000,6.20,'','','',38.0,'','2027-09-30','Gas MPRN: Utility = gas. Unit + Standing only.'],
-        ['1WA123456789','Example Site','1 Example Street, Exampletown, EX1 1AA','EX1 1AA','','Example Water Co','water','','','','','','','','','','','','2027-04-01','Water SPID: Utility = water. Rates optional.']
+        ['1050002996278','Touchwood Solihull','18 Jubilee Walk, Touchwood, Solihull, B91 3HT','B91 3HT','E14Z005424','Marble Power','electricity','HH','10','072','03','801',120,380280,'',21.48,18.20,'',794.0,6.25,'2026-09-30','Day/Night (2-rate): fill Day + Night, leave Unit blank.'],
+        ['1234567890123','Example Site','1 Example Street, Exampletown, EX1 1AA','EX1 1AA','','Example Supplier','electricity','NHH','11','123','03','801','',25000,12.50,'','','',45.0,'','2027-03-31','Single rate: fill Unit only.'],
+        ['9876543210987','Example Site','1 Example Street, Exampletown, EX1 1AA','EX1 1AA','','Example Supplier','electricity','HH','12','456','00','845',200,500000,'',24.10,15.80,9.90,610.0,7.00,'2028-01-31','3-rate: Day + Night + Evening/Weekend.'],
+        ['9123456','Example Site','1 Example Street, Exampletown, EX1 1AA','EX1 1AA','','Example Gas Co','gas','','','','','','',300000,6.20,'','','',38.0,'','2027-09-30','Gas MPRN: Utility = gas. Unit + Standing only.'],
+        ['1WA123456789','Example Site','1 Example Street, Exampletown, EX1 1AA','EX1 1AA','','Example Water Co','water','','','','','','','','','','','','','','2027-04-01','Water SPID: Utility = water. Rates optional.']
       ];
       var ws = XLSX.utils.aoa_to_sheet([BK_TEMPLATE_COLS].concat(examples));
       ws['!cols'] = BK_TEMPLATE_COLS.map(function(){ return { wch:18 }; });
@@ -3555,6 +3583,8 @@
             supply_type:(function(v){ v=(''+v).trim().toUpperCase(); return (v==='HH'||v==='NHH')?v:null; })(pick(r,['supplytype'])),
             area_code:(''+pick(r,['areadnocode','areacode','area','dnocode'])).trim()||null,
             llfc:(''+pick(r,['llfc'])).trim()||null,
+            profile_class:(''+pick(r,['profileclass','profile','pc'])).trim()||null,
+            ssc_mtc:(''+pick(r,['sscmtc','ssc','mtc'])).trim()||null,
             site_name:(''+pick(r,['sitename','site'])).trim()||null,
             site_address:(''+pick(r,['siteaddress','address','fulladdress'])).trim()||null,
             postcode:(''+pick(r,['postcode','postalcode'])).trim().toUpperCase()||null,
@@ -3670,6 +3700,10 @@
               supply_type: (function(v){ v = ('' + v).trim().toUpperCase(); return (v === 'HH' || v === 'NHH') ? v : null; })(pick(r,['supplytype'])),
               area_code: ('' + pick(r,['areadnocode','areacode','area','dnocode'])).trim() || null,
               llfc: ('' + pick(r,['llfc'])).trim() || null,
+              profile_class: ('' + pick(r,['profileclass','profile','pc'])).trim() || null,
+              ssc_mtc: ('' + pick(r,['sscmtc','ssc','mtc'])).trim() || null,
+            profile_class: ('' + pick(r,['profileclass','profile','pc'])).trim() || null,
+            ssc_mtc: ('' + pick(r,['sscmtc','ssc','mtc'])).trim() || null,
               site_name: ('' + pick(r,['sitename','site'])).trim() || null,
               site_address: ('' + pick(r,['siteaddress','address','fulladdress'])).trim() || null,
               postcode: ('' + pick(r,['postcode','postalcode'])).trim().toUpperCase() || null,
