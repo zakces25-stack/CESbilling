@@ -1924,7 +1924,7 @@ const FX_TABLES = {
   adminCells: ['flex_admin_cells','id,row_id,month,da_trade,cog,pos_report,vals',['id']],
   adminCols:  ['flex_admin_columns','id,col_key,kind,label,sort_order',['sort_order','id']],
   adminMonths:['flex_admin_months','month,sort_order,label',['month']],
-  targetTrades:['flex_target_trades','id,basket_id,label,start_month,end_month,amount_type,amount,price,sort_order',['basket_id','sort_order','id']],
+  targetTrades:['flex_target_trades','id,basket_id,label,start_month,end_month,amount_type,amount,price,price_mode,sort_order',['basket_id','sort_order','id']],
   sites:      ['flex_sites','id,basket_id,basket_name,commodity,customer,mpxn,contract_start,contract_end,nec_unit_rate,nec_standing_charge,source,archived',['basket_id','id']],
   necs:       ['flex_necs','id,basket_name,commodity,season,nec,sort_order,basket_id',['commodity','sort_order','season']]
 };
@@ -1956,6 +1956,8 @@ function fxBuildData(){
     id: t.id, label: t.label || null,
     start_month: String(t.start_month).slice(0,10), end_month: String(t.end_month).slice(0,10),
     amount_type: t.amount_type || 'volume', amount: _num(t.amount), price: _num(t.price),
+    // 'market' prices the row at each month's own market price instead of a fixed number.
+    price_mode: (t.price_mode === 'market') ? 'market' : 'fixed',
     sort_order: t.sort_order == null ? 0 : t.sort_order
   });
   for (const m of months) (byM[m.basket_id] ??= []).push({
@@ -2563,8 +2565,13 @@ function fxTargetScenario(basket, m, necMap, trades){
   let addTot = 0, addCost = 0, running = 0;
   for (const t of list){
     const v = fxTTVolTotal(basket, m, t, running, baseTot);
-    if (!(v > 0) || t.price == null) continue;
-    addTot += v; addCost += v * t.price; running += v;
+    // An at-market row has no fixed price: it takes THIS month's market price, so one row
+    // can cover a whole season and still price each month on its own merits. Always the
+    // Marex-resolved figure — the TotalEnergies toggle changes what is printed, never a
+    // calculation.
+    const px = (t.price_mode === 'market') ? m.market_price : t.price;
+    if (!(v > 0) || px == null) continue;
+    addTot += v; addCost += v * px; running += v;
   }
   if (!(addTot > 0)) return null;
   const newTot = addTot, newCost = addCost;
@@ -5998,14 +6005,24 @@ function fxTTFromTargets(b){
   for (const g of groups){
     if (!g.tiers.length) continue;
     if (anyRule){
+      let made = 0;
       for (const i of g.tiers){
         const r = ruleOf(i);
         if (r.type === 'none') continue;                       // no rule -> no volume to model
         if (r.type !== 'open' && !(r.amount > 0)) continue;     // rule needs an amount it does not have
         out.push({ id: null, label: null, start_month: g.start, end_month: g.end,
           amount_type: r.type, amount: (r.type === 'open' ? null : r.amount),
-          price: g.first['lower_t' + i], sort_order: order++ });
+          price: g.first['lower_t' + i], price_mode: 'fixed', sort_order: order++ });
+        made++;
       }
+      // Close the period out to baseload at the market price. A ladder often stops short:
+      // CCCH Win-26 reaches only 66% because T3 carries no price, so without this the WAP
+      // covers two thirds of the month and cannot be compared with anything measured over
+      // the whole baseload. Priced at market, not at a target, because that volume is
+      // precisely the part no target claims. It goes LAST so it takes only what the tiers
+      // leave, and computes to nothing when they already fill the month.
+      if (made) out.push({ id: null, label: null, start_month: g.start, end_month: g.end,
+        amount_type: 'open', amount: null, price: null, price_mode: 'market', sort_order: order++ });
     } else {
       // No rules on this basket — old behaviour: share the still-open volume equally.
       const ms = (b.months || []).filter(m => m.month >= g.start && m.month <= g.end);
@@ -6015,7 +6032,7 @@ function fxTTFromTargets(b){
       const each = openPct > 0 ? Math.floor(openPct / g.tiers.length * 100) / 100 : 0;
       if (!(each > 0)) continue;
       g.tiers.forEach(i => out.push({ id: null, label: null, start_month: g.start, end_month: g.end,
-        amount_type: 'percent', amount: each, price: g.first['lower_t' + i], sort_order: order++ }));
+        amount_type: 'percent', amount: each, price: g.first['lower_t' + i], price_mode: 'fixed', sort_order: order++ }));
     }
   }
   return out;
@@ -6036,10 +6053,10 @@ function fxTargetWapModal(basket){
   FX_TT_MONTH = '';
   if (!FX_TT.length) FX_TT = fxTTFromTargets(b);
   fxModal(`<h3>Targeted WAPs — ${escape(b.name)}</h3>
-  <div style="font-size:12px;color:#4b5563;margin:-8px 0 12px">What the WAP would be if <b>every target traded at exactly its target price</b> &mdash; the whole ladder, including targets already achieved, because real trades rarely land on the target price. This is a model only: it stands apart from the actual secured position and never touches real trades, hedge %, MtM or the Monday heat map. It fills the two Targeted columns on the right of the targets table.</div>
+  <div style="font-size:12px;color:#4b5563;margin:-8px 0 12px">What the WAP would be if <b>every target traded at exactly its target price</b> &mdash; the whole ladder, including targets already achieved, because real trades rarely land on the target price. Filling also adds a final <b>at market</b> row per period, taking whatever the targets leave open, so the WAP covers the full baseload rather than only the part the targets claim. This is a model only: it stands apart from the actual secured position and never touches real trades, hedge %, MtM or the Monday heat map. It fills the two Targeted columns on the right of the targets table.</div>
   <div class="fx-toolbar" style="margin-bottom:8px">
     <button class="fx-btn green" onclick="fxTTAddRow()">+ Add row</button>
-    <button class="fx-btn" onclick="fxTTFill()" title="Replace the rows below with one per priced target — achieved ones included — each using that target column's own volume rule">&#8635; Fill from targets</button>
+    <button class="fx-btn" onclick="fxTTFill()" title="Replace the rows below with one per priced target — achieved ones included — each using that target column's own volume rule, plus a final row taking whatever is left open at the market price">&#8635; Fill from targets</button>
     <button class="fx-btn danger" onclick="fxTTClear()" title="Remove every row (saving then clears the Targeted columns)">Clear all</button>
     <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#4b5563">
       <label for="fTW_filter"><b>Show rows covering</b></label>
@@ -6085,7 +6102,9 @@ function fxTTRefresh(b){
         <td class="td-right">${fxTTNeedsAmount(r.amount_type)
           ? `<input data-i="${i}" class="fx-cell fx-tt-amt" type="number" step="any" value="${r.amount != null ? r.amount : ''}"><span class="fx-tt-u">${escape(fxTTUnit(b, r.amount_type))}</span>`
           : `<span style="color:#9aa1ad;font-size:11.5px">all open</span>`}</td>
-        <td class="td-right"><input data-i="${i}" class="fx-cell fx-tt-px" type="number" step="any" value="${r.price != null ? r.price : ''}"></td>
+        <td class="td-right">${r.price_mode === 'market'
+          ? `<span style="color:#0f6e56;font-size:11.5px;font-weight:600">at market</span>`
+          : `<input data-i="${i}" class="fx-cell fx-tt-px" type="number" step="any" value="${r.price != null ? r.price : ''}">`}<button type="button" data-i="${i}" class="fx-kindcell fx-tt-pmode" style="color:${r.price_mode === 'market' ? '#0f6e56' : '#6b7280'}" title="${r.price_mode === 'market' ? 'Priced at each month&apos;s market price — click to type a fixed price' : 'Fixed price — click to price at market instead'}">${r.price_mode === 'market' ? 'MKT' : 'FIX'}</button></td>
         <td>${mSel(r.start_month, 'fx-tt-start', i)}</td>
         <td>${mSel(r.end_month, 'fx-tt-end', i)}</td>
         <td class="fx-actions"><button class="fx-icon" title="Clone this row for another period" onclick="fxTTClone(${i})">&#10697;</button><button class="fx-icon" title="Remove this row" onclick="fxTTDel(${i})">&#128465;</button></td>
@@ -6098,6 +6117,13 @@ function fxTTRefresh(b){
   });
   wrap.querySelectorAll('.fx-tt-amt').forEach(el => el.oninput  = e => { FX_TT[+e.target.dataset.i].amount = fxNum(e.target.value); fxTTPreview(b); });
   wrap.querySelectorAll('.fx-tt-px').forEach(el  => el.oninput  = e => { FX_TT[+e.target.dataset.i].price  = fxNum(e.target.value); fxTTPreview(b); });
+  wrap.querySelectorAll('.fx-tt-pmode').forEach(el => el.onclick = e => {
+    e.preventDefault();
+    const r = FX_TT[+e.currentTarget.dataset.i];
+    r.price_mode = (r.price_mode === 'market') ? 'fixed' : 'market';
+    if (r.price_mode === 'market') r.price = null;   // the DB requires null on an at-market row
+    fxTTRefresh(b);
+  });
   wrap.querySelectorAll('.fx-tt-start').forEach(el => el.onchange = e => { const r = FX_TT[+e.target.dataset.i]; r.start_month = e.target.value; if (r.end_month < r.start_month) r.end_month = r.start_month; fxTTRefresh(b); });
   wrap.querySelectorAll('.fx-tt-end').forEach(el   => el.onchange = e => { const r = FX_TT[+e.target.dataset.i]; r.end_month   = e.target.value; if (r.end_month < r.start_month) r.start_month = r.end_month; fxTTRefresh(b); });
   fxTTPreview(b);
@@ -6141,7 +6167,7 @@ function fxTTAddRow(){
   const f = FX_TT_MONTH || ms.find(m => m > fxNowMonth()) || ms[0] || fxNowMonth();
   const t = FX_TT_MONTH || ms[ms.length - 1] || f;
   FX_TT.push({ id: null, label: null, start_month: f, end_month: t,
-    amount_type: 'percent', amount: null, price: null, sort_order: FX_TT.length });
+    amount_type: 'percent', amount: null, price: null, price_mode: 'fixed', sort_order: FX_TT.length });
   fxTTRefresh(b);
 }
 function fxTTClone(i){ const b = currentBasket; FX_TT.splice(i + 1, 0, Object.assign({}, FX_TT[i], { id: null })); FX_TT.forEach((r, n) => r.sort_order = n); fxTTRefresh(b); }
@@ -6167,9 +6193,11 @@ function fxTTFill(){
   fxToast('Filled ' + g.length + ' row' + (g.length === 1 ? '' : 's') + ' across ' + periods + ' period' + (periods === 1 ? '' : 's'));
 }
 
-// A row is usable once it has a price and, for every type except "all open", an amount.
+// A row is usable once it has a price — or is priced at market — and, for every type
+// except "all open", an amount.
 function fxTTRowReady(r){
-  if (!r || r.price == null) return false;
+  if (!r) return false;
+  if (r.price_mode !== 'market' && r.price == null) return false;
   return fxTTNeedsAmount(r.amount_type) ? (r.amount > 0) : true;
 }
 
@@ -6188,12 +6216,16 @@ async function fxTTSave(){
   const ops = [];
   for (const o of FX_TT_ORIG) if (!keep.has(o.id)) ops.push(FLEX.sb.from('flex_target_trades').delete().eq('id', o.id));
   for (const r of rows){
+    const _pm = (r.price_mode === 'market') ? 'market' : 'fixed';
     const payload = { basket_id: b.id, label: r.label || null, start_month: r.start_month, end_month: r.end_month,
-      amount_type: r.amount_type, amount: r.amount, price: r.price, sort_order: r.sort_order, updated_by: FLEX.user };
+      amount_type: r.amount_type, amount: r.amount,
+      price: (_pm === 'market') ? null : r.price, price_mode: _pm,
+      sort_order: r.sort_order, updated_by: FLEX.user };
     if (r.id){
       const o = FX_TT_ORIG.find(x => x.id === r.id);
       const same = o && o.start_month === r.start_month && o.end_month === r.end_month
-        && o.amount_type === r.amount_type && o.amount === r.amount && o.price === r.price && o.sort_order === r.sort_order;
+        && o.amount_type === r.amount_type && o.amount === r.amount && o.price === r.price && o.sort_order === r.sort_order
+        && (o.price_mode === 'market' ? 'market' : 'fixed') === _pm;
       if (!same) ops.push(FLEX.sb.from('flex_target_trades').update(Object.assign({ updated_at: new Date().toISOString() }, payload)).eq('id', r.id));
     } else ops.push(FLEX.sb.from('flex_target_trades').insert(payload));
   }
