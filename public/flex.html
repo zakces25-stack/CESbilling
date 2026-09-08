@@ -2516,14 +2516,30 @@ function fxDeliveredRate(basket, m, necMap){ return FlexCore.deliveredRate(baske
 // move just because someone modelled a scenario. Everything below is pure client-side
 // arithmetic over data already loaded.
 //
-// Volume rules, per month:
-//   power   amount is MW    -> MWh = amount x days x 24
-//   gas     amount is th/d  -> th  = amount x days
-//   percent (either fuel)   -> that % of the month's baseload total
-function fxTTVolTotal(basket, m, tt){
+// A scenario row uses the SAME four shapes as a target column rule, so "model the trade
+// that hits this target" needs no translation:
+//   volume      amount in the basket's own unit -> power MWh = amount x days x 24
+//                                                  gas   th  = amount x days
+//   percent     that % of the month's baseload total
+//   open        whatever is still open at this point in the row order
+//   open_minus  fill to baseload less `amount`, i.e. leave `amount` open
+//
+// `running` is how much the MODEL has bought so far this month — every earlier row in
+// the same month, and nothing else. It deliberately does not start from the real secured
+// volume: the scenario is a standalone ladder priced at the targets, not an addition to
+// the actual position (see fxTargetScenario). open / open_minus are meaningless without
+// a running total, which is why volumes resolve in row order rather than independently.
+function fxTTVolTotal(basket, m, tt, running, baseTot){
   const days = m.days || 0;
-  if (tt.amount_type === 'percent') return (m.baseload_vol_total || 0) * (tt.amount / 100);
-  return basket.commodity === 'power' ? tt.amount * days * 24 : tt.amount * days;
+  const base = baseTot != null ? baseTot : (m.baseload_vol_total || 0);
+  const run  = running != null ? running : 0;
+  const asTotal = a => basket.commodity === 'power' ? a * days * 24 : a * days;
+  switch (tt.amount_type){
+    case 'percent':    return tt.amount != null ? base * (tt.amount / 100) : 0;
+    case 'open':       return Math.max(0, base - run);
+    case 'open_minus': return tt.amount != null ? Math.max(0, base - asTotal(tt.amount) - run) : 0;
+    default:           return tt.amount != null ? asTotal(tt.amount) : 0;   // 'volume'
+  }
 }
 // Scenario position for one month. Returns null when no scenario trade covers it.
 // Pass `trades` to preview an unsaved set (used by the modal); omit to use what's saved.
@@ -2532,21 +2548,28 @@ function fxTargetScenario(basket, m, necMap, trades){
     .filter(t => t && m.month >= t.start_month && m.month <= t.end_month);
   if (!list.length) return null;
   const baseTot = m.baseload_vol_total || 0;
-  const secTot  = m.secured_vol_total  || 0;
-  // Scenario cost below is volume x price (pence for gas), so the stored £ cost has to be
-  // lifted into the same units before they are added — otherwise a gas basket mixes
-  // pounds and pence and both the Targeted WAP and Targeted delivered columns come out wrong.
-  const secCost = (m.secured_cost || 0) * fxCostToPrice(basket);
-  let addTot = 0, addCost = 0;
+  // THE MODEL STANDS ALONE. It answers "what would the WAP be if every target traded at
+  // exactly its target price", which is a different question from "where will we end up
+  // from here" — real trades almost never land on the target price, so blending the
+  // actual secured cost in would contaminate the answer with prices that were never
+  // targets. It also made the maths impossible once achieved targets were included: the
+  // achieved volume would be counted twice, once at its real price and again at its
+  // target price, taking a fully-hedged month past 150% of baseload.
+  //
+  // A happy side effect: every term below is now volume x price in the basket's own price
+  // unit, so the pounds-versus-pence problem that used to bite gas baskets here cannot
+  // arise — there is no longer a £ cost in the sum. (fxCostToPrice still guards the
+  // Seasons tab and the Positions total, which do divide a £ cost by a volume.)
+  let addTot = 0, addCost = 0, running = 0;
   for (const t of list){
-    const v = fxTTVolTotal(basket, m, t);
+    const v = fxTTVolTotal(basket, m, t, running, baseTot);
     if (!(v > 0) || t.price == null) continue;
-    addTot += v; addCost += v * t.price;
+    addTot += v; addCost += v * t.price; running += v;
   }
   if (!(addTot > 0)) return null;
-  const newTot = secTot + addTot, newCost = secCost + addCost;
+  const newTot = addTot, newCost = addCost;
   const wap = newTot > 0 ? newCost / newTot : null;
-  // Over-hedged: the scenario buys more than the site actually needs that month.
+  // Over-hedged: the modelled ladder is bigger than the month actually needs.
   const over = baseTot > 0 && newTot > baseTot + 1e-6;
   const openTot = Math.max(0, baseTot - newTot);
   const mkt = m.market_price;
@@ -2785,10 +2808,10 @@ function renderTargets(basket) {
     rowAttr:  (t) => FlexCore.allTargetsHit(basket, t.month)
       ? ' title="Every target set for this month is achieved"' : '',
     cellClass: (c, t) => {
-      if (c.key === 'twap' || c.key === 'tdel') {
-        const sc = scenarioFor(t);
-        return 'fx-twap' + (sc && sc.over ? ' fx-twap-over' : '');
-      }
+      // Over-hedging is a property of the MODEL, not of the position, so it is flagged
+      // in the Targeted WAPs editor and nowhere else. Colouring it here made a modelled
+      // scenario look like a problem with the month itself.
+      if (c.key === 'twap' || c.key === 'tdel') return 'fx-twap';
       const mm = (basket.months || []).find(x => x.month === t.month);
       const mp = mm && mm.market_price != null ? mm.market_price : null;
       const isCur = (t.month === nowM);   // current month prices day-ahead — never "hit"
@@ -5921,33 +5944,75 @@ renderTargets = function(basket){
 // to several periods at once; Clone makes a variant for another period.
 let FX_TT = [], FX_TT_ORIG = [];
 
-function fxTTUnit(b, type){ return type === 'percent' ? '%' : b.unit_vol; }   // 'MW' | 'th/d' | '%'
+function fxTTUnit(b, type){
+  if (type === 'percent') return '%';
+  if (type === 'open')    return '';          // takes whatever is open — no amount to label
+  return b.unit_vol;                          // 'MW' | 'th/d', for volume and open_minus
+}
+function fxTTNeedsAmount(type){ return type !== 'open'; }
+const FX_TT_TYPES = [
+  ['volume',     'Volume'],
+  ['percent',    '% of baseload'],
+  ['open',       'All open volume'],
+  ['open_minus', 'All open less']
+];
 
-// Prefill: one row per unachieved target tier, grouped into runs of months that share
-// the same tier prices, with the still-open volume split evenly between the tiers.
-// That lands the default scenario at exactly 100% hedged, so it never trips the guard.
+// Prefill, when the basket has no saved scenario yet.
+//
+// EVERY PRICED TARGET GETS A ROW, achieved or not. The tab models the whole ladder at
+// target prices, so leaving the achieved rungs out would quietly drop the earliest and
+// usually cheapest tranches and the Targeted WAP would come back higher than the ladder
+// really implies — or, on a month where everything is achieved, produce nothing at all.
+// Whether a target has already been hit is a fact about the real position; this tab is
+// deliberately not about the real position.
+//
+// Each row carries THAT COLUMN'S OWN RULE — a 20% tier fills as 20% of baseload, a 0.1 MW
+// tier as 0.1 MW — priced at that tier's target price. A tier with no price cannot be
+// modelled (there is no price to model it at) and a tier whose rule is 'none' carries no
+// volume, so both are skipped.
+//
+// Rows are grouped into runs of months sharing the same set of priced tiers, so a tier
+// priced for one season only produces a row for that season only.
+//
+// If a basket has no rules at all, fall back to the old even-split so the button still
+// does something useful.
 function fxTTFromTargets(b){
   const numT = fxTierCount(b), cut = fxNowMonth();
   const rows = (b.targets || []).filter(t => t.month > cut).sort((x, y) => x.month < y.month ? -1 : 1);
   if (!rows.length) return [];
-  const sig = t => { const o = []; for (let i = 1; i <= numT; i++){ const p = t['lower_t'+i]; if (p != null && !fxIsAchieved(b, t, i)) o.push(p); } return o; };
+  const ruleOf = i => fxTargetRule(b, i);
+  const anyRule = (() => { for (let i = 1; i <= numT; i++) if (ruleOf(i).type !== 'none') return true; return false; })();
+  // Signature of a month = which tiers carry a price. Achievement is not part of it.
+  const sig = t => { const o = []; for (let i = 1; i <= numT; i++){ if (t['lower_t'+i] != null) o.push(i); } return o; };
   const groups = []; let cur = null;
   for (const t of rows){
     const sg = sig(t), key = sg.join('|');
     if (cur && cur.key === key){ cur.end = t.month; continue; }
-    cur = { key, prices: sg, start: t.month, end: t.month }; groups.push(cur);
+    cur = { key, tiers: sg, first: t, start: t.month, end: t.month }; groups.push(cur);
   }
   const out = []; let order = 0;
   for (const g of groups){
-    if (!g.prices.length) continue;
-    const ms = (b.months || []).filter(m => m.month >= g.start && m.month <= g.end);
-    const baseTot = ms.reduce((s, m) => s + (m.baseload_vol_total || 0), 0);
-    const secTot  = ms.reduce((s, m) => s + (m.secured_vol_total  || 0), 0);
-    const openPct = baseTot > 0 ? Math.max(0, (baseTot - secTot) / baseTot * 100) : 0;
-    const each = openPct > 0 ? Math.floor(openPct / g.prices.length * 100) / 100 : 0;
-    if (!(each > 0)) continue;
-    g.prices.forEach(p => out.push({ id: null, label: null, start_month: g.start, end_month: g.end,
-      amount_type: 'percent', amount: each, price: p, sort_order: order++ }));
+    if (!g.tiers.length) continue;
+    if (anyRule){
+      for (const i of g.tiers){
+        const r = ruleOf(i);
+        if (r.type === 'none') continue;                       // no rule -> no volume to model
+        if (r.type !== 'open' && !(r.amount > 0)) continue;     // rule needs an amount it does not have
+        out.push({ id: null, label: null, start_month: g.start, end_month: g.end,
+          amount_type: r.type, amount: (r.type === 'open' ? null : r.amount),
+          price: g.first['lower_t' + i], sort_order: order++ });
+      }
+    } else {
+      // No rules on this basket — old behaviour: share the still-open volume equally.
+      const ms = (b.months || []).filter(m => m.month >= g.start && m.month <= g.end);
+      const baseTot = ms.reduce((s, m) => s + (m.baseload_vol_total || 0), 0);
+      const secTot  = ms.reduce((s, m) => s + (m.secured_vol_total  || 0), 0);
+      const openPct = baseTot > 0 ? Math.max(0, (baseTot - secTot) / baseTot * 100) : 0;
+      const each = openPct > 0 ? Math.floor(openPct / g.tiers.length * 100) / 100 : 0;
+      if (!(each > 0)) continue;
+      g.tiers.forEach(i => out.push({ id: null, label: null, start_month: g.start, end_month: g.end,
+        amount_type: 'percent', amount: each, price: g.first['lower_t' + i], sort_order: order++ }));
+    }
   }
   return out;
 }
@@ -5958,10 +6023,10 @@ function fxTargetWapModal(basket){
   FX_TT_ORIG = (b.target_trades || []).map(t => Object.assign({}, t));
   if (!FX_TT.length) FX_TT = fxTTFromTargets(b);
   fxModal(`<h3>Targeted WAPs — ${escape(b.name)}</h3>
-  <div style="font-size:12px;color:#4b5563;margin:-8px 0 12px">The trades you would do if the targets were struck. This is a model only — it never touches real trades, hedge %, MtM or the Monday heat map. It fills the two Targeted columns on the right of the targets table.</div>
+  <div style="font-size:12px;color:#4b5563;margin:-8px 0 12px">What the WAP would be if <b>every target traded at exactly its target price</b> &mdash; the whole ladder, including targets already achieved, because real trades rarely land on the target price. This is a model only: it stands apart from the actual secured position and never touches real trades, hedge %, MtM or the Monday heat map. It fills the two Targeted columns on the right of the targets table.</div>
   <div class="fx-toolbar" style="margin-bottom:8px">
     <button class="fx-btn green" onclick="fxTTAddRow()">+ Add row</button>
-    <button class="fx-btn" onclick="fxTTFill()" title="Replace the rows below with one per unachieved target, splitting the open volume between them">&#8635; Fill from targets</button>
+    <button class="fx-btn" onclick="fxTTFill()" title="Replace the rows below with one per priced target — achieved ones included — each using that target column's own volume rule">&#8635; Fill from targets</button>
     <button class="fx-btn danger" onclick="fxTTClear()" title="Remove every row (saving then clears the Targeted columns)">Clear all</button>
   </div>
   <div id="fTW_rows"></div>
@@ -5983,15 +6048,22 @@ function fxTTRefresh(b){
     ? `<div class="fx-preview" style="max-height:320px"><table class="fx-tt-table">
       <thead><tr><th>Type</th><th class="td-right">${escape(hdr)}</th><th class="td-right">Price (${escape(b.unit_price)})</th><th>From</th><th>To</th><th></th></tr></thead>
       <tbody>${FX_TT.map((r, i) => `<tr>
-        <td><select data-i="${i}" class="fx-tt-type"><option value="volume"${r.amount_type === 'volume' ? ' selected' : ''}>Volume</option><option value="percent"${r.amount_type === 'percent' ? ' selected' : ''}>% of baseload</option></select></td>
-        <td class="td-right"><input data-i="${i}" class="fx-cell fx-tt-amt" type="number" step="any" value="${r.amount != null ? r.amount : ''}"><span class="fx-tt-u">${escape(fxTTUnit(b, r.amount_type))}</span></td>
+        <td><select data-i="${i}" class="fx-tt-type">${FX_TT_TYPES.map(o => `<option value="${o[0]}"${r.amount_type === o[0] ? ' selected' : ''}>${o[1]}</option>`).join('')}</select></td>
+        <td class="td-right">${fxTTNeedsAmount(r.amount_type)
+          ? `<input data-i="${i}" class="fx-cell fx-tt-amt" type="number" step="any" value="${r.amount != null ? r.amount : ''}"><span class="fx-tt-u">${escape(fxTTUnit(b, r.amount_type))}</span>`
+          : `<span style="color:#9aa1ad;font-size:11.5px">all open</span>`}</td>
         <td class="td-right"><input data-i="${i}" class="fx-cell fx-tt-px" type="number" step="any" value="${r.price != null ? r.price : ''}"></td>
         <td>${mSel(r.start_month, 'fx-tt-start', i)}</td>
         <td>${mSel(r.end_month, 'fx-tt-end', i)}</td>
         <td class="fx-actions"><button class="fx-icon" title="Clone this row for another period" onclick="fxTTClone(${i})">&#10697;</button><button class="fx-icon" title="Remove this row" onclick="fxTTDel(${i})">&#128465;</button></td>
       </tr>`).join('')}</tbody></table></div>`
     : `<div style="font-size:12px;color:#9aa1ad;padding:10px 0">No scenario rows yet. Add one, or use "Fill from targets".</div>`;
-  wrap.querySelectorAll('.fx-tt-type').forEach(el => el.onchange = e => { FX_TT[+e.target.dataset.i].amount_type = e.target.value; fxTTRefresh(b); });
+  wrap.querySelectorAll('.fx-tt-type').forEach(el => el.onchange = e => {
+    const r = FX_TT[+e.target.dataset.i];
+    r.amount_type = e.target.value;
+    if (!fxTTNeedsAmount(r.amount_type)) r.amount = null;   // an "all open" row carries no amount
+    fxTTRefresh(b);
+  });
   wrap.querySelectorAll('.fx-tt-amt').forEach(el => el.oninput  = e => { FX_TT[+e.target.dataset.i].amount = fxNum(e.target.value); fxTTPreview(b); });
   wrap.querySelectorAll('.fx-tt-px').forEach(el  => el.oninput  = e => { FX_TT[+e.target.dataset.i].price  = fxNum(e.target.value); fxTTPreview(b); });
   wrap.querySelectorAll('.fx-tt-start').forEach(el => el.onchange = e => { const r = FX_TT[+e.target.dataset.i]; r.start_month = e.target.value; if (r.end_month < r.start_month) r.end_month = r.start_month; fxTTRefresh(b); });
@@ -6003,7 +6075,7 @@ function fxTTRefresh(b){
 function fxTTPreview(b){
   const el = document.getElementById('fTW_prev'), save = document.getElementById('fTW_save');
   if (!el) return;
-  const rows = FX_TT.filter(r => r.amount > 0 && r.price != null);
+  const rows = FX_TT.filter(r => fxTTRowReady(r));
   const nec = fxNecFor(b);
   const breaches = []; let covered = 0, wSum = 0, wW = 0;
   for (const m of (b.months || [])){
@@ -6013,18 +6085,21 @@ function fxTTPreview(b){
     if (sc.over) breaches.push({ month: m.month, pct: sc.pct });
     if (sc.wap != null && sc.newTot > 0){ wSum += sc.wap * sc.newTot; wW += sc.newTot; }
   }
+  // This is a model, not a trade. Going over baseload is worth pointing out — the WAP it
+  // produces is blended over volume the site does not need — but it is not a reason to
+  // stop someone saving a scenario. It also stops a later baseload cut from freezing a
+  // scenario that was perfectly valid when it was written.
   const bad = breaches.length > 0;
-  if (save){
-    save.disabled = bad;
-    save.style.opacity = bad ? '.45' : '';
-    save.style.cursor  = bad ? 'not-allowed' : '';
-    save.title = bad ? 'Target volumes exceed the baseload — reduce them before saving' : '';
-  }
+  if (save){ save.disabled = false; save.style.opacity = ''; save.style.cursor = ''; save.title = ''; }
+  const summary = `${covered} month${covered === 1 ? '' : 's'} covered · targeted WAP ${wW > 0 ? (wSum / wW).toFixed(2) : '—'} ${escape(b.unit_price)}`;
   el.innerHTML = !rows.length
-    ? `<div style="font-size:12px;color:#9aa1ad;margin-top:8px">Enter an amount and a price to see the effect.</div>`
-    : bad
-      ? `<div class="fx-err" style="display:block">Target volumes go over the baseload in ${breaches.length} month${breaches.length > 1 ? 's' : ''} — ${breaches.slice(0, 4).map(x => fmtMonth(x.month) + ' (' + (x.pct * 100).toFixed(0) + '%)').join(', ')}${breaches.length > 4 ? '…' : ''}. Reduce the amounts before saving.</div>`
-      : `<div style="font-size:12px;margin-top:8px;font-weight:600;color:#0f6e56">${covered} month${covered > 1 ? 's' : ''} covered · targeted WAP ${wW > 0 ? (wSum / wW).toFixed(2) : '—'} ${escape(b.unit_price)}</div>`;
+    ? `<div style="font-size:12px;color:#9aa1ad;margin-top:8px">Add a row with a price to see the effect.</div>`
+    : `<div style="font-size:12px;margin-top:8px;font-weight:600;color:#0f6e56">${summary}</div>`
+      + (bad
+        ? `<div style="margin-top:7px;font-size:11.5px;color:#8a6d1f;background:#fdf4e0;border:1px solid #efdfb4;border-radius:7px;padding:7px 9px">
+             <b>Over baseload in ${breaches.length} month${breaches.length > 1 ? 's' : ''}</b> — ${breaches.slice(0, 4).map(x => fmtMonth(x.month) + ' (' + (x.pct * 100).toFixed(0) + '%)').join(', ')}${breaches.length > 4 ? '…' : ''}.
+             The modelled ladder buys more than the month needs, so the WAP is spread over volume the site cannot use. Worth a look, but you can still save.</div>`
+        : '');
 }
 
 function fxTTAddRow(){
@@ -6039,24 +6114,26 @@ function fxTTDel(i){   const b = currentBasket; FX_TT.splice(i, 1); FX_TT.forEac
 function fxTTClear(){  const b = currentBasket; FX_TT = []; fxTTRefresh(b); }
 function fxTTFill(){
   const b = currentBasket; const g = fxTTFromTargets(b);
-  if (!g.length) return fxMErr('No unachieved targets with open volume to model.');
+  if (!g.length) return fxMErr('Nothing to model. A target column needs both a price and a volume rule before it can be filled.');
   FX_TT = g; fxTTRefresh(b);
+}
+
+// A row is usable once it has a price and, for every type except "all open", an amount.
+function fxTTRowReady(r){
+  if (!r || r.price == null) return false;
+  return fxTTNeedsAmount(r.amount_type) ? (r.amount > 0) : true;
 }
 
 async function fxTTSave(){
   const b = currentBasket; if (!b) return;
-  const rows = FX_TT.filter(r => r.amount > 0 && r.price != null);
-  if (FX_TT.length && !rows.length) return fxMErr('Each row needs an amount and a price.');
+  const rows = FX_TT.filter(r => fxTTRowReady(r));
+  if (FX_TT.length && !rows.length) return fxMErr('Each row needs a price, and an amount unless it is set to "All open volume".');
   for (const r of rows){
     if (r.amount_type === 'percent' && r.amount > 100) return fxMErr('A percentage row cannot be over 100%.');
     if (r.end_month < r.start_month) return fxMErr('A row ends before it starts.');
   }
-  // Re-run the baseload guard here too, in case the button state was bypassed.
-  const nec = fxNecFor(b);
-  for (const m of (b.months || [])){
-    const sc = fxTargetScenario(b, m, nec, rows);
-    if (sc && sc.over) return fxMErr('Target volumes go over the baseload in ' + fmtMonth(m.month) + '. Reduce them before saving.');
-  }
+  // No baseload guard here any more. Over-hedging is flagged in the preview above and is
+  // a modelling judgement, not an error — see fxTTPreview.
   rows.forEach((r, n) => r.sort_order = n);
   const keep = new Set(rows.filter(r => r.id).map(r => r.id));
   const ops = [];
