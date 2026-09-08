@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- cdnjs carries SheetJS, which reads the header row of an xlsx pricebook in the browser
+       so a wrong layout is caught before the file is ever stored. Pinned, not floating. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: data: https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self';" />
+  <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <title>CES Pricing Desk</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    /* Same palette as the COT desk, deliberately: this is the third screen the same people
+       stare at all day and a different skin would just be noise. */
+    :root {
+      --bg:#070a11; --bg-2:#0b1019;
+      --panel:#0e1420; --panel-2:#131b29; --panel-3:#18212f;
+      --line:#1e2836; --line-2:#2a3648;
+      --text:#e8edf5; --text-2:#97a3b6; --muted:#5f6b7e;
+      --cyan:#22d3ee; --cyan-dim:#0e7490; --cyan-glow:rgba(34,211,238,.13);
+      --ok:#34d399; --ok-bg:rgba(52,211,153,.11);
+      --fail:#f87171; --fail-bg:rgba(248,113,113,.11);
+      --warn:#fbbf24; --warn-bg:rgba(251,191,36,.11);
+    }
+    *{margin:0;padding:0;box-sizing:border-box}
+    /* The header is sticky and 60px tall, so anything scrolled to the top of the viewport
+       lands UNDERNEATH it and its clicks are swallowed by the header. Verified with
+       document.elementFromPoint: scrolling the Search button into view returned HEADER, not
+       BUTTON. scroll-padding-top keeps that from happening for keyboard scrolling, anchors
+       and scrollIntoView alike; the per-card margin covers programmatic scrolls. */
+    html{scroll-padding-top:76px}
+    .card,section{scroll-margin-top:76px}
+    html,body{min-height:100vh;font-family:'Manrope',sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+    .mono{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}
+    .hide{display:none!important}
+    a{color:var(--cyan)}
+
+    header{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:18px;
+      padding:14px 22px;background:rgba(7,10,17,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+    header h1{font-size:15px;font-weight:700;letter-spacing:.02em}
+    header h1 span{color:var(--cyan)}
+    nav{display:flex;gap:4px;margin-left:12px}
+    nav button{background:none;border:1px solid transparent;color:var(--text-2);font:inherit;font-size:13px;
+      font-weight:600;padding:7px 14px;border-radius:8px;cursor:pointer}
+    nav button:hover{color:var(--text);background:var(--panel-2)}
+    nav button.on{color:var(--cyan);background:var(--cyan-glow);border-color:var(--cyan-dim)}
+    .spacer{flex:1}
+    .whoami{font-size:12px;color:var(--muted)}
+
+    main{max-width:1500px;margin:0 auto;padding:22px}
+    .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:18px}
+    .card h2{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-2);margin-bottom:4px}
+    .card .sub{font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5;max-width:76ch}
+
+    label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:5px}
+    input,select,textarea{width:100%;background:var(--bg-2);border:1px solid var(--line-2);border-radius:8px;
+      color:var(--text);font:inherit;font-size:13px;padding:9px 11px}
+    input:focus,select:focus{outline:none;border-color:var(--cyan-dim);box-shadow:0 0 0 3px var(--cyan-glow)}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    .row>div{flex:1;min-width:150px}
+    button.act{background:var(--cyan-glow);border:1px solid var(--cyan-dim);color:var(--cyan);font:inherit;
+      font-size:13px;font-weight:700;padding:9px 18px;border-radius:8px;cursor:pointer}
+    button.act:hover{background:rgba(34,211,238,.2)}
+    button.act:disabled{opacity:.45;cursor:not-allowed}
+    button.sm{font-size:11px;padding:5px 10px;border-radius:6px}
+    button.ghost{background:none;border:1px solid var(--line-2);color:var(--text-2)}
+
+    table{width:100%;border-collapse:collapse;font-size:12.5px}
+    th{text-align:left;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+      color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line-2);white-space:nowrap}
+    td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+    tbody tr:hover{background:var(--panel-2)}
+    .num{text-align:right;font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}
+    .scroll{overflow-x:auto}
+
+    .pill{display:inline-block;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+      padding:3px 8px;border-radius:999px;white-space:nowrap}
+    .p-ok{background:var(--ok-bg);color:var(--ok)}
+    .p-warn{background:var(--warn-bg);color:var(--warn)}
+    .p-fail{background:var(--fail-bg);color:var(--fail)}
+    .p-mute{background:var(--panel-3);color:var(--text-2)}
+
+    .note{border-left:3px solid var(--line-2);padding:10px 14px;background:var(--panel-2);border-radius:0 8px 8px 0;
+      font-size:12px;color:var(--text-2);line-height:1.6}
+    .note.bad{border-left-color:var(--fail);color:#fecaca;background:var(--fail-bg)}
+    .note.warn{border-left-color:var(--warn);color:#fde68a;background:var(--warn-bg)}
+    .note.good{border-left-color:var(--ok);color:#a7f3d0;background:var(--ok-bg)}
+
+    #signin{max-width:340px;margin:14vh auto;padding:26px;background:var(--panel);
+      border:1px solid var(--line);border-radius:14px}
+    #signin h1{font-size:17px;margin-bottom:6px}
+    #signin p{font-size:12px;color:var(--muted);margin-bottom:20px}
+    #signin label{margin-top:12px}
+    #signin button{width:100%;margin-top:18px}
+    #loginErr{margin-top:12px;font-size:12px;color:var(--fail);line-height:1.5}
+    .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:12.5px}
+    .kv dt{color:var(--muted);white-space:nowrap}
+    .kv dd{font-family:'JetBrains Mono',monospace}
+  </style>
+</head>
+<body>
+
+<div id="signin">
+  <h1>CES <span style="color:var(--cyan)">Pricing Desk</span></h1>
+  <p>Pricebook uploads and portfolio pricing.</p>
+  <label for="u">Username</label>
+  <input id="u" autocomplete="username" autocapitalize="none" spellcheck="false" />
+  <label for="p">Password</label>
+  <input id="p" type="password" autocomplete="current-password" />
+  <button class="act" id="loginBtn" onclick="signIn()">Sign in</button>
+  <div id="loginErr" class="hide"></div>
+</div>
+
+<div id="app" class="hide">
+  <header>
+    <h1>CES <span>Pricing Desk</span></h1>
+    <nav>
+      <button id="tab-books" class="on" onclick="showTab('books')">Pricebooks</button>
+      <button id="tab-price" onclick="showTab('price')">Price a meter</button>
+      <button id="tab-ref" onclick="showTab('ref')">Reference</button>
+    </nav>
+    <div class="spacer"></div>
+    <div class="whoami" id="whoami"></div>
+    <button class="act ghost sm" onclick="signOut()">Sign out</button>
+  </header>
+
+  <main>
+    <!-- ══════════════════════════════════════════════════════════════════ PRICEBOOKS -->
+    <section id="pane-books">
+      <div class="card">
+        <h2>Upload a pricebook</h2>
+        <div class="sub">
+          The header row is read here, in the browser, and hashed before the file goes
+          anywhere. If that hash is not already registered for this supplier the upload is
+          refused and the header is shown for someone to look at. Suppliers change their
+          layouts without telling anyone, and a parser that half-works does not fail, it
+          produces a plausible wrong price.
+        </div>
+        <div class="row">
+          <div>
+            <label for="upSupplier">Supplier</label>
+            <select id="upSupplier"><option value="">Loading…</option></select>
+          </div>
+          <div>
+            <label for="upFuel">Fuel</label>
+            <select id="upFuel">
+              <option value="electricity">Electricity</option>
+              <option value="gas">Gas</option>
+            </select>
+          </div>
+          <div style="flex:2">
+            <label for="upFile">File (.xlsx / .xlsm / .csv)</label>
+            <input id="upFile" type="file" accept=".xlsx,.xlsm,.csv" onchange="inspectFile()" />
+          </div>
+        </div>
+        <div id="upInspect" class="hide" style="margin-top:16px"></div>
+      </div>
+
+      <div class="card">
+        <h2>Upload ledger</h2>
+        <div class="sub">
+          Append only. A reload never overwrites the rates that are live, it supersedes them,
+          so a price that was quoted last week can still be explained. Only rows on a
+          <b>live</b> upload are used for pricing.
+        </div>
+        <div class="scroll"><table>
+          <thead><tr>
+            <th>Supplier</th><th>Fuel</th><th>File</th><th>Version</th>
+            <th class="num">Rows</th><th class="num">Refused</th>
+            <th>Start window</th><th>Status</th><th>Uploaded</th><th></th>
+          </tr></thead>
+          <tbody id="ledgerBody"><tr><td colspan="10" style="color:var(--muted)">Loading…</td></tr></tbody>
+        </table></div>
+        <div id="ledgerErr" class="hide"></div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════ PRICE -->
+    <section id="pane-price" class="hide">
+      <div class="card">
+        <h2>Find a meter</h2>
+        <div class="sub">
+          Every broker's portfolio, not just yours. Search by MPAN, MPRN, customer or site.
+        </div>
+        <div class="row">
+          <div style="flex:3">
+            <label for="mSearch">MPAN / MPRN / customer / site</label>
+            <input id="mSearch" placeholder="1900006321054, or UKO Glass, or Rye Harbour"
+                   onkeydown="if(event.key==='Enter')findMeters()" />
+          </div>
+          <div style="flex:0 0 auto;display:flex;align-items:flex-end">
+            <button class="act" id="findBtn" onclick="findMeters()">Search</button>
+          </div>
+        </div>
+        <div id="mResults" style="margin-top:14px"></div>
+      </div>
+
+      <div id="priceCard" class="card hide">
+        <h2>Price it</h2>
+        <div id="meterFacts" style="margin-bottom:16px"></div>
+        <div class="row">
+          <div>
+            <label for="qStart">Contract start</label>
+            <input id="qStart" type="date" />
+          </div>
+          <div>
+            <label for="qTerms">Terms (months)</label>
+            <input id="qTerms" value="12,24,36" />
+          </div>
+          <div>
+            <label for="qAq">Annual consumption (kWh)</label>
+            <input id="qAq" class="mono" />
+          </div>
+          <div>
+            <label for="qUplift">CES uplift (p/kWh)</label>
+            <input id="qUplift" class="mono" value="0.00" />
+          </div>
+          <div>
+            <label for="qSplit">Day % (day/night meters)</label>
+            <input id="qSplit" class="mono" value="70" />
+          </div>
+          <div>
+            <label for="qSale">Sale type</label>
+            <select id="qSale">
+              <option value="acquisition">Acquisition</option>
+              <option value="renewal">Renewal</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
+          <button class="act" id="priceBtn" onclick="priceMeter()">Price</button>
+          <span id="priceMsg" style="font-size:12px;color:var(--muted)"></span>
+        </div>
+      </div>
+
+      <div id="quoteCard" class="card hide">
+        <h2>Results</h2>
+        <div class="sub" id="quoteAssumptions"></div>
+        <div class="scroll"><table>
+          <thead><tr>
+            <th>Supplier</th><th>Product</th><th class="num">Term</th>
+            <th class="num">Unit</th><th class="num">Day</th><th class="num">Night</th><th class="num">E/Wknd</th>
+            <th class="num">SC p/day</th><th class="num">Annual £</th><th class="num">vs cheapest</th><th>Band</th>
+          </tr></thead>
+          <tbody id="quoteBody"></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════ REFERENCE -->
+    <section id="pane-ref" class="hide">
+      <div class="card">
+        <h2>Gas postcode &rarr; LDZ and exit zone</h2>
+        <div class="sub">
+          Full postcode, always. 348 of 3,100 national outcodes map to more than one exit
+          zone depending on the incode, so an outcode-only answer is wrong for 11% of sites
+          and looks entirely normal on a quote. If the full postcode is not held and the
+          outcode is ambiguous, this returns nothing rather than a guess.
+        </div>
+        <div class="row">
+          <div><label for="pcIn">Postcode</label>
+            <input id="pcIn" placeholder="BR3 5LE" onkeydown="if(event.key==='Enter')lookupPostcode()" /></div>
+          <div style="flex:0 0 auto;display:flex;align-items:flex-end">
+            <button class="act" id="pcBtn" onclick="lookupPostcode()">Look up</button></div>
+        </div>
+        <div id="pcOut" style="margin-top:14px"></div>
+      </div>
+
+      <div class="card">
+        <h2>MPAN top line &rarr; TCR band and non-energy charges</h2>
+        <div class="sub">
+          Distributor id comes from the first two digits of the MPAN core. The LLFC carries
+          the band: for distributors 10&ndash;23 it is the trailing digits, for independent
+          networks 24&ndash;27 it is the last letter (F, G, H, J, K = no residual, 1, 2, 3, 4).
+          Charges are the 2026/27 charging year and refresh annually.
+        </div>
+        <div class="row">
+          <div><label for="llMpan">MPAN core (13 digits)</label><input id="llMpan" class="mono" placeholder="1900006321054" /></div>
+          <div><label for="llLlfc">LLFC</label><input id="llLlfc" class="mono" placeholder="202" /></div>
+          <div style="flex:0 0 auto;display:flex;align-items:flex-end">
+            <button class="act" id="llBtn" onclick="lookupBand()">Decode</button></div>
+        </div>
+        <div id="llOut" style="margin-top:14px"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// CES Pricing Desk
+//
+// Three jobs: get supplier pricebooks in without letting a changed layout through, price
+// any meter in any broker's portfolio off what is live, and answer the two reference
+// questions (which gas zone, which TCR band) that the rest of the desk keeps asking.
+//
+// The thing this page is most careful about is refusing. A pricing tool that says "no"
+// is annoying. A pricing tool that invents a number is a wrong contract for three years.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+const SUPABASE_URL  = 'https://niadffxpxdohglcyagau.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pYWRmZnhweGRvaGdsY3lhZ2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3Mzc3MTksImV4cCI6MjA5NDMxMzcxOX0.x22Zh9O408PGfcPZ6rgu-a4B7WTbyH8iyT_ysr-IfIs';
+const LOGIN_DOMAIN  = 'portal.cesgb.com';
+const BUCKET        = 'pricebook-files';
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+  auth: { persistSession: true, autoRefreshToken: true }
+});
+
+const $   = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uk  = (d) => { if (!d) return '—'; const [y,m,dd] = String(d).slice(0,10).split('-'); return `${dd}/${m}/${y}`; };
+const n2  = (v,dp=2) => (v==null || v==='' ) ? '—' : Number(v).toFixed(dp);
+
+let SUPPLIERS = [];
+let METER = null;          // the meter being priced
+let PENDING = null;        // an inspected file waiting to be uploaded
+
+/**
+ * Every query goes through here.
+ *
+ * supabase-js RETURNS errors rather than throwing them, so `const {data} = await ...` on a
+ * failed query silently yields undefined and the page renders as if there were no rows.
+ * That is exactly how the sales portal came to show "0 meters" on every card once the
+ * portfolios passed the API row cap. Nothing on this page reads `.data` without coming
+ * through this function.
+ */
+async function q(builder, what) {
+  const { data, error } = await builder;
+  if (error) throw new Error(`${what}: ${error.message}`);
+  return data;
+}
+function fail(el, msg) {
+  el.classList.remove('hide');
+  el.innerHTML = `<div class="note bad">${esc(msg)}</div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Sign in. Gate on pricing_team, not merely on authenticating: a broker's login would
+// authenticate here and then see empty tables, which reads as a broken page rather than
+// as the wrong door.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+async function signIn() {
+  const err = $('loginErr'), btn = $('loginBtn');
+  const user = ($('u').value || '').trim().toLowerCase();
+  const pass = $('p').value || '';
+  err.classList.add('hide');
+  if (!user || !pass) { err.textContent = 'Username and password, please.'; err.classList.remove('hide'); return; }
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  const email = user.includes('@') ? user : `${user}@${LOGIN_DOMAIN}`;
+  const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+  btn.disabled = false; btn.textContent = 'Sign in';
+  if (error) { err.textContent = 'That username and password did not work.'; err.classList.remove('hide'); return; }
+  await afterSignIn();
+}
+
+async function afterSignIn() {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return showSignIn();
+  let prof;
+  try {
+    prof = await q(sb.from('profiles').select('pricing_team, is_admin, display_name')
+                     .eq('id', user.id).maybeSingle(), 'profile');
+  } catch (e) { return fail($('loginErr'), e.message); }
+  if (!prof || !(prof.pricing_team || prof.is_admin)) {
+    await sb.auth.signOut();
+    showSignIn();
+    const err = $('loginErr');
+    err.textContent = 'That login works, but it is not on the pricing team. Brokers price from the sales portal.';
+    err.classList.remove('hide');
+    return;
+  }
+  $('signin').classList.add('hide');
+  $('app').classList.remove('hide');
+  $('whoami').textContent = prof.display_name || user.email.replace('@'+LOGIN_DOMAIN,'');
+  $('qStart').value = new Date(Date.now() + 30*864e5).toISOString().slice(0,10);
+  loadSuppliers();
+  loadLedger();
+}
+function showSignIn(){ $('signin').classList.remove('hide'); $('app').classList.add('hide'); }
+async function signOut(){ await sb.auth.signOut(); location.reload(); }
+
+function showTab(t) {
+  for (const k of ['books','price','ref']) {
+    $('pane-'+k).classList.toggle('hide', k !== t);
+    $('tab-'+k).classList.toggle('on', k === t);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Pricebooks
+// ═══════════════════════════════════════════════════════════════════════════════════════
+async function loadSuppliers() {
+  try {
+    SUPPLIERS = await q(sb.from('pricebook_suppliers')
+      .select('supplier_key, display_name, parser_key').order('display_name'), 'suppliers');
+  } catch (e) { return fail($('ledgerErr'), e.message); }
+  $('upSupplier').innerHTML = '<option value="">Choose…</option>' +
+    SUPPLIERS.map(s => `<option value="${esc(s.supplier_key)}">${esc(s.display_name)}</option>`).join('');
+}
+
+async function sha256Hex(buf) {
+  const h = await crypto.subtle.digest('SHA-256', buf);
+  return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+/** Same normalisation the Python parsers use, so the two agree on a fingerprint. */
+function normHeader(cols) {
+  const parts = cols.map(c => String(c == null ? '' : c).trim().toLowerCase().replace(/\s+/g,' '));
+  while (parts.length && parts[parts.length-1] === '') parts.pop();
+  return parts.join(' | ');
+}
+
+/**
+ * Read the header row without storing the file.
+ *
+ * A pricebook can be 160,000 rows and 10MB. This deliberately does not parse it: it reads
+ * enough to identify the layout, and the parse itself happens server-side, because a
+ * BG Lite electricity file takes minutes to walk and the browser is the wrong place for it.
+ */
+async function inspectFile() {
+  const out = $('upInspect');
+  const f = $('upFile').files[0];
+  const skey = $('upSupplier').value;
+  const fuel = $('upFuel').value;
+  PENDING = null;
+  out.classList.remove('hide');
+  if (!f) { out.classList.add('hide'); return; }
+  if (!skey) { out.innerHTML = '<div class="note warn">Choose the supplier first.</div>'; return; }
+  out.innerHTML = '<div class="note">Reading the header…</div>';
+
+  let header = [], sheet = null;
+  try {
+    const buf = await f.arrayBuffer();
+    const fileSha = await sha256Hex(buf);
+    if (/\.csv$/i.test(f.name)) {
+      const text = new TextDecoder('utf-8').decode(buf.slice(0, 200000));
+      const line = text.split(/\r?\n/)[0] || '';
+      header = line.split(',').map(s => s.replace(/^"|"$/g,''));
+    } else {
+      const wb = XLSX.read(buf, { sheetRows: 1 });
+      // The data sheet is not always the first one. UGP's visible sheet is a formula front
+      // end and the rates live in "Spark Output"; Scottish Power's is called BKF.
+      const pref = ['BKF','UD Partner','Spark Output Elec','Spark Output Gas','OutputFile','SSE Choice'];
+      sheet = pref.find(p => wb.SheetNames.includes(p)) || wb.SheetNames[0];
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { header: 1, blankrows: false });
+      header = rows[0] || [];
+    }
+    const sample = normHeader(header);
+    const hSha = await sha256Hex(new TextEncoder().encode(sample));
+
+    const known = await q(sb.from('pricebook_fingerprints')
+      .select('id, parser_key, active').eq('supplier_key', skey).eq('fuel', fuel)
+      .eq('header_sha256', hSha).limit(1), 'fingerprint check');
+
+    const dup = await q(sb.from('pricebook_uploads')
+      .select('id, uploaded_at, status').eq('supplier_key', skey).eq('fuel', fuel)
+      .eq('file_sha256', fileSha).limit(1), 'duplicate check');
+
+    const meta = `<dl class="kv" style="margin-top:12px">
+      <dt>File</dt><dd>${esc(f.name)}</dd>
+      <dt>Size</dt><dd>${(f.size/1048576).toFixed(2)} MB</dd>
+      <dt>Sheet</dt><dd>${esc(sheet || 'csv')}</dd>
+      <dt>Columns</dt><dd>${header.length}</dd>
+      <dt>Header hash</dt><dd>${esc(hSha.slice(0,16))}…</dd>
+      </dl>
+      <details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px;color:var(--text-2)">Header row</summary>
+      <div class="mono" style="font-size:11px;color:var(--text-2);margin-top:8px;line-height:1.7;word-break:break-word">${esc(sample)}</div>
+      </details>`;
+
+    if (dup.length) {
+      out.innerHTML = `<div class="note warn">This exact file has already been uploaded
+        (${uk(dup[0].uploaded_at)}, status <b>${esc(dup[0].status)}</b>). Loading it twice would
+        double the rates.</div>${meta}`;
+      return;
+    }
+    if (!known.length) {
+      // The refusal that matters. Registering a layout is a deliberate act, taken by
+      // somebody who has looked at the header above and satisfied themselves nothing has
+      // moved. It is not a button to click past a warning.
+      out.innerHTML = `<div class="note bad"><b>Refused: this layout is not registered.</b><br>
+        No fingerprint on file for ${esc(skey)} / ${esc(fuel)} with this header. Either the
+        supplier has changed their format, or this is the wrong file for the supplier and fuel
+        chosen. Compare the header below against the last accepted one before registering it.
+        </div>${meta}
+        <div style="margin-top:14px">
+          <button class="act" onclick="registerLayout('${esc(skey)}','${esc(fuel)}','${esc(hSha)}',this)">
+            I have checked the header, register this layout</button>
+        </div>`;
+      PENDING = null;
+      return;
+    }
+
+    PENDING = { file: f, fileSha, hSha, skey, fuel, sheet, parser_key: known[0].parser_key, cols: header.length };
+    out.innerHTML = `<div class="note good">Layout recognised, parser
+      <b>${esc(known[0].parser_key)}</b>. Ready to upload.</div>${meta}
+      <div style="margin-top:14px"><button class="act" id="doUp" onclick="doUpload()">Upload and queue for parsing</button></div>`;
+  } catch (e) {
+    out.innerHTML = `<div class="note bad">Could not read that file: ${esc(e.message)}</div>`;
+  }
+}
+
+async function registerLayout(skey, fuel, hSha, btn) {
+  btn.disabled = true; btn.textContent = 'Registering…';
+  const f = $('upFile').files[0];
+  const supplier = SUPPLIERS.find(s => s.supplier_key === skey);
+  try {
+    const buf = await f.arrayBuffer();
+    let sample;
+    if (/\.csv$/i.test(f.name)) {
+      const line = new TextDecoder().decode(buf.slice(0,200000)).split(/\r?\n/)[0] || '';
+      sample = normHeader(line.split(',').map(s => s.replace(/^"|"$/g,'')));
+    } else {
+      const wb = XLSX.read(buf, { sheetRows: 1 });
+      const pref = ['BKF','UD Partner','Spark Output Elec','Spark Output Gas','OutputFile','SSE Choice'];
+      const sh = pref.find(p => wb.SheetNames.includes(p)) || wb.SheetNames[0];
+      sample = normHeader((XLSX.utils.sheet_to_json(wb.Sheets[sh], {header:1, blankrows:false})[0]) || []);
+    }
+    const { data: { user } } = await sb.auth.getUser();
+    await q(sb.from('pricebook_fingerprints').insert({
+      supplier_key: skey, parser_key: supplier ? supplier.parser_key : 'unknown', fuel,
+      header_sha256: hSha, header_sample: sample, approved_by: user.id
+    }), 'register layout');
+    await inspectFile();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Register this layout';
+    fail($('upInspect'), e.message);
+  }
+}
+
+async function doUpload() {
+  if (!PENDING) return;
+  const btn = $('doUp'); btn.disabled = true; btn.textContent = 'Uploading…';
+  try {
+    const { data: { user } } = await sb.auth.getUser();
+    const id = crypto.randomUUID();
+    const path = `${id}/${PENDING.file.name}`;
+    const up = await sb.storage.from(BUCKET).upload(path, PENDING.file, { upsert: false });
+    if (up.error) throw new Error('storage: ' + up.error.message);
+    await q(sb.from('pricebook_uploads').insert({
+      id, supplier_key: PENDING.skey, fuel: PENDING.fuel,
+      source_filename: PENDING.file.name, storage_path: path,
+      file_sha256: PENDING.fileSha, header_sha256: PENDING.hSha,
+      parser_key: PENDING.parser_key, status: 'pending', uploaded_by: user.id,
+      notes: `sheet=${PENDING.sheet || 'csv'} cols=${PENDING.cols}`
+    }), 'create upload');
+    $('upInspect').innerHTML = `<div class="note good">Uploaded and queued. It stays
+      <b>pending</b> until it has been parsed and someone has looked at the refusals, and
+      nothing is priced off a pending upload.</div>`;
+    $('upFile').value = ''; PENDING = null;
+    loadLedger();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Upload and queue for parsing';
+    fail($('upInspect'), e.message);
+  }
+}
+
+async function loadLedger() {
+  const body = $('ledgerBody');
+  let rows;
+  try {
+    rows = await q(sb.from('pricebook_uploads')
+      .select('id,supplier_key,fuel,source_filename,pricebook_version,rows_loaded,rows_refused,window_open,window_close,status,uploaded_at')
+      .order('uploaded_at', { ascending: false }).limit(200), 'ledger');
+  } catch (e) { body.innerHTML = ''; return fail($('ledgerErr'), e.message); }
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="10" style="color:var(--muted)">Nothing uploaded yet.</td></tr>';
+    return;
+  }
+  const pill = s => ({ live:'p-ok', parsed:'p-warn', pending:'p-mute', rejected:'p-fail', superseded:'p-mute' }[s] || 'p-mute');
+  body.innerHTML = rows.map(r => `<tr>
+    <td>${esc(r.supplier_key)}</td>
+    <td>${esc(r.fuel)}</td>
+    <td style="max-width:280px;overflow-wrap:anywhere">${esc(r.source_filename)}</td>
+    <td class="mono">${esc(r.pricebook_version || '—')}</td>
+    <td class="num">${r.rows_loaded ? r.rows_loaded.toLocaleString() : '—'}</td>
+    <td class="num" ${r.rows_refused ? 'style="color:var(--warn)"' : ''}>${r.rows_refused || '—'}</td>
+    <td class="mono">${uk(r.window_open)} → ${uk(r.window_close)}</td>
+    <td><span class="pill ${pill(r.status)}">${esc(r.status)}</span></td>
+    <td class="mono">${uk(r.uploaded_at)}</td>
+    <td>${r.status === 'parsed'
+      ? `<button class="act sm" onclick="setStatus('${r.id}','live',this)">Make live</button>`
+      : r.status === 'live'
+      ? `<button class="act ghost sm" onclick="setStatus('${r.id}','superseded',this)">Supersede</button>` : ''}</td>
+  </tr>`).join('');
+}
+
+async function setStatus(id, status, btn) {
+  btn.disabled = true;
+  try {
+    // Going live retires whatever was live for the same supplier and fuel first, so two
+    // versions of the same pricebook can never both be priceable at once.
+    if (status === 'live') {
+      const row = await q(sb.from('pricebook_uploads').select('supplier_key,fuel').eq('id', id).single(), 'upload');
+      await q(sb.from('pricebook_uploads').update({ status: 'superseded' })
+        .eq('supplier_key', row.supplier_key).eq('fuel', row.fuel).eq('status', 'live'), 'retire previous');
+      await q(sb.from('pricebook_uploads').update({ status, went_live_at: new Date().toISOString() })
+        .eq('id', id), 'go live');
+    } else {
+      await q(sb.from('pricebook_uploads').update({ status }).eq('id', id), 'set status');
+    }
+    loadLedger();
+  } catch (e) { btn.disabled = false; fail($('ledgerErr'), e.message); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Price a meter
+// ═══════════════════════════════════════════════════════════════════════════════════════
+async function findMeters() {
+  const out = $('mResults');
+  const term = ($('mSearch').value || '').trim();
+  if (term.length < 3) { out.innerHTML = '<div class="note warn">Three characters or more.</div>'; return; }
+  out.innerHTML = '<div class="note">Searching…</div>';
+  window.__FOUND = [];
+  const like = `%${term.replace(/[%_]/g,'')}%`;
+  let rows;
+  try {
+    rows = await q(sb.from('meters')
+      .select('id,customer_id,mpan,utility,supply_type,site_name,site_address,postcode,'
+            + 'est_annual_consumption,profile_class,rate_structure,rate_structure_src,tcr_band,'
+            + 'dno_id,llfc,ldz,exit_zone,priceable,price_block_reason,supplier,contract_end_date')
+      .or(`mpan.ilike.${like},customer_id.ilike.${like},site_name.ilike.${like},site_address.ilike.${like}`)
+      .in('utility', ['electricity','gas'])
+      .limit(50), 'meter search');
+  } catch (e) { return fail(out, e.message); }
+  if (!rows.length) { out.innerHTML = '<div class="note">Nothing matched.</div>'; return; }
+  out.innerHTML = `<div class="scroll"><table><thead><tr>
+      <th>Customer</th><th>MPAN / MPRN</th><th>Fuel</th><th>Type</th><th>Site</th>
+      <th class="num">EAC</th><th>Priceable</th><th></th></tr></thead><tbody>` +
+    rows.map((m,i) => `<tr>
+      <td>${esc(m.customer_id)}</td>
+      <td class="mono">${esc(m.mpan)}</td>
+      <td>${esc(m.utility)}</td>
+      <td>${esc(m.supply_type || '—')}</td>
+      <td style="max-width:260px">${esc(m.site_name || m.site_address || '—')}</td>
+      <td class="num">${m.est_annual_consumption ? Number(m.est_annual_consumption).toLocaleString() : '—'}</td>
+      <td>${m.priceable === false
+            ? `<span class="pill p-fail">blocked</span>`
+            : m.priceable === true ? `<span class="pill p-ok">yes</span>`
+            : `<span class="pill p-mute">unchecked</span>`}</td>
+      <td><button class="act sm" onclick="chooseMeter(${i})">Select</button></td>
+    </tr>`).join('') + '</tbody></table></div>';
+  window.__FOUND = rows;
+}
+
+function chooseMeter(i) {
+  METER = window.__FOUND[i];
+  $('priceCard').classList.remove('hide');
+  $('quoteCard').classList.add('hide');
+  $('qAq').value = METER.est_annual_consumption || '';
+  $('qSale').value = METER.supplier ? 'renewal' : 'acquisition';
+  const missing = [];
+  if (METER.utility === 'electricity') {
+    if (!METER.dno_id && !/^\d{2}/.test(METER.mpan || '')) missing.push('distributor id');
+    if (METER.profile_class == null) missing.push('profile class');
+    if (!METER.rate_structure) missing.push('rate structure');
+  } else {
+    if (!METER.ldz && !METER.exit_zone) missing.push('LDZ / exit zone');
+  }
+  const dno = METER.dno_id || (METER.mpan || '').slice(0,2);
+  const idno = /^\d\d$/.test(dno) && (Number(dno) < 10 || Number(dno) > 23);
+  $('meterFacts').innerHTML = `
+    <dl class="kv">
+      <dt>Customer</dt><dd>${esc(METER.customer_id)}</dd>
+      <dt>${METER.utility === 'gas' ? 'MPRN' : 'MPAN'}</dt><dd>${esc(METER.mpan)}</dd>
+      <dt>Site</dt><dd>${esc(METER.site_name || '—')} ${esc(METER.postcode || '')}</dd>
+      ${METER.utility === 'electricity' ? `
+        <dt>Distributor</dt><dd>${esc(dno || '—')}${idno ? ' <span class="pill p-fail">independent network</span>' : ''}</dd>
+        <dt>Profile class</dt><dd>${METER.profile_class ?? '—'}</dd>
+        <dt>LLFC</dt><dd>${esc(METER.llfc || '—')}</dd>
+        <dt>TCR band</dt><dd>${esc(METER.tcr_band || '—')}</dd>
+        <dt>Rate structure</dt><dd>${esc(METER.rate_structure || '—')}
+          ${METER.rate_structure_src === 'inferred_from_rates'
+            ? ' <span class="pill p-warn">inferred from the last contract, check it</span>' : ''}</dd>`
+      : `<dt>LDZ</dt><dd>${esc(METER.ldz || '—')}</dd>
+         <dt>Exit zone</dt><dd>${esc(METER.exit_zone || '—')}</dd>`}
+      <dt>Current supplier</dt><dd>${esc(METER.supplier || '—')} ${METER.contract_end_date ? 'to ' + uk(METER.contract_end_date) : ''}</dd>
+    </dl>
+    ${idno ? `<div class="note bad" style="margin-top:12px">This meter is on an independent
+       network (distributor ${esc(dno)}). No supplier pricebook carries a distributor id
+       outside 10&ndash;23, so it cannot be priced here. Quote it manually rather than
+       pricing it off a neighbouring region.</div>` : ''}
+    ${missing.length ? `<div class="note warn" style="margin-top:12px">Missing:
+       <b>${esc(missing.join(', '))}</b>. Pricing will only return rows that do not constrain
+       on what is missing, so the list will be short and possibly wrong. Fill these in first.</div>` : ''}`;
+}
+
+/**
+ * The matcher.
+ *
+ * A row matches when the meter falls inside every constraint the row states, and a NULL
+ * constraint means the supplier does not care about that attribute. Nothing is inferred:
+ * if the meter has no profile class, rows that specify one simply do not match, and the
+ * screen says so rather than picking the most popular class.
+ */
+async function priceMeter() {
+  const btn = $('priceBtn'), msg = $('priceMsg');
+  if (!METER) return;
+  btn.disabled = true; msg.textContent = 'Matching…';
+  try {
+    const start  = $('qStart').value;
+    const terms  = ($('qTerms').value || '').split(',').map(s => parseInt(s.trim(),10)).filter(Boolean);
+    const aq     = Number($('qAq').value || 0);
+    const uplift = Number($('qUplift').value || 0);
+    const dayPct = Number($('qSplit').value || 70) / 100;
+    const sale   = $('qSale').value;
+    if (!start || !terms.length || !aq) throw new Error('Start date, at least one term, and an annual consumption.');
+
+    const dno = METER.dno_id || (METER.mpan || '').slice(0,2);
+    if (METER.utility === 'electricity' && /^\d\d$/.test(dno) && (Number(dno) < 10 || Number(dno) > 23))
+      throw new Error(`Distributor ${dno} is an independent network and is not in any pricebook.`);
+
+    let sel = sb.from('pricebook_rates_live')
+      .select('supplier_key,product_name,term_months,sale_type,rate_structure,profile_class,'
+            + 'dno_id,ldz,exit_zone,tcr_band,aq_min,aq_max,start_date_min,start_date_max,'
+            + 'standing_charge_p_day,unit_rate_p_kwh,day_rate_p_kwh,night_rate_p_kwh,'
+            + 'eve_weekend_p_kwh,capacity_p_kva_month,sc_type,green')
+      .eq('fuel', METER.utility)
+      .in('term_months', terms)
+      .in('sale_type', [sale, 'any'])
+      .or(`aq_min.is.null,aq_min.lte.${aq}`)
+      .or(`aq_max.is.null,aq_max.gte.${aq}`)
+      .or(`start_date_min.is.null,start_date_min.lte.${start}`)
+      .or(`start_date_max.is.null,start_date_max.gte.${start}`)
+      .limit(5000);
+
+    if (METER.utility === 'electricity') {
+      if (dno) sel = sel.or(`dno_id.is.null,dno_id.eq.${dno}`);
+      if (METER.profile_class != null) sel = sel.or(`profile_class.is.null,profile_class.eq.${METER.profile_class}`);
+      if (METER.rate_structure) sel = sel.or(`rate_structure.is.null,rate_structure.eq.${METER.rate_structure},rate_structure.eq.any`);
+      if (METER.tcr_band) sel = sel.or(`tcr_band.is.null,tcr_band.eq.${METER.tcr_band}`);
+    } else {
+      if (METER.exit_zone) sel = sel.or(`exit_zone.is.null,exit_zone.eq.${METER.exit_zone}`);
+      if (METER.ldz)       sel = sel.or(`ldz.is.null,ldz.eq.${METER.ldz}`);
+    }
+
+    const rows = await q(sel, 'match rates');
+    if (!rows.length) {
+      msg.textContent = '';
+      $('quoteCard').classList.remove('hide');
+      $('quoteAssumptions').innerHTML = `<div class="note bad">Nothing matched. That means
+        either no pricebook is live for this fuel, or this meter's attributes fall outside
+        every band on file. It does <b>not</b> mean the meter is expensive.</div>`;
+      $('quoteBody').innerHTML = '';
+      return;
+    }
+
+    const days = 365;
+    const priced = rows.map(r => {
+      // Uplift goes on the unit rate, on every register, which is how the contracts state it.
+      const u  = r.unit_rate_p_kwh   ? r.unit_rate_p_kwh   + uplift : null;
+      const d  = r.day_rate_p_kwh    ? r.day_rate_p_kwh    + uplift : null;
+      const nt = r.night_rate_p_kwh  ? r.night_rate_p_kwh  + uplift : null;
+      const ew = r.eve_weekend_p_kwh ? r.eve_weekend_p_kwh + uplift : null;
+      let energy = null;
+      if (d && nt) energy = (aq * dayPct * d + aq * (1 - dayPct) * nt) / 100;
+      else if (u)  energy = aq * u / 100;
+      const standing = (r.standing_charge_p_day || 0) * days / 100;
+      return { ...r, u, d, nt, ew, annual: energy == null ? null : energy + standing };
+    }).filter(r => r.annual != null).sort((a,b) => a.annual - b.annual);
+
+    const best = priced.length ? priced[0].annual : null;
+    $('quoteBody').innerHTML = priced.slice(0, 80).map(r => `<tr>
+      <td>${esc(r.supplier_key)}</td>
+      <td style="max-width:220px;overflow-wrap:anywhere">${esc(r.product_name || '—')}
+        ${r.sc_type === 'no_sc' ? '<span class="pill p-mute">no SC</span>' : ''}
+        ${r.green ? '<span class="pill p-ok">green</span>' : ''}</td>
+      <td class="num">${r.term_months}</td>
+      <td class="num">${n2(r.u,4)}</td><td class="num">${n2(r.d,4)}</td>
+      <td class="num">${n2(r.nt,4)}</td><td class="num">${n2(r.ew,4)}</td>
+      <td class="num">${n2(r.standing_charge_p_day,4)}</td>
+      <td class="num">£${Math.round(r.annual).toLocaleString()}</td>
+      <td class="num" style="color:${r.annual === best ? 'var(--ok)' : 'var(--text-2)'}">
+        ${r.annual === best ? 'cheapest' : '+£' + Math.round(r.annual - best).toLocaleString()}</td>
+      <td>${esc(r.tcr_band || '—')}</td>
+    </tr>`).join('');
+
+    const dn = priced.some(r => r.d && r.nt);
+    $('quoteAssumptions').innerHTML = `
+      ${priced.length} of ${rows.length} matched rows priced.
+      Uplift <b>${uplift.toFixed(2)} p/kWh</b> added to every unit rate.
+      Annual cost on <b>${aq.toLocaleString()} kWh</b> over 365 days.
+      ${dn ? `<span style="color:var(--warn)">Day/night split assumed
+        <b>${Math.round(dayPct*100)}/${100-Math.round(dayPct*100)}</b> because no measured
+        split is held for this meter. Change it above if you know better.</span>` : ''}
+      ${rows.length >= 5000 ? '<span style="color:var(--fail)"> The 5,000-row cap was hit, so this list may be incomplete.</span>' : ''}`;
+    $('quoteCard').classList.remove('hide');
+    msg.textContent = '';
+  } catch (e) {
+    msg.textContent = '';
+    $('quoteCard').classList.remove('hide');
+    $('quoteAssumptions').innerHTML = `<div class="note bad">${esc(e.message)}</div>`;
+    $('quoteBody').innerHTML = '';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Reference lookups
+// ═══════════════════════════════════════════════════════════════════════════════════════
+async function lookupPostcode() {
+  const out = $('pcOut');
+  const raw = ($('pcIn').value || '').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if (raw.length < 5) { out.innerHTML = '<div class="note warn">Full postcode, please.</div>'; return; }
+  const incode = raw.slice(-3), outcode = raw.slice(0, -3);
+  out.innerHTML = '<div class="note">Looking up…</div>';
+  try {
+    const exact = await q(sb.from('ref_postcode_gas_zone')
+      .select('ldz,exit_zone,network,source').eq('outcode', outcode).eq('incode', incode).limit(1), 'postcode');
+    if (exact.length) {
+      out.innerHTML = `<div class="note good"><b>${esc(outcode)} ${esc(incode)}</b> &rarr;
+        LDZ <b>${esc(exact[0].ldz)}</b>, exit zone <b>${esc(exact[0].exit_zone)}</b>
+        (${esc(exact[0].network)}, ${esc(exact[0].source)}). Matched on the full postcode.</div>`;
+      return;
+    }
+    const oc = await q(sb.from('ref_outcode_gas_zone')
+      .select('ldz,exit_zone,ambiguous').eq('outcode', outcode).limit(1), 'outcode');
+    if (!oc.length) {
+      out.innerHTML = `<div class="note bad">Outcode <b>${esc(outcode)}</b> is not in the list at all.
+        Either the postcode is wrong or it postdates the Xoserve edition loaded.</div>`;
+    } else if (oc[0].ambiguous) {
+      out.innerHTML = `<div class="note bad">The full postcode is not held, and outcode
+        <b>${esc(outcode)}</b> spans <b>more than one exit zone</b>. Refusing to guess:
+        picking the wrong zone changes the unit rate and the standing charge and the quote
+        would look completely normal. Confirm the zone with the supplier or a recent bill.</div>`;
+    } else {
+      out.innerHTML = `<div class="note warn">Full postcode not held, but outcode
+        <b>${esc(outcode)}</b> has only one zone, so this is safe: LDZ <b>${esc(oc[0].ldz)}</b>,
+        exit zone <b>${esc(oc[0].exit_zone)}</b>.</div>`;
+    }
+  } catch (e) { fail(out, e.message); }
+}
+
+async function lookupBand() {
+  const out = $('llOut');
+  const mpan = ($('llMpan').value || '').replace(/\D/g,'');
+  const code = ($('llLlfc').value || '').trim().toUpperCase().replace(/O(?=\d)|(?<=\d)O/g,'0');
+  const llfc = /^\d+$/.test(code) ? code.padStart(3,'0') : code;
+  const dno  = mpan.slice(0,2);
+  if (!dno || !llfc) { out.innerHTML = '<div class="note warn">MPAN core and LLFC.</div>'; return; }
+  out.innerHTML = '<div class="note">Decoding…</div>';
+  try {
+    const dist = await q(sb.from('ref_distributor').select('name,is_idno').eq('dno_id', dno).limit(1), 'distributor');
+    const hit  = await q(sb.from('ref_llfc_band')
+      .select('band,voltage_level,duos_fixed_p_day,avcap_p_kva_day,tnuos_band,charging_year,source')
+      .eq('dno_id', dno).eq('llfc', llfc).limit(1), 'band');
+    const who = dist.length ? `${esc(dist[0].name)}${dist[0].is_idno ? ' <span class="pill p-warn">independent network</span>' : ''}`
+                            : `<span class="pill p-fail">distributor ${esc(dno)} unknown</span>`;
+    if (!hit.length) {
+      out.innerHTML = `<div class="note warn">Distributor ${esc(dno)}: ${who}.<br>
+        No entry for LLFC <b>${esc(llfc)}</b>. Around one NHH meter in seven is in this
+        position; the band has to come from the DNO's charging statement rather than be
+        guessed from a neighbouring code.</div>`;
+      return;
+    }
+    const h = hit[0];
+    // Capacity is presented per month. Never per day: that is the house rule, and the
+    // source table is per day, so the conversion happens here rather than in someone's head.
+    const capMonth = h.avcap_p_kva_day == null ? null : h.avcap_p_kva_day * 365 / 12;
+    out.innerHTML = `<div class="note good">Distributor ${esc(dno)}: ${who}</div>
+      <dl class="kv" style="margin-top:12px">
+        <dt>TCR band</dt><dd>${esc(h.band)}</dd>
+        <dt>Voltage</dt><dd>${esc(h.voltage_level || '—')}</dd>
+        <dt>DUoS fixed</dt><dd>${n2(h.duos_fixed_p_day,2)} p/MPAN/day</dd>
+        <dt>Capacity</dt><dd>${capMonth == null ? '—' : n2(capMonth,2) + ' p/kVA/month'}</dd>
+        <dt>TNUoS band</dt><dd>${esc(h.tnuos_band || '—')}</dd>
+        <dt>Charging year</dt><dd>${esc(h.charging_year)}</dd>
+        <dt>Source</dt><dd>${esc(h.source)}</dd>
+      </dl>`;
+  } catch (e) { fail(out, e.message); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+sb.auth.getSession().then(({ data: { session } }) => { if (session) afterSignIn(); });
+</script>
+</body>
+</html>
