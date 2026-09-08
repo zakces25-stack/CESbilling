@@ -5954,7 +5954,7 @@ const FX_TT_TYPES = [
   ['volume',     'Volume'],
   ['percent',    '% of baseload'],
   ['open',       'All open volume'],
-  ['open_minus', 'All open less']
+  ['open_minus', 'All open except']
 ];
 
 // Prefill, when the basket has no saved scenario yet.
@@ -5982,13 +5982,17 @@ function fxTTFromTargets(b){
   if (!rows.length) return [];
   const ruleOf = i => fxTargetRule(b, i);
   const anyRule = (() => { for (let i = 1; i <= numT; i++) if (ruleOf(i).type !== 'none') return true; return false; })();
-  // Signature of a month = which tiers carry a price. Achievement is not part of it.
-  const sig = t => { const o = []; for (let i = 1; i <= numT; i++){ if (t['lower_t'+i] != null) o.push(i); } return o; };
+  // Signature of a month = every priced tier AND ITS PRICE. The price has to be in here:
+  // a basket typically re-prices every season, so keying the run on which tiers are priced
+  // alone merged Apr-27 through Sep-32 into a single row carrying only Sum-27's prices and
+  // silently ignored every later season. Achievement is deliberately not part of the key —
+  // the ladder is modelled whether or not it has been hit.
+  const sig = t => { const o = []; for (let i = 1; i <= numT; i++){ const p = t['lower_t'+i]; if (p != null) o.push(i + '@' + p); } return o; };
   const groups = []; let cur = null;
   for (const t of rows){
     const sg = sig(t), key = sg.join('|');
     if (cur && cur.key === key){ cur.end = t.month; continue; }
-    cur = { key, tiers: sg, first: t, start: t.month, end: t.month }; groups.push(cur);
+    cur = { key, tiers: sg.map(s => +String(s).split('@')[0]), first: t, start: t.month, end: t.month }; groups.push(cur);
   }
   const out = []; let order = 0;
   for (const g of groups){
@@ -6116,6 +6120,10 @@ function fxTTFill(){
   const b = currentBasket; const g = fxTTFromTargets(b);
   if (!g.length) return fxMErr('Nothing to model. A target column needs both a price and a volume rule before it can be filled.');
   FX_TT = g; fxTTRefresh(b);
+  // A basket priced every season to the end of its curve produces a lot of rows. Say so,
+  // rather than leaving someone to scroll and guess whether it caught everything.
+  const periods = new Set(g.map(r => r.start_month + '|' + r.end_month)).size;
+  fxToast('Filled ' + g.length + ' row' + (g.length === 1 ? '' : 's') + ' across ' + periods + ' period' + (periods === 1 ? '' : 's'));
 }
 
 // A row is usable once it has a price and, for every type except "all open", an amount.
