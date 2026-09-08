@@ -3,6 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!--
+    WHICH BUILD IS ACTUALLY LIVE.
+
+    In the <head> on purpose. The build stamp used to be a JS comment at the bottom of the
+    file, which is invisible from outside: after a push there was no way to tell whether the
+    deployed page carried a change or the CDN was still serving yesterday's, short of logging
+    in and hunting for a button. A meta tag comes back in a plain fetch of the URL, so
+    "what is live" is one look away. Bump it with every push.
+  -->
+  <meta name="build" content="cot-desk 2026-09-08a" />
   <!-- cdnjs + worker-src are for pdf.js, which wraps its cross-origin worker in a blob, and
        jsdelivr also carries pdf-lib for the shrink tool. Both are pinned to an exact version
        in the loader below rather than a floating tag. -->
@@ -2855,6 +2865,9 @@ document.addEventListener('keydown', (e) => {
   if (s && s.session) await afterSignIn(); else showSignIn();
 })();
 
+// COT desk build 2026-09-08a
+//  · "I sent this manually", for the suppliers whose COT goes through their own portal
+//  · the send panel shows who sent it by hand, and when
 // COT desk build 2026-09-07d
 //  · the box editor follows the file picker: supplier form, CES's own form, or read-only
 //  · the queue opens on Everything open rather than a filter that is often empty

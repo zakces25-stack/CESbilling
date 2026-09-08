@@ -178,19 +178,28 @@
         <div class="row">
           <div>
             <label for="upSupplier">Supplier</label>
-            <select id="upSupplier"><option value="">Loading…</option></select>
+            <select id="upSupplier" onchange="if($('upFile').files[0]) inspectFile()"><option value="">Loading…</option></select>
           </div>
           <div>
             <label for="upFuel">Fuel</label>
-            <select id="upFuel">
+            <select id="upFuel" onchange="if($('upFile').files[0]) inspectFile()">
               <option value="electricity">Electricity</option>
               <option value="gas">Gas</option>
+              <option value="both">Both (one file covering both fuels)</option>
             </select>
           </div>
-          <div style="flex:2">
-            <label for="upFile">File (.xlsx / .xlsm / .csv)</label>
-            <input id="upFile" type="file" accept=".xlsx,.xlsm,.csv" onchange="inspectFile()" />
+        </div>
+        <!-- Drop zone. The file input stays, hidden behind the label, because a keyboard
+             user and a file dialog both still have to work. -->
+        <div id="dropZone" tabindex="0" role="button"
+             style="margin-top:14px;border:2px dashed var(--line-2);border-radius:12px;
+                    padding:26px 18px;text-align:center;cursor:pointer;transition:.15s">
+          <div style="font-size:14px;font-weight:700;color:var(--text)">Drop a pricebook here</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:6px">
+            or <span style="color:var(--cyan);text-decoration:underline">choose a file</span>
+            &nbsp;·&nbsp; .xlsx, .xlsm, .csv
           </div>
+          <input id="upFile" type="file" accept=".xlsx,.xlsm,.csv" class="hide" />
         </div>
         <div id="upInspect" class="hide" style="margin-top:16px"></div>
       </div>
@@ -327,6 +336,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/pricing-parsers.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════════════════════════════════════
 // CES Pricing Desk
@@ -498,10 +508,16 @@ function showTab(t) {
 async function loadSuppliers() {
   try {
     SUPPLIERS = await q(sb.from('pricebook_suppliers')
-      .select('supplier_key, display_name, parser_key').order('display_name'), 'suppliers');
+      .select('supplier_key, display_name, parser_key, parser_ready').order('display_name'), 'suppliers');
   } catch (e) { return fail($('ledgerErr'), e.message); }
+  // A supplier with no parser is not a choice, it is a dead end: five files once sat at
+  // 'pending' forever because the upload button accepted anything. Say so on the option
+  // rather than letting someone find out after the upload.
   $('upSupplier').innerHTML = '<option value="">Choose…</option>' +
-    SUPPLIERS.map(s => `<option value="${esc(s.supplier_key)}">${esc(s.display_name)}</option>`).join('');
+    SUPPLIERS.filter(x => x.parser_ready)
+      .map(s => `<option value="${esc(s.supplier_key)}">${esc(s.display_name)}</option>`).join('') +
+    SUPPLIERS.filter(x => !x.parser_ready)
+      .map(s => `<option value="" disabled>${esc(s.display_name)} — parser not built yet</option>`).join('');
 }
 
 async function sha256Hex(buf) {
@@ -509,19 +525,52 @@ async function sha256Hex(buf) {
   return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2,'0')).join('');
 }
 
-/** Same normalisation the Python parsers use, so the two agree on a fingerprint. */
-function normHeader(cols) {
-  const parts = cols.map(c => String(c == null ? '' : c).trim().toLowerCase().replace(/\s+/g,' '));
-  while (parts.length && parts[parts.length-1] === '') parts.pop();
-  return parts.join(' | ');
-}
+/** Same normalisation the Python harness uses, so the two agree on a fingerprint. */
+function normHeader(cols) { return PricingParsers.normHeader(cols); }
 
 /**
- * Read the header row without storing the file.
+ * Which sheets a parser reads, and what fuel each one is.
  *
- * A pricebook can be 160,000 rows and 10MB. This deliberately does not parse it: it reads
- * enough to identify the layout, and the parse itself happens server-side, because a
- * BG Lite electricity file takes minutes to walk and the browser is the wrong place for it.
+ * Not always the first sheet, and not always one sheet: UGP's visible sheet is a formula
+ * front end with the rates hidden in Spark Output Elec and Spark Output Gas, so a UGP
+ * upload is naturally a both-fuels upload.
+ */
+function sheetPlan(parserKey, names, fuel) {
+  const pick = (n) => names.find(x => x.toLowerCase() === n.toLowerCase());
+  if (parserKey === 'ugp_spark') {
+    const out = [];
+    const e = pick('Spark Output Elec'), g = pick('Spark Output Gas');
+    if (e && fuel !== 'gas') out.push({ name: e, fuel: 'electricity' });
+    if (g && fuel !== 'electricity') out.push({ name: g, fuel: 'gas' });
+    if (!out.length) throw new Error('no Spark Output sheet in this workbook');
+    return out;
+  }
+  const preferred = pick('BKF') || pick('UD Partner') || pick('OutputFile') || pick('SSE Choice');
+  return [{ name: preferred || names[0], fuel }];
+}
+
+function readWorkbook(buf, isCsv) {
+  if (isCsv) {
+    const wb = XLSX.read(buf, { type: 'array', raw: true });
+    return { names: wb.SheetNames, wb };
+  }
+  // cellDates so dates arrive as Dates rather than Excel serials. The parser reads them
+  // with LOCAL getters, because SheetJS builds them in local time.
+  const wb = XLSX.read(buf, { cellDates: true });
+  return { names: wb.SheetNames, wb };
+}
+const sheetToRows = (wb, name) =>
+  XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, raw: true });
+
+/**
+ * Read the header, fingerprint it, and decide.
+ *
+ * Three outcomes, and the middle one is the one that matters. On the live database a BG Lite
+ * electricity file was uploaded as British Gas and its header registered against
+ * british_gas/electricity, because nothing was seeded so the gate fired on every first
+ * upload and the only way to work was to click through it. British Gas quotes would have
+ * come out at BG Lite prices. The layouts are seeded now, and a header already known for a
+ * DIFFERENT supplier is called out by name.
  */
 async function inspectFile() {
   const out = $('upInspect');
@@ -534,38 +583,33 @@ async function inspectFile() {
   if (!skey) { out.innerHTML = '<div class="note warn">Choose the supplier first.</div>'; return; }
   out.innerHTML = '<div class="note">Reading the header…</div>';
 
-  let header = [], sheet = null;
   try {
     const buf = await f.arrayBuffer();
     const fileSha = await sha256Hex(buf);
-    if (/\.csv$/i.test(f.name)) {
-      const text = new TextDecoder('utf-8').decode(buf.slice(0, 200000));
-      const line = text.split(/\r?\n/)[0] || '';
-      header = line.split(',').map(s => s.replace(/^"|"$/g,''));
-    } else {
-      const wb = XLSX.read(buf, { sheetRows: 1 });
-      // The data sheet is not always the first one. UGP's visible sheet is a formula front
-      // end and the rates live in "Spark Output"; Scottish Power's is called BKF.
-      const pref = ['BKF','UD Partner','Spark Output Elec','Spark Output Gas','OutputFile','SSE Choice'];
-      sheet = pref.find(p => wb.SheetNames.includes(p)) || wb.SheetNames[0];
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { header: 1, blankrows: false });
-      header = rows[0] || [];
-    }
+    const isCsv = /\.csv$/i.test(f.name);
+    const supplier = SUPPLIERS.find(x => x.supplier_key === skey) || {};
+    const { names, wb } = readWorkbook(new Uint8Array(buf), isCsv);
+    const plan = sheetPlan(supplier.parser_key, names, fuel);
+    const firstRows = sheetToRows(wb, plan[0].name);
+    if (!firstRows.length) throw new Error('that sheet is empty');
+    const header = firstRows[0];
     const sample = normHeader(header);
     const hSha = await sha256Hex(new TextEncoder().encode(sample));
 
-    const known = await q(sb.from('pricebook_fingerprints')
-      .select('id, parser_key, active').eq('supplier_key', skey).eq('fuel', fuel)
-      .eq('header_sha256', hSha).limit(1), 'fingerprint check');
-
-    const dup = await q(sb.from('pricebook_uploads')
-      .select('id, uploaded_at, status').eq('supplier_key', skey).eq('fuel', fuel)
-      .eq('file_sha256', fileSha).limit(1), 'duplicate check');
+    const [mine, elsewhere, dup] = await Promise.all([
+      q(sb.from('pricebook_fingerprints').select('id, parser_key')
+        .eq('supplier_key', skey).eq('fuel', fuel).eq('header_sha256', hSha)
+        .eq('active', true).limit(1), 'fingerprint check'),
+      q(sb.from('pricebook_fingerprints').select('supplier_key, fuel')
+        .eq('header_sha256', hSha).neq('supplier_key', skey).limit(5), 'cross-supplier check'),
+      q(sb.from('pricebook_uploads').select('id, uploaded_at, status')
+        .eq('supplier_key', skey).eq('fuel', fuel).eq('file_sha256', fileSha).limit(1), 'duplicate check'),
+    ]);
 
     const meta = `<dl class="kv" style="margin-top:12px">
       <dt>File</dt><dd>${esc(f.name)}</dd>
       <dt>Size</dt><dd>${(f.size/1048576).toFixed(2)} MB</dd>
-      <dt>Sheet</dt><dd>${esc(sheet || 'csv')}</dd>
+      <dt>Sheet${plan.length > 1 ? 's' : ''}</dt><dd>${plan.map(p => esc(p.name) + ' (' + p.fuel + ')').join('<br>')}</dd>
       <dt>Columns</dt><dd>${header.length}</dd>
       <dt>Header hash</dt><dd>${esc(hSha.slice(0,16))}…</dd>
       </dl>
@@ -575,31 +619,47 @@ async function inspectFile() {
 
     if (dup.length) {
       out.innerHTML = `<div class="note warn">This exact file has already been uploaded
-        (${uk(dup[0].uploaded_at)}, status <b>${esc(dup[0].status)}</b>). Loading it twice would
-        double the rates.</div>${meta}`;
-      return;
-    }
-    if (!known.length) {
-      // The refusal that matters. Registering a layout is a deliberate act, taken by
-      // somebody who has looked at the header above and satisfied themselves nothing has
-      // moved. It is not a button to click past a warning.
-      out.innerHTML = `<div class="note bad"><b>Refused: this layout is not registered.</b><br>
-        No fingerprint on file for ${esc(skey)} / ${esc(fuel)} with this header. Either the
-        supplier has changed their format, or this is the wrong file for the supplier and fuel
-        chosen. Compare the header below against the last accepted one before registering it.
-        </div>${meta}
-        <div style="margin-top:14px">
-          <button class="act" onclick="registerLayout('${esc(skey)}','${esc(fuel)}','${esc(hSha)}',this)">
-            I have checked the header, register this layout</button>
-        </div>`;
-      PENDING = null;
+        (${uk(dup[0].uploaded_at)}, status <b>${esc(dup[0].status)}</b>). Loading it twice
+        would double the rates.</div>${meta}`;
       return;
     }
 
-    PENDING = { file: f, fileSha, hSha, skey, fuel, sheet, parser_key: known[0].parser_key, cols: header.length };
-    out.innerHTML = `<div class="note good">Layout recognised, parser
-      <b>${esc(known[0].parser_key)}</b>. Ready to upload.</div>${meta}
-      <div style="margin-top:14px"><button class="act" id="doUp" onclick="doUpload()">Upload and queue for parsing</button></div>`;
+    const ready = { file: f, buf, isCsv, fileSha, hSha, skey, fuel, plan,
+                    parser_key: supplier.parser_key, cols: header.length };
+
+    if (mine.length) {
+      PENDING = ready;
+      out.innerHTML = `<div class="note good">Layout recognised, parser
+        <b>${esc(mine[0].parser_key)}</b>. Ready.</div>${meta}
+        <div style="margin-top:14px"><button class="act" id="doUp" onclick="doUpload()">Upload and parse</button></div>`;
+      return;
+    }
+
+    if (elsewhere.length) {
+      // Not a hard refusal: British Gas and BG Lite genuinely SHARE their gas header, so a
+      // cross-supplier match is not proof of a mistake. It is proof that the hash cannot
+      // tell them apart, which is precisely when a human has to.
+      const who = elsewhere.map(x => `${esc(x.supplier_key)} / ${esc(x.fuel)}`).join(', ');
+      out.innerHTML = `<div class="note bad"><b>Careful: this exact header is registered to
+        ${who}, not to ${esc(skey)} / ${esc(fuel)}.</b><br>
+        Either you have the supplier or fuel wrong, or two suppliers genuinely share a layout
+        — British Gas and BG Lite do share their gas header. Check the filename against the
+        supplier you picked before going any further.</div>${meta}
+        <div style="margin-top:14px">
+          <button class="act ghost" onclick="registerLayout('${esc(skey)}','${esc(fuel)}','${esc(hSha)}',this)">
+            It is the right supplier, register this layout too</button>
+        </div>`;
+      return;
+    }
+
+    out.innerHTML = `<div class="note bad"><b>Refused: this layout is not registered.</b><br>
+      No known header for ${esc(skey)} / ${esc(fuel)} matches this file. Either the supplier
+      has changed their format, or this is the wrong file for what you picked. Compare the
+      header below against the last accepted one first.</div>${meta}
+      <div style="margin-top:14px">
+        <button class="act ghost" onclick="registerLayout('${esc(skey)}','${esc(fuel)}','${esc(hSha)}',this)">
+          I have checked the header, register this layout</button>
+      </div>`;
   } catch (e) {
     out.innerHTML = `<div class="note bad">Could not read that file: ${esc(e.message)}</div>`;
   }
@@ -607,23 +667,18 @@ async function inspectFile() {
 
 async function registerLayout(skey, fuel, hSha, btn) {
   btn.disabled = true; btn.textContent = 'Registering…';
-  const f = $('upFile').files[0];
-  const supplier = SUPPLIERS.find(s => s.supplier_key === skey);
   try {
+    const f = $('upFile').files[0];
+    const supplier = SUPPLIERS.find(x => x.supplier_key === skey) || {};
     const buf = await f.arrayBuffer();
-    let sample;
-    if (/\.csv$/i.test(f.name)) {
-      const line = new TextDecoder().decode(buf.slice(0,200000)).split(/\r?\n/)[0] || '';
-      sample = normHeader(line.split(',').map(s => s.replace(/^"|"$/g,'')));
-    } else {
-      const wb = XLSX.read(buf, { sheetRows: 1 });
-      const pref = ['BKF','UD Partner','Spark Output Elec','Spark Output Gas','OutputFile','SSE Choice'];
-      const sh = pref.find(p => wb.SheetNames.includes(p)) || wb.SheetNames[0];
-      sample = normHeader((XLSX.utils.sheet_to_json(wb.Sheets[sh], {header:1, blankrows:false})[0]) || []);
-    }
+    const isCsv = /\.csv$/i.test(f.name);
+    const { names, wb } = readWorkbook(new Uint8Array(buf), isCsv);
+    const plan = sheetPlan(supplier.parser_key, names, fuel);
+    const sample = normHeader(sheetToRows(wb, plan[0].name)[0] || []);
     const { data: { user } } = await sb.auth.getUser();
     await q(sb.from('pricebook_fingerprints').insert({
-      supplier_key: skey, parser_key: supplier ? supplier.parser_key : 'unknown', fuel,
+      supplier_key: skey, parser_key: supplier.parser_key || 'unknown', fuel,
+      sheet_name: plan.map(p => p.name).join(', '),
       header_sha256: hSha, header_sample: sample, approved_by: user.id
     }), 'register layout');
     await inspectFile();
@@ -633,31 +688,115 @@ async function registerLayout(skey, fuel, hSha, btn) {
   }
 }
 
+/**
+ * Upload, parse and go live, in one go.
+ *
+ * The parse runs HERE rather than server-side. The file is already in the browser, SheetJS
+ * is already loaded, and a BG Lite electricity book is 162,433 rows: an edge function's
+ * wall clock would not survive it, and shipping a 10MB workbook out to storage and back to
+ * hand the rows to this same browser is work for its own sake.
+ */
 async function doUpload() {
   if (!PENDING) return;
-  const btn = $('doUp'); btn.disabled = true; btn.textContent = 'Uploading…';
+  const btn = $('doUp'); const out = $('upInspect');
+  btn.disabled = true;
+  const say = (html) => { out.innerHTML = html; };
+  const t0 = Date.now();
+  let uploadId = null;
   try {
     const { data: { user } } = await sb.auth.getUser();
-    const id = crypto.randomUUID();
-    const path = `${id}/${PENDING.file.name}`;
+    uploadId = crypto.randomUUID();
+    const path = `${uploadId}/${PENDING.file.name}`;
+
+    say('<div class="note">Storing the file…</div>');
     const up = await sb.storage.from(BUCKET).upload(path, PENDING.file, { upsert: false });
     if (up.error) throw new Error('storage: ' + up.error.message);
+
     await q(sb.from('pricebook_uploads').insert({
-      id, supplier_key: PENDING.skey, fuel: PENDING.fuel,
+      id: uploadId, supplier_key: PENDING.skey, fuel: PENDING.fuel,
       source_filename: PENDING.file.name, storage_path: path,
       file_sha256: PENDING.fileSha, header_sha256: PENDING.hSha,
       parser_key: PENDING.parser_key, status: 'pending', uploaded_by: user.id,
-      uploaded_by_name: WHO,
-      notes: `sheet=${PENDING.sheet || 'csv'} cols=${PENDING.cols}`
+      uploaded_by_name: WHO, parse_started_at: new Date().toISOString(),
+      notes: `sheets=${PENDING.plan.map(p => p.name).join('|')} cols=${PENDING.cols}`
     }), 'create upload');
-    $('upInspect').innerHTML = `<div class="note good">Uploaded and queued. It stays
-      <b>pending</b> until it has been parsed and someone has looked at the refusals, and
-      nothing is priced off a pending upload.</div>`;
+    loadLedger();
+
+    say('<div class="note">Parsing…</div>');
+    const { wb } = readWorkbook(new Uint8Array(PENDING.buf), PENDING.isCsv);
+    const sheets = PENDING.plan.map(p => ({ name: p.name, fuel: p.fuel, rows: sheetToRows(wb, p.name) }));
+    const parsed = PricingParsers.parse({
+      parserKey: PENDING.parser_key, supplierKey: PENDING.skey, fuel: PENDING.fuel, sheets });
+
+    if (!parsed.rows.length) {
+      // Zero rows is not a pricebook. Recorded as rejected with the reasons, and NOT made
+      // live, so it cannot retire the good book it was meant to replace.
+      await q(sb.rpc('pricebook_parse_done', {
+        p_upload: uploadId, p_rows: 0, p_elec: 0, p_gas: 0,
+        p_refused: parsed.refusals.length + (parsed.refusals.overflow || 0),
+        p_refusals: parsed.refusals, p_version: parsed.meta.version,
+        p_window_open: parsed.meta.window_open, p_window_close: parsed.meta.window_close
+      }), 'record parse');
+      const why = [...new Set(parsed.refusals.map(r => r.reason))].slice(0, 5);
+      say(`<div class="note bad"><b>Parsed 0 rows, so nothing went live.</b><br>
+        ${esc(why.join(' · ') || 'no reason recorded')}</div>`);
+      loadLedger();
+      return;
+    }
+
+    // Insert in batches. Chunked because tens of thousands of rows will not go through
+    // PostgREST in one request, and reported per batch so a stall is visible rather than
+    // looking like a hang.
+    const BATCH = 1000;
+    const rows = parsed.rows.map(r => ({ ...r, upload_id: uploadId }));
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const { error } = await sb.from('pricebook_rates').insert(rows.slice(i, i + BATCH));
+      if (error) throw new Error(`inserting rates at row ${i}: ${error.message}`);
+      const done = Math.min(i + BATCH, rows.length);
+      say(`<div class="note">Loading rates… <b>${done.toLocaleString()}</b> of
+        ${rows.length.toLocaleString()}</div>`);
+    }
+
+    const elec = parsed.rows.filter(r => r.fuel === 'electricity').length;
+    const gas = parsed.rows.filter(r => r.fuel === 'gas').length;
+    await q(sb.rpc('pricebook_parse_done', {
+      p_upload: uploadId, p_rows: rows.length, p_elec: elec, p_gas: gas,
+      p_refused: parsed.refusals.length + (parsed.refusals.overflow || 0),
+      p_refusals: parsed.refusals, p_version: parsed.meta.version,
+      p_window_open: parsed.meta.window_open, p_window_close: parsed.meta.window_close
+    }), 'record parse');
+
+    // "It needs to always replace the previous." One RPC, one transaction: retire whatever
+    // was live for this supplier and overlapping fuel, then promote this one. Two client
+    // calls could leave two live pricebooks, or none.
+    const live = await q(sb.rpc('pricebook_go_live', { p_upload: uploadId }), 'go live');
+    const superseded = (live && live[0] && live[0].superseded) || 0;
+
+    const secs = ((Date.now() - t0) / 1000).toFixed(1);
+    const refused = parsed.refusals.length + (parsed.refusals.overflow || 0);
+    const reasons = [...new Set(parsed.refusals.map(r => r.reason.replace(/"[^"]*"/g, '"…"')))].slice(0, 4);
+    say(`<div class="note good"><b>Live.</b> ${rows.length.toLocaleString()} rates
+      (${elec.toLocaleString()} electricity, ${gas.toLocaleString()} gas) in ${secs}s.
+      ${superseded ? `Retired ${superseded} previous pricebook${superseded > 1 ? 's' : ''}.`
+                   : 'Nothing previous to retire.'}</div>
+      ${refused ? `<div class="note warn" style="margin-top:10px">${refused.toLocaleString()}
+        row${refused === 1 ? '' : 's'} refused, which is normal where a file carries products
+        this engine does not price: ${esc(reasons.join(' · '))}</div>` : ''}`);
     $('upFile').value = ''; PENDING = null;
     loadLedger();
   } catch (e) {
-    btn.disabled = false; btn.textContent = 'Upload and queue for parsing';
-    fail($('upInspect'), e.message);
+    // Leave the upload visibly broken rather than silently half-loaded.
+    if (uploadId) {
+      try {
+        await sb.from('pricebook_uploads')
+          .update({ status: 'rejected', parse_error: String(e.message).slice(0, 500),
+                    parse_finished_at: new Date().toISOString() })
+          .eq('id', uploadId);
+      } catch (_) { /* the message below is what matters */ }
+    }
+    btn.disabled = false;
+    fail(out, e.message);
+    loadLedger();
   }
 }
 
@@ -666,7 +805,9 @@ async function loadLedger() {
   let rows;
   try {
     rows = await q(sb.from('pricebook_uploads')
-      .select('id,supplier_key,fuel,source_filename,pricebook_version,rows_loaded,rows_refused,window_open,window_close,status,uploaded_at')
+      .select('id,supplier_key,fuel,source_filename,pricebook_version,rows_loaded,rows_refused,'
+            + 'rows_electricity,rows_gas,window_open,window_close,status,uploaded_at,'
+            + 'uploaded_by_name,parse_error')
       .order('uploaded_at', { ascending: false }).limit(200), 'ledger');
   } catch (e) { body.innerHTML = ''; return fail($('ledgerErr'), e.message); }
   if (!rows.length) {
@@ -679,7 +820,9 @@ async function loadLedger() {
     <td>${esc(r.fuel)}</td>
     <td style="max-width:280px;overflow-wrap:anywhere">${esc(r.source_filename)}</td>
     <td class="mono">${esc(r.pricebook_version || '—')}</td>
-    <td class="num">${r.rows_loaded ? r.rows_loaded.toLocaleString() : '—'}</td>
+    <td class="num">${r.rows_loaded ? r.rows_loaded.toLocaleString() : '—'}${
+      r.fuel === 'both' && r.rows_loaded
+        ? `<div style="font-size:10px;color:var(--muted)">${(r.rows_electricity||0).toLocaleString()}e / ${(r.rows_gas||0).toLocaleString()}g</div>` : ''}</td>
     <td class="num" ${r.rows_refused ? 'style="color:var(--warn)"' : ''}>${r.rows_refused || '—'}</td>
     <td class="mono">${uk(r.window_open)} → ${uk(r.window_close)}</td>
     <td><span class="pill ${pill(r.status)}">${esc(r.status)}</span></td>
@@ -979,6 +1122,35 @@ async function lookupBand() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
+// ── Drag and drop, plus click-to-choose on the same zone ──
+(function wireDrop() {
+  const z = $('dropZone'), inp = $('upFile');
+  if (!z || !inp) return;
+  const lift = (on) => {
+    z.style.borderColor = on ? 'var(--cyan-dim)' : 'var(--line-2)';
+    z.style.background = on ? 'var(--cyan-glow)' : 'transparent';
+  };
+  z.onclick = () => inp.click();
+  z.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inp.click(); } };
+  inp.onchange = inspectFile;
+  // dragover must be prevented on every event or the browser navigates to the file.
+  ['dragenter','dragover'].forEach(ev => z.addEventListener(ev, (e) => { e.preventDefault(); lift(true); }));
+  ['dragleave','dragend'].forEach(ev => z.addEventListener(ev, () => lift(false)));
+  z.addEventListener('drop', (e) => {
+    e.preventDefault(); lift(false);
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f) return;
+    // Assigning to input.files needs a DataTransfer; it is the only way to keep the file
+    // input as the single source of truth for both routes.
+    const dt = new DataTransfer(); dt.items.add(f); inp.files = dt.files;
+    inspectFile();
+  });
+  // Dropping anywhere else on the page must not make the browser open the file.
+  ['dragover','drop'].forEach(ev => window.addEventListener(ev, (e) => {
+    if (!z.contains(e.target)) e.preventDefault();
+  }));
+})();
+
 $('whoName').addEventListener('keydown', (e) => { if (e.key === 'Enter') setWho(); });
 ['u','p'].forEach(id => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') signIn(); }));
 sb.auth.getSession().then(({ data: { session } }) => { if (session) afterSignIn(); });
