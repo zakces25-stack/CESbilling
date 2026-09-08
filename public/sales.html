@@ -1891,8 +1891,20 @@
               <button class="btn-secondary" style="width:auto;padding:10px 18px;margin-left:8px;" onclick="bkResetMeterForm(true)">Cancel</button>
             </div>
           </div>
-          <div class="card" style="overflow-x:auto;">
-            <table class="usage-table" id="brokerMetersTable"></table>
+          <div class="card">
+            <!-- Live / Registering / Expired. The bucket is worked out from today's date
+                 against each contract's start and end, every time this renders — nothing
+                 is stored and nothing is scheduled, so a contract moves on its own the
+                 day after its CED. -->
+            <div class="admin-tabs" id="bkCtrTabs" style="margin-bottom:14px;">
+              <button class="admin-tab active" data-bkctr="live"        onclick="bkCtrTab('live')">Live <span id="bkCtrNLive">—</span></button>
+              <button class="admin-tab"        data-bkctr="registering" onclick="bkCtrTab('registering')">Registering <span id="bkCtrNReg">—</span></button>
+              <button class="admin-tab"        data-bkctr="expired"     onclick="bkCtrTab('expired')">Expired <span id="bkCtrNExp">—</span></button>
+            </div>
+            <div id="bkCtrNote" style="font-size:12px;color:var(--muted);margin-bottom:10px;"></div>
+            <div style="overflow-x:auto;">
+              <table class="usage-table" id="brokerMetersTable"></table>
+            </div>
           </div>
         </div>
         <!-- View: COT Submission (Change of Tenancy) -->
@@ -3045,18 +3057,29 @@
         grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">No customers assigned to you yet. Contact CES.</div>';
         return;
       }
-      // One flat meters query powers portfolio size, latest CED and MPAN search.
-      var mResp = await sb.from('meters').select('customer_id, mpan, utility, est_annual_consumption, contract_end_date');
+      // Portfolio size, next CED and the MPAN search haystack, aggregated in the database.
+      // This used to be a flat select over every meter, which the API row cap silently
+      // truncated once the portfolios grew past 1,000 meters — every customer past the cut
+      // rendered "0 meters / No CED" while its detail page showed the real figures. One row
+      // per customer cannot be truncated, and the error is no longer swallowed.
+      var sResp = await sb.from('broker_customer_summary')
+        .select('customer_id, meter_count, total_eac, next_ced, mpans');
       var stats = {};
       customers.forEach(function(c){ stats[c.customer_id] = { n:0, eac:0, ced:null, mpans:[] }; });
-      (mResp.data || []).forEach(function(m){
-        var st = stats[m.customer_id]; if (!st) return;
-        st.n++;
-        st.eac += Number(m.est_annual_consumption) || 0;
-        st.mpans.push(String(m.mpan || '').replace(/\s+/g, '').toLowerCase());
-        var d = m.contract_end_date ? String(m.contract_end_date).slice(0, 10) : null;
-        if (d && (!st.ced || d < st.ced)) st.ced = d;
-      });
+      if (sResp.error) {
+        console.error('Broker load (summary):', sResp.error);
+        var mw = document.getElementById('brokerMeta');
+        if (mw) mw.innerHTML = escapeHtml(customers.length + ' customers') +
+          ' <span style="color:#b5340f;font-weight:700;">· meter totals unavailable, please refresh</span>';
+      } else {
+        (sResp.data || []).forEach(function(r){
+          var st = stats[r.customer_id]; if (!st) return;
+          st.n = Number(r.meter_count) || 0;
+          st.eac = Number(r.total_eac) || 0;
+          st.ced = r.next_ced ? String(r.next_ced).slice(0, 10) : null;
+          st.mpans = String(r.mpans || '').split(' ').filter(Boolean);
+        });
+      }
       window._bkCustStats = stats;
       bkRenderCustomerGrid();
     }
@@ -3255,31 +3278,117 @@
       var cedEl = document.getElementById('bkLatestCed'); if (cedEl) cedEl.textContent = nextCed ? fmtDateUK(nextCed) : '—';
       if (!meters.length) {
         table.innerHTML = '<tbody><tr><td colspan="13" class="empty-state">No meters recorded for this customer yet.</td></tr></tbody>';
+        window._bkContracts = []; bkCtrCounts();
         return;
       }
+      // one row per contract per meter; status is derived in the view from today's date
+      var cResp = await sb.from('meter_contracts_v')
+        .select('id, mpan, utility, supply_type, supplier, product, contract_start, contract_end, status,' +
+                ' uc_deal_status, opportunity_type, unit_rate, day_rate, night_rate, eveweekend_rate,' +
+                ' standing_charge, capacity_rate, est_annual_consumption')
+        .eq('customer_id', cid).order('mpan').order('contract_start');
+      if (cResp.error) {
+        console.error('Broker load (contracts):', cResp.error);
+        window._bkCtrErr = cResp.error.message || 'see console';
+      } else { window._bkCtrErr = null; }
+      window._bkContracts = cResp.data || [];
+      bkCtrCounts();
+      bkRenderContractTable();
+    }
+    // ── Broker: Live / Registering / Expired ─────────────────────────────────────────────
+    // A meter with a locked-in renewal legitimately appears in two tabs: its current
+    // contract under Live and the renewal under Registering. A meter with no contract on
+    // file at all is not silently dropped — it surfaces under Expired, flagged.
+    window._bkCtrStatus = window._bkCtrStatus || 'live';
+    function _bkCtrBuckets() {
+      var cs = window._bkContracts || [];
+      var b = { live: [], registering: [], expired: [] };
+      cs.forEach(function(c){ if (b[c.status]) b[c.status].push(c); });
+      // meters that no contract row covers
+      var seen = {};
+      cs.forEach(function(c){ seen[String(c.mpan)] = 1; });
+      (window._bkMeters || []).forEach(function(m){
+        if (!seen[String(m.mpan)]) b.expired.push({ _orphan: true, mpan: m.mpan, utility: m.utility,
+          supply_type: m.supply_type, supplier: m.supplier, contract_start: null,
+          contract_end: m.contract_end_date, status: 'expired',
+          est_annual_consumption: m.est_annual_consumption, unit_rate: m.current_unit_rate,
+          day_rate: m.current_day_rate, night_rate: m.current_night_rate,
+          eveweekend_rate: m.current_eveweekend_rate, standing_charge: m.current_standing_charge,
+          capacity_rate: m.current_capacity_rate });
+      });
+      return b;
+    }
+    function bkCtrCounts() {
+      var b = _bkCtrBuckets();
+      var set = function(id, n){ var e = document.getElementById(id); if (e) e.textContent = '(' + n + ')'; };
+      set('bkCtrNLive', b.live.length); set('bkCtrNReg', b.registering.length); set('bkCtrNExp', b.expired.length);
+      bkRenderContractTable();
+    }
+    function bkCtrTab(which) {
+      window._bkCtrStatus = which;
+      document.querySelectorAll('#bkCtrTabs .admin-tab').forEach(function(t){
+        t.classList.toggle('active', t.getAttribute('data-bkctr') === which);
+      });
+      bkRenderContractTable();
+    }
+    function bkRenderContractTable() {
+      var table = document.getElementById('brokerMetersTable'); if (!table) return;
+      var note = document.getElementById('bkCtrNote');
+      var which = window._bkCtrStatus || 'live';
+      var list = _bkCtrBuckets()[which] || [];
+      var byMpan = {};
+      (window._bkMeters || []).forEach(function(m){ byMpan[String(m.mpan)] = m; });
+      var blurb = {
+        live: 'Contracts running today. A contract stays here until the day after its CED.',
+        registering: 'Won and locked in, not started yet. Each moves to Live on its contract start date.',
+        expired: 'Past their contract end date. Contracts land here automatically the day after the CED.'
+      };
+      if (note) note.textContent = (window._bkCtrErr
+        ? 'Could not load contracts (' + window._bkCtrErr + ') — showing meters only.'
+        : blurb[which] || '');
       var head = '<thead><tr>' +
-        '<th>MPAN / MPRN / SPID</th><th>Site</th><th>Type</th><th>Supplier</th><th class="num">Agreed kVA</th>' +
-        '<th class="num">EAC (kWh)</th><th>Rates (p/kWh)</th>' +
+        '<th>MPAN / MPRN / SPID</th><th>Site</th><th>Type</th><th>Supplier</th>' +
+        '<th>CSD</th><th>CED</th>' +
+        '<th class="num">Agreed kVA</th><th class="num">EAC (kWh)</th><th>Rates (p/kWh)</th>' +
         '<th class="num">Standing p/day</th><th class="num">Capacity p/kVA/day</th>' +
-        '<th>Area</th><th>LLFC</th><th>CED</th><th></th></tr></thead>';
-      var rows = meters.map(function(m) {
-        var rt = (m.current_day_rate!=null||m.current_night_rate!=null) ? ('D '+_bkNum(m.current_day_rate,2)+' / N '+_bkNum(m.current_night_rate,2)+(m.current_eveweekend_rate!=null?(' / E '+_bkNum(m.current_eveweekend_rate,2)):'')) : (m.current_unit_rate!=null?('Single '+_bkNum(m.current_unit_rate,2)):'—');
+        '<th>LLFC</th><th></th></tr></thead>';
+      if (!list.length) {
+        var empty = { live: 'No live contracts for this customer.',
+          registering: 'Nothing locked in and waiting to start.',
+          expired: 'Nothing expired yet. Contracts appear here on their own once a CED passes.' };
+        table.innerHTML = head + '<tbody><tr><td colspan="13" class="empty-state">' +
+          escapeHtml(empty[which]) + '</td></tr></tbody>';
+        return;
+      }
+      var rows = list.map(function(c) {
+        var m = byMpan[String(c.mpan)] || {};
+        var rt = (c.day_rate != null || c.night_rate != null)
+          ? ('D ' + _bkNum(c.day_rate, 2) + ' / N ' + _bkNum(c.night_rate, 2) +
+             (c.eveweekend_rate != null ? (' / E ' + _bkNum(c.eveweekend_rate, 2)) : ''))
+          : (c.unit_rate != null ? ('Single ' + _bkNum(c.unit_rate, 2)) : '—');
+        var tag = c._orphan
+          ? '<div style="font-size:11px;color:#b5840a;font-weight:700;">no contract on file</div>'
+          : (c.opportunity_type ? '<div style="font-size:11px;color:var(--muted);font-weight:400;">' +
+              escapeHtml(c.opportunity_type) + (c.product ? ' · ' + escapeHtml(c.product) : '') + '</div>' : '');
         return '<tr>' +
-          '<td class="mono">' + escapeHtml(m.mpan) +
-            (m.meter_serial ? '<div style="font-size:11px;color:var(--muted);font-weight:400;">serial ' + escapeHtml(m.meter_serial) + '</div>' : '') +
-            (m.notes ? '<div style="font-size:11px;color:var(--muted);font-weight:400;">' + escapeHtml(m.notes) + '</div>' : '') + '</td>' +
+          '<td class="mono">' + escapeHtml(c.mpan) +
+            (m.meter_serial ? '<div style="font-size:11px;color:var(--muted);font-weight:400;">serial ' + escapeHtml(m.meter_serial) + '</div>' : '') + '</td>' +
           _bkSiteCell(m) +
-          '<td style="white-space:nowrap;">' + _bkTypeLabel(m) + '</td>' +
-          '<td>' + escapeHtml(m.supplier || '—') + '</td>' +
+          '<td style="white-space:nowrap;">' + _bkTypeLabel(c) + '</td>' +
+          '<td>' + escapeHtml(c.supplier || '—') + tag + '</td>' +
+          '<td style="white-space:nowrap;">' + (c.contract_start ? fmtDateUK(String(c.contract_start).slice(0,10)) : '—') + '</td>' +
+          _bkCedCell(c.contract_end) +
           '<td class="num">' + _bkNum(m.agreed_kva, 0) + '</td>' +
-          '<td class="num">' + _bkNum(m.est_annual_consumption, 0) + '</td>' +
+          '<td class="num">' + _bkNum(c.est_annual_consumption, 0) + '</td>' +
           '<td style="white-space:nowrap;">' + rt + '</td>' +
-          '<td class="num">' + _bkNum(m.current_standing_charge, 2) + '</td>' +
-          '<td class="num">' + _bkNum(m.current_capacity_rate, 2) + '</td>' +
-          '<td>' + escapeHtml(m.area_code || '—') + '</td>' +
+          '<td class="num">' + _bkNum(c.standing_charge, 2) + '</td>' +
+          '<td class="num">' + _bkNum(c.capacity_rate, 2) + '</td>' +
           '<td>' + escapeHtml(m.llfc || '—') + '</td>' +
-          _bkCedCell(m.contract_end_date) +
-          '<td style="white-space:nowrap;"><button class="btn-secondary" style="padding:4px 8px;font-size:11.5px;margin-right:3px;" onclick="bkEditMeter(\'' + m.id + '\')">Edit</button><button class="btn-danger" style="padding:4px 8px;font-size:11.5px;margin-right:3px;" onclick="bkDeleteMeter(\'' + m.id + '\')">Del</button><button class="btn-secondary" style="padding:4px 8px;font-size:11.5px;" onclick="openNecForMeter(\'' + encodeURIComponent(m.id) + '\')">NEC</button></td>' +
+          '<td style="white-space:nowrap;">' + (m.id
+            ? '<button class="btn-secondary" style="padding:4px 8px;font-size:11.5px;margin-right:3px;" onclick="bkEditMeter(\'' + m.id + '\')">Edit</button>' +
+              '<button class="btn-danger" style="padding:4px 8px;font-size:11.5px;margin-right:3px;" onclick="bkDeleteMeter(\'' + m.id + '\')">Del</button>' +
+              '<button class="btn-secondary" style="padding:4px 8px;font-size:11.5px;" onclick="openNecForMeter(\'' + encodeURIComponent(m.id) + '\')">NEC</button>'
+            : '') + '</td>' +
         '</tr>';
       }).join('');
       table.innerHTML = head + '<tbody>' + rows + '</tbody>';
