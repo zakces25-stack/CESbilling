@@ -1857,6 +1857,17 @@
                 <div class="form-group"><label>LLFC</label><input type="text" id="bkLlfc" placeholder="523" /></div>
               </div>
               <div class="form-row-2">
+                <div class="form-group"><label>Site name</label><input type="text" id="bkSiteName" placeholder="Unit 6 Heron Business Park" /></div>
+                <div class="form-group"><label>Meter serial number</label><input type="text" id="bkSerial" placeholder="E14Z005424" /></div>
+              </div>
+              <div class="form-row-2">
+                <div class="form-group"><label>Site address (including postcode)</label><input type="text" id="bkSiteAddress" placeholder="Unit 6 Heron Business Park, Eastman Way, Hemel Hempstead, HP2 7FW" /></div>
+                <div class="form-group"><label>Postcode</label><input type="text" id="bkPostcode" placeholder="HP2 7FW" /></div>
+              </div>
+              <div class="form-row-2">
+                <div class="form-group" style="grid-column:1/-1;"><div style="font-size:11.5px;color:var(--muted);">The site address feeds the COT form automatically, so keeping it right here saves looking it up later.</div></div>
+              </div>
+              <div class="form-row-2">
                 <div class="form-group"><label>Agreed kVA</label><input type="number" id="bkKva" step="1" placeholder="250" /></div>
                 <div class="form-group"><label>EAC (kWh/yr)</label><input type="number" id="bkEac" step="1" placeholder="420000" /></div>
               </div>
@@ -2939,6 +2950,21 @@
       var u = m.utility === 'gas' ? 'Gas' : (m.utility === 'water' ? 'Water' : 'Elec');
       return u + (m.supply_type ? ' · ' + m.supply_type : '');
     }
+    // Site cell: name on top, full address (incl. postcode) beneath. Both come off the
+    // meter row, and the same address feeds the COT form via the sites table.
+    function _bkSiteCell(m) {
+      var nm = (m.site_name || '').trim();
+      var ad = (m.site_address || '').trim();
+      if (!nm && !ad) return '<td style="color:var(--muted);">—</td>';
+      if (nm && ad && ad.toLowerCase().indexOf(nm.toLowerCase()) === 0) nm = '';   // don't repeat it
+      // .usage-table td is white-space:nowrap, so a long site name would run over the next
+      // column. Override it here and let the cell wrap inside its own width.
+      var cell = 'min-width:170px;max-width:260px;white-space:normal;overflow-wrap:anywhere;';
+      return '<td style="' + cell + '">' +
+        (nm ? '<div style="font-weight:700;line-height:1.3;">' + escapeHtml(nm) + '</div>' : '') +
+        (ad ? '<div style="font-size:11.5px;color:var(--muted);font-weight:400;line-height:1.35;">' + escapeHtml(ad) + '</div>' : '') +
+        '</td>';
+    }
     function _bkCedCell(d) {
       if (!d) return '<td>—</td>';
       d = String(d).slice(0, 10);
@@ -3164,14 +3190,14 @@
       var title = document.getElementById('brokerCustomerTitle');
       var table = document.getElementById('brokerMetersTable');
       if (title) title.textContent = cid;
-      table.innerHTML = '<tbody><tr><td colspan="12" class="empty-state">Loading meters…</td></tr></tbody>';
+      table.innerHTML = '<tbody><tr><td colspan="13" class="empty-state">Loading meters…</td></tr></tbody>';
       sb.from('customers').select('company_name').eq('customer_id', cid).single()
         .then(function(r) { if (r.data && title) title.textContent = r.data.company_name || cid; });
       const { data, error } = await sb
         .from('meters').select('*').eq('customer_id', cid).order('mpan');
       if (error) {
         console.error('Broker load (meters):', error);
-        table.innerHTML = '<tbody><tr><td colspan="12" class="empty-state">Could not load meters. Please refresh.</td></tr></tbody>';
+        table.innerHTML = '<tbody><tr><td colspan="13" class="empty-state">Could not load meters. Please refresh.</td></tr></tbody>';
         return;
       }
       var meters = data || [];
@@ -3182,18 +3208,21 @@
       var nextCed = meters.reduce(function(mx, m){ var d = m.contract_end_date ? String(m.contract_end_date).slice(0,10) : null; return (d && (!mx || d < mx)) ? d : mx; }, null);
       var cedEl = document.getElementById('bkLatestCed'); if (cedEl) cedEl.textContent = nextCed ? fmtDateUK(nextCed) : '—';
       if (!meters.length) {
-        table.innerHTML = '<tbody><tr><td colspan="12" class="empty-state">No meters recorded for this customer yet.</td></tr></tbody>';
+        table.innerHTML = '<tbody><tr><td colspan="13" class="empty-state">No meters recorded for this customer yet.</td></tr></tbody>';
         return;
       }
       var head = '<thead><tr>' +
-        '<th>MPAN / MPRN / SPID</th><th>Type</th><th>Supplier</th><th class="num">Agreed kVA</th>' +
+        '<th>MPAN / MPRN / SPID</th><th>Site</th><th>Type</th><th>Supplier</th><th class="num">Agreed kVA</th>' +
         '<th class="num">EAC (kWh)</th><th>Rates (p/kWh)</th>' +
         '<th class="num">Standing p/day</th><th class="num">Capacity p/kVA/day</th>' +
         '<th>Area</th><th>LLFC</th><th>CED</th><th></th></tr></thead>';
       var rows = meters.map(function(m) {
         var rt = (m.current_day_rate!=null||m.current_night_rate!=null) ? ('D '+_bkNum(m.current_day_rate,2)+' / N '+_bkNum(m.current_night_rate,2)+(m.current_eveweekend_rate!=null?(' / E '+_bkNum(m.current_eveweekend_rate,2)):'')) : (m.current_unit_rate!=null?('Single '+_bkNum(m.current_unit_rate,2)):'—');
         return '<tr>' +
-          '<td class="mono">' + escapeHtml(m.mpan) + (m.notes ? '<div style="font-size:11px;color:var(--muted);font-weight:400;">' + escapeHtml(m.notes) + '</div>' : '') + '</td>' +
+          '<td class="mono">' + escapeHtml(m.mpan) +
+            (m.meter_serial ? '<div style="font-size:11px;color:var(--muted);font-weight:400;">serial ' + escapeHtml(m.meter_serial) + '</div>' : '') +
+            (m.notes ? '<div style="font-size:11px;color:var(--muted);font-weight:400;">' + escapeHtml(m.notes) + '</div>' : '') + '</td>' +
+          _bkSiteCell(m) +
           '<td style="white-space:nowrap;">' + _bkTypeLabel(m) + '</td>' +
           '<td>' + escapeHtml(m.supplier || '—') + '</td>' +
           '<td class="num">' + _bkNum(m.agreed_kva, 0) + '</td>' +
@@ -3259,7 +3288,7 @@
       else { f.style.display = 'none'; }
     }
     function bkResetMeterForm(hide) {
-      ['bkEditId','bkMpan','bkSupplier','bkArea','bkLlfc','bkKva','bkEac','bkUnit','bkDay','bkNight','bkEve','bkSc','bkCap','bkEnd'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
+      ['bkEditId','bkMpan','bkSupplier','bkArea','bkLlfc','bkSiteName','bkSerial','bkSiteAddress','bkPostcode','bkKva','bkEac','bkUnit','bkDay','bkNight','bkEve','bkSc','bkCap','bkEnd'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
       var u=document.getElementById('bkUtility'); if(u) u.value='electricity';
       var s=document.getElementById('bkSupplyType'); if(s) s.value='';
       var t=document.getElementById('bkMeterFormTitle'); if(t) t.textContent='Add a meter';
@@ -3275,6 +3304,10 @@
       document.getElementById('bkSupplyType').value=m.supply_type||'';
       document.getElementById('bkArea').value=m.area_code||'';
       document.getElementById('bkLlfc').value=m.llfc||'';
+      document.getElementById('bkSiteName').value=m.site_name||'';
+      document.getElementById('bkSerial').value=m.meter_serial||'';
+      document.getElementById('bkSiteAddress').value=m.site_address||'';
+      document.getElementById('bkPostcode').value=m.postcode||'';
       document.getElementById('bkKva').value=(m.agreed_kva==null?'':m.agreed_kva);
       document.getElementById('bkEac').value=(m.est_annual_consumption==null?'':m.est_annual_consumption);
       document.getElementById('bkUnit').value=(m.current_unit_rate==null?'':m.current_unit_rate);
@@ -3300,6 +3333,10 @@
         supply_type:document.getElementById('bkSupplyType').value||null,
         area_code:document.getElementById('bkArea').value.trim()||null,
         llfc:document.getElementById('bkLlfc').value.trim()||null,
+        site_name:document.getElementById('bkSiteName').value.trim()||null,
+        meter_serial:document.getElementById('bkSerial').value.trim()||null,
+        site_address:document.getElementById('bkSiteAddress').value.trim()||null,
+        postcode:document.getElementById('bkPostcode').value.trim().toUpperCase()||null,
         agreed_kva:nn('bkKva'), est_annual_consumption:nn('bkEac'),
         current_unit_rate:nn('bkUnit'),
         current_day_rate:nn('bkDay'), current_night_rate:nn('bkNight'), current_eveweekend_rate:nn('bkEve'),
@@ -3321,15 +3358,15 @@
       logAction('delete_meter', null, { id:id });
       if(window._bkCid) openBrokerCustomer(encodeURIComponent(window._bkCid));
     }
-    var BK_TEMPLATE_COLS = ['MPAN / MPRN / SPID','Supplier','Utility','Supply Type','Area/DNO Code','LLFC','Agreed kVA','EAC (kWh/yr)','Unit Rate (p/kWh)','Day Rate (p/kWh)','Night Rate (p/kWh)','Evening/Weekend Rate (p/kWh)','Standing Charge (p/day)','Capacity Rate (p/kVA/day)','Contract End (YYYY-MM-DD)','Notes'];
+    var BK_TEMPLATE_COLS = ['MPAN / MPRN / SPID','Site Name','Site Address','Postcode','Meter Serial','Supplier','Utility','Supply Type','Area/DNO Code','LLFC','Agreed kVA','EAC (kWh/yr)','Unit Rate (p/kWh)','Day Rate (p/kWh)','Night Rate (p/kWh)','Evening/Weekend Rate (p/kWh)','Standing Charge (p/day)','Capacity Rate (p/kVA/day)','Contract End (YYYY-MM-DD)','Notes'];
     function bkDownloadTemplate() {
       if (typeof XLSX === 'undefined') { alert('Spreadsheet library still loading — try again in a second.'); return; }
       var examples = [
-        ['1050002996278','Marble Power','electricity','HH','10','072',120,380280,'',21.48,18.20,'',794.0,6.25,'2026-09-30','Day/Night (2-rate): fill Day + Night, leave Unit blank.'],
-        ['1234567890123','Example Supplier','electricity','NHH','11','123','',25000,12.50,'','','',45.0,'','2027-03-31','Single rate: fill Unit only.'],
-        ['9876543210987','Example Supplier','electricity','HH','12','456',200,500000,'',24.10,15.80,9.90,610.0,7.00,'2028-01-31','3-rate: Day + Night + Evening/Weekend.'],
-        ['9123456','Example Gas Co','gas','','','','',300000,6.20,'','','',38.0,'','2027-09-30','Gas MPRN: Utility = gas. Unit + Standing only.'],
-        ['1WA123456789','Example Water Co','water','','','','','','','','','','','','2027-04-01','Water SPID: Utility = water. Rates optional.']
+        ['1050002996278','Touchwood Solihull','18 Jubilee Walk, Touchwood, Solihull, B91 3HT','B91 3HT','E14Z005424','Marble Power','electricity','HH','10','072',120,380280,'',21.48,18.20,'',794.0,6.25,'2026-09-30','Day/Night (2-rate): fill Day + Night, leave Unit blank.'],
+        ['1234567890123','Example Site','1 Example Street, Exampletown, EX1 1AA','EX1 1AA','','Example Supplier','electricity','NHH','11','123','',25000,12.50,'','','',45.0,'','2027-03-31','Single rate: fill Unit only.'],
+        ['9876543210987','Example Site','1 Example Street, Exampletown, EX1 1AA','EX1 1AA','','Example Supplier','electricity','HH','12','456',200,500000,'',24.10,15.80,9.90,610.0,7.00,'2028-01-31','3-rate: Day + Night + Evening/Weekend.'],
+        ['9123456','Example Site','1 Example Street, Exampletown, EX1 1AA','EX1 1AA','','Example Gas Co','gas','','','','',300000,6.20,'','','',38.0,'','2027-09-30','Gas MPRN: Utility = gas. Unit + Standing only.'],
+        ['1WA123456789','Example Site','1 Example Street, Exampletown, EX1 1AA','EX1 1AA','','Example Water Co','water','','','','','','','','','','','','2027-04-01','Water SPID: Utility = water. Rates optional.']
       ];
       var ws = XLSX.utils.aoa_to_sheet([BK_TEMPLATE_COLS].concat(examples));
       ws['!cols'] = BK_TEMPLATE_COLS.map(function(){ return { wch:18 }; });
@@ -3363,6 +3400,10 @@
             supply_type:(function(v){ v=(''+v).trim().toUpperCase(); return (v==='HH'||v==='NHH')?v:null; })(pick(r,['supplytype'])),
             area_code:(''+pick(r,['areadnocode','areacode','area','dnocode'])).trim()||null,
             llfc:(''+pick(r,['llfc'])).trim()||null,
+            site_name:(''+pick(r,['sitename','site'])).trim()||null,
+            site_address:(''+pick(r,['siteaddress','address','fulladdress'])).trim()||null,
+            postcode:(''+pick(r,['postcode','postalcode'])).trim().toUpperCase()||null,
+            meter_serial:(''+pick(r,['meterserial','meterserialnumber','serial','msn'])).trim()||null,
             agreed_kva:num(pick(r,['agreedkva','kva'])),
             est_annual_consumption:num(pick(r,['eackwhyr','eac','eackwh'])),
             current_unit_rate:num(pick(r,['unitratepkwh','unitrate'])),
@@ -3474,6 +3515,10 @@
               supply_type: (function(v){ v = ('' + v).trim().toUpperCase(); return (v === 'HH' || v === 'NHH') ? v : null; })(pick(r,['supplytype'])),
               area_code: ('' + pick(r,['areadnocode','areacode','area','dnocode'])).trim() || null,
               llfc: ('' + pick(r,['llfc'])).trim() || null,
+              site_name: ('' + pick(r,['sitename','site'])).trim() || null,
+              site_address: ('' + pick(r,['siteaddress','address','fulladdress'])).trim() || null,
+              postcode: ('' + pick(r,['postcode','postalcode'])).trim().toUpperCase() || null,
+              meter_serial: ('' + pick(r,['meterserial','meterserialnumber','serial','msn'])).trim() || null,
               agreed_kva: num(pick(r,['agreedkva','kva'])),
               est_annual_consumption: num(pick(r,['eackwhyr','eac','eackwh'])),
               current_unit_rate: num(pick(r,['unitratepkwh','unitrate'])),
@@ -7852,17 +7897,19 @@
       wrap.innerHTML = '<div class="empty-state" style="padding:14px;">Loading meters…</div>';
       // Again no broker filter: RLS scopes it.
       var mr = await sb.from('meters')
-        .select('id, mpan, utility, supply_type, supplier, current_day_rate, current_night_rate, current_eveweekend_rate')
+        .select('id, mpan, utility, supply_type, supplier, site_address, postcode, current_day_rate, current_night_rate, current_eveweekend_rate')
         .eq('customer_id', cid).order('utility').order('mpan');
       if (mr.error) { console.error('cot meters', mr.error); wrap.innerHTML = '<div class="empty-state" style="padding:14px;">Could not load meters. Add them manually below.</div>'; return; }
-      // sites gives an address for only a handful of meters (78 rows across 4 customers,
-      // and it never joins for gas or water), so this is a prefill, not a lookup.
+      // The address lives on the meter (loaded from the UC portfolio export). sites is kept
+      // as a fallback for the older billing customers whose addresses only exist there.
       var sr = await sb.from('sites').select('utility, identifier, site_address').eq('customer_id', cid);
       var addr = {};
       (sr.data || []).forEach(function(s){ if (s.identifier) addr[String(s.identifier)] = s.site_address || ''; });
       _cot.meters = (mr.data || []).map(function(m){
         return { id: m.id, identifier: String(m.mpan || ''), utility: m.utility, supply_type: m.supply_type || '',
-                 supplier: m.supplier || '', site_address: addr[String(m.mpan || '')] || '',
+                 supplier: m.supplier || '',
+                 site_address: (m.site_address || addr[String(m.mpan || '')] || ''),
+                 postcode: (m.postcode || ''),
                  rate_structure: cotGuessRate(m) };
       });
       _cot.picked = {};
@@ -8169,7 +8216,7 @@
                    reads: cotReadArr('p:' + m.id, n),
                    read_date: rd.date || null,
                    site_address: m.site_address || rd.addr || '',
-                   postcode: rd.postcode || '' });
+                   postcode: rd.postcode || m.postcode || '' });
       });
       _cot.manual.forEach(function(r){
         if (!String(r.identifier || '').trim()) return;
