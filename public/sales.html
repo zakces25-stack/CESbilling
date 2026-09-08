@@ -1971,13 +1971,71 @@
               <div id="cotSupplierNote" style="margin-top:14px;"></div>
             </div>
 
-            <!-- 3. The change -->
+            <!-- 3. What came back from the customer -->
+            <!--
+              The point of the whole flow. The customer returns the Word form we sent, this
+              reads its table cells exactly -- CES generated the document, so nothing here is
+              guesswork or OCR -- and fills in the rest of this screen. Which leaves the broker
+              two decisions: attach the proof, and confirm which side we act for.
+            -->
+            <div class="card" style="margin-bottom:16px;border-left:3px solid #243b8f;">
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">3. What the customer sent back</h3>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">
+                Attach the completed form and we read it. Everything on it fills in below, so you
+                should not have to retype any of it.
+              </p>
+              <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                <label class="btn-primary" style="width:auto;padding:10px 16px;cursor:pointer;display:inline-block;">&#8679; Attach completed CES COT Form
+                  <input type="file" id="cotCesFormFiles" multiple accept=".docx,.pdf,.doc,.jpg,.jpeg,.png,.heic,.tif,.tiff" style="display:none;" onchange="cotFileList('cesform')" />
+                </label>
+                <span id="cotParseBusy" style="font-size:12.5px;color:var(--muted);"></span>
+              </div>
+              <div id="cotCesFormList" style="font-size:12.5px;margin-top:10px;"></div>
+              <div id="cotParseOut" style="margin-top:12px;"></div>
+
+              <div style="border-top:1px solid #e6e9f4;margin:18px 0 14px;"></div>
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Legal proof of occupation <span style="color:#9b2226;font-weight:700;">&mdash; required</span></h3>
+              <p style="font-size:12.5px;color:var(--navy);font-weight:700;margin-bottom:4px;">Signed by BOTH parties, every page.</p>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Lease, TR1 / transfer deed, licence to occupy, or a solicitor&rsquo;s completion letter. 27 of the 28 suppliers make it mandatory and it is the commonest reason a COT is rejected. If there genuinely is no lease, ring the COT team rather than sending a request they cannot use.</p>
+              <label class="btn-primary" style="width:auto;padding:10px 16px;cursor:pointer;display:inline-block;">&#8679; Attach legal proof of occupation
+                <input type="file" id="cotProofFiles" multiple accept=".pdf,.jpg,.jpeg,.png,.heic,.tif,.tiff,.doc,.docx" style="display:none;" onchange="cotFileList('proof')" />
+              </label>
+              <div id="cotProofList" style="font-size:12.5px;margin-top:10px;"></div>
+
+              <div style="border-top:1px solid #e6e9f4;margin:18px 0 14px;"></div>
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Which side is our customer?</h3>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px;">
+                Read off the form where we can. Never guessed: a near miss is left for you.
+              </p>
+              <div id="cotSideOut"></div>
+            </div>
+
+            <!--
+              Everything the returned form can answer for itself. Folded away by default and
+              opened automatically when the parse could not answer something the submission
+              needs, so the common path is: pick the customer, tick a meter, attach the form
+              and the proof, confirm the side, submit.
+            -->
+            <details id="cotDetails" style="margin-bottom:16px;">
+              <summary style="cursor:pointer;font-size:13.5px;font-weight:800;color:var(--navy);padding:12px 14px;
+                              background:#fff;border:1.5px solid #e6e9f4;border-radius:10px;list-style:none;">
+                Review the details &mdash; the change, attachments, notes
+                <span style="font-weight:600;color:var(--muted);"> (opens itself if something is missing)</span>
+              </summary>
+              <div style="padding-top:12px;">
+            <!-- 4. The change -->
             <div class="card" style="margin-bottom:16px;">
-              <h3 style="font-size:14px;font-weight:800;margin-bottom:14px;">3. The change</h3>
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:14px;">4. The change</h3>
               <div style="display:flex;gap:14px;flex-wrap:wrap;">
-                <div class="form-group" style="min-width:220px;flex:1;">
+                <!--
+                  Still the value the submit reads, so nothing downstream changed. Hidden
+                  because section 3 now asks the same question against the evidence from the
+                  returned form, and two controls for one answer is how they end up
+                  disagreeing.
+                -->
+                <div class="form-group" style="display:none;">
                   <label>Our customer is</label>
-                  <select id="cotRepresenting" onchange="cotRenderParties()">
+                  <select id="cotRepresenting" onchange="cotRenderParties(); cotSideRender();">
                     <option value="">— select —</option>
                     <option value="incoming">Incoming (moving in)</option>
                     <option value="outgoing">Outgoing (moving out)</option>
@@ -2027,34 +2085,19 @@
               </div>
             </div>
 
-            <!-- 4. Evidence -->
+            <!-- 5. Anything else to attach -->
             <div class="card" style="margin-bottom:16px;">
-              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">4. CES Change of Tenancy Form <span style="color:var(--muted);font-weight:600;">— optional</span></h3>
-              <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Optional, but worth chasing. The customer’s own copy carries the <strong>forwarding address</strong> for the outgoing party’s final bill and the contact details for both sides. We now build a CES COT form for every request from what you enter here, so this one fills the gaps we cannot know. If the customer has not sent it back, submit without it.</p>
-              <label class="btn-primary" style="width:auto;padding:9px 14px;cursor:pointer;display:inline-block;">&#8679; Attach the CES COT form
-                <input type="file" id="cotCesFormFiles" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.heic,.tif,.tiff" style="display:none;" onchange="cotFileList('cesform')" />
-              </label>
-              <div id="cotCesFormList" style="font-size:12.5px;margin-top:10px;"></div>
-              <div style="border-top:1px solid #e6e9f4;margin:18px 0 14px;"></div>
-              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Proof of occupation <span style="color:#9b2226;font-weight:700;">— required</span></h3>
-              <p style="font-size:12.5px;color:var(--navy);font-weight:700;margin-bottom:4px;">Signed by BOTH parties, every page.</p>
-              <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Lease, TR1 / transfer deed, licence to occupy, or a solicitor’s completion letter. <strong>Required — you cannot submit without it.</strong> 27 of the 28 suppliers we deal with make it mandatory and it is the commonest reason a COT is rejected. If there is genuinely no lease, ring the COT team rather than sending a request they cannot use.</p>
-              <label class="btn-primary" style="width:auto;padding:9px 14px;cursor:pointer;display:inline-block;">&#8679; Attach proof of occupation
-                <input type="file" id="cotProofFiles" multiple accept=".pdf,.jpg,.jpeg,.png,.heic,.tif,.tiff,.doc,.docx" style="display:none;" onchange="cotFileList('proof')" />
-              </label>
-              <div id="cotProofList" style="font-size:12.5px;margin-top:10px;"></div>
-              <div style="border-top:1px solid #e6e9f4;margin:18px 0 14px;"></div>
-              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Anything else to attach</h3>
-              <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">Optional. A newer LOA, a supplier form the customer has already signed, meter photos. We hold 1,386 LOAs, so do not go hunting for one — we look it up and only come back to you on a miss.</p>
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">5. Anything else to attach <span style="color:var(--muted);font-weight:600;">&mdash; optional</span></h3>
+              <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">A newer LOA, a supplier form the customer has already signed, meter photos. We hold 1,386 LOAs, so do not go hunting for one &mdash; we look it up and only come back to you on a miss.</p>
               <label class="btn-secondary" style="width:auto;padding:9px 14px;cursor:pointer;display:inline-block;">&#8679; Attach other documents
                 <input type="file" id="cotExtraFiles" multiple style="display:none;" onchange="cotFileList('extra')" />
               </label>
               <div id="cotExtraList" style="font-size:12.5px;margin-top:10px;"></div>
             </div>
 
-            <!-- 5. Anything else -->
+            <!-- 6. Anything else -->
             <div class="card" style="margin-bottom:16px;">
-              <h3 style="font-size:14px;font-weight:800;margin-bottom:14px;">5. Anything else</h3>
+              <h3 style="font-size:14px;font-weight:800;margin-bottom:14px;">6. Anything else</h3>
               <div style="display:flex;gap:14px;flex-wrap:wrap;">
                 <div class="form-group" style="min-width:200px;flex:1;"><label>Landlord name <span style="font-weight:400;color:var(--muted);">(optional)</span></label><input type="text" id="cotLandlordName" /></div>
                 <div class="form-group" style="min-width:200px;flex:1;"><label>Landlord contact <span style="font-weight:400;color:var(--muted);">(optional)</span></label><input type="text" id="cotLandlordContact" placeholder="Phone or email" /></div>
@@ -2068,6 +2111,9 @@
               </label>
               <div class="form-group" id="cotUrgentWrap" style="display:none;margin-top:12px;"><label>What is the rate situation?</label><input type="text" id="cotUrgentReason" placeholder="e.g. out of contract since 01/07, 42p/kWh" /></div>
             </div>
+
+              </div>
+            </details>
 
             <div class="card" style="margin-bottom:16px;">
               <div id="cotPreflight" style="margin-bottom:14px;"></div>
@@ -8383,6 +8429,218 @@
       }
     }
 
+    // ── 3. reading the form the customer sent back ───────────────────────────────────
+    //
+    // The Word copy is read EXACTLY: CES generated the document, so cot-fill pulls the values
+    // straight out of its table cells. No OCR, no model, no guessing. A PDF or a photo comes
+    // back `needs_model: true` and the broker fills the rest in by hand, which is honest
+    // rather than confidently wrong.
+    //
+    // What arrives is written into the fields lower down this page rather than kept in a
+    // parallel copy, so the submit path is exactly the one that was already tested. A broker
+    // who disagrees with something the form said just types over it.
+    var _cotParsed = null;
+
+    function cotSideSet(v){
+      var sel = document.getElementById('cotRepresenting');
+      if (sel && sel.value !== v) { sel.value = v; cotRenderParties(); }
+      cotSideRender();
+    }
+
+    /** The side picker, and the evidence for whatever it is showing. */
+    function cotSideRender(){
+      var host = document.getElementById('cotSideOut');
+      if (!host) return;
+      var sel = document.getElementById('cotRepresenting');
+      var cur = sel ? sel.value : '';
+      var ours = _cotParsed && _cotParsed.ours;
+
+      var opts = [['outgoing', 'We act for the OUTGOING party (moving out)'],
+                  ['incoming', 'We act for the INCOMING party (moving in)'],
+                  ['both', 'Both &mdash; a group restructure']];
+      var radios = opts.map(function(o){
+        var on = cur === o[0];
+        var sug = ours && ours.side === o[0];
+        return '<label style="display:flex;align-items:flex-start;gap:9px;padding:9px 11px;margin-bottom:6px;' +
+          'border:1.5px solid ' + (on ? 'var(--navy)' : '#e6e9f4') + ';border-radius:8px;cursor:pointer;' +
+          'background:' + (on ? '#f7f9ff' : '#fff') + ';">' +
+          '<input type="radio" name="cotSide" value="' + o[0] + '"' + (on ? ' checked' : '') +
+            ' onchange="cotSideSet(\'' + o[0] + '\')" style="margin-top:2px;" />' +
+          '<span style="font-size:13px;font-weight:700;color:var(--navy);">' + o[1] +
+          (sug ? ' <span style="font-weight:600;color:#3d6b1f;">&mdash; read off the form</span>' : '') +
+          '</span></label>';
+      }).join('');
+
+      var note = '';
+      if (ours && ours.side && cur && cur !== ours.side) {
+        note = '<div style="font-size:12.5px;color:#8b2015;margin-top:2px;"><strong>This disagrees with the form.</strong> ' +
+               escapeHtml(ours.why) + ' You have picked the ' + escapeHtml(cur) +
+               ' side. One of the two is wrong, and a COT filed against the wrong party gets ' +
+               'rejected or, worse, moves the meter onto deemed rates.</div>';
+      } else if (ours && ours.verdict === 'exact') {
+        note = '<div style="font-size:12.5px;color:#3d6b1f;margin-top:2px;">' + escapeHtml(ours.why) + '</div>';
+      } else if (ours && ours.verdict === 'variant') {
+        note = '<div style="font-size:12.5px;color:#8a5a00;margin-top:2px;"><strong>Check this one.</strong> ' +
+               escapeHtml(ours.why) + '</div>';
+      } else if (ours) {
+        note = '<div style="font-size:12.5px;color:#8b2015;margin-top:2px;">' + escapeHtml(ours.why) + '</div>';
+      }
+      host.innerHTML = radios + note;
+    }
+
+    async function cotParseAttached(){
+      var f = (_cot.files.cesform || [])[0];
+      var busy = document.getElementById('cotParseBusy');
+      var out = document.getElementById('cotParseOut');
+      if (!f) { _cotParsed = null; if (out) out.innerHTML = ''; cotSideRender(); return; }
+      if (busy) busy.textContent = 'Reading the form…';
+      if (out) out.innerHTML = '';
+      try {
+        // 12MB of base64 is the function's cap; a scan bigger than that is a scan, not a form.
+        var b64 = await new Promise(function(res, rej){
+          var r = new FileReader();
+          r.onload = function(){ res(String(r.result).split(',')[1] || ''); };
+          r.onerror = function(){ rej(new Error('could not read that file')); };
+          r.readAsDataURL(f);
+        });
+        var r = await sb.functions.invoke('cot-fill', { body: {
+          mode: 'parse', filename: f.name, file_b64: b64, customer_id: _cot.cid || ''
+        } });
+        if (r.error) throw new Error(r.error.message || 'cot-fill failed');
+        var d = r.data || {};
+        if (!d.ok) throw new Error(d.error || 'the form could not be read');
+        _cotParsed = d;
+
+        if (d.needs_model) {
+          out.innerHTML = '<div class="card" style="border-left:3px solid #b5840a;padding:11px 13px;margin:0;font-size:12.5px;">' +
+            escapeHtml(d.why) + ' Fill in section 4 yourself.</div>';
+          cotSideRender();
+          cotOpenDetails(true);
+          return;
+        }
+        if (d.looks_unfilled) {
+          out.innerHTML = '<div class="card" style="border-left:3px solid #8b2015;padding:11px 13px;margin:0;font-size:12.5px;">' +
+            '<strong>That looks like the blank form.</strong> Nothing has been filled in on it &mdash; check the ' +
+            'customer sent their completed copy back rather than the one you sent them.</div>';
+          cotSideRender();
+          cotOpenDetails(true);
+          return;
+        }
+
+        _cotReadNote = '';
+        var applied = cotApplyParsed(d.parsed || {});
+        // Set the side ONLY if nobody has chosen one. A broker's explicit pick is never
+        // overwritten -- but if the form contradicts it, cotSideRender says so rather than
+        // letting the two sit there disagreeing in silence.
+        var sel = document.getElementById('cotRepresenting');
+        if (sel && !sel.value && d.ours && d.ours.side) {
+          sel.value = d.ours.side;
+          cotRenderParties();
+          applied.push('which side we act for');
+        }
+        out.innerHTML = '<div class="card" style="border-left:3px solid #7ab800;padding:11px 13px;margin:0;font-size:12.5px;">' +
+          '<strong>Read ' + (d.fields_found || 0) + ' answer' + ((d.fields_found === 1) ? '' : 's') +
+          ' off the form.</strong>' +
+          (applied.length ? ' Filled in for you: ' + applied.map(escapeHtml).join(', ') + '.' : '') +
+          (_cotReadNote ? '<br><span style="color:#8a5a00;">' + escapeHtml(_cotReadNote) + '</span>' : '') +
+          '<br><span style="color:var(--muted);">Everything is editable below if the customer got something wrong.</span></div>';
+        cotSideRender();
+        // Only open the rest of the screen if the parse left a hole in it.
+        cotOpenDetails(!cotParsedIsComplete());
+        cotPreflight();
+      } catch (e) {
+        console.error('cotParseAttached', e);
+        _cotParsed = null;
+        if (out) out.innerHTML = '<div class="card" style="border-left:3px solid #8b2015;padding:11px 13px;margin:0;font-size:12.5px;">' +
+          'Could not read that form: ' + escapeHtml(e.message || String(e)) +
+          '. Fill in section 4 by hand and carry on &mdash; this does not block the submission.</div>';
+        cotSideRender();
+        cotOpenDetails(true);
+      } finally {
+        if (busy) busy.textContent = '';
+      }
+    }
+
+    /**
+     * Write what the form said into the fields below.
+     *
+     * Only into EMPTY fields, and never over something the broker has typed: they are sitting
+     * in front of the screen and the customer is not. Returns the labels it filled so the
+     * broker can see what moved without hunting for it.
+     */
+    function cotApplyParsed(pz){
+      var MAP = [
+        ['cotChangeover',      cotIsoDate(pz.changeover_date), 'changeover date'],
+        ['cotSiteAddress',     pz.site_address,      'site address'],
+        ['cotPostcode',        pz.site_postcode,     'postcode'],
+        ['cotForwarding',      pz.forwarding_address,'forwarding address'],
+        ['cotIncoming',        pz.incoming_party,    'incoming party'],
+        ['cotOutgoing',        pz.outgoing_party,    'outgoing party'],
+        ['cotCompanyNo',       pz.company_number,    'company number'],
+        ['cotContactName',     '',                   ''],
+      ];
+      var done = [];
+      MAP.forEach(function(m){
+        if (!m[1] || !m[2]) return;
+        var el = document.getElementById(m[0]);
+        if (!el || String(el.value || '').trim()) return;      // never over a person's typing
+        el.value = m[1];
+        done.push(m[2]);
+      });
+      // ── the meter read ──────────────────────────────────────────────────────────────
+      //
+      // The form has ONE Meter Read row for the whole COT, so it can only be placed when
+      // exactly one supply is ticked. With two supplies there is no way to know which read
+      // belongs to which meter, and putting a gas read on an electricity meter is worse than
+      // leaving the box empty -- so it says so instead of guessing.
+      var read = String(pz.meter_read || '').trim();
+      if (read && !/^smart|remote/i.test(read)) {
+        var picked = cotSelectedMeters();
+        if (picked.length === 1 && picked[0].meter_id) {
+          var key = 'p:' + picked[0].meter_id;
+          if (!(cotRd(key).reads || []).some(function(x){ return String(x || '').trim(); })) {
+            cotRdSet(key, 0, read);
+            if (pz.read_date || pz.changeover_date) {
+              cotRdDate(key, cotIsoDate(pz.read_date || pz.changeover_date));
+            }
+            cotRenderMeterPick();
+            done.push('meter read');
+          }
+        } else if (picked.length > 1) {
+          _cotReadNote = 'The form gives one meter read (' + read + ') and you have ' +
+                         picked.length + ' supplies ticked, so put it against the right meter ' +
+                         'yourself in section 2.';
+        }
+      }
+
+      // The contact block belongs to whichever side we act for, and the form gives us both.
+      // Deferred until the side is settled, because writing the wrong party's contact in is
+      // the mistake the whole side question exists to avoid.
+      return done;
+    }
+    var _cotReadNote = '';
+
+    /** dd/mm/yyyy off the form, yyyy-mm-dd for an <input type="date">. */
+    function cotIsoDate(v){
+      var m = String(v || '').trim().match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+      if (!m) return /^\d{4}-\d{2}-\d{2}$/.test(String(v || '').trim()) ? String(v).trim() : '';
+      var y = m[3].length === 2 ? '20' + m[3] : m[3];
+      return y + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2);
+    }
+
+    /** Did the form answer everything the submission needs? */
+    function cotParsedIsComplete(){
+      var p = (_cotParsed && _cotParsed.parsed) || {};
+      var sel = document.getElementById('cotRepresenting');
+      return !!(p.changeover_date && (p.outgoing_party || p.incoming_party) &&
+                sel && sel.value);
+    }
+
+    function cotOpenDetails(open){
+      var d = document.getElementById('cotDetails');
+      if (d) d.open = !!open;
+    }
+
     function cotSupplierNote(){
       var el = document.getElementById('cotSupplierNote');
       var groups = cotGroupBySupplier(cotSelectedMeters());
@@ -8445,12 +8703,19 @@
       var input = document.getElementById(INPUTS[which]);
       _cot.files[which] = Array.prototype.slice.call(input.files || []);
       var el = document.getElementById(LISTS[which]);
-      if (!_cot.files[which].length) { el.innerHTML = ''; cotPreflight(); return; }
+      if (!_cot.files[which].length) {
+        el.innerHTML = ''; cotPreflight();
+        if (which === 'cesform') cotParseAttached();
+        return;
+      }
       var tot = _cot.files[which].reduce(function(s, f){ return s + f.size; }, 0);
       el.innerHTML = _cot.files[which].map(function(f){
         return '<div>&#128196; ' + escapeHtml(f.name) + ' <span style="color:var(--muted);">(' + (f.size / 1048576).toFixed(1) + ' MB)</span></div>';
       }).join('') + '<div style="color:var(--muted);margin-top:4px;">' + _cot.files[which].length + ' file(s), ' + (tot / 1048576).toFixed(1) + ' MB total</div>';
       cotPreflight();
+      // Reading the returned form is what fills the rest of this screen in, so it starts the
+      // moment the file is attached rather than waiting for a button nobody would press.
+      if (which === 'cesform') cotParseAttached();
     }
 
     // ── preflight: advisory, never blocks except where a supplier truly will ─────────
@@ -8459,6 +8724,7 @@
       // every handler that can change them. Guarded so a preflight from the submit path or
       // cotInit cannot throw on a form that is not rendered yet.
       try { cotDlRender(); } catch (e) { console.warn('cotDlRender:', e); }
+      try { cotSideRender(); } catch (e) { console.warn('cotSideRender:', e); }
       var el = document.getElementById('cotPreflight');
       if (!el) return { stop: [], warn: [] };
       // Guard every lookup. cotPreflight is reachable from cotShowForm, cotInit, the field
@@ -8922,7 +9188,10 @@
       var rep = document.getElementById('cotRepresenting'); if (rep) rep.value = '';
       var u = document.getElementById('cotUrgent'); if (u) u.checked = false;
       ['cotCesFormFiles','cotProofFiles','cotExtraFiles'].forEach(function(id){ var e = document.getElementById(id); if (e) e.value = ''; });
-      ['cotCesFormList','cotProofList','cotExtraList','cotCustState','cotSupplierNote','cotPartiesWrap'].forEach(function(id){ var e = document.getElementById(id); if (e) e.innerHTML = ''; });
+      ['cotCesFormList','cotProofList','cotExtraList','cotCustState','cotSupplierNote','cotPartiesWrap',
+       'cotParseOut','cotDlWrap','cotDlMsg'].forEach(function(id){ var e = document.getElementById(id); if (e) e.innerHTML = ''; });
+      _cotParsed = null; _cotDlSig = null;
+      cotOpenDetails(false);
       cotToggleUrgent(); cotRenderMeterPick(); cotRenderManualMeters();
       if (!silent) { /* keep the success box visible */ } else { var o = document.getElementById('cotOk'), x = document.getElementById('cotErr'); if (o) o.style.display = 'none'; if (x) x.style.display = 'none'; }
       cotPreflight();

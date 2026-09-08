@@ -267,6 +267,10 @@
       font-family: Arial, Helvetica, sans-serif; color: #8a5a00; background: rgba(251,191,36,0.22);
       border-bottom: 1px solid var(--warn); overflow: hidden; white-space: nowrap; line-height: 1; }
     .pdfpage .pv.db { color: #0b6b7a; background: rgba(34,211,238,0.18); border-bottom-color: var(--cyan); font-style: italic; }
+    /* A tick box is square and small, so it gets a full outline and a centred mark rather
+       than the underlined text bar the value boxes use. */
+    .pdfpage .pv.tickpv { justify-content: center; border: 1.5px solid var(--warn);
+      border-radius: 2px; font-weight: 800; }
     .pdfnum { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--muted);
       text-align: center; margin: -8px 0 12px; }
 
@@ -1670,16 +1674,27 @@ function geoBoxes(form) {
   if (!form) return [];
   let out;
   if (form.mechanism === 'pdf_acroform') {
-    out = (form.fields || [])
-      .filter((f) => f.type !== 'CheckBox' && f.type !== 'RadioButton')
-      .map((f) => ({ id: f.id, label: f.label_unique || f.name || f.id, page: f.page || 0,
-                     name: f.name, rect: f.rect || null }));
+    // A check box is a FIELD, and a field can own several widgets. Corona's form names two
+    // boxes "Occupied" -- the Yes and the No of one question -- so setting the field ticks
+    // BOTH. cot-fill refuses that; the count is carried here so the desk sees a disabled box
+    // with the reason on it rather than clicking something that will bounce.
+    const shared = {};
+    (form.fields || []).forEach((f) => {
+      if (f.type === 'CheckBox' || f.type === 'RadioButton') shared[f.name] = (shared[f.name] || 0) + 1;
+    });
+    out = (form.fields || []).map((f) => {
+      const tick = f.type === 'CheckBox' || f.type === 'RadioButton';
+      return { id: f.id, label: f.label_unique || f.name || f.id, page: f.page || 0,
+               name: f.name, rect: f.rect || null,
+               kind: tick ? 'tick' : 'text',
+               locked: tick && shared[f.name] > 1 ? shared[f.name] : 0 };
+    });
   } else {
     out = (form.rows || []).flatMap((r) =>
       (r.value_cells || []).map((c, i) => ({ c, i }))
         .filter((z) => !z.c.label_in_cell)
         .map((z) => ({ id: `${r.id}c${z.i}`, label: r.label_unique || r.id, page: r.page || 0,
-                       name: null, rect: z.c.rect || null })));
+                       name: null, rect: z.c.rect || null, kind: 'text', locked: 0 })));
   }
   // `ord` keeps the geometry's own order as the tie-break, so two boxes on the same line
   // stay in the order the form was mapped in.
@@ -1872,15 +1887,28 @@ async function renderBoxes(seq) {
     return;
   }
 
+  // Tick state lives in run.ticks, not in `written` -- `written` is where a tick lands
+  // AFTER it has been drawn, and the boxes the machine never touched have no entry at all.
+  const tickState = {};
+  ((run && run.ticks) || []).forEach((t) => { if (t && t.id) tickState[t.id] = t.state === 'on'; });
+
   BOXES = boxes.map((b) => {
+    if (b.kind === 'tick') {
+      const on = !!tickState[b.id];
+      const w = written.find((x) => x.kind === 'tick' && x.id === b.id);
+      return { ...b, on, value: on ? 'on' : 'off', source: w ? (w.source || '') : '',
+               confidence: w ? w.confidence : null, blank: !(b.id in tickState) };
+    }
     const w = byId[b.id];
     return { ...b, value: w ? String(w.value ?? '') : '', source: w ? (w.source || '') : '',
              confidence: w ? w.confidence : null, blank: !w };
   });
-  ORIG = {}; BOXES.forEach((b) => { ORIG[b.id] = b.value; });
+  ORIG = {}; BOXES.forEach((b) => { ORIG[b.id] = b.kind === 'tick' ? (b.on ? 'on' : 'off') : b.value; });
 
   const shown = BLANKS_ONLY ? BOXES.filter((b) => b.blank) : BOXES;
-  $('boxCount').textContent = `${BOXES.length} boxes · ${BOXES.filter((b) => b.blank).length} blank`;
+  const nTick = BOXES.filter((b) => b.kind === 'tick').length;
+  $('boxCount').textContent = `${BOXES.length} boxes · ${BOXES.filter((b) => b.blank).length} blank`
+    + (nTick ? ` · ${nTick} tick box${nTick === 1 ? '' : 'es'}` : '');
   $('btnBoxBlank').textContent = BLANKS_ONLY ? 'Show every box' : 'Show blanks only';
 
   list.innerHTML = shown.map((b) => `
@@ -1889,8 +1917,16 @@ async function renderBoxes(seq) {
         <span class="lbl">${esc(b.label)}</span>
         <span class="pg">p${(b.page || 0) + 1}</span>
       </div>
+      ${b.kind === 'tick' ? `
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;${b.locked ? 'opacity:.55;' : 'cursor:pointer;'}">
+        <input type="checkbox" data-bid="${esc(b.id)}" data-tick="1" ${b.on ? 'checked' : ''}
+               ${b.locked ? 'disabled' : ''} style="width:16px;height:16px;" />
+        <span>${b.locked
+          ? `Shared with ${b.locked - 1} other box on this form &mdash; tick it by hand`
+          : (b.on ? 'Ticked' : 'Not ticked')}</span>
+      </label>` : `
       <input type="text" data-bid="${esc(b.id)}" value="${esc(b.value)}"
-             placeholder="${b.blank ? 'blank' : ''}" />
+             placeholder="${b.blank ? 'blank' : ''}" />`}
       <div class="src" data-src="${esc(b.id)}">${esc(b.source || (b.blank ? 'nothing written' : ''))}${
         b.confidence && b.confidence !== 'high' ? ' · ' + esc(b.confidence) + ' confidence' : ''}</div>
     </div>`).join('') || '<p style="padding:14px 16px;color:var(--muted);font-size:13px;">No boxes to show.</p>';
@@ -1900,6 +1936,17 @@ async function renderBoxes(seq) {
   });
   [...list.querySelectorAll('input[data-bid]')].forEach((i) => {
     i.onfocus = () => selectBox(i.dataset.bid);
+    if (i.dataset.tick) {
+      i.onchange = () => {
+        const now = i.checked ? 'on' : 'off';
+        i.classList.toggle('edited', now !== (ORIG[i.dataset.bid] || 'off'));
+        const lab = i.parentNode.querySelector('span');
+        if (lab) lab.textContent = i.checked ? 'Ticked' : 'Not ticked';
+        selectBox(i.dataset.bid);
+        pending();
+      };
+      return;
+    }
     i.oninput = () => {
       i.classList.remove('fromai');
       i.classList.toggle('edited', i.value !== (ORIG[i.dataset.bid] || ''));
@@ -1938,9 +1985,21 @@ async function loadCesBoxes() {
 }
 
 /** How many boxes are changed but not written, said out loud next to the Save button. */
+/**
+ * What a box control currently says, for either kind.
+ *
+ * A checkbox's `.value` is the string "on" whether or not it is checked -- that is the HTML
+ * spec, not a quirk -- so reading `.value` on a tick box makes every unticked box look
+ * permanently edited and paints an amber "on" over the page. Read `.checked`.
+ */
+function boxNow(i) {
+  return i.dataset.tick ? (i.checked ? 'on' : 'off') : String(i.value);
+}
+
 function pending() {
   const n = [...document.querySelectorAll('#boxList input[data-bid]')]
-    .filter((i) => DBQ[i.dataset.bid] || i.value !== (ORIG[i.dataset.bid] || '')).length;
+    .filter((i) => !i.disabled &&
+                   (DBQ[i.dataset.bid] || boxNow(i) !== (ORIG[i.dataset.bid] || (i.dataset.tick ? 'off' : '')))).length;
   const el = $('boxPending');
   if (el) el.textContent = n ? `${n} unsaved change${n === 1 ? '' : 's'}, shown in amber on the page` : '';
   const btn = $('btnBoxSave');
@@ -1998,7 +2057,8 @@ function drawPreviews() {
   BOXES.forEach((b) => {
     const input = document.querySelector(`#boxList input[data-bid="${cssId(b.id)}"]`);
     const queued = DBQ[b.id];
-    if (!queued && (!input || input.value === (ORIG[b.id] || ''))) return;
+    const orig = ORIG[b.id] || (b.kind === 'tick' ? 'off' : '');
+    if (!queued && (!input || boxNow(input) === orig)) return;
     const pg = _pdfPages[b.page || 0];
     const rect = b.rect || (b.name && pg && pg.annots ? pg.annots[b.name] : null);
     if (!pg || !rect) return;
@@ -2006,12 +2066,13 @@ function drawPreviews() {
     const left = Math.min(r[0], r[2]), top = Math.min(r[1], r[3]);
     const w = Math.abs(r[2] - r[0]), h = Math.abs(r[3] - r[1]);
     const el = document.createElement('div');
-    el.className = 'pv' + (queued ? ' db' : '');
+    el.className = 'pv' + (queued ? ' db' : '') + (b.kind === 'tick' ? ' tickpv' : '');
     // cot-fill caps at 9pt and pads 3pt; close enough that what you see is where it lands.
     el.style.cssText = `left:${left}px;top:${top}px;width:${w}px;height:${h}px;` +
       `font-size:${Math.max(6, Math.min(9, h * 0.55) * pg.vp.scale)}px;` +
       `padding-left:${3 * pg.vp.scale}px;`;
-    el.textContent = queued ? `«${queued}»` : input.value;
+    // A tick preview is an outlined box, not the word "on" written into it.
+    el.textContent = b.kind === 'tick' ? (input.checked ? '✓' : '') : (queued ? `«${queued}»` : input.value);
     pg.el.appendChild(el);
   });
 }
@@ -2055,15 +2116,26 @@ async function pdfLoad(name) {
     // A copy, because pdf.js takes ownership of the buffer it is handed and the shrink tool
     // needs the original bytes afterwards.
     _pdfDoc = await lib.getDocument({ data: new Uint8Array(_pdfBytes).slice() }).promise;
-    await pdfPaint();
+    await pdfPaint(seq);
   } catch (e) {
     scroll.innerHTML = `<p style="color:var(--fail);font-size:13px;">Could not render it: ${esc(e.message || e)}</p>`;
   }
 }
 
-async function pdfPaint() {
+async function pdfPaint(seq) {
+  // The TICKET as well as the document.
+  //
+  // `_pdfDoc !== doc` alone is not enough. pdfLoad does pdfClose() (which nulls _pdfDoc),
+  // takes a ticket, and only later assigns _pdfDoc = doc. Leave the form inside that window
+  // and the tab-switch's pdfClose runs BEFORE the assignment, so by the time this paints,
+  // _pdfDoc === doc again and every guard passes: the pane fills with canvas that nobody
+  // can see and the rest of the document keeps rendering into a hidden tab -- which is the
+  // exact thing the comment in the loop below claims to prevent. It showed up as one test
+  // run in three finding three canvases left behind after leaving the form.
   const doc = _pdfDoc, scroll = $('pdfScroll');
   if (!doc) return;
+  const stale = () => (seq !== undefined && seq !== _pdfSeq) || _pdfDoc !== doc;
+  if (stale()) return;
   const total = Math.min(doc.numPages, PDF_MAX_PAGES);
   const avail = Math.max(280, (scroll.clientWidth || 700) - 30);
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -2075,9 +2147,9 @@ async function pdfPaint() {
     // while a page was being fetched let this iteration carry on and append a canvas to a
     // pane that had already been emptied, so the document was never really released and the
     // remaining pages kept rendering into a hidden tab.
-    if (_pdfDoc !== doc) return;                      // switched file or left the form
+    if (stale()) return;                              // switched file or left the form
     const page = await doc.getPage(n);
-    if (_pdfDoc !== doc) return;
+    if (stale()) return;
     const base = page.getViewport({ scale: 1 });
     const scale = (avail / base.width) * _zoom;
     const vp = page.getViewport({ scale });
@@ -2104,7 +2176,7 @@ async function pdfPaint() {
       // pdf.js rejects with RenderingCancelledException when the document is destroyed part
       // way through a page, which is exactly what leaving the form or picking another file
       // does. That is the teardown working, not a fault, and it must not surface as an error.
-      if (_pdfDoc !== doc || /cancel/i.test(String((e && e.name) || e))) return;
+      if (stale() || /cancel/i.test(String((e && e.name) || e))) return;
       throw e;
     }
 
@@ -2152,7 +2224,7 @@ function pdfFullscreen(on) {
   document.body.classList.toggle('zoomed', want);
   $('pdfFull').textContent = want ? 'Close full screen' : 'Full screen';
   // The pane is a different width now, so the page has to be laid out again.
-  if (_pdfDoc) setTimeout(() => pdfPaint().catch(() => { /* torn down mid-paint */ }), 30);
+  if (_pdfDoc) setTimeout(() => pdfPaint(_pdfSeq).catch(() => { /* torn down mid-paint */ }), 30);
 }
 
 // ── saving ───────────────────────────────────────────────────────────────────────────
@@ -2168,6 +2240,14 @@ async function saveBoxes() {
   const overrides = {};
   [...document.querySelectorAll('#boxList input[data-bid]')].forEach((i) => {
     const id = i.dataset.bid;
+    if (i.dataset.tick) {
+      if (i.disabled) return;                       // shared field: cot-fill would refuse it
+      // A BOOLEAN, deliberately. Sent as a string, every non-empty value would read as
+      // "ticked" -- including the word "no".
+      const now = i.checked ? 'on' : 'off';
+      if (now !== (ORIG[id] || 'off')) overrides[id] = i.checked;
+      return;
+    }
     if (DBQ[id]) { overrides[id] = { db_field: DBQ[id] }; return; }
     if (String(i.value) !== (ORIG[id] || '')) overrides[id] = i.value;
   });
@@ -2656,7 +2736,8 @@ $('btnFormBack').onclick = () => { if (CUR) { showView('cot'); } else { backToQu
 $('pdfPick').onchange = () => {
   const next = $('pdfPick').value;
   const n = [...document.querySelectorAll('#boxList input[data-bid]')]
-    .filter((i) => DBQ[i.dataset.bid] || i.value !== (ORIG[i.dataset.bid] || '')).length;
+    .filter((i) => !i.disabled &&
+                   (DBQ[i.dataset.bid] || boxNow(i) !== (ORIG[i.dataset.bid] || (i.dataset.tick ? 'off' : '')))).length;
   if (n && !confirm(`${n} unsaved change${n === 1 ? '' : 's'} on this form will be lost. Switch anyway?`)) {
     $('pdfPick').value = _pdfName;
     return;
@@ -2666,7 +2747,7 @@ $('pdfPick').onchange = () => {
 $('pdfOpen').onclick = () => { if (_pdfName) openDoc(_pdfName); };
 $('pdfShrink').onclick = shrinkCurrent;
 $('pdfFull').onclick = () => pdfFullscreen();
-const repaint = () => pdfPaint().catch(() => { /* the document went away mid-paint */ });
+const repaint = () => pdfPaint(_pdfSeq).catch(() => { /* the document went away mid-paint */ });
 $('pdfZoomIn').onclick = () => { _zoom = Math.min(2.5, _zoom + 0.25); repaint(); };
 $('pdfZoomOut').onclick = () => { _zoom = Math.max(0.5, _zoom - 0.25); repaint(); };
 $('btnBoxSave').onclick = saveBoxes;
