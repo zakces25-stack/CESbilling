@@ -6021,10 +6021,19 @@ function fxTTFromTargets(b){
   return out;
 }
 
+// Which month the row list is filtered to; '' means show everything. A filled curve runs
+// to dozens of rows, so finding the ones that cover a given month by scrolling is slow.
+// This only ever hides rows from VIEW — FX_TT is untouched, so the preview, the
+// over-baseload check and the save all still work on the whole scenario.
+let FX_TT_MONTH = '';
+// Does a row's period cover this month?
+function fxTTCovers(r, mo){ return !mo || (r.start_month <= mo && r.end_month >= mo); }
+
 function fxTargetWapModal(basket){
   const b = basket || currentBasket; if (!b) return;
   FX_TT      = (b.target_trades || []).map(t => Object.assign({}, t));
   FX_TT_ORIG = (b.target_trades || []).map(t => Object.assign({}, t));
+  FX_TT_MONTH = '';
   if (!FX_TT.length) FX_TT = fxTTFromTargets(b);
   fxModal(`<h3>Targeted WAPs — ${escape(b.name)}</h3>
   <div style="font-size:12px;color:#4b5563;margin:-8px 0 12px">What the WAP would be if <b>every target traded at exactly its target price</b> &mdash; the whole ladder, including targets already achieved, because real trades rarely land on the target price. This is a model only: it stands apart from the actual secured position and never touches real trades, hedge %, MtM or the Monday heat map. It fills the two Targeted columns on the right of the targets table.</div>
@@ -6032,12 +6041,21 @@ function fxTargetWapModal(basket){
     <button class="fx-btn green" onclick="fxTTAddRow()">+ Add row</button>
     <button class="fx-btn" onclick="fxTTFill()" title="Replace the rows below with one per priced target — achieved ones included — each using that target column's own volume rule">&#8635; Fill from targets</button>
     <button class="fx-btn danger" onclick="fxTTClear()" title="Remove every row (saving then clears the Targeted columns)">Clear all</button>
+    <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#4b5563">
+      <label for="fTW_filter"><b>Show rows covering</b></label>
+      <select id="fTW_filter" title="Show only the rows whose period includes this month — a row running Oct-26 to Mar-27 shows under any of those months" style="font-size:11.5px;padding:3px 5px;border:1.5px solid #d8dbe4;border-radius:6px;font-family:inherit;background:#fff">
+        <option value="">All months</option>
+        ${(b.months || []).map(m => `<option value="${m.month}">${fmtMonth(m.month)}</option>`).join('')}
+      </select></span>
   </div>
   <div id="fTW_rows"></div>
   <div id="fTW_prev"></div>
   <div class="fx-err" id="fxMErr"></div>
   <div class="fx-modal-foot"><button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
   <button class="fx-btn green" id="fTW_save" onclick="fxTTSave()">Save changes</button></div>`);
+  // The control lives outside #fTW_rows, so it survives every refresh and keeps its value.
+  const _f = document.getElementById('fTW_filter');
+  if (_f) _f.onchange = e => { FX_TT_MONTH = e.target.value; fxTTRefresh(b); };
   fxTTRefresh(b);
 }
 
@@ -6048,10 +6066,21 @@ function fxTTRefresh(b){
   const hdr = types.size === 1 ? `Amount (${fxTTUnit(b, [...types][0])})` : 'Amount';
   const mo = (b.months || []).map(m => m.month);
   const mSel = (val, cls, i) => `<select data-i="${i}" class="${cls}">${mo.map(x => `<option value="${x}"${x === val ? ' selected' : ''}>${fmtMonth(x)}</option>`).join('')}</select>`;
-  wrap.innerHTML = FX_TT.length
-    ? `<div class="fx-preview" style="max-height:320px"><table class="fx-tt-table">
+  // Carry each row's REAL position in FX_TT through the filter. Every handler below, and
+  // fxTTClone / fxTTDel, address rows by that index — renumbering them to their position
+  // in the filtered list would edit or delete the wrong row.
+  const view = FX_TT.map((r, i) => ({ r: r, i: i })).filter(x => fxTTCovers(x.r, FX_TT_MONTH));
+  const hiding = FX_TT.length - view.length;
+  const note = FX_TT_MONTH
+    ? `<div style="font-size:11.5px;color:#4b5563;margin:0 0 6px">Showing <b>${view.length}</b> of ${FX_TT.length} rows &mdash; those covering ${escape(fmtMonth(FX_TT_MONTH))}. The ${hiding} hidden row${hiding === 1 ? '' : 's'} ${hiding === 1 ? 'is' : 'are'} still part of the model and will still be saved.</div>`
+    : '';
+  wrap.innerHTML = !FX_TT.length
+    ? `<div style="font-size:12px;color:#9aa1ad;padding:10px 0">No scenario rows yet. Add one, or use "Fill from targets".</div>`
+    : !view.length
+    ? note + `<div style="font-size:12px;color:#9aa1ad;padding:10px 0">No rows cover ${escape(fmtMonth(FX_TT_MONTH))}. Add a row, or switch back to All months.</div>`
+    : note + `<div class="fx-preview" style="max-height:320px"><table class="fx-tt-table">
       <thead><tr><th>Type</th><th class="td-right">${escape(hdr)}</th><th class="td-right">Price (${escape(b.unit_price)})</th><th>From</th><th>To</th><th></th></tr></thead>
-      <tbody>${FX_TT.map((r, i) => `<tr>
+      <tbody>${view.map(({ r, i }) => `<tr>
         <td><select data-i="${i}" class="fx-tt-type">${FX_TT_TYPES.map(o => `<option value="${o[0]}"${r.amount_type === o[0] ? ' selected' : ''}>${o[1]}</option>`).join('')}</select></td>
         <td class="td-right">${fxTTNeedsAmount(r.amount_type)
           ? `<input data-i="${i}" class="fx-cell fx-tt-amt" type="number" step="any" value="${r.amount != null ? r.amount : ''}"><span class="fx-tt-u">${escape(fxTTUnit(b, r.amount_type))}</span>`
@@ -6060,8 +6089,7 @@ function fxTTRefresh(b){
         <td>${mSel(r.start_month, 'fx-tt-start', i)}</td>
         <td>${mSel(r.end_month, 'fx-tt-end', i)}</td>
         <td class="fx-actions"><button class="fx-icon" title="Clone this row for another period" onclick="fxTTClone(${i})">&#10697;</button><button class="fx-icon" title="Remove this row" onclick="fxTTDel(${i})">&#128465;</button></td>
-      </tr>`).join('')}</tbody></table></div>`
-    : `<div style="font-size:12px;color:#9aa1ad;padding:10px 0">No scenario rows yet. Add one, or use "Fill from targets".</div>`;
+      </tr>`).join('')}</tbody></table></div>`;
   wrap.querySelectorAll('.fx-tt-type').forEach(el => el.onchange = e => {
     const r = FX_TT[+e.target.dataset.i];
     r.amount_type = e.target.value;
@@ -6108,18 +6136,31 @@ function fxTTPreview(b){
 
 function fxTTAddRow(){
   const b = currentBasket; const ms = (b.months || []).map(m => m.month);
-  const f = ms.find(m => m > fxNowMonth()) || ms[0] || fxNowMonth();
-  FX_TT.push({ id: null, label: null, start_month: f, end_month: ms[ms.length - 1] || f,
+  // While a month filter is on, a row spanning the whole curve would be correct but
+  // invisible-looking; start it on the month being viewed so it appears where expected.
+  const f = FX_TT_MONTH || ms.find(m => m > fxNowMonth()) || ms[0] || fxNowMonth();
+  const t = FX_TT_MONTH || ms[ms.length - 1] || f;
+  FX_TT.push({ id: null, label: null, start_month: f, end_month: t,
     amount_type: 'percent', amount: null, price: null, sort_order: FX_TT.length });
   fxTTRefresh(b);
 }
 function fxTTClone(i){ const b = currentBasket; FX_TT.splice(i + 1, 0, Object.assign({}, FX_TT[i], { id: null })); FX_TT.forEach((r, n) => r.sort_order = n); fxTTRefresh(b); }
 function fxTTDel(i){   const b = currentBasket; FX_TT.splice(i, 1); FX_TT.forEach((r, n) => r.sort_order = n); fxTTRefresh(b); }
-function fxTTClear(){  const b = currentBasket; FX_TT = []; fxTTRefresh(b); }
+function fxTTClear(){
+  const b = currentBasket;
+  const hidden = FX_TT.filter(r => !fxTTCovers(r, FX_TT_MONTH)).length;
+  if (hidden && !confirm('Remove all ' + FX_TT.length + ' rows?\n\n' + hidden + ' of them are hidden by the current month filter and would go too.')) return;
+  FX_TT = []; fxTTRefresh(b);
+}
 function fxTTFill(){
   const b = currentBasket; const g = fxTTFromTargets(b);
   if (!g.length) return fxMErr('Nothing to model. A target column needs both a price and a volume rule before it can be filled.');
-  FX_TT = g; fxTTRefresh(b);
+  FX_TT = g;
+  // The fill replaces the whole scenario, so drop back to the full list — otherwise most
+  // of what was just built would be hidden behind whatever month was being viewed.
+  FX_TT_MONTH = '';
+  const _f = document.getElementById('fTW_filter'); if (_f) _f.value = '';
+  fxTTRefresh(b);
   // A basket priced every season to the end of its curve produces a lot of rows. Say so,
   // rather than leaving someone to scroll and guess whether it caught everything.
   const periods = new Set(g.map(r => r.start_month + '|' + r.end_month)).size;
