@@ -145,6 +145,22 @@
     return null;
   }
 
+  /**
+   * Standing charge type. THREE values, not two.
+   *
+   * E.ON Next ships SC and LSC, and LSC is a LOW standing charge, not none — those rows
+   * carry 30p and 48p a day. Folding it into 'no_sc' put a real standing charge on screen
+   * labelled "no SC". Yu writes NSC, BG Lite writes 0SC, Scottish Power writes "With S/C".
+   */
+  function scType(v) {
+    const k = String(v == null ? '' : v).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (k === '') return null;
+    if (k === 'lsc' || k.includes('lowsc')) return 'low_sc';
+    if (k === 'nsc' || k === '0sc' || k === 'zerosc' || k.startsWith('nosc')) return 'no_sc';
+    if (k === 'sc' || k.startsWith('withsc')) return 'with_sc';
+    return null;      // unknown is unknown; do not guess which way it goes
+  }
+
   function toBool(v) {
     const s = String(v == null ? '' : v).trim().toLowerCase();
     if (['y', 'yes', 'true', '1'].includes(s)) return true;
@@ -169,7 +185,21 @@
     if (v >= lo && v <= hi) return v;
     throw new Refuse(`${what} out of range: ${v} (expected ${lo}..${hi}, or 0/blank)`);
   }
-  const rate = (v) => bounded(toNum(v), 1, 200, 'unit rate p/kWh');
+
+  /**
+   * A per-kWh rate of exactly zero is an EMPTY REGISTER, not free energy, so it is stored
+   * as null.
+   *
+   * This is not a nicety. EDF's rate card puts a single rate in DayRate and writes
+   * `UnitRate,0.0` and `NightRate,0` beside it. Stored as 0 those columns look like real
+   * prices: all 8,916 live EDF rows had unit_rate_p_kwh = 0, and the quote maths then read
+   * day 24.6 against night 0 as a two-rate tariff, blended them, and made EDF the cheapest
+   * supplier on every meter by a mile. Nobody sells electricity at nothing.
+   *
+   * A standing charge of zero is the opposite: BG Lite's VB grid and EDF's Zero Standing
+   * Charge products really do charge 0 p/day, so sc() keeps it. Same for capacity.
+   */
+  const rate = (v) => { const n = bounded(toNum(v), 1, 200, 'unit rate p/kWh'); return n === 0 ? null : n; };
   const sc   = (v) => bounded(toNum(v), 1, 5000, 'standing charge p/day');
 
   /** Capacity arrives p/kVA/day and is stored p/kVA/month. Never stored or shown per day. */
@@ -229,7 +259,15 @@
         const term = toNum(g('contractduration'));
         if (term == null) throw new Refuse('no contract duration');
         r.term_months = Math.round(term);
-        r.product_name = String(g('productname') || '').trim() || null;
+        // The real product name is in TariffInformation2. EDF's ProductName column only ever
+        // says "Online Only" (and once, bafflingly, "Online Only|[12Month]"), while
+        // TariffInformation2 carries "Fixed Online 3 Year" and
+        // "Fixed Online 3 Year Zero Standing Charge" — twelve genuine products. E.ON puts
+        // the rate structure there instead, so fall back when it is not a product name.
+        const ti2 = String(g('tariffinformation2') || '').trim();
+        const pn  = String(g('productname') || '').trim();
+        const ti2IsStructure = /^(standard|economy7|flat_economy7|three_rate|off_peak|nhh_)/i.test(ti2);
+        r.product_name = (ti2 && !ti2IsStructure ? ti2 : pn) || null;
         r.product_code = String(g('tariffinformation1') || '').trim() || null;
         r.dno_id = dnoId(g('dnoid'));
         r.gsp_group = String(g('region') || '').trim() || null;
@@ -251,8 +289,7 @@
         r.payment_method = String(g('paymentmethod', 'paymentmethod2') || '').trim() || null;
         r.green = toBool(g('greenenergy'));
         r.amr = toBool(g('amr'));
-        const sct = String(g('standingchargetype') || '').trim().toLowerCase();
-        r.sc_type = (sct.includes('with') || sct === 'sc') ? 'with_sc' : (sct ? 'no_sc' : null);
+        r.sc_type = scType(g('standingchargetype'));
         r.standing_charge_p_day = sc(g('standingcharge'));
         r.unit_rate_p_kwh = rate(g('unitrate'));
         r.day_rate_p_kwh = rate(g('dayrate'));
@@ -378,7 +415,7 @@
           r.dno_id = k[4]; r.profile_class = k[5];
           r.exit_zone = k[6]; r.ldz = k[7];
           r.payment_method = k[8];
-          r.sc_type = k[9] === 'SC' ? 'with_sc' : 'no_sc';
+          r.sc_type = scType(k[9]);
           r.tcr_band = k[10] ? tcrBand(k[10]) : null;
           r.start_date_min = k[11]; r.start_date_max = k[12];
           r.aq_max = bandTop;
@@ -671,7 +708,8 @@
   root.PricingParsers = {
     parse, normHeader, CANON_FIELDS, P_KVA_DAY_TO_MONTH,
     // exported for the test suite
-    _internals: { saleType, rateStructure, tcrBand, toNum, toDate, toBool, dnoId, rate, sc, capFromDay, key },
+    _internals: { saleType, rateStructure, tcrBand, toNum, toDate, toBool, dnoId, rate, sc,
+                  capFromDay, key, scType },
   };
 })(typeof window !== 'undefined' ? window : globalThis);
 

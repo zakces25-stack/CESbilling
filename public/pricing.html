@@ -156,6 +156,7 @@
       <button id="tab-books" class="on" onclick="showTab('books')">Pricebooks</button>
       <button id="tab-price" onclick="showTab('price')">Price a meter</button>
       <button id="tab-ref" onclick="showTab('ref')">Reference</button>
+      <button id="tab-admin" onclick="showTab('admin')">Admin</button>
     </nav>
     <div class="spacer"></div>
     <div class="whoami"><span id="whoLabel"></span> <span id="acctLabel" style="opacity:.6"></span></div>
@@ -178,28 +179,32 @@
         <div class="row">
           <div>
             <label for="upSupplier">Supplier</label>
-            <select id="upSupplier" onchange="if($('upFile').files[0]) inspectFile()"><option value="">Loading…</option></select>
+            <select id="upSupplier" onchange="rescanQueue()"><option value="">Loading…</option></select>
           </div>
-          <div>
-            <label for="upFuel">Fuel</label>
-            <select id="upFuel" onchange="if($('upFile').files[0]) inspectFile()">
-              <option value="electricity">Electricity</option>
-              <option value="gas">Gas</option>
-              <option value="both">Both (one file covering both fuels)</option>
-            </select>
+          <div style="flex:2;display:flex;align-items:flex-end;gap:10px">
+            <div style="font-size:11.5px;color:var(--muted);line-height:1.5">
+              Pick the supplier once. Every file in the drop is then matched against that
+              supplier's products, and anything that does not match is listed rather than
+              guessed at.
+            </div>
           </div>
         </div>
-        <!-- Drop zone. The file input stays, hidden behind the label, because a keyboard
-             user and a file dialog both still have to work. -->
+        <!-- Drop zone. Many files, or a whole supplier zip. The file input stays, hidden
+             behind it, because a keyboard user and a file dialog both still have to work. -->
         <div id="dropZone" tabindex="0" role="button"
              style="margin-top:14px;border:2px dashed var(--line-2);border-radius:12px;
                     padding:26px 18px;text-align:center;cursor:pointer;transition:.15s">
-          <div style="font-size:14px;font-weight:700;color:var(--text)">Drop a pricebook here</div>
+          <div style="font-size:14px;font-weight:700;color:var(--text)">
+            Drop the whole supplier pack here</div>
           <div style="font-size:12px;color:var(--muted);margin-top:6px">
-            or <span style="color:var(--cyan);text-decoration:underline">choose a file</span>
-            &nbsp;·&nbsp; .xlsx, .xlsm, .csv
+            a .zip, or as many files as you like at once &nbsp;·&nbsp;
+            <span style="color:var(--cyan);text-decoration:underline">or choose files</span>
           </div>
-          <input id="upFile" type="file" accept=".xlsx,.xlsm,.csv" class="hide" />
+          <div style="font-size:11.5px;color:var(--muted);margin-top:8px">
+            Each file is matched to its product by filename, so the 28-file British Gas zip
+            sorts itself out. Fuel and sale type come from the product, not from a dropdown.
+          </div>
+          <input id="upFile" type="file" accept=".xlsx,.xlsm,.csv,.zip" multiple class="hide" />
         </div>
         <div id="upInspect" class="hide" style="margin-top:16px"></div>
       </div>
@@ -331,11 +336,102 @@
         <div id="llOut" style="margin-top:14px"></div>
       </div>
     </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════ ADMIN -->
+    <section id="pane-admin" class="hide">
+      <div class="card">
+        <h2>Products by supplier</h2>
+        <div class="sub">
+          What each supplier actually sells, and which pricebook is live for it. A product is
+          the unit of replacement: British Gas Standard electricity acquisition is a different
+          book from Natural REGO electricity acquisition, and a new one replaces only its own
+          kind. Before this, a REGO upload retired the Standard book.
+          <br><br>
+          <b>Quotable</b> off means never price it. Not everything in a supplier's pack is a
+          deal CES sells: BG Lite's BrUPG and BrDUPG are upgrade grids with a broker uplift
+          already inside them, and British Gas's half-hourly books are out of scope.
+        </div>
+        <div id="adminErr" class="hide"></div>
+        <div class="scroll"><table>
+          <thead><tr>
+            <th>Supplier</th><th>Product</th><th>Fuel</th><th>Sale type</th>
+            <th>Live pricebook</th><th class="num">Rates</th><th>Start window</th>
+            <th>Went live</th><th>Quotable</th><th></th>
+          </tr></thead>
+          <tbody id="adminBody"><tr><td colspan="10" style="color:var(--muted)">Loading…</td></tr></tbody>
+        </table></div>
+
+        <details style="margin-top:18px">
+          <summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--cyan)">
+            Add a product</summary>
+          <div style="font-size:11.5px;color:var(--muted);margin:10px 0 12px;line-height:1.6">
+            For when a supplier launches something new. The filename rule is a regular
+            expression tested against the lowercased filename, and it must not depend on the
+            date in the name: <span class="mono">standard_elec_acq</span> matches every
+            month's release, <span class="mono">standard_elec_acq_04092026</span> matches
+            once. Lower sort numbers are tested first, so a specific rule needs a lower
+            number than the general one it sits inside
+            (<span class="mono">…_dsc</span> before <span class="mono">…</span>).
+          </div>
+          <div class="row">
+            <div><label for="npSupplier">Supplier</label>
+              <select id="npSupplier"></select></div>
+            <div><label for="npKey">Product key</label>
+              <input id="npKey" placeholder="natural_rego" /></div>
+            <div><label for="npName">Shown as</label>
+              <input id="npName" placeholder="Natural REGO" /></div>
+          </div>
+          <div class="row">
+            <div><label for="npFuel">Fuel</label>
+              <select id="npFuel">
+                <option value="electricity">Electricity</option>
+                <option value="gas">Gas</option>
+                <option value="both">Both</option>
+              </select></div>
+            <div><label for="npScope">Sale type</label>
+              <select id="npScope">
+                <option value="any">Any</option>
+                <option value="acquisition">Acquisition</option>
+                <option value="renewal">Renewal</option>
+              </select></div>
+            <div><label for="npSort">Match priority</label>
+              <input id="npSort" type="number" value="100" /></div>
+          </div>
+          <div class="row">
+            <div style="flex:2"><label for="npMatch">Filename rule</label>
+              <input id="npMatch" class="mono" placeholder="natural.?rego_elec_acq" /></div>
+            <div style="flex:2"><label for="npNotes">Notes</label>
+              <input id="npNotes" placeholder="anything the next person needs to know" /></div>
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px">
+            <input type="checkbox" id="npQuotable" checked> Quotable
+          </label>
+          <div style="margin-top:14px"><button class="act" onclick="addProduct()">Add it</button></div>
+        </details>
+      </div>
+
+      <div class="card">
+        <h2>All uploads</h2>
+        <div class="sub">
+          Every pricebook ever loaded. <b>Retire</b> takes one out of pricing but keeps the
+          record, so a quote sent last week can still be explained. <b>Purge</b> deletes its
+          rates too, for something that should never have been loaded at all.
+        </div>
+        <div class="scroll"><table>
+          <thead><tr>
+            <th>Supplier</th><th>Product</th><th>File</th><th>Version</th>
+            <th class="num">Rates</th><th>Status</th><th>By</th><th>When</th><th></th>
+          </tr></thead>
+          <tbody id="adminUploads"><tr><td colspan="9" style="color:var(--muted)">Loading…</td></tr></tbody>
+        </table></div>
+      </div>
+    </section>
   </main>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="/pricing-parsers.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -366,7 +462,9 @@ const n2  = (v,dp=2) => (v==null || v==='' ) ? '—' : Number(v).toFixed(dp);
 let WHO = '';              // the person on the desk, for the audit trail
 let SUPPLIERS = [];
 let METER = null;          // the meter being priced
-let PENDING = null;        // an inspected file waiting to be uploaded
+let PRODUCTS = [];      // the product catalogue: what each supplier actually sells
+let QUEUE = [];         // files dropped in, waiting to be routed and loaded
+let LEDGER = [];        // the uploads table as last read, so a confirm can name the file
 
 /**
  * Every query goes through here.
@@ -496,10 +594,11 @@ function showSignIn(){
 async function signOut(){ localStorage.removeItem('pricing_who'); await sb.auth.signOut(); location.reload(); }
 
 function showTab(t) {
-  for (const k of ['books','price','ref']) {
+  for (const k of ['books','price','ref','admin']) {
     $('pane-'+k).classList.toggle('hide', k !== t);
     $('tab-'+k).classList.toggle('on', k === t);
   }
+  if (t === 'admin') loadAdmin();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -507,8 +606,15 @@ function showTab(t) {
 // ═══════════════════════════════════════════════════════════════════════════════════════
 async function loadSuppliers() {
   try {
-    SUPPLIERS = await q(sb.from('pricebook_suppliers')
-      .select('supplier_key, display_name, parser_key, parser_ready').order('display_name'), 'suppliers');
+    const [sup, prod] = await Promise.all([
+      q(sb.from('pricebook_suppliers')
+        .select('supplier_key, display_name, parser_key, parser_ready').order('display_name'), 'suppliers'),
+      q(sb.from('pricebook_products')
+        .select('supplier_key, product_key, display_name, fuel, sale_scope, filename_match, '
+              + 'content_match, quotable, sort_order, notes')
+        .order('sort_order'), 'products'),
+    ]);
+    SUPPLIERS = sup; PRODUCTS = prod;
   } catch (e) { return fail($('ledgerErr'), e.message); }
   // A supplier with no parser is not a choice, it is a dead end: five files once sat at
   // 'pending' forever because the upload button accepted anything. Say so on the option
@@ -519,6 +625,8 @@ async function loadSuppliers() {
     SUPPLIERS.filter(x => !x.parser_ready)
       .map(s => `<option value="" disabled>${esc(s.display_name)} — parser not built yet</option>`).join('');
 }
+
+const supplierName = k => (SUPPLIERS.find(s => s.supplier_key === k) || {}).display_name || k;
 
 async function sha256Hex(buf) {
   const h = await crypto.subtle.digest('SHA-256', buf);
@@ -562,228 +670,336 @@ function readWorkbook(buf, isCsv) {
 const sheetToRows = (wb, name) =>
   XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, raw: true });
 
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Product routing
+//
+// A pricebook is not "a British Gas electricity file", it is "British Gas Standard
+// electricity, acquisition". That distinction is the whole point: go-live retires the
+// previous book for the same PRODUCT, so a Natural REGO upload no longer wipes out
+// Standard and the renewal book no longer wipes out acquisition.
+//
+// The filename is what identifies it, on the strength of the desk's own observation that
+// these files are released in the same shape every time. So the rule is a regex per
+// product, held in a table the desk can edit, tested in sort_order so specific patterns
+// are tried before general ones (…_dsc and …_nc before their own prefixes). No rule
+// matches, no upload: a guess here costs a wrong price on a signed contract.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+const baseName = n => String(n || '').split(/[\\/]/).pop();
+
+function matchProduct(filename, skey) {
+  const n = baseName(filename).toLowerCase();
+  const cands = PRODUCTS
+    .filter(p => p.supplier_key === skey && p.filename_match)
+    .sort((a, b) => a.sort_order - b.sort_order);
+  for (const p of cands) {
+    let re;
+    try { re = new RegExp(p.filename_match, 'i'); } catch (_) { continue; }  // a bad regex is not a match
+    if (re.test(n)) return p;
+  }
+  return null;
+}
+
+const productLabel = p => !p ? '—'
+  : `${p.display_name}${p.fuel === 'both' ? '' : ' · ' + p.fuel}${p.sale_scope === 'any' ? '' : ' · ' + p.sale_scope}`;
+
 /**
- * Read the header, fingerprint it, and decide.
+ * Take a drop or a file-dialog pick and turn it into queue items.
  *
- * Three outcomes, and the middle one is the one that matters. On the live database a BG Lite
- * electricity file was uploaded as British Gas and its header registered against
- * british_gas/electricity, because nothing was seeded so the gate fired on every first
- * upload and the only way to work was to click through it. British Gas quotes would have
- * come out at BG Lite prices. The layouts are seeded now, and a header already known for a
- * DIFFERENT supplier is called out by name.
+ * A zip is opened here rather than asked about: the British Gas pack is one 28-file
+ * archive and nobody is unzipping that by hand every month. Encrypted archives are the
+ * exception and are named as such, because JSZip cannot read them at all and a silently
+ * empty queue would look like the feature is broken.
  */
-async function inspectFile() {
-  const out = $('upInspect');
-  const f = $('upFile').files[0];
+async function addFiles(list) {
+  const files = [...list];
+  if (!files.length) return;
+  const note = $('upInspect');
+  note.classList.remove('hide');
+  note.innerHTML = '<div class="note">Opening…</div>';
+
+  for (const f of files) {
+    if (/\.zip$/i.test(f.name)) {
+      if (typeof JSZip === 'undefined') {
+        QUEUE.push({ id: crypto.randomUUID(), name: f.name, state: 'error',
+          msg: 'the zip reader did not load, so extract this one by hand' });
+        continue;
+      }
+      try {
+        const zip = await JSZip.loadAsync(await f.arrayBuffer());
+        const members = Object.values(zip.files).filter(e =>
+          !e.dir && !/(^|\/)__MACOSX\//i.test(e.name) && !/(^|\/)\._/.test(e.name)
+          && /\.(xlsx|xlsm|csv)$/i.test(e.name));
+        if (!members.length) {
+          QUEUE.push({ id: crypto.randomUUID(), name: f.name, state: 'error',
+            msg: 'no .xlsx, .xlsm or .csv inside that zip' });
+          continue;
+        }
+        for (const m of members) {
+          try {
+            const buf = await m.async('arraybuffer');
+            QUEUE.push({ id: crypto.randomUUID(), name: baseName(m.name), zipName: f.name,
+              size: buf.byteLength, buf, isCsv: /\.csv$/i.test(m.name), state: 'queued' });
+          } catch (e) {
+            // Encrypted members throw here rather than at loadAsync.
+            QUEUE.push({ id: crypto.randomUUID(), name: baseName(m.name), zipName: f.name,
+              state: 'error', msg: /encrypt/i.test(e.message)
+                ? 'the zip is password protected — JSZip cannot open it, so unzip it '
+                  + 'yourself and drop the files in'
+                : e.message });
+          }
+        }
+      } catch (e) {
+        QUEUE.push({ id: crypto.randomUUID(), name: f.name, state: 'error',
+          msg: /encrypt|password/i.test(e.message)
+            ? 'password protected zip — unzip it yourself and drop the files in'
+            : 'could not open that zip: ' + e.message });
+      }
+    } else if (/\.(xlsx|xlsm|csv)$/i.test(f.name)) {
+      // Hold the File, not its bytes. Reading 28 workbooks up front just to draw a table is
+      // memory spent on nothing; the buffer is pulled when the file is actually processed.
+      QUEUE.push({ id: crypto.randomUUID(), name: f.name, size: f.size, file: f,
+        isCsv: /\.csv$/i.test(f.name), state: 'queued' });
+    } else {
+      QUEUE.push({ id: crypto.randomUUID(), name: f.name, state: 'error',
+        msg: 'not a pricebook (.xlsx, .xlsm, .csv or .zip)' });
+    }
+  }
+  $('upFile').value = '';       // so dropping the same file twice still fires onchange
+  rescanQueue();
+}
+
+/** Re-route everything against the currently selected supplier and redraw. */
+function rescanQueue() {
   const skey = $('upSupplier').value;
-  const fuel = $('upFuel').value;
-  PENDING = null;
-  out.classList.remove('hide');
-  if (!f) { out.classList.add('hide'); return; }
-  if (!skey) { out.innerHTML = '<div class="note warn">Choose the supplier first.</div>'; return; }
-  out.innerHTML = '<div class="note">Reading the header…</div>';
-
-  try {
-    const buf = await f.arrayBuffer();
-    const fileSha = await sha256Hex(buf);
-    const isCsv = /\.csv$/i.test(f.name);
-    const supplier = SUPPLIERS.find(x => x.supplier_key === skey) || {};
-    const { names, wb } = readWorkbook(new Uint8Array(buf), isCsv);
-    const plan = sheetPlan(supplier.parser_key, names, fuel);
-    const firstRows = sheetToRows(wb, plan[0].name);
-    if (!firstRows.length) throw new Error('that sheet is empty');
-    const header = firstRows[0];
-    const sample = normHeader(header);
-    const hSha = await sha256Hex(new TextEncoder().encode(sample));
-
-    const [mine, elsewhere, dup] = await Promise.all([
-      q(sb.from('pricebook_fingerprints').select('id, parser_key')
-        .eq('supplier_key', skey).eq('fuel', fuel).eq('header_sha256', hSha)
-        .eq('active', true).limit(1), 'fingerprint check'),
-      q(sb.from('pricebook_fingerprints').select('supplier_key, fuel')
-        .eq('header_sha256', hSha).neq('supplier_key', skey).limit(5), 'cross-supplier check'),
-      q(sb.from('pricebook_uploads').select('id, uploaded_at, status')
-        .eq('supplier_key', skey).eq('fuel', fuel).eq('file_sha256', fileSha).limit(1), 'duplicate check'),
-    ]);
-
-    const meta = `<dl class="kv" style="margin-top:12px">
-      <dt>File</dt><dd>${esc(f.name)}</dd>
-      <dt>Size</dt><dd>${(f.size/1048576).toFixed(2)} MB</dd>
-      <dt>Sheet${plan.length > 1 ? 's' : ''}</dt><dd>${plan.map(p => esc(p.name) + ' (' + p.fuel + ')').join('<br>')}</dd>
-      <dt>Columns</dt><dd>${header.length}</dd>
-      <dt>Header hash</dt><dd>${esc(hSha.slice(0,16))}…</dd>
-      </dl>
-      <details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px;color:var(--text-2)">Header row</summary>
-      <div class="mono" style="font-size:11px;color:var(--text-2);margin-top:8px;line-height:1.7;word-break:break-word">${esc(sample)}</div>
-      </details>`;
-
-    if (dup.length) {
-      out.innerHTML = `<div class="note warn">This exact file has already been uploaded
-        (${uk(dup[0].uploaded_at)}, status <b>${esc(dup[0].status)}</b>). Loading it twice
-        would double the rates.</div>${meta}`;
-      return;
+  for (const it of QUEUE) {
+    if (it.state === 'done' || it.state === 'busy' || it.state === 'error') continue;
+    if (!skey) { it.state = 'queued'; it.product = null; it.msg = 'choose the supplier'; continue; }
+    it.product = matchProduct(it.name, skey);
+    if (!it.product) {
+      it.state = 'unrouted';
+      it.msg = 'no product rule matches this filename';
+    } else if (!it.product.quotable) {
+      // The catalogue says CES does not sell this. BG Lite's BrUPG and BrDUPG have a broker
+      // uplift already inside them and British Gas's HH books price on capacity bands the
+      // canonical row does not carry. Blocked here rather than loaded and then avoided.
+      it.state = 'blocked';
+      it.msg = `${it.product.display_name} is marked not quotable`
+             + (it.product.notes ? ' — ' + it.product.notes : '');
+    } else {
+      it.state = 'queued'; it.msg = '';
     }
-
-    const ready = { file: f, buf, isCsv, fileSha, hSha, skey, fuel, plan,
-                    parser_key: supplier.parser_key, cols: header.length };
-
-    if (mine.length) {
-      PENDING = ready;
-      out.innerHTML = `<div class="note good">Layout recognised, parser
-        <b>${esc(mine[0].parser_key)}</b>. Ready.</div>${meta}
-        <div style="margin-top:14px"><button class="act" id="doUp" onclick="doUpload()">Upload and parse</button></div>`;
-      return;
-    }
-
-    if (elsewhere.length) {
-      // Not a hard refusal: British Gas and BG Lite genuinely SHARE their gas header, so a
-      // cross-supplier match is not proof of a mistake. It is proof that the hash cannot
-      // tell them apart, which is precisely when a human has to.
-      const who = elsewhere.map(x => `${esc(x.supplier_key)} / ${esc(x.fuel)}`).join(', ');
-      out.innerHTML = `<div class="note bad"><b>Careful: this exact header is registered to
-        ${who}, not to ${esc(skey)} / ${esc(fuel)}.</b><br>
-        Either you have the supplier or fuel wrong, or two suppliers genuinely share a layout
-        — British Gas and BG Lite do share their gas header. Check the filename against the
-        supplier you picked before going any further.</div>${meta}
-        <div style="margin-top:14px">
-          <button class="act ghost" onclick="registerLayout('${esc(skey)}','${esc(fuel)}','${esc(hSha)}',this)">
-            It is the right supplier, register this layout too</button>
-        </div>`;
-      return;
-    }
-
-    out.innerHTML = `<div class="note bad"><b>Refused: this layout is not registered.</b><br>
-      No known header for ${esc(skey)} / ${esc(fuel)} matches this file. Either the supplier
-      has changed their format, or this is the wrong file for what you picked. Compare the
-      header below against the last accepted one first.</div>${meta}
-      <div style="margin-top:14px">
-        <button class="act ghost" onclick="registerLayout('${esc(skey)}','${esc(fuel)}','${esc(hSha)}',this)">
-          I have checked the header, register this layout</button>
-      </div>`;
-  } catch (e) {
-    out.innerHTML = `<div class="note bad">Could not read that file: ${esc(e.message)}</div>`;
   }
+  renderQueue();
 }
 
-async function registerLayout(skey, fuel, hSha, btn) {
-  btn.disabled = true; btn.textContent = 'Registering…';
-  try {
-    const f = $('upFile').files[0];
-    const supplier = SUPPLIERS.find(x => x.supplier_key === skey) || {};
-    const buf = await f.arrayBuffer();
-    const isCsv = /\.csv$/i.test(f.name);
-    const { names, wb } = readWorkbook(new Uint8Array(buf), isCsv);
-    const plan = sheetPlan(supplier.parser_key, names, fuel);
-    const sample = normHeader(sheetToRows(wb, plan[0].name)[0] || []);
-    const { data: { user } } = await sb.auth.getUser();
-    await q(sb.from('pricebook_fingerprints').insert({
-      supplier_key: skey, parser_key: supplier.parser_key || 'unknown', fuel,
-      sheet_name: plan.map(p => p.name).join(', '),
-      header_sha256: hSha, header_sample: sample, approved_by: user.id
-    }), 'register layout');
-    await inspectFile();
-  } catch (e) {
-    btn.disabled = false; btn.textContent = 'Register this layout';
-    fail($('upInspect'), e.message);
-  }
+function renderQueue() {
+  const out = $('upInspect');
+  if (!QUEUE.length) { out.classList.add('hide'); out.innerHTML = ''; return; }
+  out.classList.remove('hide');
+  const skey = $('upSupplier').value;
+  const ready = QUEUE.filter(i => i.state === 'queued' && i.product).length;
+  const pill = s => ({ queued:'p-mute', busy:'p-warn', done:'p-ok', error:'p-fail',
+                       blocked:'p-mute', unrouted:'p-fail', layout:'p-fail' }[s] || 'p-mute');
+  const word = s => ({ queued:'ready', busy:'working', done:'live', error:'failed',
+                       blocked:'skipped', unrouted:'no match', layout:'new layout' }[s] || s);
+
+  const rows = QUEUE.map(it => `<tr>
+    <td style="max-width:300px;overflow-wrap:anywhere">${esc(it.name)}
+      ${it.zipName ? `<div style="font-size:10.5px;color:var(--muted)">from ${esc(it.zipName)}</div>` : ''}</td>
+    <td>${it.product ? esc(productLabel(it.product)) : '<span style="color:var(--muted)">—</span>'}</td>
+    <td class="num">${it.size ? (it.size/1048576).toFixed(2) + ' MB' : '—'}</td>
+    <td><span class="pill ${pill(it.state)}">${esc(word(it.state))}</span></td>
+    <td style="font-size:11.5px;color:var(--text-2);max-width:340px">${it.msg ? esc(it.msg) : ''}
+      ${it.state === 'layout'
+        ? `<div style="margin-top:6px"><button class="act ghost sm"
+             onclick="registerLayout('${it.id}',this)">I have checked the header, register it</button></div>` : ''}
+      ${it.state === 'unrouted' && skey
+        ? `<div style="margin-top:6px"><select onchange="forceProduct('${it.id}',this.value)"
+             style="font-size:11px;padding:4px 6px">
+             <option value="">assign a product by hand…</option>
+             ${PRODUCTS.filter(p => p.supplier_key === skey && p.quotable).map(p =>
+               `<option value="${esc(p.product_key)}|${esc(p.fuel)}|${esc(p.sale_scope)}">${esc(productLabel(p))}</option>`).join('')}
+           </select></div>` : ''}</td>
+    <td>${it.state === 'done' || it.state === 'busy' ? ''
+      : `<button class="act ghost sm" onclick="dropQueued('${it.id}')">Remove</button>`}</td>
+  </tr>`).join('');
+
+  out.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="act" id="qGo" onclick="processQueue()" ${ready ? '' : 'disabled'}>
+        ${ready ? `Upload and parse ${ready} file${ready > 1 ? 's' : ''}` : 'Nothing ready to upload'}</button>
+      <button class="act ghost" onclick="QUEUE=[];renderQueue()">Clear the list</button>
+      <span style="font-size:11.5px;color:var(--muted)">
+        Files run one at a time. Each one replaces only the previous book for its own product.</span>
+    </div>
+    <div class="scroll"><table>
+      <thead><tr><th>File</th><th>Product</th><th class="num">Size</th><th>State</th>
+                 <th>Note</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function dropQueued(id) { QUEUE = QUEUE.filter(i => i.id !== id); renderQueue(); }
+
+/** The escape hatch for a renamed file: route it by hand, once, without editing the rule. */
+function forceProduct(id, val) {
+  if (!val) return;
+  const [pk, fuel, scope] = val.split('|');
+  const it = QUEUE.find(i => i.id === id);
+  const p = PRODUCTS.find(x => x.supplier_key === $('upSupplier').value
+    && x.product_key === pk && x.fuel === fuel && x.sale_scope === scope);
+  if (!it || !p) return;
+  it.product = p; it.state = 'queued';
+  it.msg = 'assigned by hand — if this supplier has renamed the file, fix the rule in Admin';
+  renderQueue();
+}
+
+async function itemBuffer(it) {
+  if (it.buf) return it.buf;
+  return await it.file.arrayBuffer();
 }
 
 /**
- * Upload, parse and go live, in one go.
+ * Process the queue, one file at a time.
  *
- * The parse runs HERE rather than server-side. The file is already in the browser, SheetJS
- * is already loaded, and a BG Lite electricity book is 162,433 rows: an edge function's
- * wall clock would not survive it, and shipping a 10MB workbook out to storage and back to
- * hand the rows to this same browser is work for its own sake.
+ * Sequential on purpose. A BG Lite electricity book is 162,433 canonical rows going up in
+ * batches of a thousand; three of those at once would just queue inside PostgREST while
+ * looking, from here, like a hang.
  */
-async function doUpload() {
-  if (!PENDING) return;
-  const btn = $('doUp'); const out = $('upInspect');
-  btn.disabled = true;
-  const say = (html) => { out.innerHTML = html; };
-  const t0 = Date.now();
-  let uploadId = null;
-  try {
-    const { data: { user } } = await sb.auth.getUser();
-    uploadId = crypto.randomUUID();
-    const path = `${uploadId}/${PENDING.file.name}`;
+async function processQueue() {
+  const go = $('qGo');
+  if (go) { go.disabled = true; go.textContent = 'Working…'; }
+  for (const it of QUEUE) {
+    if (it.state !== 'queued' || !it.product) continue;
+    it.state = 'busy'; it.msg = 'reading…'; renderQueue();
+    try { await processOne(it); }
+    catch (e) { it.state = 'error'; it.msg = e.message; }
+    renderQueue();
+    loadLedger();
+  }
+  renderQueue();
+}
 
-    say('<div class="note">Storing the file…</div>');
-    const up = await sb.storage.from(BUCKET).upload(path, PENDING.file, { upsert: false });
+async function processOne(it) {
+  const t0 = Date.now();
+  const skey = $('upSupplier').value;
+  const supplier = SUPPLIERS.find(x => x.supplier_key === skey) || {};
+  const fuel = it.product.fuel;
+  let uploadId = null;
+
+  const buf = await itemBuffer(it);
+  const fileSha = await sha256Hex(buf);
+  const { names, wb } = readWorkbook(new Uint8Array(buf), it.isCsv);
+  const plan = sheetPlan(supplier.parser_key, names, fuel);
+  const firstRows = sheetToRows(wb, plan[0].name);
+  if (!firstRows.length) throw new Error('that sheet is empty');
+  const sample = normHeader(firstRows[0]);
+  const hSha = await sha256Hex(new TextEncoder().encode(sample));
+  Object.assign(it, { fileSha, hSha, sample, plan, cols: firstRows[0].length,
+                      parser_key: supplier.parser_key, skey, fuel });
+
+  // ── The layout gate. On the live database a BG Lite electricity file was once uploaded
+  // as British Gas and its header registered against british_gas/electricity, because
+  // nothing was seeded so the gate fired on every first upload and the only way to work
+  // was to click through it. British Gas quotes would have come out at BG Lite prices.
+  const [mine, elsewhere, dup] = await Promise.all([
+    q(sb.from('pricebook_fingerprints').select('id, parser_key')
+      .eq('supplier_key', skey).eq('fuel', fuel).eq('header_sha256', hSha)
+      .eq('active', true).limit(1), 'fingerprint check'),
+    q(sb.from('pricebook_fingerprints').select('supplier_key, fuel')
+      .eq('header_sha256', hSha).neq('supplier_key', skey).limit(5), 'cross-supplier check'),
+    // A rejected attempt is retryable; a live, parsed or pending one is a genuine double load.
+    q(sb.from('pricebook_uploads').select('id, uploaded_at, status')
+      .eq('supplier_key', skey).eq('file_sha256', fileSha)
+      .in('status', ['pending','parsed','live']).limit(1), 'duplicate check'),
+  ]);
+
+  if (dup.length) {
+    it.state = 'blocked';
+    it.msg = `already uploaded ${uk(dup[0].uploaded_at)} (status ${dup[0].status}) — `
+           + 'loading the same bytes twice would double the rates';
+    return;
+  }
+  if (!mine.length) {
+    it.state = 'layout';
+    it.msg = elsewhere.length
+      // Not proof of a mistake: British Gas and BG Lite genuinely share their gas header.
+      // It is proof the hash cannot tell them apart, which is exactly when a human must.
+      ? `careful — this exact header is registered to `
+        + elsewhere.map(x => `${x.supplier_key}/${x.fuel}`).join(', ')
+        + `, not to ${skey}/${fuel}. Check the filename against the supplier you picked.`
+      : `this layout is not registered for ${skey}/${fuel}. Either the supplier changed `
+        + `their format or this is the wrong file. Header: ${sample.slice(0, 180)}…`;
+    return;
+  }
+
+  // ── Store, register, parse, load, promote.
+  const { data: { user } } = await sb.auth.getUser();
+  uploadId = crypto.randomUUID();
+  const path = `${uploadId}/${it.name}`;
+  try {
+    it.msg = 'storing…'; renderQueue();
+    const blob = it.file || new Blob([buf]);
+    const up = await sb.storage.from(BUCKET).upload(path, blob, { upsert: false });
     if (up.error) throw new Error('storage: ' + up.error.message);
 
     await q(sb.from('pricebook_uploads').insert({
-      id: uploadId, supplier_key: PENDING.skey, fuel: PENDING.fuel,
-      source_filename: PENDING.file.name, storage_path: path,
-      file_sha256: PENDING.fileSha, header_sha256: PENDING.hSha,
-      parser_key: PENDING.parser_key, status: 'pending', uploaded_by: user.id,
+      id: uploadId, supplier_key: skey, fuel,
+      product_key: it.product.product_key, sale_scope: it.product.sale_scope,
+      zip_filename: it.zipName || null,
+      source_filename: it.name, storage_path: path,
+      file_sha256: fileSha, header_sha256: hSha,
+      parser_key: supplier.parser_key, status: 'pending', uploaded_by: user.id,
       uploaded_by_name: WHO, parse_started_at: new Date().toISOString(),
-      notes: `sheets=${PENDING.plan.map(p => p.name).join('|')} cols=${PENDING.cols}`
+      notes: `sheets=${plan.map(p => p.name).join('|')} cols=${it.cols}`
     }), 'create upload');
-    loadLedger();
 
-    say('<div class="note">Parsing…</div>');
-    const { wb } = readWorkbook(new Uint8Array(PENDING.buf), PENDING.isCsv);
-    const sheets = PENDING.plan.map(p => ({ name: p.name, fuel: p.fuel, rows: sheetToRows(wb, p.name) }));
+    it.msg = 'parsing…'; renderQueue();
+    const sheets = plan.map(p => ({ name: p.name, fuel: p.fuel, rows: sheetToRows(wb, p.name) }));
     const parsed = PricingParsers.parse({
-      parserKey: PENDING.parser_key, supplierKey: PENDING.skey, fuel: PENDING.fuel, sheets });
+      parserKey: supplier.parser_key, supplierKey: skey, fuel, sheets });
+    const refused = parsed.refusals.length + (parsed.refusals.overflow || 0);
+
+    const record = (n, e, g) => q(sb.rpc('pricebook_parse_done', {
+      p_upload: uploadId, p_rows: n, p_elec: e, p_gas: g, p_refused: refused,
+      p_refusals: parsed.refusals, p_version: parsed.meta.version,
+      p_window_open: parsed.meta.window_open, p_window_close: parsed.meta.window_close
+    }), 'record parse');
 
     if (!parsed.rows.length) {
-      // Zero rows is not a pricebook. Recorded as rejected with the reasons, and NOT made
+      // Zero rows is not a pricebook. Recorded as rejected with the reasons and NOT made
       // live, so it cannot retire the good book it was meant to replace.
-      await q(sb.rpc('pricebook_parse_done', {
-        p_upload: uploadId, p_rows: 0, p_elec: 0, p_gas: 0,
-        p_refused: parsed.refusals.length + (parsed.refusals.overflow || 0),
-        p_refusals: parsed.refusals, p_version: parsed.meta.version,
-        p_window_open: parsed.meta.window_open, p_window_close: parsed.meta.window_close
-      }), 'record parse');
-      const why = [...new Set(parsed.refusals.map(r => r.reason))].slice(0, 5);
-      say(`<div class="note bad"><b>Parsed 0 rows, so nothing went live.</b><br>
-        ${esc(why.join(' · ') || 'no reason recorded')}</div>`);
-      loadLedger();
+      await record(0, 0, 0);
+      it.state = 'error';
+      it.msg = 'parsed 0 rows, nothing went live: '
+             + ([...new Set(parsed.refusals.map(r => r.reason))].slice(0,3).join(' · ')
+                || 'no reason recorded');
       return;
     }
 
-    // Insert in batches. Chunked because tens of thousands of rows will not go through
-    // PostgREST in one request, and reported per batch so a stall is visible rather than
-    // looking like a hang.
     const BATCH = 1000;
     const rows = parsed.rows.map(r => ({ ...r, upload_id: uploadId }));
     for (let i = 0; i < rows.length; i += BATCH) {
       const { error } = await sb.from('pricebook_rates').insert(rows.slice(i, i + BATCH));
       if (error) throw new Error(`inserting rates at row ${i}: ${error.message}`);
-      const done = Math.min(i + BATCH, rows.length);
-      say(`<div class="note">Loading rates… <b>${done.toLocaleString()}</b> of
-        ${rows.length.toLocaleString()}</div>`);
+      it.msg = `loading ${Math.min(i + BATCH, rows.length).toLocaleString()} of ${rows.length.toLocaleString()}…`;
+      renderQueue();
     }
 
     const elec = parsed.rows.filter(r => r.fuel === 'electricity').length;
-    const gas = parsed.rows.filter(r => r.fuel === 'gas').length;
-    await q(sb.rpc('pricebook_parse_done', {
-      p_upload: uploadId, p_rows: rows.length, p_elec: elec, p_gas: gas,
-      p_refused: parsed.refusals.length + (parsed.refusals.overflow || 0),
-      p_refusals: parsed.refusals, p_version: parsed.meta.version,
-      p_window_open: parsed.meta.window_open, p_window_close: parsed.meta.window_close
-    }), 'record parse');
+    await record(rows.length, elec, rows.length - elec);
 
     // "It needs to always replace the previous." One RPC, one transaction: retire whatever
-    // was live for this supplier and overlapping fuel, then promote this one. Two client
-    // calls could leave two live pricebooks, or none.
+    // was live for this supplier AND THIS PRODUCT, then promote this one. Keyed on the
+    // product because keying on (supplier, fuel) meant a REGO upload retired Standard.
     const live = await q(sb.rpc('pricebook_go_live', { p_upload: uploadId }), 'go live');
     const superseded = (live && live[0] && live[0].superseded) || 0;
 
-    const secs = ((Date.now() - t0) / 1000).toFixed(1);
-    const refused = parsed.refusals.length + (parsed.refusals.overflow || 0);
-    const reasons = [...new Set(parsed.refusals.map(r => r.reason.replace(/"[^"]*"/g, '"…"')))].slice(0, 4);
-    say(`<div class="note good"><b>Live.</b> ${rows.length.toLocaleString()} rates
-      (${elec.toLocaleString()} electricity, ${gas.toLocaleString()} gas) in ${secs}s.
-      ${superseded ? `Retired ${superseded} previous pricebook${superseded > 1 ? 's' : ''}.`
-                   : 'Nothing previous to retire.'}</div>
-      ${refused ? `<div class="note warn" style="margin-top:10px">${refused.toLocaleString()}
-        row${refused === 1 ? '' : 's'} refused, which is normal where a file carries products
-        this engine does not price: ${esc(reasons.join(' · '))}</div>` : ''}`);
-    $('upFile').value = ''; PENDING = null;
-    loadLedger();
+    it.state = 'done';
+    it.msg = `${rows.length.toLocaleString()} rates in ${((Date.now()-t0)/1000).toFixed(1)}s`
+           + (superseded ? `, replaced the previous book` : `, nothing previous to replace`)
+           + (refused ? `. ${refused.toLocaleString()} rows refused` : '');
+    it.buf = null; it.file = null;      // let the workbook go
   } catch (e) {
     // Leave the upload visibly broken rather than silently half-loaded.
     if (uploadId) {
@@ -792,11 +1008,29 @@ async function doUpload() {
           .update({ status: 'rejected', parse_error: String(e.message).slice(0, 500),
                     parse_finished_at: new Date().toISOString() })
           .eq('id', uploadId);
-      } catch (_) { /* the message below is what matters */ }
+      } catch (_) { /* the message on the row is what matters */ }
     }
-    btn.disabled = false;
-    fail(out, e.message);
-    loadLedger();
+    throw e;
+  }
+}
+
+async function registerLayout(id, btn) {
+  const it = QUEUE.find(x => x.id === id);
+  if (!it || !it.hSha) return;
+  btn.disabled = true; btn.textContent = 'Registering…';
+  try {
+    const { data: { user } } = await sb.auth.getUser();
+    await q(sb.from('pricebook_fingerprints').insert({
+      supplier_key: it.skey, parser_key: it.parser_key || 'unknown', fuel: it.fuel,
+      sheet_name: it.plan.map(p => p.name).join(', '),
+      header_sha256: it.hSha, header_sample: it.sample, approved_by: user.id
+    }), 'register layout');
+    it.state = 'queued'; it.msg = 'layout registered — press upload again';
+    renderQueue();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Register it';
+    it.msg = 'could not register that layout: ' + e.message;
+    renderQueue();
   }
 }
 
@@ -805,52 +1039,229 @@ async function loadLedger() {
   let rows;
   try {
     rows = await q(sb.from('pricebook_uploads')
-      .select('id,supplier_key,fuel,source_filename,pricebook_version,rows_loaded,rows_refused,'
-            + 'rows_electricity,rows_gas,window_open,window_close,status,uploaded_at,'
-            + 'uploaded_by_name,parse_error')
+      .select('id,supplier_key,fuel,product_key,sale_scope,source_filename,zip_filename,'
+            + 'pricebook_version,rows_loaded,rows_refused,rows_electricity,rows_gas,'
+            + 'window_open,window_close,status,uploaded_at,uploaded_by_name,parse_error')
       .order('uploaded_at', { ascending: false }).limit(200), 'ledger');
   } catch (e) { body.innerHTML = ''; return fail($('ledgerErr'), e.message); }
+  LEDGER = rows;
   if (!rows.length) {
     body.innerHTML = '<tr><td colspan="10" style="color:var(--muted)">Nothing uploaded yet.</td></tr>';
     return;
   }
-  const pill = s => ({ live:'p-ok', parsed:'p-warn', pending:'p-mute', rejected:'p-fail', superseded:'p-mute' }[s] || 'p-mute');
   body.innerHTML = rows.map(r => `<tr>
-    <td>${esc(r.supplier_key)}</td>
-    <td>${esc(r.fuel)}</td>
-    <td style="max-width:280px;overflow-wrap:anywhere">${esc(r.source_filename)}</td>
+    <td>${esc(supplierName(r.supplier_key))}</td>
+    <td>${esc(prodName(r))}${r.sale_scope && r.sale_scope !== 'any'
+      ? `<div style="font-size:10px;color:var(--muted)">${esc(r.sale_scope)}</div>` : ''}</td>
+    <td style="max-width:260px;overflow-wrap:anywhere">${esc(r.source_filename)}${
+      r.zip_filename ? `<div style="font-size:10px;color:var(--muted)">from ${esc(r.zip_filename)}</div>` : ''}</td>
     <td class="mono">${esc(r.pricebook_version || '—')}</td>
     <td class="num">${r.rows_loaded ? r.rows_loaded.toLocaleString() : '—'}${
       r.fuel === 'both' && r.rows_loaded
         ? `<div style="font-size:10px;color:var(--muted)">${(r.rows_electricity||0).toLocaleString()}e / ${(r.rows_gas||0).toLocaleString()}g</div>` : ''}</td>
     <td class="num" ${r.rows_refused ? 'style="color:var(--warn)"' : ''}>${r.rows_refused || '—'}</td>
     <td class="mono">${uk(r.window_open)} → ${uk(r.window_close)}</td>
-    <td><span class="pill ${pill(r.status)}">${esc(r.status)}</span></td>
+    <td><span class="pill ${statusPill(r.status)}">${esc(r.status)}</span>${
+      r.parse_error ? `<div style="font-size:10px;color:var(--bad);max-width:200px">${esc(r.parse_error.slice(0,120))}</div>` : ''}</td>
     <td class="mono">${uk(r.uploaded_at)}</td>
-    <td>${r.status === 'parsed'
-      ? `<button class="act sm" onclick="setStatus('${r.id}','live',this)">Make live</button>`
-      : r.status === 'live'
-      ? `<button class="act ghost sm" onclick="setStatus('${r.id}','superseded',this)">Supersede</button>` : ''}</td>
+    <td>${uploadActions(r)}</td>
   </tr>`).join('');
 }
 
-async function setStatus(id, status, btn) {
-  btn.disabled = true;
+const statusPill = s => ({ live:'p-ok', parsed:'p-warn', pending:'p-mute',
+                           rejected:'p-fail', superseded:'p-mute' }[s] || 'p-mute');
+
+/** The product's display name, falling back to the raw key for books loaded before the catalogue. */
+function prodName(r) {
+  if (!r.product_key) return '(no product)';
+  const p = PRODUCTS.find(x => x.supplier_key === r.supplier_key
+    && x.product_key === r.product_key && x.fuel === r.fuel);
+  return p ? p.display_name : r.product_key;
+}
+
+function uploadActions(r) {
+  if (r.status === 'live')
+    return `<button class="act ghost sm" onclick="retire('${r.id}',false,this)">Retire</button>`;
+  if (r.status === 'parsed')
+    return `<button class="act sm" onclick="promote('${r.id}',this)">Make live</button>`;
+  if (r.status === 'rejected' || r.status === 'superseded')
+    return `<button class="act ghost sm" onclick="retire('${r.id}',true,this)"
+              title="Delete this book's rates for good">Purge</button>`;
+  return '';
+}
+
+/** Promote a parsed book. Uses the same RPC as an upload, so the same product keying applies. */
+async function promote(id, btn) {
+  btn.disabled = true; btn.textContent = '…';
   try {
-    // Going live retires whatever was live for the same supplier and fuel first, so two
-    // versions of the same pricebook can never both be priceable at once.
-    if (status === 'live') {
-      const row = await q(sb.from('pricebook_uploads').select('supplier_key,fuel').eq('id', id).single(), 'upload');
-      await q(sb.from('pricebook_uploads').update({ status: 'superseded' })
-        .eq('supplier_key', row.supplier_key).eq('fuel', row.fuel).eq('status', 'live'), 'retire previous');
-      await q(sb.from('pricebook_uploads')
-        .update({ status, went_live_at: new Date().toISOString(), went_live_by_name: WHO })
-        .eq('id', id), 'go live');
-    } else {
-      await q(sb.from('pricebook_uploads').update({ status }).eq('id', id), 'set status');
+    await q(sb.rpc('pricebook_go_live', { p_upload: id }), 'go live');
+    loadLedger(); loadAdmin();
+  } catch (e) { btn.disabled = false; btn.textContent = 'Make live'; fail($('ledgerErr'), e.message); }
+}
+
+/**
+ * Retire, or purge.
+ *
+ * Retire takes a book out of pricing and leaves the record, so a quote sent last week can
+ * still be explained. Purge deletes its rates too, and is only for something that should
+ * never have been loaded.
+ */
+async function retire(id, purge, btn) {
+  const row = (LEDGER || []).find(r => r.id === id) || {};
+  if (purge && !confirm(`Delete every rate from ${row.source_filename || 'this book'}?\n\n`
+    + `${(row.rows_loaded || 0).toLocaleString()} rows go for good. Any quote that used them `
+    + `can no longer be explained. Retiring instead keeps the record.`)) return;
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const res = await q(sb.rpc('pricebook_retire', { p_upload: id, p_purge: !!purge }), 'retire');
+    const r = (res && res[0]) || {};
+    loadLedger(); loadAdmin();
+    if (purge) alert(`${r.action || 'purged'} — ${(r.rates_removed || 0).toLocaleString()} rates deleted.`);
+  } catch (e) { btn.disabled = false; btn.textContent = purge ? 'Purge' : 'Retire'; fail($('ledgerErr'), e.message); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Admin
+// ═══════════════════════════════════════════════════════════════════════════════════════
+async function loadAdmin() {
+  const body = $('adminBody');
+  if (!body) return;
+  let live;
+  try {
+    live = await q(sb.from('pricebook_live_by_product')
+      .select('*').order('supplier_key').order('sort_order'), 'live by product');
+    PRODUCTS = await q(sb.from('pricebook_products')
+      .select('supplier_key, product_key, display_name, fuel, sale_scope, filename_match, '
+            + 'content_match, quotable, sort_order, notes')
+      .order('sort_order'), 'products');
+  } catch (e) { body.innerHTML = ''; return fail($('adminErr'), e.message); }
+
+  $('npSupplier').innerHTML = SUPPLIERS
+    .map(s => `<option value="${esc(s.supplier_key)}">${esc(s.display_name)}</option>`).join('');
+
+  body.innerHTML = live.map(r => {
+    const key = [r.supplier_key, r.product_key, r.fuel, r.sale_scope].map(encodeURIComponent).join('|');
+    return `<tr${r.quotable ? '' : ' style="opacity:.55"'}>
+      <td>${esc(supplierName(r.supplier_key))}</td>
+      <td>
+        <input value="${esc(r.display_name)}" style="width:100%;min-width:150px;font-size:12px;padding:4px 6px"
+               onchange="saveProduct('${key}','display_name',this.value,this)">
+        <div class="mono" style="font-size:10px;color:var(--muted);margin-top:3px">${esc(r.product_key)}</div>
+        <input value="${esc(r.filename_match || '')}" placeholder="filename rule (regex)"
+               style="width:100%;min-width:150px;font-size:10.5px;padding:3px 6px;margin-top:4px;
+                      font-family:ui-monospace,monospace"
+               onchange="saveProduct('${key}','filename_match',this.value,this)">
+      </td>
+      <td>${esc(r.fuel)}</td>
+      <td>${esc(r.sale_scope)}</td>
+      <td style="max-width:250px;overflow-wrap:anywhere">${r.upload_id
+        ? `${esc(r.source_filename)}
+           <div style="font-size:10.5px;color:var(--muted)">
+             ${esc(r.pricebook_version || 'no version')}
+             ${r.uploaded_by_name ? '· ' + esc(r.uploaded_by_name) : ''}</div>`
+        : `<span style="color:${r.quotable ? 'var(--warn)' : 'var(--muted)'}">nothing live</span>`}</td>
+      <td class="num">${r.rows_loaded ? r.rows_loaded.toLocaleString() : '—'}</td>
+      <td class="mono">${r.upload_id ? uk(r.window_open) + ' → ' + uk(r.window_close) : '—'}</td>
+      <td class="mono">${r.upload_id ? uk(r.went_live_at) : '—'}</td>
+      <td><input type="checkbox" ${r.quotable ? 'checked' : ''}
+                 onchange="saveProduct('${key}','quotable',this.checked,this)"></td>
+      <td>${r.upload_id
+        ? `<button class="act ghost sm" onclick="retire('${r.upload_id}',false,this)">Retire</button>` : ''}</td>
+    </tr>`;
+  }).join('');
+
+  loadAdminUploads();
+}
+
+async function loadAdminUploads() {
+  const body = $('adminUploads');
+  if (!body) return;
+  let rows;
+  try {
+    rows = await q(sb.from('pricebook_uploads')
+      .select('id,supplier_key,fuel,product_key,sale_scope,source_filename,zip_filename,'
+            + 'pricebook_version,rows_loaded,status,uploaded_at,uploaded_by_name,parse_error')
+      .order('uploaded_at', { ascending: false }).limit(300), 'uploads');
+  } catch (e) { body.innerHTML = ''; return fail($('adminErr'), e.message); }
+  LEDGER = rows;
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="9" style="color:var(--muted)">Nothing uploaded yet.</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(r => `<tr>
+    <td>${esc(supplierName(r.supplier_key))}</td>
+    <td>${esc(prodName(r))}<div style="font-size:10px;color:var(--muted)">${esc(r.fuel)}${
+      r.sale_scope && r.sale_scope !== 'any' ? ' · ' + esc(r.sale_scope) : ''}</div></td>
+    <td style="max-width:240px;overflow-wrap:anywhere">${esc(r.source_filename)}${
+      r.zip_filename ? `<div style="font-size:10px;color:var(--muted)">from ${esc(r.zip_filename)}</div>` : ''}</td>
+    <td class="mono">${esc(r.pricebook_version || '—')}</td>
+    <td class="num">${r.rows_loaded ? r.rows_loaded.toLocaleString() : '—'}</td>
+    <td><span class="pill ${statusPill(r.status)}">${esc(r.status)}</span></td>
+    <td>${esc(r.uploaded_by_name || '—')}</td>
+    <td class="mono">${uk(r.uploaded_at)}</td>
+    <td style="white-space:nowrap">
+      ${r.status === 'live' ? `<button class="act ghost sm" onclick="retire('${r.id}',false,this)">Retire</button>` : ''}
+      ${r.status === 'parsed' ? `<button class="act sm" onclick="promote('${r.id}',this)">Make live</button>` : ''}
+      ${r.status !== 'live' ? `<button class="act ghost sm" onclick="retire('${r.id}',true,this)">Purge</button>` : ''}
+    </td>
+  </tr>`).join('');
+}
+
+/**
+ * Edit one field on one product row.
+ *
+ * The filename rule is editable on purpose. It is the thing that will drift when a supplier
+ * renames a file, and the desk should be able to fix that in ten seconds rather than waiting
+ * on a code change. A regex that will not compile is refused here rather than silently
+ * matching nothing later.
+ */
+async function saveProduct(key, field, value, el) {
+  const [supplier_key, product_key, fuel, sale_scope] = key.split('|').map(decodeURIComponent);
+  if (field === 'filename_match') {
+    value = String(value).trim() || null;
+    if (value) {
+      try { new RegExp(value, 'i'); }
+      catch (e) {
+        el.style.borderColor = 'var(--bad)';
+        return fail($('adminErr'), `That is not a valid regular expression: ${e.message}`);
+      }
     }
-    loadLedger();
-  } catch (e) { btn.disabled = false; fail($('ledgerErr'), e.message); }
+  }
+  if (field === 'display_name' && !String(value).trim()) { loadAdmin(); return; }
+  el.style.borderColor = '';
+  try {
+    await q(sb.from('pricebook_products').update({ [field]: value })
+      .eq('supplier_key', supplier_key).eq('product_key', product_key)
+      .eq('fuel', fuel).eq('sale_scope', sale_scope), 'save product');
+    $('adminErr').classList.add('hide');
+    el.style.outline = '2px solid var(--ok)';
+    setTimeout(() => { el.style.outline = ''; }, 900);
+    await loadSuppliers();      // so the routing table and the queue see the change at once
+    rescanQueue();
+  } catch (e) { fail($('adminErr'), e.message); }
+}
+
+async function addProduct() {
+  const g = id => ($(id).value || '').trim();
+  const supplier_key = g('npSupplier');
+  const product_key = g('npKey').toLowerCase().replace(/[^a-z0-9_]/g, '_');
+  const display_name = g('npName'), filename_match = g('npMatch');
+  if (!supplier_key || !product_key || !display_name)
+    return fail($('adminErr'), 'Supplier, key and name are all needed.');
+  if (filename_match) {
+    try { new RegExp(filename_match, 'i'); }
+    catch (e) { return fail($('adminErr'), `Filename rule is not a valid regex: ${e.message}`); }
+  }
+  try {
+    await q(sb.from('pricebook_products').insert({
+      supplier_key, product_key, display_name, fuel: g('npFuel'), sale_scope: g('npScope'),
+      filename_match: filename_match || null, quotable: $('npQuotable').checked,
+      sort_order: parseInt(g('npSort'), 10) || 100, notes: g('npNotes') || null
+    }), 'add product');
+    ['npKey','npName','npMatch','npNotes'].forEach(i => $(i).value = '');
+    $('adminErr').classList.add('hide');
+    await loadSuppliers(); loadAdmin();
+  } catch (e) { fail($('adminErr'), e.message); }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -961,11 +1372,16 @@ async function priceMeter() {
       throw new Error(`Distributor ${dno} is an independent network and is not in any pricebook.`);
 
     let sel = sb.from('pricebook_rates_live')
-      .select('supplier_key,product_name,term_months,sale_type,rate_structure,profile_class,'
-            + 'dno_id,ldz,exit_zone,tcr_band,aq_min,aq_max,start_date_min,start_date_max,'
-            + 'standing_charge_p_day,unit_rate_p_kwh,day_rate_p_kwh,night_rate_p_kwh,'
-            + 'eve_weekend_p_kwh,capacity_p_kva_month,sc_type,green')
+      .select('supplier_key,product_key,product_display,product_name,term_months,sale_type,'
+            + 'rate_structure,profile_class,dno_id,ldz,exit_zone,tcr_band,aq_min,aq_max,'
+            + 'start_date_min,start_date_max,standing_charge_p_day,unit_rate_p_kwh,'
+            + 'day_rate_p_kwh,night_rate_p_kwh,eve_weekend_p_kwh,capacity_p_kva_month,'
+            + 'sc_type,green')
       .eq('fuel', METER.utility)
+      // A product turned off in Admin stops being priced from that moment, without needing
+      // its pricebook pulled. BG Lite's upgrade grids carry a broker uplift already, so
+      // quoting one would quietly double-count commission.
+      .eq('quotable', true)
       .in('term_months', terms)
       .in('sale_type', [sale, 'any'])
       .or(`aq_min.is.null,aq_min.lte.${aq}`)
@@ -998,42 +1414,120 @@ async function priceMeter() {
     const days = 365;
     const priced = rows.map(r => {
       // Uplift goes on the unit rate, on every register, which is how the contracts state it.
-      const u  = r.unit_rate_p_kwh   ? r.unit_rate_p_kwh   + uplift : null;
-      const d  = r.day_rate_p_kwh    ? r.day_rate_p_kwh    + uplift : null;
-      const nt = r.night_rate_p_kwh  ? r.night_rate_p_kwh  + uplift : null;
-      const ew = r.eve_weekend_p_kwh ? r.eve_weekend_p_kwh + uplift : null;
-      let energy = null;
-      if (d && nt) energy = (aq * dayPct * d + aq * (1 - dayPct) * nt) / 100;
-      else if (u)  energy = aq * u / 100;
-      const standing = (r.standing_charge_p_day || 0) * days / 100;
-      return { ...r, u, d, nt, ew, annual: energy == null ? null : energy + standing };
-    }).filter(r => r.annual != null).sort((a,b) => a.annual - b.annual);
+      // Only onto registers that EXIST: adding it to an absent one would invent a rate.
+      const up = (v) => v == null ? null : v + uplift;
+      const u  = up(r.unit_rate_p_kwh);
+      const d  = up(r.day_rate_p_kwh);
+      const nt = up(r.night_rate_p_kwh);
+      const ew = up(r.eve_weekend_p_kwh);
 
-    const best = priced.length ? priced[0].annual : null;
-    $('quoteBody').innerHTML = priced.slice(0, 80).map(r => `<tr>
-      <td>${esc(r.supplier_key)}</td>
-      <td style="max-width:220px;overflow-wrap:anywhere">${esc(r.product_name || '—')}
-        ${r.sc_type === 'no_sc' ? '<span class="pill p-mute">no SC</span>' : ''}
+      // Which registers are actually filled decides the maths, not what the file calls the
+      // structure. EDF's rate card says "single" and then puts the rate in DayRate with
+      // UnitRate blank; reading that as day-and-night with a free night made EDF the
+      // cheapest supplier on every meter. Two filled registers is a two-rate tariff. One
+      // filled register is a single rate, whichever column it happens to sit in.
+      let energy = null, basis = null;
+      if (d != null && nt != null) {
+        energy = (aq * dayPct * d + aq * (1 - dayPct) * nt) / 100;
+        basis = 'day/night';
+      } else {
+        const single = u != null ? u : (d != null ? d : (nt != null ? nt : null));
+        if (single != null) {
+          energy = aq * single / 100;
+          basis = u != null ? 'single' : 'single (rate given in the '
+                + (d != null ? 'day' : 'night') + ' column)';
+        }
+      }
+      const standing = (r.standing_charge_p_day || 0) * days / 100;
+      return { ...r, u, d, nt, ew, basis,
+               annual: energy == null ? null : energy + standing };
+    }).filter(r => r.annual != null);
+
+    // ── Collapse the duplicates. ──────────────────────────────────────────────────────
+    // The desk's own words: "way too many and repeated rates". The cause is not the parser.
+    // A pricebook is banded, and every band whose conditions this meter satisfies matches.
+    // Where the meter has no TCR band on file, all four of BG Lite's bands match at once —
+    // four rows, one supplier, one term, identical to the eye.
+    //
+    // So group on what a quote actually IS: supplier, product, term, sale type, and the
+    // priced numbers themselves. Rows that agree on all of that are one quote no matter how
+    // many bands produced them, and the bands they came from are kept so the row can say so.
+    // Rows that DISAGREE on price are left alone: they are genuinely different prices, and
+    // hiding that behind a single line would be inventing a quote.
+    const groups = new Map();
+    for (const r of priced) {
+      // product_name as well as product_key: EDF ships ONE product_key with twelve genuine
+      // products inside it (Fixed Online 3 Year, Fixed 3 Year Renewable, and the Zero
+      // Standing Charge variants), so keying on product_key alone merged different deals.
+      const k = [r.supplier_key, r.product_key, r.product_name, r.term_months, r.sale_type,
+                 r.sc_type, r.green, r.rate_structure,
+                 n2(r.u,4), n2(r.d,4), n2(r.nt,4), n2(r.ew,4),
+                 n2(r.standing_charge_p_day,4), n2(r.capacity_p_kva_month,4)].join('|');
+      const g = groups.get(k);
+      if (g) { g.bands.add(r.tcr_band || '—'); g.collapsed++; }
+      else groups.set(k, { ...r, bands: new Set([r.tcr_band || '—']), collapsed: 1 });
+    }
+    const quotes = [...groups.values()].sort((a,b) => a.annual - b.annual);
+    const collapsed = priced.length - quotes.length;
+
+    const best = quotes.length ? quotes[0].annual : null;
+    const bandLabel = (g) => {
+      const b = [...g.bands].sort();
+      if (b.length === 1) return b[0] === '—' ? 'any band' : b[0].replace('band_', 'band ');
+      // Same price in every band the meter could be in, so the unknown band does not change
+      // the energy cost. It still changes the non-energy charges, which are not in here.
+      return `any band <span style="color:var(--muted)">(${b.length})</span>`;
+    };
+
+    $('quoteBody').innerHTML = quotes.slice(0, 80).map(r => `<tr>
+      <td>${esc(supplierName(r.supplier_key))}</td>
+      <td style="max-width:240px;overflow-wrap:anywhere">
+        <b>${esc(r.product_display || r.product_name || '—')}</b>
+        ${r.product_display && r.product_name && r.product_name !== r.product_display
+          ? `<div style="font-size:10.5px;color:var(--muted)">${esc(r.product_name)}</div>` : ''}
+        ${Number(r.standing_charge_p_day) === 0 || r.sc_type === 'no_sc'
+          // Badge on the NUMBER, not on the supplier's label. BG Lite's VB grid stamps
+          // every row "SC" and then charges 0 p/day, and the product is literally called
+          // 0SC. Where the label and the figure disagree the figure is the contract.
+          ? '<span class="pill p-mute">no SC</span>' : ''}
+        ${r.sc_type === 'low_sc' && Number(r.standing_charge_p_day) > 0
+          ? '<span class="pill p-warn">low SC</span>' : ''}
         ${r.green ? '<span class="pill p-ok">green</span>' : ''}</td>
       <td class="num">${r.term_months}</td>
       <td class="num">${n2(r.u,4)}</td><td class="num">${n2(r.d,4)}</td>
       <td class="num">${n2(r.nt,4)}</td><td class="num">${n2(r.ew,4)}</td>
       <td class="num">${n2(r.standing_charge_p_day,4)}</td>
-      <td class="num">£${Math.round(r.annual).toLocaleString()}</td>
+      <td class="num">£${Math.round(r.annual).toLocaleString()}${
+        /column/.test(r.basis || '') ? `<div style="font-size:10px;color:var(--muted)"
+          title="${esc(r.basis)}">single rate</div>` : ''}</td>
       <td class="num" style="color:${r.annual === best ? 'var(--ok)' : 'var(--text-2)'}">
         ${r.annual === best ? 'cheapest' : '+£' + Math.round(r.annual - best).toLocaleString()}</td>
-      <td>${esc(r.tcr_band || '—')}</td>
+      <td>${bandLabel(r)}</td>
     </tr>`).join('');
 
-    const dn = priced.some(r => r.d && r.nt);
+    const dn = quotes.some(r => r.d && r.nt);
+    const noProduct = quotes.filter(r => !r.product_display).length;
     $('quoteAssumptions').innerHTML = `
-      ${priced.length} of ${rows.length} matched rows priced.
+      <b>${quotes.length}</b> quote${quotes.length === 1 ? '' : 's'} from
+      ${rows.length.toLocaleString()} matched pricebook rows.
+      ${collapsed ? `${collapsed.toLocaleString()} rows were the same price under a different
+        charging band and have been folded into the row they duplicate.` : ''}
       Uplift <b>${uplift.toFixed(2)} p/kWh</b> added to every unit rate.
       Annual cost on <b>${aq.toLocaleString()} kWh</b> over 365 days.
-      ${dn ? `<span style="color:var(--warn)">Day/night split assumed
+      ${quotes.length > 80 ? `<span style="color:var(--warn)"> Showing the cheapest 80.</span>` : ''}
+      ${!METER.tcr_band && METER.utility === 'electricity' ? `<div class="note warn" style="margin-top:10px">
+        <b>No TCR band on file for this meter</b>, so every band's prices matched. Where a
+        supplier charges the same in all of them that is harmless and the rows are folded
+        together; where they differ you are seeing more than one band's price and only the
+        band this meter is really in applies. Decode the LLFC on the Reference tab to settle
+        it.</div>` : ''}
+      ${dn ? `<div class="note warn" style="margin-top:10px">Day/night split assumed
         <b>${Math.round(dayPct*100)}/${100-Math.round(dayPct*100)}</b> because no measured
-        split is held for this meter. Change it above if you know better.</span>` : ''}
-      ${rows.length >= 5000 ? '<span style="color:var(--fail)"> The 5,000-row cap was hit, so this list may be incomplete.</span>' : ''}`;
+        split is held for this meter. Change it above if you know better.</div>` : ''}
+      ${noProduct ? `<div class="note warn" style="margin-top:10px">${noProduct} of these came
+        from a pricebook loaded before the product catalogue, so they show the file's own
+        product text rather than a CES product name. Re-upload that book to fix it.</div>` : ''}
+      ${rows.length >= 5000 ? '<div class="note bad" style="margin-top:10px">The 5,000-row cap was hit, so this list may be incomplete.</div>' : ''}`;
     $('quoteCard').classList.remove('hide');
     msg.textContent = '';
   } catch (e) {
@@ -1132,18 +1626,16 @@ async function lookupBand() {
   };
   z.onclick = () => inp.click();
   z.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inp.click(); } };
-  inp.onchange = inspectFile;
+  inp.onchange = () => addFiles(inp.files);
   // dragover must be prevented on every event or the browser navigates to the file.
   ['dragenter','dragover'].forEach(ev => z.addEventListener(ev, (e) => { e.preventDefault(); lift(true); }));
   ['dragleave','dragend'].forEach(ev => z.addEventListener(ev, () => lift(false)));
   z.addEventListener('drop', (e) => {
     e.preventDefault(); lift(false);
-    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-    if (!f) return;
-    // Assigning to input.files needs a DataTransfer; it is the only way to keep the file
-    // input as the single source of truth for both routes.
-    const dt = new DataTransfer(); dt.items.add(f); inp.files = dt.files;
-    inspectFile();
+    // Every dropped file, not just the first: a supplier pack is a folder of files or one
+    // zip, and picking them off one at a time is the thing this replaces.
+    const fs = e.dataTransfer && e.dataTransfer.files;
+    if (fs && fs.length) addFiles(fs);
   });
   // Dropping anywhere else on the page must not make the browser open the file.
   ['dragover','drop'].forEach(ev => window.addEventListener(ev, (e) => {
