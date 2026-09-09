@@ -180,12 +180,23 @@
   }
 
   // Cumulative requirement for column `i` BEFORE the baseload cap.
-  function requiredRaw(basket, i, base) {
+  //
+  // `t` is the target row for the month under test, and it decides which columns count.
+  // A column that carries no price for THIS month asks nothing of it and is skipped
+  // entirely. Baskets routinely stagger their columns — the first two authorised for
+  // Oct-28 onwards, the next two advisory for the years before it — and billing a month
+  // for rungs it was never given is how a 100 th/d ladder came to demand 300 th/d in the
+  // first column a month actually uses. Each column keeps its own rule; blank columns
+  // contribute nothing. Omit `t` and the old month-agnostic sum is returned, which is
+  // what a caller asking "what would this column ask of a full row" wants.
+  function requiredRaw(basket, i, base, t) {
     if (targetRule(basket, i).type === 'none') return null;
+    if (t && t['lower_t' + i] == null) return null;
     var cum = 0;
     for (var n = 1; n <= i; n++) {
       var r = targetRule(basket, n);
       if (r.type === 'none') continue;
+      if (t && t['lower_t' + n] == null) continue;
       if (r.type === 'volume') {
         if (r.amount == null) return null;
         cum += r.amount;
@@ -208,7 +219,10 @@
     // No baseload to hedge means no meaningful test — better "not evaluable" than every
     // target ticking green on a month that carries no volume.
     if (base != null && !(base > 0)) return null;
-    var raw = requiredRaw(basket, i, base);
+    var t = ((basket && basket.targets) || []).find(function (x) {
+      return x.month === (m && m.month);
+    }) || null;
+    var raw = requiredRaw(basket, i, base, t);
     if (raw == null) return null;
     // A month can never secure more than its own baseload, so a requirement above it is
     // unsatisfiable by construction: a 0.1 MW-per-tranche ladder asks 0.3 MW of a
