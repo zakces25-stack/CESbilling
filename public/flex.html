@@ -2415,7 +2415,7 @@ function fxTierCount(basket)            { return FlexCore.tierCount(basket); }
 function fxTargetKind(t, i)             { return FlexCore.targetKind(t, i); }
 function fxTargetRule(basket, i)        { return FlexCore.targetRule(basket, i); }
 function fxRuleLabel(basket, i)         { return FlexCore.ruleLabel(basket, i); }
-function fxRequiredRaw(basket, i, base) { return FlexCore.requiredRaw(basket, i, base); }
+function fxRequiredRaw(basket, i, base, t) { return FlexCore.requiredRaw(basket, i, base, t); }
 function fxRequiredSecured(basket, m, i){ return FlexCore.requiredSecured(basket, m, i); }
 function fxVolMeets(basket, have, need) { return FlexCore.volMeets(basket, have, need); }
 function fxAutoAchieved(basket, t, i)   { return FlexCore.autoAchieved(basket, t, i); }
@@ -3459,6 +3459,12 @@ async function fxWrite(promise, okMsg, scope){
 
 // ── state-preserving re-render ───────────────────────────────────
 function rerenderCurrent(){
+  // Every save rebuilds the detail pane wholesale, which used to throw the reader back to
+  // the top of a two-hundred-row Targets table after each price edit. Hold the scroll
+  // offset across the rebuild instead: once synchronously, once after layout, because the
+  // new content is not measured until the browser has laid it out.
+  const _scroller = document.getElementById('main-inner');
+  const _keepTop  = _scroller ? _scroller.scrollTop : 0;
   renderSidebar();
   const bSel = selectedId ? (BASKETS.find(b=>b.id===selectedId) || (DATA.archived||[]).find(b=>b.id===selectedId)) : null;
   if (bSel){
@@ -3488,6 +3494,10 @@ function rerenderCurrent(){
     } else { el.innerHTML=''; }
   });
   fxDecorateHeader();
+  if (_scroller && _keepTop > 0){
+    _scroller.scrollTop = _keepTop;
+    requestAnimationFrame(() => { _scroller.scrollTop = _keepTop; });
+  }
 }
 
 // ── EDIT MODE toggle + header decoration ─────────────────────────
@@ -3511,8 +3521,8 @@ function fxDecorateHeader(){
     const sp=document.createElement('span'); sp.id='fxDetailTools';
     sp.innerHTML = `<button class="fx-btn fx-edit-toggle${EDIT?' on':''}" onclick="fxSetEdit(!EDIT)">&#9998; ${EDIT?'Editing on':'Edit'}</button>
       <button class="fx-btn" onclick="fxExportBasket()" title="Styled Excel export of this basket">&#11015; Export</button>
-      <button class="fx-btn" onclick="fxTemplateBasket()" title="Baseload template for this basket — months prefilled">&#10515; Template</button>
-      <button class="fx-btn" onclick="fxImportBasket()" title="Import the filled baseload template">&#10514; Import</button>
+      <button class="fx-btn" onclick="fxTemplateBasket()" title="Baseload + targets template for this basket — months prefilled. Same Targets sheet as the Targets tab.">&#10515; Template</button>
+      <button class="fx-btn" onclick="fxImportBasket()" title="Import a filled baseload + targets template">&#10514; Import</button>
       <button class="fx-btn fx-edit-only" onclick="fxRenameModal()" title="Rename this basket everywhere">&#9998; Rename</button>
       <button class="fx-btn danger fx-edit-only" onclick="fxArchiveBasket()" title="Move to the Archive tab">&#128451; Archive</button>`;
     dh.parentNode.insertBefore(sp, dh);
@@ -5333,23 +5343,15 @@ async function fxTemplateBasket(){
     const r=ws.addRow([fmtMonth(m.month), m.baseload_vol]);
     r.getCell(2).numFmt = b.commodity==='power' ? '0.0000' : '0.00';
   }
-  // Targets sheet — edit tier prices + upper alert, re-import to apply
-  const _numT = fxTierCount(b);
-  const tws=wb.addWorksheet('Targets',{views:[{state:'frozen',ySplit:1}]});
-  const tcols=[{header:'Month',width:12}];
-  for(let i=1;i<=_numT;i++) tcols.push({header:((b.target_labels&&b.target_labels[i-1])||('T'+i)),width:12});
-  tcols.push({header:'Upper Alert',width:12});
-  tws.columns=tcols;
-  tws.getRow(1).eachCell(c=>{ c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF1F2D4D'}}; c.font={color:{argb:'FFFFFFFF'},bold:true,size:10}; });
-  for(const t of (b.targets||[])){
-    const row=[fmtMonth(t.month)];
-    for(let i=1;i<=_numT;i++) row.push(t['lower_t'+i]!=null? t['lower_t'+i] : null);
-    row.push(t.upper_alert!=null? t.upper_alert : null);
-    tws.addRow(row);
-  }
+  // Targets sheet — the SAME sheet the Targets tab exports, written by the same helper.
+  // This file used to carry a cut-down version (prices and upper alert, no Auth/Adv) with
+  // its own parser, so two workbooks that looked alike behaved differently on import.
+  const _tRows = fxTgtWriteSheet(wb, b);
+  fxTgtGuideSheet(wb, b, true);
   const buf=await wb.xlsx.writeBuffer();
-  fxDownloadBlob(buf, `${b.name} — Baseload Template.xlsx`);
-  fxToast('Baseload template downloaded');
+  fxDownloadBlob(buf, `${b.name} — Baseload & Targets Template.xlsx`);
+  fxToast('Template downloaded — '+(b.months||[]).length+' baseload month'+((b.months||[]).length===1?'':'s')
+    +', '+_tRows.length+' target month'+(_tRows.length===1?'':'s'));
 }
 function fxImportBasket(){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.xls';
@@ -5373,31 +5375,28 @@ async function fxImportParse(file){
     const v=fxNum(r[1]);
     if(m&&v!=null&&v!==m.baseload_vol) changes.push({month:m.month, from:m.baseload_vol, v});
   }
-  // optional Targets sheet
-  const tchanges=[];
+  // Targets sheet — parsed by the SAME reader the Targets tab uses, so a workbook from
+  // either button applies under identical rules (blank clears, Auth/Adv, tick clearing).
+  let tchanges=[], terrs=[], tmsg=null;
   const tws=wb.Sheets['Targets'];
   if(tws){
-    const numT=fxTierCount(b);
-    const trows=XLSX.utils.sheet_to_json(fxNormRange(tws),{header:1,raw:true,defval:null}).slice(1);
-    for(const r of trows){
-      if(!r||r[0]==null) continue;
-      const key=r[0] instanceof Date? (r[0].getFullYear()+'-'+String(r[0].getMonth()+1).padStart(2,'0')+'-01') : String(r[0]).trim();
-      const m=known[key]||(fxParseDate(key)?known[fxParseDate(key).slice(0,8)+'01']:null);
-      if(!m) continue;
-      const t=(b.targets||[]).find(x=>x.month===m.month);
-      const patch={}; let any=false;
-      for(let i=1;i<=numT;i++){ const nv=fxNum(r[i]); const cur=t?(t['lower_t'+i]!=null?t['lower_t'+i]:null):null; if((nv!=null?nv:null)!==cur){ patch['lower_t'+i]=nv; any=true; } }
-      const uaNew=fxNum(r[numT+1]); const uaCur=t?(t.upper_alert!=null?t.upper_alert:null):null; if((uaNew!=null?uaNew:null)!==uaCur){ patch.upper_alert=uaNew; any=true; }
-      if(any) tchanges.push({month:m.month, patch});
-    }
+    const res=fxTgtParseSheet(b, tws);
+    if(res.msg) tmsg=res.msg; else { tchanges=res.changes; terrs=res.errs; }
   }
-  if(!changes.length && !tchanges.length) return fxToast('No changes found in that file', false);
+  if(!changes.length && !tchanges.length) return fxToast(tmsg || 'No changes found in that file', false);
   window._fxImport={baseload:changes, targets:tchanges};
   const _blHtml = changes.length ? `<p style="font-size:12.5px;color:#4b5563">${changes.length} baseload month(s) will be updated.</p>
   <div class="fx-preview"><table><thead><tr><th>Month</th><th>Current</th><th>New</th></tr></thead><tbody>
     ${changes.map(r=>`<tr><td>${fmtMonth(r.month)}</td><td>${r.from!=null?r.from:'—'}</td><td><b>${r.v}</b></td></tr>`).join('')}</tbody></table></div>` : '';
-  const _tgHtml = tchanges.length ? `<p style="font-size:12.5px;color:#4b5563;margin-top:8px">${tchanges.length} target month(s) will be updated (tier prices / upper alert).</p>` : '';
-  fxModal(`<h3>Import — ${escape(b.name)}</h3>${_blHtml}${_tgHtml}
+  const _tgCells = tchanges.reduce((a,c)=>a+c.detail.length, 0);
+  const _tgHtml = tchanges.length
+    ? `<p style="font-size:12.5px;color:#4b5563;margin-top:10px">${_tgCells} target change${_tgCells===1?'':'s'} across ${tchanges.length} month${tchanges.length===1?'':'s'}. Months not in the sheet are untouched.</p>`
+      + fxTgtDiffHtml(tchanges)
+    : '';
+  const _tgWarn = (tmsg || terrs.length)
+    ? `<div class="fx-err" style="display:block">${escape(tmsg || (terrs.length+' target row'+(terrs.length===1?'':'s')+' skipped: '+terrs.slice(0,3).join(' · ')+(terrs.length>3?' …':'')))}</div>`
+    : '';
+  fxModal(`<h3>Import — ${escape(b.name)}</h3>${_blHtml}${_tgWarn}${_tgHtml}
   <div class="fx-err" id="fxMErr"></div>
   <div class="fx-modal-foot"><button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
   <button class="fx-btn green" onclick="fxImportCommit()">Apply changes</button></div>`);
@@ -5889,9 +5888,11 @@ renderTargets = function(basket){
     const _pend=Object.keys(FX_TBUF).length;
     bar.innerHTML=`<button class="fx-btn green" onclick="fxAddTargetMonths()">+ Add target rows for future months</button>`
       + ` <button class="fx-btn" onclick="fxTargetWapModal(currentBasket)" title="Model the WAP and delivered rate if these targets were struck">&#931; Targeted WAPs${(basket.target_trades||[]).length?' ('+basket.target_trades.length+')':''}</button>`
+      + ` <button class="fx-btn" onclick="fxExportTargets()" title="Download these target rows as an Excel workbook">&#8681; Export targets</button>`
+      + ` <button class="fx-btn" onclick="fxImportTargets()" title="Update targets in bulk from an edited export">&#8679; Import targets</button>`
       + (numT<8? ` <button class="fx-btn" onclick="fxAddTargetCol(currentBasket)" title="Show another target tier">+ Add target column</button>` : '')
       + (numT>1? ` <button class="fx-btn danger" onclick="fxRemTargetCol(currentBasket)" title="Hide the last target tier">&minus; Remove last column</button>` : '')
-      + ` <span style="font-size:11px;color:#6b7280">Click a column name to rename it and set its volume rule &middot; click a price to edit &middot; tick the circle to mark achieved &middot; tap each cell's Auth/Adv tag to set red/purple &middot; or use a column header's Auth/Adv chip to set the whole column &middot; changes stage until you Apply</span>`
+      + ` <span style="font-size:11px;color:#6b7280">Click a column name to rename it and set its volume rule &middot; click a price to edit &middot; tick the circle to mark achieved &middot; tap each cell's Auth/Adv tag to set red/purple &middot; or use a column header's Auth/Adv chip to set the whole column &middot; changes stage until you Apply &middot; Export/Import use the same workbook, and import shows every change before writing</span>`
       + (_pend? ` <button class="fx-btn" style="background:var(--green-500);color:var(--navy-900);font-weight:800" onclick="fxApplyTargets(currentBasket)">&#10003; Apply ${_pend} change${_pend>1?'s':''}</button> <button class="fx-btn danger" onclick="fxDiscardTargets(currentBasket)">Discard</button>` : '');
     el.insertBefore(bar, el.firstChild);
     const targets=fxVisibleTargets(basket);   // MUST match the rows _renderTargets drew — this maps cells to months by index
@@ -6243,6 +6244,9 @@ async function fxAddTargetCol(b){
   if(!b) return;
   const n=fxTierCount(b);
   if(n>=8){ fxToast('Maximum of 8 targets', false); return; }
+  // One click used to be enough to reshape every month in the basket. It is a cheap
+  // action to confirm and an irritating one to undo.
+  if(!confirm('Add target column '+(n+1)+' to \u201C'+b.name+'\u201D?\n\nThe new column appears on every month in this basket.')) return;
   await fxWrite(FLEX.sb.from('flex_baskets').update({target_count:n+1, updated_by:FLEX.user}).eq('id',b.id), 'Added target column');
 }
 async function fxRemTargetCol(b){
@@ -6250,10 +6254,279 @@ async function fxRemTargetCol(b){
   const n=fxTierCount(b);
   if(n<=1){ fxToast('At least one target is required', false); return; }
   const hasData=(b.targets||[]).some(t=>t['lower_t'+n]!=null);
-  if(hasData && !confirm('Target '+n+' has prices set. Remove the column anyway?\n\nThe prices stay saved in the database and reappear if you add the column back.')) return;
+  const _lbl=(b.target_labels&&b.target_labels[n-1])||('T'+n);
+  const _cnt=(b.targets||[]).filter(t=>t['lower_t'+n]!=null).length;
+  // Always ask, prices or not — the old guard let an empty column go with a single click,
+  // which is exactly the slip that costs you the column you meant to keep.
+  if(!confirm('Remove target column '+n+' (\u201C'+_lbl+'\u201D) from \u201C'+b.name+'\u201D?'
+    + (hasData ? '\n\nIt has prices set on '+_cnt+' month'+(_cnt===1?'':'s')+'. They stay saved in the database and reappear if you add the column back.'
+               : '\n\nIt has no prices set.'))) return;
   await fxWrite(FLEX.sb.from('flex_baskets').update({target_count:n-1, updated_by:FLEX.user}).eq('id',b.id), 'Removed last target column');
 }
 
+
+// ── TARGETS: Excel export / import, one shared template ──────────
+// Layout, left to right: Month, then for each tier a price column immediately followed by
+// its Auth/Adv column, then Upper Alert. Export writes that shape and import reads it, so
+// a round trip with no edits is a no-op and there is only ever one template to keep right.
+// Only the rows shown on the tab are exported, and import touches only the months it finds
+// in the sheet — a delivered month cannot be rewritten by a file that predates it.
+function fxTgtSheetHeads(b){
+  const numT = fxTierCount(b);
+  const heads = [{ header: 'Month', width: 12 }];
+  for(let i = 1; i <= numT; i++){
+    const lbl = (b.target_labels && b.target_labels[i-1]) || ('T'+i);
+    heads.push({ header: lbl + ' (' + b.unit_price + ')', width: 13 });
+    heads.push({ header: lbl + ' Auth/Adv',               width: 11 });
+  }
+  heads.push({ header: 'Upper Alert', width: 12 });
+  return heads;
+}
+// 1-based ExcelJS cell numbers / 0-based sheet_to_json indices for tier i.
+const fxTgtPriceCol = i => 2 + (i-1)*2;
+const fxTgtKindCol  = i => 3 + (i-1)*2;
+const fxTgtAlertCol = numT => 2 + numT*2;
+
+// Writes the shared 'Targets' worksheet into `wb` and returns the rows written. Both the
+// Targets tab's Export and the basket Template button call this — one layout, one place.
+function fxTgtWriteSheet(wb, b){
+  const rows = fxVisibleTargets(b);
+  const numT = fxTierCount(b);
+  const ws = wb.addWorksheet('Targets', { views: [{ state: 'frozen', xSplit: 1, ySplit: 1 }] });
+  ws.columns = fxTgtSheetHeads(b);
+  ws.getRow(1).eachCell(c => { c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF1F2D4D' } };
+    c.font = { color:{ argb:'FFFFFFFF' }, bold:true, size:10 };
+    c.alignment = { horizontal:'center', wrapText:true }; });
+  for(const t of rows){
+    const line = [fmtMonth(t.month)];
+    for(let i = 1; i <= numT; i++){
+      const px = t['lower_t'+i];
+      line.push(px != null ? +px : null);
+      // Kind is only meaningful where a price exists; leaving it blank otherwise keeps the
+      // round trip clean, since a blank beside a blank price changes nothing on import.
+      line.push(px != null ? (fxTargetKind(t, i) === 'advisory' ? 'Adv' : 'Auth') : null);
+    }
+    line.push(t.upper_alert != null ? +t.upper_alert : null);
+    const r = ws.addRow(line);
+    r.eachCell({ includeEmpty:true }, c => { c.font = { size:10 };
+      c.border = { bottom: { style:'hair', color:{ argb:'FFE0E3EC' } } }; });
+    for(let i = 1; i <= numT; i++){
+      r.getCell(fxTgtPriceCol(i)).numFmt = '0.00';
+      const k = r.getCell(fxTgtKindCol(i));
+      k.alignment = { horizontal:'center' };
+      k.dataValidation = { type:'list', allowBlank:true, formulae:['"Auth,Adv"'] };
+    }
+    r.getCell(fxTgtAlertCol(numT)).numFmt = '0.00';
+    r.getCell(1).alignment = { horizontal:'left' };
+  }
+  return rows;
+}
+
+// Guidance lives on its own sheet: anything below the data on 'Targets' would come back
+// through the importer as a row to parse.
+function fxTgtGuideSheet(wb, b, withBaseload){
+  const gs = wb.addWorksheet('How to use');
+  gs.columns = [{ width: 108 }];          // no header key: guidance starts on row 1
+  const lines = [ (withBaseload ? 'BASELOAD & TARGETS — ' : 'TARGETS — ') + b.name, '' ];
+  lines.push(withBaseload
+    ? 'Edit this workbook and import it back with the Import button beside Template, or from the'
+    : 'Edit this workbook and import it back from the Targets tab (Edit mode → Import targets).');
+  if(withBaseload) lines.push('Targets tab (Edit mode → Import targets). Either route reads the same sheets.');
+  lines.push('');
+  if(withBaseload){
+    lines.push('BASELOAD sheet');
+    lines.push('Month          Every month in the basket, past ones included.');
+    lines.push('Baseload       The month\u2019s baseload volume in ' + b.unit_vol + '. Only changed values are applied.');
+    lines.push('');
+    lines.push('TARGETS sheet');
+  }
+  lines.push('Month          Must match a month already in this basket. Oct-26, 01/10/2026 and 2026-10-01 all read.');
+  lines.push('                     Months missing from the sheet are left exactly as they are.');
+  lines.push('                     Only tradable months are listed — a delivered month cannot be rewritten here.');
+  lines.push('Price columns  The price for that tier, in ' + b.unit_price + '. Clear a cell to remove that target.');
+  lines.push('Auth/Adv       Auth = Authorised (red), Adv = Advisory (purple). Blank beside a new price means Auth.');
+  lines.push('Upper Alert    The upper alert price for the month, in ' + b.unit_price + '. Clear it to remove it.');
+  lines.push('');
+  lines.push('Clearing a price also clears any hand-ticked achievement on it, matching the portal.');
+  lines.push('Achievement itself is not in this sheet — it is derived from each column\u2019s volume rule.');
+  lines.push('Every change is listed for you to check before anything is written.');
+  lines.forEach(t => gs.addRow([t]));
+  gs.getRow(1).font = { bold:true, size:12 };
+  return gs;
+}
+
+async function fxExportTargets(){
+  const b = currentBasket; if(!b) return;
+  if(typeof ExcelJS === 'undefined') return fxToast('Excel engine not loaded — reload the page', false);
+  if(!fxVisibleTargets(b).length) return fxToast('No target rows to export', false);
+  const wb = new ExcelJS.Workbook();
+  const rows = fxTgtWriteSheet(wb, b);
+  fxTgtGuideSheet(wb, b, false);
+  const buf = await wb.xlsx.writeBuffer();
+  fxDownloadBlob(buf, b.name + ' — Targets ' + new Date().toISOString().slice(0,10) + '.xlsx');
+  fxToast('Exported ' + rows.length + ' target month' + (rows.length === 1 ? '' : 's'));
+}
+
+// Blank is not an error here: it means "no kind given", which the caller resolves against
+// the price. Anything else unrecognised IS an error — guessing at it would silently flip a
+// column's authorisation, which is the one thing this field must never do quietly.
+function fxTgtKindIn(v){
+  const s = String(v == null ? '' : v).trim().toLowerCase();
+  if(!s) return '';
+  if(s.indexOf('adv') === 0)  return 'advisory';
+  if(s.indexOf('auth') === 0) return 'authorised';
+  return null;
+}
+
+function fxImportTargets(){
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.xlsx,.xls';
+  inp.onchange = async () => { const f = inp.files[0]; if(f) await fxImportTargetsParse(f); };
+  inp.click();
+}
+
+// Reads the shared Targets sheet against basket `b`. Returns { msg } when the sheet cannot
+// be used at all, otherwise { changes, errs }. Shared by both importers so a workbook from
+// either button applies under identical rules.
+function fxTgtParseSheet(b, ws){
+  const grid = XLSX.utils.sheet_to_json(fxNormRange(ws), { header:1, raw:true, defval:null });
+  if(!grid.length) return { msg: 'The Targets sheet is empty' };
+
+  const numT = fxTierCount(b);
+  const head = grid[0] || [];
+  if(String(head[0] == null ? '' : head[0]).trim().toLowerCase() !== 'month')
+    return { msg: 'The Targets sheet\u2019s first column must be "Month" — export the template first' };
+  // The tier count is baked into the column layout, so a sheet written when the basket had
+  // a different number of columns would land its prices one tier out. Refuse it by name.
+  const uaIdx = head.findIndex(h => String(h == null ? '' : h).trim().toLowerCase() === 'upper alert');
+  if(uaIdx < 1 || (uaIdx - 1) % 2 !== 0)
+    return { msg: 'Could not find the "Upper Alert" column on the Targets sheet — export the template first' };
+  const sheetT = (uaIdx - 1) / 2;
+  if(sheetT !== numT)
+    return { msg: 'The Targets sheet was built for ' + sheetT + ' target column' + (sheetT === 1 ? '' : 's')
+      + ', but this basket now has ' + numT + '. Export a fresh template.' };
+
+  const known = {};
+  (b.months || []).forEach(m => { known[fmtMonth(m.month)] = m.month; known[m.month] = m.month; });
+  const changes = [], errs = [];
+  const labelOf = i => (b.target_labels && b.target_labels[i-1]) || ('T'+i);
+
+  for(let r = 1; r < grid.length; r++){
+    const row = grid[r] || [];
+    const rawM = fxAdmCellStr(row[0]);
+    if(!rawM) continue;                                   // blank row — nothing to say
+    let mo = known[rawM] || null;
+    if(!mo){ const p = fxParseDate(rawM); if(p) mo = known[p.slice(0,8) + '01'] || null; }
+    if(!mo){ errs.push('Row ' + (r+1) + ': "' + rawM + '" is not a month in this basket'); continue; }
+
+    const t = (b.targets || []).find(x => x.month === mo) || null;
+    const patch = {}, detail = [];
+    let bad = false;
+
+    for(let i = 1; i <= numT; i++){
+      const px  = fxNum(row[fxTgtPriceCol(i) - 1]);
+      const cur = (t && t['lower_t'+i] != null) ? +t['lower_t'+i] : null;
+      if(px !== cur){
+        patch['lower_t'+i] = px;
+        // Clearing a price clears any hand-ticked achievement with it, exactly as editing
+        // the cell in the portal does — otherwise a stale tick outlives the target it was
+        // set against and reappears the moment a new price is typed in.
+        if(px == null) patch['t'+i+'_achieved'] = null;
+        detail.push({ what: labelOf(i), from: cur, to: px });
+      }
+      const kIn = fxTgtKindIn(row[fxTgtKindCol(i) - 1]);
+      if(kIn === null){
+        errs.push('Row ' + (r+1) + ', ' + labelOf(i) + ': "'
+          + String(row[fxTgtKindCol(i) - 1]).trim() + '" is not Auth or Adv');
+        bad = true; continue;
+      }
+      // A blank kind beside a blank price is simply an empty cell, not an instruction to
+      // reset the column to Authorised.
+      const kNew = kIn || ((px != null) ? 'authorised' : null);
+      if(kNew){
+        const kCur = t ? fxTargetKind(t, i) : 'authorised';
+        if(kNew !== kCur){
+          patch['t'+i+'_kind'] = kNew;
+          detail.push({ what: labelOf(i) + ' kind', from: kCur === 'advisory' ? 'Adv' : 'Auth',
+                        to: kNew === 'advisory' ? 'Adv' : 'Auth', txt: true });
+        }
+      }
+    }
+
+    const uaNew = fxNum(row[fxTgtAlertCol(numT) - 1]);
+    const uaCur = (t && t.upper_alert != null) ? +t.upper_alert : null;
+    if(uaNew !== uaCur){ patch.upper_alert = uaNew; detail.push({ what:'Upper Alert', from: uaCur, to: uaNew }); }
+
+    if(bad) continue;                                     // never apply half a bad row
+    if(detail.length) changes.push({ month: mo, isNew: !t, patch: patch, detail: detail });
+  }
+  return { changes: changes, errs: errs };
+}
+
+// The month-by-month diff table, shared by both import previews.
+function fxTgtDiffHtml(changes){
+  const cell = v => v == null ? '<span style="color:#c8cdd8">&mdash;</span>' : escape(String(v));
+  return '<div class="fx-preview" style="max-height:340px"><table class="fx-tt-table">'
+    + '<thead><tr><th>Month</th><th>Field</th><th class="td-right">Current</th><th class="td-right">New</th></tr></thead><tbody>'
+    + changes.map(c => c.detail.map((d, k) => '<tr>'
+        + (k === 0 ? '<td rowspan="' + c.detail.length + '"><b>' + fmtMonth(c.month) + '</b>'
+                     + (c.isNew ? ' <span style="color:#0f6e56;font-size:11px">new row</span>' : '') + '</td>' : '')
+        + '<td>' + escape(d.what) + '</td>'
+        + '<td class="td-right">' + cell(d.from) + '</td>'
+        + '<td class="td-right"><b>' + cell(d.to) + '</b></td></tr>').join('')).join('')
+    + '</tbody></table></div>';
+}
+
+async function fxImportTargetsParse(file){
+  const b = currentBasket; if(!b) return;
+  let wb;
+  try{ wb = XLSX.read(await file.arrayBuffer(), { type:'array', cellDates:true }); }
+  catch(e){ return fxToast('Could not read that file', false); }
+  const ws = wb.Sheets['Targets'] || wb.Sheets[wb.SheetNames[0]];
+  if(!ws) return fxToast('No sheet found in that file', false);
+  const res = fxTgtParseSheet(b, ws);
+  if(res.msg) return fxToast(res.msg, false);
+  const changes = res.changes, errs = res.errs;
+
+  if(errs.length && !changes.length)
+    return fxModal('<h3>Import targets — ' + escape(b.name) + '</h3>'
+      + '<p style="font-size:12.5px;color:#4b5563">Nothing could be applied.</p>'
+      + '<div class="fx-preview" style="max-height:300px"><table><tbody>'
+      + errs.map(e => '<tr><td>' + escape(e) + '</td></tr>').join('') + '</tbody></table></div>'
+      + '<div class="fx-modal-foot"><button class="fx-btn" onclick="fxCloseModal()">Close</button></div>');
+  if(!changes.length) return fxToast('No changes found in that file', false);
+
+  window._fxTgtImport = changes;
+  const nNew  = changes.filter(c => c.isNew).length;
+  const nCell = changes.reduce((a, c) => a + c.detail.length, 0);
+  fxModal('<h3>Import targets — ' + escape(b.name) + '</h3>'
+    + '<p style="font-size:12.5px;color:#4b5563">' + nCell + ' change' + (nCell === 1 ? '' : 's')
+    + ' across ' + changes.length + ' month' + (changes.length === 1 ? '' : 's')
+    + (nNew ? ', ' + nNew + ' of them new rows' : '')
+    + '. Months not in the sheet are untouched.</p>'
+    + (errs.length ? '<div class="fx-err" style="display:block">' + errs.length + ' row'
+        + (errs.length === 1 ? '' : 's') + ' skipped: ' + escape(errs.slice(0,3).join(' · '))
+        + (errs.length > 3 ? ' …' : '') + '</div>' : '')
+    + fxTgtDiffHtml(changes)
+    + '<div class="fx-err" id="fxMErr"></div>'
+    + '<div class="fx-modal-foot"><button class="fx-btn" onclick="fxCloseModal()">Cancel</button>'
+    + '<button class="fx-btn green" onclick="fxImportTargetsCommit()">Apply ' + nCell + ' change'
+    + (nCell === 1 ? '' : 's') + '</button></div>');
+}
+
+async function fxImportTargetsCommit(){
+  const b = currentBasket, changes = window._fxTgtImport;
+  if(!b || !changes) return;
+  const rows = changes.map(c => Object.assign(
+    { basket_id: b.id, month: c.month, updated_by: FLEX.user }, c.patch));
+  // One upsert, not one per month: onConflict merges the supplied columns only, so the
+  // fields this sheet does not carry — the achievement ticks it did not clear — survive.
+  const { error } = await FLEX.sb.from('flex_targets').upsert(rows, { onConflict: 'basket_id,month' });
+  if(error) return fxMErr(error.message);
+  fxToast(changes.length + ' target month' + (changes.length === 1 ? '' : 's') + ' updated');
+  window._fxTgtImport = null;
+  fxCloseModal();
+  fxScheduleReload(['flex_targets']);
+}
 
 // ── TARGET COLUMN EDITOR: name + achievement rule ────────────────
 // Opened from a target column header. Sets the column's name and, optionally, the
@@ -6345,13 +6618,16 @@ function fxTargetRulePreview(){
     // Flag the months where the ladder asks for more than the meter can take, so the
     // capped figure never looks like a typo.
     const _base = m.baseload_vol != null ? m.baseload_vol : null;
-    const _raw  = fxRequiredRaw(d.shim, n, _base);
+    const _raw  = fxRequiredRaw(d.shim, n, _base, t);
     const capped = (need != null && _raw != null && _base != null && _raw > _base);
     if (capped) nCapped++;
     const manual = !!(t && t['t'+n+'_achieved'] === 'Yes');
     let verdict;
-    if (!t)                verdict = '<span style="color:#c8cdd8">No target row</span>';
-    else if (need == null) verdict = '<span style="color:#9aa1ad">Not evaluable</span>';
+    if (!t)                          verdict = '<span style="color:#c8cdd8">No target row</span>';
+    // A month that skips this column is not pending on it — it was never asked. Saying so
+    // outright stops "Not evaluable" from being read as a data problem.
+    else if (t['lower_t' + n] == null) verdict = '<span style="color:#c8cdd8">No target in this column</span>';
+    else if (need == null)             verdict = '<span style="color:#9aa1ad">Not evaluable</span>';
     else if (ok)           verdict = '<span style="color:#0f6e56;font-weight:700">&#10003; Achieved</span>';
     else                   verdict = '<span style="color:#9aa1ad">Pending</span>';
     const note = (manual && !ok) ? ' <span style="color:#6b7280">&middot; ticked by hand</span>' : '';
