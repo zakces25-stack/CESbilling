@@ -56,6 +56,20 @@
   <FilesMatch "^flex-shared\.js$">
     Header set Cache-Control "no-cache, max-age=0, must-revalidate"
   </FilesMatch>
+
+  # Pricebook parsers — MUST override the 30-day .js rule above, for the same reason as
+  # flex-shared and then some. pricing.html is cached 300 seconds, so the page rolls out in
+  # five minutes while its parser library would have stayed pinned for THIRTY DAYS as
+  # immutable, which browsers take as permission not even to revalidate. That is exactly
+  # what happened on 9 Sep 2026: four new supplier parsers were pushed, the page picked
+  # them up, and the desk still got 'no parser called ecotricity' because the edge and the
+  # browser were both still handing out the 8 September file.
+  #
+  # A parser change is never cosmetic — it decides what a rate MEANS — so it must never lag
+  # the page that calls it. Revalidation is a 304 on an 83KB file.
+  <FilesMatch "^pricing-parsers\.js$">
+    Header set Cache-Control "no-cache, max-age=0, must-revalidate"
+  </FilesMatch>
 </IfModule>
 
 # ───── 1b. MIME type for web app manifests ─────────────────────────────
