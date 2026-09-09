@@ -153,8 +153,8 @@
   <header>
     <h1>CES <span>Pricing Desk</span></h1>
     <nav>
-      <button id="tab-books" class="on" onclick="showTab('books')">Pricebooks</button>
-      <button id="tab-price" onclick="showTab('price')">Price a meter</button>
+      <button id="tab-price" class="on" onclick="showTab('price')">Pick a meter</button>
+      <button id="tab-books" onclick="showTab('books')">Pricebooks</button>
       <button id="tab-ref" onclick="showTab('ref')">Reference</button>
       <button id="tab-admin" onclick="showTab('admin')">Admin</button>
     </nav>
@@ -166,7 +166,7 @@
 
   <main>
     <!-- ══════════════════════════════════════════════════════════════════ PRICEBOOKS -->
-    <section id="pane-books">
+    <section id="pane-books" class="hide">
       <div class="card">
         <h2>Upload a pricebook</h2>
         <div class="sub">
@@ -229,7 +229,7 @@
     </section>
 
     <!-- ══════════════════════════════════════════════════════════════════ PRICE -->
-    <section id="pane-price" class="hide">
+    <section id="pane-price">
       <div class="card">
         <h2>Find a meter</h2>
         <div class="sub">
@@ -246,6 +246,70 @@
           </div>
         </div>
         <div id="mResults" style="margin-top:14px"></div>
+
+        <details id="manualWrap" style="margin-top:18px">
+          <summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--cyan)">
+            Price a meter that is not in the portfolio</summary>
+          <div style="font-size:11.5px;color:var(--muted);margin:10px 0 12px;line-height:1.6">
+            For a prospect, or for a meter whose details the portfolio does not carry yet.
+            Everything here is used exactly as typed and nothing is saved against a customer.
+            The distributor is taken from the first two digits of the MPAN if you leave it
+            blank.
+          </div>
+          <div class="row">
+            <div><label for="xFuel">Fuel</label>
+              <select id="xFuel" onchange="manualFuelChanged()">
+                <option value="electricity">Electricity</option>
+                <option value="gas">Gas</option>
+              </select></div>
+            <div><label for="xId">MPAN / MPRN</label>
+              <input id="xId" class="mono" placeholder="1900006321054" /></div>
+            <div><label for="xAq">Annual consumption (kWh)</label>
+              <input id="xAq" class="mono" placeholder="40000" /></div>
+          </div>
+          <div class="row" id="xElecRow">
+            <div><label for="xDno">Distributor</label>
+              <input id="xDno" class="mono" placeholder="from the MPAN" /></div>
+            <div><label for="xPc">Profile class</label>
+              <select id="xPc">
+                <option value="">unknown</option>
+                <option value="3" selected>3</option><option value="4">4</option>
+                <option value="1">1</option><option value="2">2</option>
+              </select></div>
+            <div><label for="xStruct">Registers</label>
+              <select id="xStruct">
+                <option value="single">Single rate</option>
+                <option value="day_night">Day / night</option>
+                <option value="eve_weekend">Day + evening/weekend</option>
+                <option value="day_night_ew">Day + night + evening/weekend</option>
+              </select></div>
+            <div><label for="xBand">TCR band</label>
+              <select id="xBand">
+                <option value="">unknown (shows every band)</option>
+                <option value="band_1">Band 1</option><option value="band_2">Band 2</option>
+                <option value="band_3">Band 3</option><option value="band_4">Band 4</option>
+              </select></div>
+          </div>
+          <div class="row hide" id="xGasRow">
+            <div><label for="xLdz">LDZ</label>
+              <input id="xLdz" class="mono" placeholder="EA" /></div>
+            <div><label for="xZone">Exit zone</label>
+              <input id="xZone" class="mono" placeholder="EA1" /></div>
+            <div style="flex:2;display:flex;align-items:flex-end">
+              <div style="font-size:11.5px;color:var(--muted)">
+                Look either up from a postcode on the Reference tab.</div></div>
+          </div>
+          <div class="row">
+            <div style="flex:2"><label for="xSupplier">Current supplier</label>
+              <select id="xSupplier"></select></div>
+            <div style="flex:2;display:flex;align-items:flex-end">
+              <div style="font-size:11.5px;color:var(--muted);line-height:1.5">
+                This decides which supplier can quote a renewal. Everyone else quotes an
+                acquisition.</div></div>
+          </div>
+          <div style="margin-top:14px"><button class="act" onclick="useManualMeter()">
+            Use these details</button></div>
+        </details>
       </div>
 
       <div id="priceCard" class="card hide">
@@ -272,14 +336,8 @@
             <label for="qSplit">Day % (day/night meters)</label>
             <input id="qSplit" class="mono" value="70" />
           </div>
-          <div>
-            <label for="qSale">Sale type</label>
-            <select id="qSale">
-              <option value="acquisition">Acquisition</option>
-              <option value="renewal">Renewal</option>
-            </select>
-          </div>
         </div>
+        <div id="saleNote" class="note" style="margin-top:12px"></div>
         <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
           <button class="act" id="priceBtn" onclick="priceMeter()">Price</button>
           <span id="priceMsg" style="font-size:12px;color:var(--muted)"></span>
@@ -288,15 +346,9 @@
 
       <div id="quoteCard" class="card hide">
         <h2>Results</h2>
-        <div class="sub" id="quoteAssumptions"></div>
-        <div class="scroll"><table>
-          <thead><tr>
-            <th>Supplier</th><th>Product</th><th class="num">Term</th>
-            <th class="num">Unit</th><th class="num">Day</th><th class="num">Night</th><th class="num">E/Wknd</th>
-            <th class="num">SC p/day</th><th class="num">Annual £</th><th class="num">vs cheapest</th><th>Band</th>
-          </tr></thead>
-          <tbody id="quoteBody"></tbody>
-        </table></div>
+        <nav id="termTabs" style="margin:0 0 4px;border-bottom:1px solid var(--line)"></nav>
+        <div id="quoteTables"></div>
+        <div class="sub" id="quoteAssumptions" style="margin-top:16px"></div>
       </div>
     </section>
 
@@ -354,9 +406,10 @@
         <div id="adminErr" class="hide"></div>
         <div class="scroll"><table>
           <thead><tr>
-            <th>Supplier</th><th>Product</th><th>Fuel</th><th>Sale type</th>
+            <th>Supplier</th><th>Product, and how its file is recognised</th>
+            <th>Fuel</th><th>Sale type</th>
             <th>Live pricebook</th><th class="num">Rates</th><th>Start window</th>
-            <th>Went live</th><th>Quotable</th><th></th>
+            <th>Went live</th><th>We sell it</th><th></th>
           </tr></thead>
           <tbody id="adminBody"><tr><td colspan="10" style="color:var(--muted)">Loading…</td></tr></tbody>
         </table></div>
@@ -365,20 +418,22 @@
           <summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--cyan)">
             Add a product</summary>
           <div style="font-size:11.5px;color:var(--muted);margin:10px 0 12px;line-height:1.6">
-            For when a supplier launches something new. The filename rule is a regular
-            expression tested against the lowercased filename, and it must not depend on the
-            date in the name: <span class="mono">standard_elec_acq</span> matches every
-            month's release, <span class="mono">standard_elec_acq_04092026</span> matches
-            once. Lower sort numbers are tested first, so a specific rule needs a lower
-            number than the general one it sits inside
-            (<span class="mono">…_dsc</span> before <span class="mono">…</span>).
+            For when a supplier launches something new.
+            <br><br>
+            <b>How its file is recognised</b> is a bit of the filename that is the same every
+            month. <span class="mono">standard_elec_acq</span> works for every release;
+            <span class="mono">standard_elec_acq_04092026</span> works once and then stops.
+            Leave the date and the version number out.
+            <br><br>
+            <b>Checked before</b> matters when one product's name sits inside another's.
+            British Gas send both <span class="mono">Standard_Gas_Acq_DSC</span> and
+            <span class="mono">Standard_Gas_Acq</span>, and the DSC one has to be checked
+            first or every DSC book loads as the plain one at DSC prices.
           </div>
           <div class="row">
             <div><label for="npSupplier">Supplier</label>
               <select id="npSupplier"></select></div>
-            <div><label for="npKey">Product key</label>
-              <input id="npKey" placeholder="natural_rego" /></div>
-            <div><label for="npName">Shown as</label>
+            <div style="flex:2"><label for="npName">What the supplier calls it</label>
               <input id="npName" placeholder="Natural REGO" /></div>
           </div>
           <div class="row">
@@ -394,17 +449,24 @@
                 <option value="acquisition">Acquisition</option>
                 <option value="renewal">Renewal</option>
               </select></div>
-            <div><label for="npSort">Match priority</label>
-              <input id="npSort" type="number" value="100" /></div>
+            <div><label for="npSort">Checked before</label>
+              <select id="npSort">
+                <option value="5">everything else (a very specific name)</option>
+                <option value="100" selected>the general products</option>
+                <option value="900">nothing, check it last</option>
+              </select></div>
           </div>
           <div class="row">
-            <div style="flex:2"><label for="npMatch">Filename rule</label>
+            <div style="flex:2"><label for="npMatch">How its file is recognised</label>
               <input id="npMatch" class="mono" placeholder="natural.?rego_elec_acq" /></div>
             <div style="flex:2"><label for="npNotes">Notes</label>
               <input id="npNotes" placeholder="anything the next person needs to know" /></div>
           </div>
           <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px">
-            <input type="checkbox" id="npQuotable" checked> Quotable
+            <input type="checkbox" id="npQuotable" checked> We sell this
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px">
+            <input type="checkbox" id="npGreen"> It is a green / renewable product
           </label>
           <div style="margin-top:14px"><button class="act" onclick="addProduct()">Add it</button></div>
         </details>
@@ -462,6 +524,8 @@ const n2  = (v,dp=2) => (v==null || v==='' ) ? '—' : Number(v).toFixed(dp);
 let WHO = '';              // the person on the desk, for the audit trail
 let SUPPLIERS = [];
 let METER = null;          // the meter being priced
+let ALIASES = [];       // supplier name in the portfolio -> pricebook supplier key
+let INCUMBENT_KEY = null; // who already has this meter, so who may quote a renewal
 let PRODUCTS = [];      // the product catalogue: what each supplier actually sells
 let QUEUE = [];         // files dropped in, waiting to be routed and loaded
 let LEDGER = [];        // the uploads table as last read, so a confirm can name the file
@@ -533,8 +597,9 @@ function startDesk() {
   $('whoami').classList.add('hide');
   $('app').classList.remove('hide');
   $('whoLabel').textContent = WHO;
-  loadSuppliers();
+  loadSuppliers().then(() => { if ($('xSupplier')) manualFuelChanged(); });
   loadLedger();
+  showTab('price');          // the desk's job is pricing meters; pricebooks is upkeep
 }
 
 function setWho() {
@@ -606,19 +671,28 @@ function showTab(t) {
 // ═══════════════════════════════════════════════════════════════════════════════════════
 async function loadSuppliers() {
   try {
-    const [sup, prod] = await Promise.all([
+    const [sup, prod, ali] = await Promise.all([
       q(sb.from('pricebook_suppliers')
         .select('supplier_key, display_name, parser_key, parser_ready').order('display_name'), 'suppliers'),
       q(sb.from('pricebook_products')
         .select('supplier_key, product_key, display_name, fuel, sale_scope, filename_match, '
-              + 'content_match, quotable, sort_order, notes')
+              + 'content_match, quotable, green, sort_order, notes')
         .order('sort_order'), 'products'),
+      q(sb.from('pricebook_supplier_aliases').select('alias, supplier_key'), 'supplier aliases'),
     ]);
-    SUPPLIERS = sup; PRODUCTS = prod;
+    SUPPLIERS = sup; PRODUCTS = prod; ALIASES = ali;
   } catch (e) { return fail($('ledgerErr'), e.message); }
   // A supplier with no parser is not a choice, it is a dead end: five files once sat at
   // 'pending' forever because the upload button accepted anything. Say so on the option
   // rather than letting someone find out after the upload.
+  // The manual-entry "current supplier" list is every name the portfolio uses, because the
+  // incumbent decides the sale type and a prospect can be with anyone.
+  if ($('xSupplier')) {
+    const names = [...new Set(ALIASES.map(a => a.alias))].sort();
+    $('xSupplier').innerHTML = '<option value="">None / not known — everything is an acquisition</option>'
+      + names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')
+      + '<option value="__other">Someone else (no pricebook here)</option>';
+  }
   $('upSupplier').innerHTML = '<option value="">Choose…</option>' +
     SUPPLIERS.filter(x => x.parser_ready)
       .map(s => `<option value="${esc(s.supplier_key)}">${esc(s.display_name)}</option>`).join('') +
@@ -768,6 +842,14 @@ async function addFiles(list) {
       // memory spent on nothing; the buffer is pulled when the file is actually processed.
       QUEUE.push({ id: crypto.randomUUID(), name: f.name, size: f.size, file: f,
         isCsv: /\.csv$/i.test(f.name), state: 'queued' });
+    } else if (/\.(7z|rar|tar|gz|tgz)$/i.test(f.name)) {
+      // TotalEnergies sends power as .7z. The browser's zip reader does .zip only, and a
+      // WebAssembly 7-Zip would have to hold the whole 263 MB of decompressed CSV in memory
+      // before parsing even starts — which makes the memory problem worse, not better.
+      // Right-click, Extract Here, then drop the CSVs in: they all queue at once.
+      QUEUE.push({ id: crypto.randomUUID(), name: f.name, state: 'error',
+        msg: `a ${f.name.split('.').pop().toLowerCase()} archive cannot be opened in a `
+           + 'browser — extract it and drop the files in, they will all queue together' });
     } else {
       QUEUE.push({ id: crypto.randomUUID(), name: f.name, state: 'error',
         msg: 'not a pricebook (.xlsx, .xlsm, .csv or .zip)' });
@@ -783,11 +865,12 @@ function rescanQueue() {
   for (const it of QUEUE) {
     if (it.state === 'done' || it.state === 'busy' || it.state === 'error') continue;
     if (!skey) { it.state = 'queued'; it.product = null; it.msg = 'choose the supplier'; continue; }
+    if (it.forced && it.product) continue;     // a hand-picked product survives a rescan
     it.product = matchProduct(it.name, skey);
     if (!it.product) {
       it.state = 'unrouted';
       it.msg = 'no product rule matches this filename';
-    } else if (!it.product.quotable) {
+    } else if (!it.product.quotable && !it.forced) {
       // The catalogue says CES does not sell this. BG Lite's BrUPG and BrDUPG have a broker
       // uplift already inside them and British Gas's HH books price on capacity bands the
       // canonical row does not carry. Blocked here rather than loaded and then avoided.
@@ -815,20 +898,27 @@ function renderQueue() {
   const rows = QUEUE.map(it => `<tr>
     <td style="max-width:300px;overflow-wrap:anywhere">${esc(it.name)}
       ${it.zipName ? `<div style="font-size:10.5px;color:var(--muted)">from ${esc(it.zipName)}</div>` : ''}</td>
-    <td>${it.product ? esc(productLabel(it.product)) : '<span style="color:var(--muted)">—</span>'}</td>
+    <td>${skey ? `<select onchange="forceProduct('${it.id}',this.value)"
+           style="font-size:11.5px;padding:4px 6px;max-width:230px"
+           ${it.state === 'done' || it.state === 'busy' ? 'disabled' : ''}>
+           <option value="">${it.product ? '— keep ' + esc(it.product.display_name) + ' —' : 'choose a product…'}</option>
+           ${PRODUCTS.filter(p => p.supplier_key === skey)
+             .sort((a,b) => a.sort_order - b.sort_order)
+             .map(p => `<option value="${esc(p.product_key)}|${esc(p.fuel)}|${esc(p.sale_scope)}"
+                  ${it.product && it.product.product_key === p.product_key
+                    && it.product.fuel === p.fuel && it.product.sale_scope === p.sale_scope
+                    ? 'selected' : ''}>${esc(productLabel(p))}${p.quotable ? '' : '  (not quotable)'}</option>`).join('')}
+         </select>
+         ${it.product ? `<div style="font-size:10.5px;color:var(--muted);margin-top:3px">
+             matched on the filename</div>` : ''}`
+      : '<span style="color:var(--muted)">pick the supplier first</span>'}</td>
     <td class="num">${it.size ? (it.size/1048576).toFixed(2) + ' MB' : '—'}</td>
     <td><span class="pill ${pill(it.state)}">${esc(word(it.state))}</span></td>
     <td style="font-size:11.5px;color:var(--text-2);max-width:340px">${it.msg ? esc(it.msg) : ''}
       ${it.state === 'layout'
         ? `<div style="margin-top:6px"><button class="act ghost sm"
              onclick="registerLayout('${it.id}',this)">I have checked the header, register it</button></div>` : ''}
-      ${it.state === 'unrouted' && skey
-        ? `<div style="margin-top:6px"><select onchange="forceProduct('${it.id}',this.value)"
-             style="font-size:11px;padding:4px 6px">
-             <option value="">assign a product by hand…</option>
-             ${PRODUCTS.filter(p => p.supplier_key === skey && p.quotable).map(p =>
-               `<option value="${esc(p.product_key)}|${esc(p.fuel)}|${esc(p.sale_scope)}">${esc(productLabel(p))}</option>`).join('')}
-           </select></div>` : ''}</td>
+</td>
     <td>${it.state === 'done' || it.state === 'busy' ? ''
       : `<button class="act ghost sm" onclick="dropQueued('${it.id}')">Remove</button>`}</td>
   </tr>`).join('');
@@ -851,15 +941,28 @@ function renderQueue() {
 function dropQueued(id) { QUEUE = QUEUE.filter(i => i.id !== id); renderQueue(); }
 
 /** The escape hatch for a renamed file: route it by hand, once, without editing the rule. */
+/**
+ * Pick the product for a file by hand.
+ *
+ * Always available, not just when the filename rule finds nothing. The rule is a good guess
+ * and it is right on all 65 real files, but it is a guess about a filename and the desk is
+ * looking at the actual file. Choosing a product CES does not normally sell is allowed here
+ * too — deliberately, once, with the reason on the row — because "not quotable" is a
+ * standing rule and this is an exception to it.
+ */
 function forceProduct(id, val) {
-  if (!val) return;
-  const [pk, fuel, scope] = val.split('|');
   const it = QUEUE.find(i => i.id === id);
+  if (!it || !val) return;                     // the blank option means "leave it alone"
+  const [pk, fuel, scope] = val.split('|');
   const p = PRODUCTS.find(x => x.supplier_key === $('upSupplier').value
     && x.product_key === pk && x.fuel === fuel && x.sale_scope === scope);
-  if (!it || !p) return;
-  it.product = p; it.state = 'queued';
-  it.msg = 'assigned by hand — if this supplier has renamed the file, fix the rule in Admin';
+  if (!p) return;
+  it.product = p;
+  it.state = 'queued';
+  it.forced = true;
+  it.msg = p.quotable
+    ? 'product chosen by hand'
+    : `${p.display_name} is normally not quotable — loading it because you chose it here`;
   renderQueue();
 }
 
@@ -968,9 +1071,13 @@ async function processOne(it) {
     // saleScope comes from the product. TotalEnergies' files carry no acquisition/renewal
     // column at all — it is only in the filename — so without this every TE row would be
     // sale_type 'any' and a renewal book would be offered on an acquisition.
+    // saleScope and green both come from the PRODUCT. TotalEnergies' files carry neither:
+    // acquisition vs renewal and ECO vs standard are only in the filename, so without
+    // these a renewal book would be offered on an acquisition and a green book would price
+    // as brown.
     const parsed = PricingParsers.parse({
       parserKey: supplier.parser_key, supplierKey: skey, fuel, sheets,
-      saleScope: it.product.sale_scope });
+      saleScope: it.product.sale_scope, green: it.product.green });
     const refused = parsed.refusals.length + (parsed.refusals.overflow || 0);
 
     const record = (n, e, g) => q(sb.rpc('pricebook_parse_done', {
@@ -1163,7 +1270,7 @@ async function loadAdmin() {
       .select('*').order('supplier_key').order('sort_order'), 'live by product');
     PRODUCTS = await q(sb.from('pricebook_products')
       .select('supplier_key, product_key, display_name, fuel, sale_scope, filename_match, '
-            + 'content_match, quotable, sort_order, notes')
+            + 'content_match, quotable, green, sort_order, notes')
       .order('sort_order'), 'products');
   } catch (e) { body.innerHTML = ''; return fail($('adminErr'), e.message); }
 
@@ -1177,8 +1284,11 @@ async function loadAdmin() {
       <td>
         <input value="${esc(r.display_name)}" style="width:100%;min-width:150px;font-size:12px;padding:4px 6px"
                onchange="saveProduct('${key}','display_name',this.value,this)">
-        <div class="mono" style="font-size:10px;color:var(--muted);margin-top:3px">${esc(r.product_key)}</div>
-        <input value="${esc(r.filename_match || '')}" placeholder="filename rule (regex)"
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">
+          recognised in a filename by: <span class="mono">${esc(r.filename_match || 'nothing yet')}</span></div>
+        <input value="${esc(r.filename_match || '')}"
+               placeholder="a bit of the filename, e.g. standard_elec_acq"
+               title="Text that appears in this product's filename every month. Leave the date and version number out."
                style="width:100%;min-width:150px;font-size:10.5px;padding:3px 6px;margin-top:4px;
                       font-family:ui-monospace,monospace"
                onchange="saveProduct('${key}','filename_match',this.value,this)">
@@ -1277,10 +1387,13 @@ async function saveProduct(key, field, value, el) {
 async function addProduct() {
   const g = id => ($(id).value || '').trim();
   const supplier_key = g('npSupplier');
-  const product_key = g('npKey').toLowerCase().replace(/[^a-z0-9_]/g, '_');
   const display_name = g('npName'), filename_match = g('npMatch');
+  // The internal key is derived from the name. Nobody should have to invent one, and
+  // "product key" meant nothing at all to anyone reading the form.
+  const product_key = display_name.toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
   if (!supplier_key || !product_key || !display_name)
-    return fail($('adminErr'), 'Supplier, key and name are all needed.');
+    return fail($('adminErr'), 'A supplier and a product name are both needed.');
   if (filename_match) {
     try { new RegExp(filename_match, 'i'); }
     catch (e) { return fail($('adminErr'), `Filename rule is not a valid regex: ${e.message}`); }
@@ -1289,9 +1402,10 @@ async function addProduct() {
     await q(sb.from('pricebook_products').insert({
       supplier_key, product_key, display_name, fuel: g('npFuel'), sale_scope: g('npScope'),
       filename_match: filename_match || null, quotable: $('npQuotable').checked,
-      sort_order: parseInt(g('npSort'), 10) || 100, notes: g('npNotes') || null
+      sort_order: parseInt(g('npSort'), 10) || 100, notes: g('npNotes') || null,
+      green: $('npGreen').checked ? true : null
     }), 'add product');
-    ['npKey','npName','npMatch','npNotes'].forEach(i => $(i).value = '');
+    ['npName','npMatch','npNotes'].forEach(i => $(i).value = '');
     $('adminErr').classList.add('hide');
     await loadSuppliers(); loadAdmin();
   } catch (e) { fail($('adminErr'), e.message); }
@@ -1339,10 +1453,93 @@ async function findMeters() {
 
 function chooseMeter(i) {
   METER = window.__FOUND[i];
+  showMeter();
+}
+
+function manualFuelChanged() {
+  const gas = $('xFuel').value === 'gas';
+  $('xElecRow').classList.toggle('hide', gas);
+  $('xGasRow').classList.toggle('hide', !gas);
+}
+
+/**
+ * Build a meter out of typed details.
+ *
+ * Nothing is saved. This is for a prospect, or for a portfolio meter whose attributes are
+ * not on file yet, and it goes through EXACTLY the same matcher as a real one — so a price
+ * from here is a price from there. A blank is a blank: an unknown TCR band matches every
+ * band and the results say so, rather than being filled in with a plausible guess.
+ */
+function useManualMeter() {
+  const gas = $('xFuel').value === 'gas';
+  const id = ($('xId').value || '').replace(/\s/g, '');
+  const aq = Number($('xAq').value || 0);
+  if (!aq) { alert('An annual consumption is needed, or nothing can be priced.'); return; }
+  const dno = gas ? null
+    : (($('xDno').value || '').trim() || id.slice(0, 2) || null);
+  METER = {
+    customer_id: 'typed in by hand',
+    mpan: id || '(not given)',
+    utility: gas ? 'gas' : 'electricity',
+    supply_type: 'NHH',
+    site_name: null, postcode: null,
+    est_annual_consumption: aq,
+    dno_id: dno,
+    profile_class: gas ? null : (parseInt($('xPc').value, 10) || null),
+    rate_structure: gas ? 'single' : ($('xStruct').value || null),
+    rate_structure_src: 'typed',
+    tcr_band: gas ? null : ($('xBand').value || null),
+    llfc: null,
+    ldz: gas ? (($('xLdz').value || '').trim().toUpperCase() || null) : null,
+    exit_zone: gas ? (($('xZone').value || '').trim().toUpperCase() || null) : null,
+    supplier: $('xSupplier').value === '__other' ? 'Another supplier'
+            : ($('xSupplier').value || null),
+    contract_end_date: null,
+    priceable: null, manual: true,
+  };
+  showMeter();
+  $('priceCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/**
+ * Show the picked meter and work out who the incumbent is.
+ *
+ * The incumbent decides the sale type for every supplier in the quote, so it is resolved
+ * once, here, from a table the desk can edit rather than from string matching in the page.
+ * meters.supplier is free text: "EDF Energy", "E.ON Next", "Smartest Energy Business".
+ */
+async function showMeter() {
   $('priceCard').classList.remove('hide');
   $('quoteCard').classList.add('hide');
   $('qAq').value = METER.est_annual_consumption || '';
-  $('qSale').value = METER.supplier ? 'renewal' : 'acquisition';
+  if (!$('qStart').value) {
+    // Default the start to the first of next month, which is what a broker quotes on far
+    // more often than today.
+    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + 1);
+    $('qStart').value = d.toISOString().slice(0, 10);
+  }
+  $('qSplit').value = METER.day_pct != null ? METER.day_pct : 70;
+
+  INCUMBENT_KEY = null;
+  if (METER.supplier) {
+    const hit = ALIASES.find(a =>
+      String(a.alias).trim().toLowerCase() === String(METER.supplier).trim().toLowerCase());
+    INCUMBENT_KEY = hit ? hit.supplier_key : null;
+  }
+  const sup = SUPPLIERS.filter(x => x.parser_ready).length;
+  $('saleNote').className = 'note';
+  $('saleNote').innerHTML = !METER.supplier
+    ? `No current supplier on this meter, so <b>every quote below is an acquisition</b>.
+       If it is a renewal, set the supplier on the meter first or use the manual entry.`
+    : INCUMBENT_KEY
+    ? `This meter is with <b>${esc(METER.supplier)}</b>, so
+       <b>${esc(supplierName(INCUMBENT_KEY))} is quoted as a renewal</b> and the other
+       ${sup - 1} suppliers as an acquisition. You do not choose this: a renewal is only
+       available from whoever already has the supply.`
+    : `This meter is with <b>${esc(METER.supplier)}</b>, which has no pricebook here, so
+       <b>every quote below is an acquisition</b>. That is the right answer — nobody else
+       can offer a renewal on it.`;
+
   const missing = [];
   if (METER.utility === 'electricity') {
     if (!METER.dno_id && !/^\d{2}/.test(METER.mpan || '')) missing.push('distributor id');
@@ -1355,7 +1552,8 @@ function chooseMeter(i) {
   const idno = /^\d\d$/.test(dno) && (Number(dno) < 10 || Number(dno) > 23);
   $('meterFacts').innerHTML = `
     <dl class="kv">
-      <dt>Customer</dt><dd>${esc(METER.customer_id)}</dd>
+      <dt>Customer</dt><dd>${esc(METER.customer_id)}${METER.manual
+        ? ' <span class="pill p-warn">typed in, nothing saved</span>' : ''}</dd>
       <dt>${METER.utility === 'gas' ? 'MPRN' : 'MPAN'}</dt><dd>${esc(METER.mpan)}</dd>
       <dt>Site</dt><dd>${esc(METER.site_name || '—')} ${esc(METER.postcode || '')}</dd>
       ${METER.utility === 'electricity' ? `
@@ -1387,6 +1585,17 @@ function chooseMeter(i) {
  * if the meter has no profile class, rows that specify one simply do not match, and the
  * screen says so rather than picking the most popular class.
  */
+/**
+ * Price the selected meter.
+ *
+ * THE SALE TYPE IS DERIVED, NOT CHOSEN. A quote is a renewal only from the supplier the
+ * meter is already with; every other supplier can only offer an acquisition. The old
+ * dropdown let someone ask for "renewal" and get every supplier's renewal book, which is
+ * wrong in both directions at once: renewal prices are usually keener, so it flattered
+ * every supplier that could not actually offer one, and it hid the real renewal price from
+ * the incumbent. Now the incumbent is looked up from the meter and each supplier is asked
+ * only for the sale type it could genuinely honour.
+ */
 async function priceMeter() {
   const btn = $('priceBtn'), msg = $('priceMsg');
   if (!METER) return;
@@ -1397,12 +1606,13 @@ async function priceMeter() {
     const aq     = Number($('qAq').value || 0);
     const uplift = Number($('qUplift').value || 0);
     const dayPct = Number($('qSplit').value || 70) / 100;
-    const sale   = $('qSale').value;
     if (!start || !terms.length || !aq) throw new Error('Start date, at least one term, and an annual consumption.');
 
     const dno = METER.dno_id || (METER.mpan || '').slice(0,2);
     if (METER.utility === 'electricity' && /^\d\d$/.test(dno) && (Number(dno) < 10 || Number(dno) > 23))
       throw new Error(`Distributor ${dno} is an independent network and is not in any pricebook.`);
+
+    const incumbent = INCUMBENT_KEY;    // set when the meter was picked, may be null
 
     let sel = sb.from('pricebook_rates_live')
       .select('supplier_key,product_key,product_display,product_name,term_months,sale_type,'
@@ -1411,17 +1621,16 @@ async function priceMeter() {
             + 'day_rate_p_kwh,night_rate_p_kwh,eve_weekend_p_kwh,capacity_p_kva_month,'
             + 'sc_type,green')
       .eq('fuel', METER.utility)
-      // A product turned off in Admin stops being priced from that moment, without needing
-      // its pricebook pulled. BG Lite's upgrade grids carry a broker uplift already, so
-      // quoting one would quietly double-count commission.
       .eq('quotable', true)
       .in('term_months', terms)
-      .in('sale_type', [sale, 'any'])
+      // Every sale type is fetched and then filtered per supplier below, because PostgREST
+      // cannot express "renewal from this one, acquisition from the others" in one filter.
+      .in('sale_type', ['acquisition','renewal','any'])
       .or(`aq_min.is.null,aq_min.lte.${aq}`)
       .or(`aq_max.is.null,aq_max.gte.${aq}`)
       .or(`start_date_min.is.null,start_date_min.lte.${start}`)
       .or(`start_date_max.is.null,start_date_max.gte.${start}`)
-      .limit(5000);
+      .limit(8000);
 
     if (METER.utility === 'electricity') {
       if (dno) sel = sel.or(`dno_id.is.null,dno_id.eq.${dno}`);
@@ -1433,32 +1642,37 @@ async function priceMeter() {
       if (METER.ldz)       sel = sel.or(`ldz.is.null,ldz.eq.${METER.ldz}`);
     }
 
-    const rows = await q(sel, 'match rates');
+    const raw = await q(sel, 'match rates');
+
+    // ── The sale-type gate. One line, and it is the whole rule. ─────────────────────────
+    const wanted = (k) => (k === incumbent ? 'renewal' : 'acquisition');
+    const rows = raw.filter(r => r.sale_type === 'any' || r.sale_type === wanted(r.supplier_key));
+    const droppedWrongSale = raw.length - rows.length;
+
     if (!rows.length) {
       msg.textContent = '';
       $('quoteCard').classList.remove('hide');
+      $('termTabs').innerHTML = ''; $('quoteTables').innerHTML = '';
       $('quoteAssumptions').innerHTML = `<div class="note bad">Nothing matched. That means
         either no pricebook is live for this fuel, or this meter's attributes fall outside
-        every band on file. It does <b>not</b> mean the meter is expensive.</div>`;
-      $('quoteBody').innerHTML = '';
+        every band on file. It does <b>not</b> mean the meter is expensive.
+        ${droppedWrongSale ? `<br>${droppedWrongSale.toLocaleString()} rows were the wrong
+          sale type for this meter and were not considered.` : ''}</div>`;
       return;
     }
 
     const days = 365;
     const priced = rows.map(r => {
-      // Uplift goes on the unit rate, on every register, which is how the contracts state it.
-      // Only onto registers that EXIST: adding it to an absent one would invent a rate.
+      // Uplift goes on the unit rate, on every register that EXISTS. Adding it to an absent
+      // register would invent a rate.
       const up = (v) => v == null ? null : v + uplift;
-      const u  = up(r.unit_rate_p_kwh);
-      const d  = up(r.day_rate_p_kwh);
-      const nt = up(r.night_rate_p_kwh);
-      const ew = up(r.eve_weekend_p_kwh);
+      const u  = up(r.unit_rate_p_kwh), d = up(r.day_rate_p_kwh);
+      const nt = up(r.night_rate_p_kwh), ew = up(r.eve_weekend_p_kwh);
 
-      // Which registers are actually filled decides the maths, not what the file calls the
-      // structure. EDF's rate card says "single" and then puts the rate in DayRate with
-      // UnitRate blank; reading that as day-and-night with a free night made EDF the
-      // cheapest supplier on every meter. Two filled registers is a two-rate tariff. One
-      // filled register is a single rate, whichever column it happens to sit in.
+      // Which registers are FILLED decides the maths, not what the file calls the structure.
+      // EDF's rate card says "single" and puts the rate in DayRate with UnitRate blank;
+      // reading that as day-and-night with a free night made EDF the cheapest supplier on
+      // every meter.
       let energy = null, basis = null;
       if (d != null && nt != null) {
         energy = (aq * dayPct * d + aq * (1 - dayPct) * nt) / 100;
@@ -1467,110 +1681,173 @@ async function priceMeter() {
         const single = u != null ? u : (d != null ? d : (nt != null ? nt : null));
         if (single != null) {
           energy = aq * single / 100;
-          basis = u != null ? 'single' : 'single (rate given in the '
-                + (d != null ? 'day' : 'night') + ' column)';
+          basis = u != null ? 'single'
+                : 'single rate, given in the ' + (d != null ? 'day' : 'night') + ' column';
         }
       }
       const standing = (r.standing_charge_p_day || 0) * days / 100;
-      return { ...r, u, d, nt, ew, basis,
-               annual: energy == null ? null : energy + standing };
+      return { ...r, u, d, nt, ew, basis, annual: energy == null ? null : energy + standing };
     }).filter(r => r.annual != null);
 
-    // ── Collapse the duplicates. ──────────────────────────────────────────────────────
-    // The desk's own words: "way too many and repeated rates". The cause is not the parser.
-    // A pricebook is banded, and every band whose conditions this meter satisfies matches.
-    // Where the meter has no TCR band on file, all four of BG Lite's bands match at once —
-    // four rows, one supplier, one term, identical to the eye.
-    //
-    // So group on what a quote actually IS: supplier, product, term, sale type, and the
-    // priced numbers themselves. Rows that agree on all of that are one quote no matter how
-    // many bands produced them, and the bands they came from are kept so the row can say so.
-    // Rows that DISAGREE on price are left alone: they are genuinely different prices, and
-    // hiding that behind a single line would be inventing a quote.
+    // ── Fold the duplicates. ───────────────────────────────────────────────────────────
+    // A pricebook is banded and meters.tcr_band is null on every electricity meter, so
+    // every band matches at once. Rows agreeing on supplier, product, term and every priced
+    // figure are ONE quote however many bands produced them. Rows that disagree on price
+    // are left alone: folding those would be inventing a quote.
     const groups = new Map();
     for (const r of priced) {
-      // product_name as well as product_key: EDF ships ONE product_key with twelve genuine
-      // products inside it (Fixed Online 3 Year, Fixed 3 Year Renewable, and the Zero
-      // Standing Charge variants), so keying on product_key alone merged different deals.
       const k = [r.supplier_key, r.product_key, r.product_name, r.term_months, r.sale_type,
                  r.sc_type, r.green, r.rate_structure,
                  n2(r.u,4), n2(r.d,4), n2(r.nt,4), n2(r.ew,4),
                  n2(r.standing_charge_p_day,4), n2(r.capacity_p_kva_month,4)].join('|');
       const g = groups.get(k);
-      if (g) { g.bands.add(r.tcr_band || '—'); g.collapsed++; }
-      else groups.set(k, { ...r, bands: new Set([r.tcr_band || '—']), collapsed: 1 });
+      if (g) { g.bands.add(r.tcr_band || '—'); g.folded++; }
+      else groups.set(k, { ...r, bands: new Set([r.tcr_band || '—']), folded: 1 });
     }
-    const quotes = [...groups.values()].sort((a,b) => a.annual - b.annual);
-    const collapsed = priced.length - quotes.length;
+    const quotes = [...groups.values()];
+    const folded = priced.length - quotes.length;
 
-    const best = quotes.length ? quotes[0].annual : null;
-    const bandLabel = (g) => {
-      const b = [...g.bands].sort();
-      if (b.length === 1) return b[0] === '—' ? 'any band' : b[0].replace('band_', 'band ');
-      // Same price in every band the meter could be in, so the unknown band does not change
-      // the energy cost. It still changes the non-energy charges, which are not in here.
-      return `any band <span style="color:var(--muted)">(${b.length})</span>`;
-    };
+    // ── One row per supplier per term: the cheapest product they can actually offer. ────
+    // CES's rule. If BG Lite can do this meter on the zero standing charge grid and on the
+    // standard one, only the cheaper appears, with the gap against the runner-up on it. The
+    // sale type is NOT part of the choice — it was fixed above — so this can never pick a
+    // renewal over an acquisition, and upgrade grids are marked not quotable so they never
+    // reach here either.
+    const best = new Map();
+    for (const r of quotes) {
+      const k = r.supplier_key + '|' + r.term_months;
+      const b = best.get(k);
+      if (!b) best.set(k, { win: r, others: [] });
+      else if (r.annual < b.win.annual) { b.others.push(b.win); b.win = r; }
+      else b.others.push(r);
+    }
+    const shortlist = [...best.values()];
+    shortlist.forEach(x => x.others.sort((a, b2) => a.annual - b2.annual));
 
-    $('quoteBody').innerHTML = quotes.slice(0, 80).map(r => `<tr>
-      <td>${esc(supplierName(r.supplier_key))}</td>
-      <td style="max-width:240px;overflow-wrap:anywhere">
-        <b>${esc(r.product_display || r.product_name || '—')}</b>
-        ${r.product_display && r.product_name && r.product_name !== r.product_display
-          ? `<div style="font-size:10.5px;color:var(--muted)">${esc(r.product_name)}</div>` : ''}
-        ${Number(r.standing_charge_p_day) === 0 || r.sc_type === 'no_sc'
-          // Badge on the NUMBER, not on the supplier's label. BG Lite's VB grid stamps
-          // every row "SC" and then charges 0 p/day, and the product is literally called
-          // 0SC. Where the label and the figure disagree the figure is the contract.
-          ? '<span class="pill p-mute">no SC</span>' : ''}
-        ${r.sc_type === 'low_sc' && Number(r.standing_charge_p_day) > 0
-          ? '<span class="pill p-warn">low SC</span>' : ''}
-        ${r.green ? '<span class="pill p-ok">green</span>' : ''}</td>
-      <td class="num">${r.term_months}</td>
-      <td class="num">${n2(r.u,4)}</td><td class="num">${n2(r.d,4)}</td>
-      <td class="num">${n2(r.nt,4)}</td><td class="num">${n2(r.ew,4)}</td>
-      <td class="num">${n2(r.standing_charge_p_day,4)}</td>
-      <td class="num">£${Math.round(r.annual).toLocaleString()}${
-        /column/.test(r.basis || '') ? `<div style="font-size:10px;color:var(--muted)"
-          title="${esc(r.basis)}">single rate</div>` : ''}</td>
-      <td class="num" style="color:${r.annual === best ? 'var(--ok)' : 'var(--text-2)'}">
-        ${r.annual === best ? 'cheapest' : '+£' + Math.round(r.annual - best).toLocaleString()}</td>
-      <td>${bandLabel(r)}</td>
-    </tr>`).join('');
-
-    const dn = quotes.some(r => r.d && r.nt);
-    const noProduct = quotes.filter(r => !r.product_display).length;
-    $('quoteAssumptions').innerHTML = `
-      <b>${quotes.length}</b> quote${quotes.length === 1 ? '' : 's'} from
-      ${rows.length.toLocaleString()} matched pricebook rows.
-      ${collapsed ? `${collapsed.toLocaleString()} rows were the same price under a different
-        charging band and have been folded into the row they duplicate.` : ''}
-      Uplift <b>${uplift.toFixed(2)} p/kWh</b> added to every unit rate.
-      Annual cost on <b>${aq.toLocaleString()} kWh</b> over 365 days.
-      ${quotes.length > 80 ? `<span style="color:var(--warn)"> Showing the cheapest 80.</span>` : ''}
-      ${!METER.tcr_band && METER.utility === 'electricity' ? `<div class="note warn" style="margin-top:10px">
-        <b>No TCR band on file for this meter</b>, so every band's prices matched. Where a
-        supplier charges the same in all of them that is harmless and the rows are folded
-        together; where they differ you are seeing more than one band's price and only the
-        band this meter is really in applies. Decode the LLFC on the Reference tab to settle
-        it.</div>` : ''}
-      ${dn ? `<div class="note warn" style="margin-top:10px">Day/night split assumed
-        <b>${Math.round(dayPct*100)}/${100-Math.round(dayPct*100)}</b> because no measured
-        split is held for this meter. Change it above if you know better.</div>` : ''}
-      ${noProduct ? `<div class="note warn" style="margin-top:10px">${noProduct} of these came
-        from a pricebook loaded before the product catalogue, so they show the file's own
-        product text rather than a CES product name. Re-upload that book to fix it.</div>` : ''}
-      ${rows.length >= 5000 ? '<div class="note bad" style="margin-top:10px">The 5,000-row cap was hit, so this list may be incomplete.</div>' : ''}`;
+    QUOTE = { shortlist, terms: [...new Set(shortlist.map(x => x.win.term_months))].sort((a,b)=>a-b),
+              aq, uplift, dayPct, start, incumbent, matched: rows.length, raw: raw.length,
+              folded, droppedWrongSale, hidden: quotes.length - shortlist.length };
+    QUOTE_TERM = QUOTE.terms[0];
+    renderQuotes();
     $('quoteCard').classList.remove('hide');
     msg.textContent = '';
   } catch (e) {
     msg.textContent = '';
     $('quoteCard').classList.remove('hide');
+    $('termTabs').innerHTML = ''; $('quoteTables').innerHTML = '';
     $('quoteAssumptions').innerHTML = `<div class="note bad">${esc(e.message)}</div>`;
-    $('quoteBody').innerHTML = '';
   } finally {
     btn.disabled = false;
   }
+}
+
+let QUOTE = null, QUOTE_TERM = null;
+
+function showTerm(t) { QUOTE_TERM = t; renderQuotes(); }
+
+/** One tab per term, cheapest first inside each. */
+function renderQuotes() {
+  if (!QUOTE) return;
+  const Q = QUOTE;
+  $('termTabs').innerHTML = Q.terms.map(t => {
+    const n = Q.shortlist.filter(x => x.win.term_months === t).length;
+    const on = t === QUOTE_TERM;
+    return `<button onclick="showTerm(${t})" class="${on ? 'on' : ''}"
+      style="background:none;border:0;border-bottom:2px solid ${on ? 'var(--cyan)' : 'transparent'};
+             color:${on ? 'var(--text)' : 'var(--muted)'};font:inherit;font-size:13px;
+             font-weight:${on ? 700 : 500};padding:9px 15px;cursor:pointer">
+      ${t} month <span style="opacity:.6;font-weight:400">${n}</span></button>`;
+  }).join('');
+
+  const list = Q.shortlist.filter(x => x.win.term_months === QUOTE_TERM)
+                          .sort((a, b) => a.win.annual - b.win.annual);
+  if (!list.length) { $('quoteTables').innerHTML = '<div class="note warn">Nothing at this term.</div>'; return; }
+  const cheapest = list[0].win.annual;
+
+  const bandLabel = (g) => {
+    const b = [...g.bands].sort();
+    if (b.length === 1) return b[0] === '—' ? 'any band' : b[0].replace('band_', 'band ');
+    // Same price in every band this meter could be in, so the unknown band does not change
+    // the energy cost. It still changes the non-energy charges, which are not in here.
+    return `any band <span style="color:var(--muted)">(${b.length})</span>`;
+  };
+
+  $('quoteTables').innerHTML = `<div class="scroll"><table>
+    <thead><tr>
+      <th style="width:26px"></th><th>Supplier</th><th>Product</th>
+      <th class="num">Unit</th><th class="num">Day</th><th class="num">Night</th>
+      <th class="num">E/Wknd</th><th class="num">SC p/day</th>
+      <th class="num">Annual £</th><th class="num">vs cheapest</th><th>Band</th>
+    </tr></thead>
+    <tbody>${list.map((x, i) => {
+      const r = x.win;
+      const runnerUp = x.others[0];
+      const saving = runnerUp ? runnerUp.annual - r.annual : null;
+      return `<tr>
+        <td class="num" style="color:var(--muted)">${i + 1}</td>
+        <td>${esc(supplierName(r.supplier_key))}
+          <div style="font-size:10px;color:${r.sale_type === 'renewal' ? 'var(--ok)' : 'var(--muted)'}">
+            ${r.sale_type === 'renewal' ? 'renewal' : r.sale_type === 'any' ? 'any sale type' : 'acquisition'}</div></td>
+        <td style="max-width:250px;overflow-wrap:anywhere">
+          <b>${esc(r.product_display || r.product_name || '—')}</b>
+          ${Number(r.standing_charge_p_day) === 0 || r.sc_type === 'no_sc'
+            // Badge on the FIGURE, not the supplier's label: BG Lite stamps every row "SC"
+            // and then charges 0 p/day, and the product is literally called 0SC.
+            ? '<span class="pill p-mute">no SC</span>' : ''}
+          ${r.sc_type === 'low_sc' && Number(r.standing_charge_p_day) > 0
+            ? '<span class="pill p-warn">low SC</span>' : ''}
+          ${r.green ? '<span class="pill p-ok">green</span>' : ''}
+          ${saving != null && saving >= 1
+            ? `<div style="font-size:10.5px;color:var(--ok);margin-top:3px">£${Math.round(saving).toLocaleString()}
+                 cheaper than their ${esc(runnerUp.product_display || runnerUp.product_name || 'other product')}</div>`
+            : saving != null
+            ? `<div style="font-size:10.5px;color:var(--muted);margin-top:3px">same price as their
+                 ${esc(runnerUp.product_display || runnerUp.product_name || 'other product')}</div>` : ''}
+          ${x.others.length > 1
+            ? `<div style="font-size:10px;color:var(--muted)">+${x.others.length - 1} more of theirs, all dearer</div>` : ''}</td>
+        <td class="num">${n2(r.u,4)}</td><td class="num">${n2(r.d,4)}</td>
+        <td class="num">${n2(r.nt,4)}</td><td class="num">${n2(r.ew,4)}</td>
+        <td class="num">${n2(r.standing_charge_p_day,4)}</td>
+        <td class="num"><b>£${Math.round(r.annual).toLocaleString()}</b>${
+          /column/.test(r.basis || '') ? `<div style="font-size:10px;color:var(--muted)"
+            title="${esc(r.basis)}">single rate</div>` : ''}</td>
+        <td class="num" style="color:${i === 0 ? 'var(--ok)' : 'var(--text-2)'}">
+          ${i === 0 ? 'cheapest' : '+£' + Math.round(r.annual - cheapest).toLocaleString()}</td>
+        <td>${bandLabel(r)}</td>
+      </tr>`;
+    }).join('')}</tbody></table></div>`;
+
+  const dn = list.some(x => x.win.d && x.win.nt);
+  const noProduct = list.filter(x => !x.win.product_display).length;
+  $('quoteAssumptions').innerHTML = `
+    <b>${list.length}</b> supplier${list.length === 1 ? '' : 's'} can price this meter over
+    ${QUOTE_TERM} months, from ${Q.raw.toLocaleString()} matched pricebook rows.
+    Uplift <b>${Q.uplift.toFixed(2)} p/kWh</b> on every unit rate.
+    Annual cost on <b>${Q.aq.toLocaleString()} kWh</b> over 365 days, starting ${uk(Q.start)}.
+    ${Q.folded ? `${Q.folded.toLocaleString()} rows were the same price under a different
+      charging band and were folded together.` : ''}
+    ${Q.hidden ? `${Q.hidden.toLocaleString()} dearer products from the same suppliers are
+      not shown; each row names the one it beat.` : ''}
+    ${Q.droppedWrongSale ? `<div class="note" style="margin-top:10px">
+      ${Q.droppedWrongSale.toLocaleString()} rows were the wrong sale type for this meter and
+      were never considered. ${Q.incumbent
+        ? `It is with <b>${esc(supplierName(Q.incumbent))}</b>, so only they can quote a
+           renewal here.`
+        : `Its current supplier has no pricebook here, so every quote is an acquisition.`}
+      </div>` : ''}
+    ${!METER.tcr_band && METER.utility === 'electricity' ? `<div class="note warn" style="margin-top:10px">
+      <b>No TCR band on file for this meter</b>, so every band's prices matched. Where a
+      supplier charges the same in all of them that is harmless and the rows are folded
+      together; where they differ you are seeing more than one band's price and only the
+      band this meter is really in applies. Decode the LLFC on the Reference tab to settle
+      it.</div>` : ''}
+    ${dn ? `<div class="note warn" style="margin-top:10px">Day/night split assumed
+      <b>${Math.round(Q.dayPct*100)}/${100-Math.round(Q.dayPct*100)}</b> because no measured
+      split is held for this meter. Change it above and price again.</div>` : ''}
+    ${noProduct ? `<div class="note warn" style="margin-top:10px">${noProduct} came from a
+      pricebook loaded before the product catalogue, so they show the file's own product text
+      rather than a CES product name. Re-upload that book to fix it.</div>` : ''}
+    ${Q.raw >= 8000 ? '<div class="note bad" style="margin-top:10px">The 8,000-row cap was hit, so this list may be incomplete.</div>' : ''}`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════

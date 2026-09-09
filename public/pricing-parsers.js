@@ -1345,6 +1345,193 @@
     }
   }
 
+  // ── Adapter 11: TotalEnergies power ──────────────────────────────────────────────────
+  //
+  // The most detailed pricebook of the thirteen, and the biggest by an order of magnitude:
+  // eight CSVs inside two .7z archives, 459 MB uncompressed, 4,212,736 rows.
+  //
+  //   PRODUCT_NAME  "YELG 2R B3 04_0153_2C"
+  //                 DNO abbreviation, register count, TCR BAND, then PC_SSC_DUoS.
+  //                 The band is ONLY here — there is no band column — so it is read out of
+  //                 the name, and a name that does not carry one is refused rather than
+  //                 quoted at a guessed band.
+  //   DIST_ID       10-23, given outright
+  //   PC            03 or 04
+  //   SSC           215 distinct Standard Settlement Configurations
+  //   DUOS_TARIFF_ID_CODES  131 distinct, sometimes several codes in one cell ("13 37 N10")
+  //   MIN_CONS / MAX_CONS   11 consumption bands
+  //   CONTRACT_LENGTH       12 / 24 / 36 / 48 / 60 months
+  //   VALID_FROM    5 quarterly supply-start windows
+  //   STANDING_CHARGE  p/day, 347 distinct values up to 1,078 — the TCR residual is in
+  //                    here, which is why it is ten times a gas standing charge
+  //   UNITS, DAY_UNITS, NIGHT_UNITS, EVE_WE_UNITS, WEEKDAY_UNITS, WINTER_EVE
+  //
+  // THE REGISTER COUNT IN THE NAME IS NOT RELIABLE, so it is not used. Measured on the
+  // acquisition file: "2R" rows appear as day+night (245,300), as weekday+eve/weekend
+  // (14,300) and as day+eve/weekend (6,600); "3R" rows appear with three registers (19,800)
+  // and with only two (7,700); and 5,225 "1R" rows carry their single rate in NIGHT_UNITS
+  // with everything else blank. So the structure is taken from WHICH COLUMNS ARE FILLED,
+  // the same rule that stopped EDF pricing at nothing.
+  //
+  // WINTER_EVE is a sixth register (3,300 rows, 1%) and the canonical row has no column for
+  // it. Those rows are refused BY NAME rather than loaded with the winter rate silently
+  // dropped, which is how British Gas's 4/5/6-rate STOD rows are handled too.
+  //
+  // The eight files are one product each: acquisition or renewal, standard or _UR (zero
+  // standing charge, rolled into the unit rate), plain or _ECO (green). Sale type and green
+  // both come from the PRODUCT, because nothing in the rows says either.
+
+  /**
+   * How far ahead a TotalEnergies power supply-start window is worth keeping, in months.
+   * CES quotes renewals up to two years out; TotalEnergies publishes four and a half.
+   */
+  const TE_HORIZON_MONTHS = 24;
+
+  /** DNO abbreviation as TotalEnergies writes it, cross-checked against DIST_ID. */
+  const TE_DNO_ABBR = {
+    EELC: '10', EMEB: '11', LOND: '12', MANW: '13', MIDE: '14', NEEB: '15', NORW: '16',
+    HYDE: '17', SPOW: '18', SEEB: '19', SOUT: '20', SWAE: '21', SWEB: '22', YELG: '23',
+  };
+
+  function parseTotalPower(rows, supplierKey, saleScope, green, onRow, onRefuse, meta) {
+    const header = rows[0];
+    const A = accessor(header);
+    for (const need of ['productname', 'distid', 'pc', 'mincons', 'maxcons',
+                        'contractlength', 'validfrom', 'standingcharge']) {
+      if (!A.has(need)) throw new Error(`not a TotalEnergies power layout, missing ${need}`);
+    }
+
+    const starts = [];
+    for (let n = 1; n < rows.length; n++) {
+      if (rows[n] && rows[n].length) starts.push(toDate(A.get(rows[n], 'validfrom')));
+    }
+    const ladder = startWindowLadder(starts);
+    const sorted = [...new Set(starts.filter(Boolean))].sort();
+    meta.window_open = sorted[0] || null;
+
+    // THE 24 MONTH HORIZON. TotalEnergies ships 5 quarterly start windows on acquisition
+    // and NINETEEN on renewal, running to March 2031 — 300,564 rows per renewal file are
+    // for supply starting more than two years out, and that far end of the curve is where
+    // the nonsense lives: night rates of -1.0000, 0.6 and 0.8 p/kWh sitting beside day
+    // rates of 22 to 24p on the 2031-03 rows.
+    //
+    // CES quotes renewals up to two years ahead, so anything past that is refused BY NAME.
+    // It is 25% of the whole book and it is not a silent drop: the ledger shows the count
+    // and the reason.
+    const horizonEnd = sorted.length ? plusMonthsMinusDay(sorted[0], TE_HORIZON_MONTHS + 1) : null;
+    const kept = sorted.filter((d) => !horizonEnd || d <= horizonEnd);
+    meta.window_close = kept.length ? ladder.get(kept[kept.length - 1]) : null;
+
+    for (let n = 1; n < rows.length; n++) {
+      const row = rows[n];
+      if (!row || !row.some((c) => c !== null && c !== undefined && c !== '')) continue;
+      const g = (...names) => A.get(row, ...names);
+      try {
+        const r = blankRow(supplierKey, 'electricity');
+        r.sale_type = saleScope || 'any';
+        r.green = !!green;
+        r.payment_method = 'DD';
+        r.product_name = green ? 'Fixed ECO' : 'Fixed';
+
+        const term = toNum(g('contractlength'));
+        if (term == null) throw new Refuse('no contract length');
+        r.term_months = Math.round(term);
+
+        r.dno_id = dnoId(g('distid'));
+        if (!r.dno_id) throw new Refuse('no distributor id');
+        const pc = toNum(g('pc'));
+        r.profile_class = pc == null ? null : Math.round(pc);
+
+        // The band lives inside the product name and nowhere else. "YELG 2R B3 04_0153_2C".
+        const pn = String(g('productname') || '').trim();
+        // SSC and the DUoS tariff codes are the finest key any of these books uses, and
+        // meters carries neither, so they go in the code where a broker can at least see
+        // which configuration a price came from.
+        r.product_code = [pn, String(g('ssc') || '').trim(),
+                          String(g('duostariffidcodes') || '').trim()]
+                         .filter(Boolean).join(' | ') || null;
+        const parts = pn.split(/\s+/);
+        const bm = pn.match(/\bB([1-4])\b/);
+        if (!bm) throw new Refuse(`no TCR band in the product name "${pn}"`);
+        r.tcr_band = 'band_' + bm[1];
+
+        // Cross-check the DNO abbreviation against DIST_ID. They agree on every row today,
+        // and if they ever stop the composite name has been re-cut and nothing else here
+        // can be trusted either.
+        const abbr = (parts[0] || '').toUpperCase();
+        if (abbr in TE_DNO_ABBR && TE_DNO_ABBR[abbr] !== r.dno_id) {
+          throw new Refuse(`distributor disagrees: "${abbr}" is ${TE_DNO_ABBR[abbr]}, `
+                         + `DIST_ID says ${r.dno_id}`);
+        }
+
+        r.aq_min = toNum(g('mincons'));
+        r.aq_max = toNum(g('maxcons'));
+
+        const from = toDate(g('validfrom'));
+        if (!from) throw new Refuse('no valid-from date');
+        if (horizonEnd && from > horizonEnd) {
+          throw new Refuse(`supply starts ${from}, past the ${TE_HORIZON_MONTHS} month `
+                         + `horizon (${horizonEnd}) — that end of the curve carries `
+                         + 'extrapolated rates');
+        }
+        r.start_date_min = from;
+        r.start_date_max = ladder.get(from) || plusMonthsMinusDay(from, 3);
+
+        r.standing_charge_p_day = sc(g('standingcharge'));
+        r.sc_type = (r.standing_charge_p_day === 0) ? 'no_sc' : 'with_sc';
+
+        // A winter evening register the canonical row cannot hold. Refuse rather than load
+        // the row with that rate quietly missing.
+        const winter = rate(g('wintereve', 'winterevunits'));
+        if (winter != null) {
+          throw new Refuse('has a WINTER_EVE register, which this engine does not price');
+        }
+
+        const single  = rate(g('units'));
+        const day     = rate(g('dayunits'));
+        const night   = rate(g('nightunits'));
+        const ew      = rate(g('eveweunits'));
+        const weekday = rate(g('weekdayunits'));
+
+        // Structure from what is FILLED, never from the "1R"/"2R"/"3R" token, which
+        // disagrees with the columns on 28,600 rows of the acquisition file alone.
+        const filled = [
+          ['unit', single], ['day', day], ['night', night], ['ew', ew], ['weekday', weekday],
+        ].filter(([, v]) => v != null);
+        if (!filled.length) throw new Refuse('no unit rate on the row');
+
+        const has = (k) => filled.some(([n2]) => n2 === k);
+        if (filled.length === 1) {
+          // One register is a single rate whichever column it sits in: 5,225 rows put it in
+          // NIGHT_UNITS with everything else blank.
+          r.unit_rate_p_kwh = filled[0][1];
+          r.rate_structure = 'single';
+        } else if (has('day') && has('night') && has('ew')) {
+          r.day_rate_p_kwh = day; r.night_rate_p_kwh = night; r.eve_weekend_p_kwh = ew;
+          r.rate_structure = 'day_night_ew';
+        } else if (has('night') && has('ew') && has('weekday')) {
+          // Weekday plus night plus evening/weekend: the weekday register is the day one.
+          r.day_rate_p_kwh = weekday; r.night_rate_p_kwh = night; r.eve_weekend_p_kwh = ew;
+          r.rate_structure = 'day_night_ew';
+        } else if (has('day') && has('night')) {
+          r.day_rate_p_kwh = day; r.night_rate_p_kwh = night; r.rate_structure = 'day_night';
+        } else if (has('weekday') && has('night')) {
+          r.day_rate_p_kwh = weekday; r.night_rate_p_kwh = night; r.rate_structure = 'day_night';
+        } else if (has('weekday') && has('ew')) {
+          r.unit_rate_p_kwh = weekday; r.eve_weekend_p_kwh = ew; r.rate_structure = 'eve_weekend';
+        } else if (has('day') && has('ew')) {
+          r.unit_rate_p_kwh = day; r.eve_weekend_p_kwh = ew; r.rate_structure = 'eve_weekend';
+        } else {
+          throw new Refuse('unmapped register combination: '
+                         + filled.map(([k]) => k).join('+'));
+        }
+        onRow(r);
+      } catch (e) {
+        if (e instanceof Refuse) onRefuse(n + 1, e.message); else throw e;
+      }
+    }
+  }
+
   // ── Dispatch ─────────────────────────────────────────────────────────────────────────
 
   /**
@@ -1374,7 +1561,22 @@
         case 'ugp_spark': parseUgp(sheet.rows, sheet.fuel || fuel, onRow, onRefuse, meta); break;
         case 'smartest':  parseSmartest(sheet.rows, sheet.fuel || fuel, onRow, onRefuse, meta); break;
         case 'utilita':   parseUtilita(sheet.rows, onRow, onRefuse, meta); break;
-        case 'te_gas':    parseTotalGas(sheet.rows, supplierKey, saleScope, onRow, onRefuse, meta); break;
+        // TotalEnergies ships gas as 9 columns and power as 17, so the header decides.
+        case 'te_gas':
+        case 'te_power':
+        case 'total_energies': {
+          const A = accessor(sheet.rows[0] || []);
+          if (A.has('finalprice') || A.has('region')) {
+            parseTotalGas(sheet.rows, supplierKey, saleScope, onRow, onRefuse, meta);
+          } else if (A.has('distid') || A.has('dayunits')) {
+            parseTotalPower(sheet.rows, supplierKey, saleScope, opts.green,
+                            onRow, onRefuse, meta);
+          } else {
+            throw new Error('sheet "' + sheet.name + '" is neither the TotalEnergies gas '
+              + 'nor the TotalEnergies power layout');
+          }
+          break;
+        }
         case 'corona_gas':   parseCoronaGas(sheet.rows, supplierKey, onRow, onRefuse, meta); break;
         case 'corona_power': parseCoronaPower(sheet.rows, supplierKey, onRow, onRefuse, meta); break;
         case 'ecotricity':   parseEcotricity(sheet.rows, supplierKey, sheet.fuel || fuel, onRow, onRefuse, meta); break;
@@ -1406,7 +1608,7 @@
                   capFromDay, key, scType,
                   gspToDno, ldzOfZone, termFromDates, plusMonthsMinusDay, startWindowLadder,
                   dayBefore, monthsBetween, GSP_TO_DNO, ZONE_LDZ, SSE_STRUCT,
-                  CORONA_PWR_STRUCT },
+                  CORONA_PWR_STRUCT, TE_DNO_ABBR, TE_HORIZON_MONTHS },
   };
 })(typeof window !== 'undefined' ? window : globalThis);
 
