@@ -653,6 +653,15 @@ function sheetPlan(parserKey, names, fuel) {
     if (!out.length) throw new Error('no Spark Output sheet in this workbook');
     return out;
   }
+  if (parserKey === 'ecotricity' && fuel !== 'electricity') {
+    // Ecotricity splits gas across two sheets at the 73,200 kWh supply-point threshold, and
+    // both are real prices. Reading only the first would lose every site above 73,200.
+    const out = names
+      .filter(n => /^(below|above)73200_matrix$/i.test(n.trim()))
+      .sort()                                    // Above before Below, so the plan is stable
+      .map(n => ({ name: n, fuel: 'gas' }));
+    if (out.length) return out;
+  }
   const preferred = pick('BKF') || pick('UD Partner') || pick('OutputFile') || pick('SSE Choice');
   return [{ name: preferred || names[0], fuel }];
 }
@@ -911,7 +920,7 @@ async function processOne(it) {
     // A rejected attempt is retryable; a live, parsed or pending one is a genuine double load.
     q(sb.from('pricebook_uploads').select('id, uploaded_at, status')
       .eq('supplier_key', skey).eq('file_sha256', fileSha)
-      .in('status', ['pending','parsed','live']).limit(1), 'duplicate check'),
+      .in('status', ['loading','parsed','live']).limit(1), 'duplicate check'),
   ]);
 
   if (dup.length) {
@@ -949,15 +958,19 @@ async function processOne(it) {
       zip_filename: it.zipName || null,
       source_filename: it.name, storage_path: path,
       file_sha256: fileSha, header_sha256: hSha,
-      parser_key: supplier.parser_key, status: 'pending', uploaded_by: user.id,
+      parser_key: supplier.parser_key, status: 'loading', uploaded_by: user.id,
       uploaded_by_name: WHO, parse_started_at: new Date().toISOString(),
       notes: `sheets=${plan.map(p => p.name).join('|')} cols=${it.cols}`
     }), 'create upload');
 
     it.msg = 'parsing…'; renderQueue();
     const sheets = plan.map(p => ({ name: p.name, fuel: p.fuel, rows: sheetToRows(wb, p.name) }));
+    // saleScope comes from the product. TotalEnergies' files carry no acquisition/renewal
+    // column at all — it is only in the filename — so without this every TE row would be
+    // sale_type 'any' and a renewal book would be offered on an acquisition.
     const parsed = PricingParsers.parse({
-      parserKey: supplier.parser_key, supplierKey: skey, fuel, sheets });
+      parserKey: supplier.parser_key, supplierKey: skey, fuel, sheets,
+      saleScope: it.product.sale_scope });
     const refused = parsed.refusals.length + (parsed.refusals.overflow || 0);
 
     const record = (n, e, g) => q(sb.rpc('pricebook_parse_done', {
@@ -1005,7 +1018,7 @@ async function processOne(it) {
     if (uploadId) {
       try {
         await sb.from('pricebook_uploads')
-          .update({ status: 'rejected', parse_error: String(e.message).slice(0, 500),
+          .update({ status: 'failed', parse_error: String(e.message).slice(0, 500),
                     parse_finished_at: new Date().toISOString() })
           .eq('id', uploadId);
       } catch (_) { /* the message on the row is what matters */ }
@@ -1061,15 +1074,32 @@ async function loadLedger() {
         ? `<div style="font-size:10px;color:var(--muted)">${(r.rows_electricity||0).toLocaleString()}e / ${(r.rows_gas||0).toLocaleString()}g</div>` : ''}</td>
     <td class="num" ${r.rows_refused ? 'style="color:var(--warn)"' : ''}>${r.rows_refused || '—'}</td>
     <td class="mono">${uk(r.window_open)} → ${uk(r.window_close)}</td>
-    <td><span class="pill ${statusPill(r.status)}">${esc(r.status)}</span>${
+    <td><span class="pill ${statusPill(r.status)}" title="${esc(statusHint(r.status))}"
+          >${esc(statusLabel(r.status))}</span>${
       r.parse_error ? `<div style="font-size:10px;color:var(--bad);max-width:200px">${esc(r.parse_error.slice(0,120))}</div>` : ''}</td>
     <td class="mono">${uk(r.uploaded_at)}</td>
     <td>${uploadActions(r)}</td>
   </tr>`).join('');
 }
 
-const statusPill = s => ({ live:'p-ok', parsed:'p-warn', pending:'p-mute',
-                           rejected:'p-fail', superseded:'p-mute' }[s] || 'p-mute');
+/**
+ * How a status looks, and what it is called.
+ *
+ * Deleting a book used to set it to 'rejected', which is the word for a parse that broke.
+ * A book someone deliberately removed then sat in the ledger looking like a failure, with
+ * no way to tell the two apart. Six words now, each meaning one thing.
+ */
+const STATUS = {
+  live:     { pill: 'p-ok',   label: 'Live',     hint: 'being used for quotes' },
+  replaced: { pill: 'p-mute', label: 'Replaced', hint: 'a newer book for this product took over' },
+  deleted:  { pill: 'p-mute', label: 'Deleted',  hint: 'removed on purpose, rates gone' },
+  failed:   { pill: 'p-fail', label: 'Failed',   hint: 'the parse broke, nothing was loaded' },
+  parsed:   { pill: 'p-warn', label: 'Not live', hint: 'read, but never promoted' },
+  loading:  { pill: 'p-mute', label: 'Loading',  hint: 'being read right now' },
+};
+const statusPill  = s => (STATUS[s] || {}).pill  || 'p-mute';
+const statusLabel = s => (STATUS[s] || {}).label || s;
+const statusHint  = s => (STATUS[s] || {}).hint  || '';
 
 /** The product's display name, falling back to the raw key for books loaded before the catalogue. */
 function prodName(r) {
@@ -1081,13 +1111,14 @@ function prodName(r) {
 
 function uploadActions(r) {
   if (r.status === 'live')
-    return `<button class="act ghost sm" onclick="retire('${r.id}',false,this)">Retire</button>`;
+    return `<button class="act ghost sm" onclick="retire('${r.id}',false,this)"
+              title="Stop using it for quotes, keep the record">Replace</button>`;
   if (r.status === 'parsed')
     return `<button class="act sm" onclick="promote('${r.id}',this)">Make live</button>`;
-  if (r.status === 'rejected' || r.status === 'superseded')
+  if (r.status === 'failed' || r.status === 'replaced')
     return `<button class="act ghost sm" onclick="retire('${r.id}',true,this)"
-              title="Delete this book's rates for good">Purge</button>`;
-  return '';
+              title="Delete this book's rates for good">Delete</button>`;
+  return '';       // already deleted, or still loading
 }
 
 /** Promote a parsed book. Uses the same RPC as an upload, so the same product keying applies. */
@@ -1117,7 +1148,7 @@ async function retire(id, purge, btn) {
     const r = (res && res[0]) || {};
     loadLedger(); loadAdmin();
     if (purge) alert(`${r.action || 'purged'} — ${(r.rates_removed || 0).toLocaleString()} rates deleted.`);
-  } catch (e) { btn.disabled = false; btn.textContent = purge ? 'Purge' : 'Retire'; fail($('ledgerErr'), e.message); }
+  } catch (e) { btn.disabled = false; btn.textContent = purge ? 'Delete' : 'Replace'; fail($('ledgerErr'), e.message); }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -1166,7 +1197,7 @@ async function loadAdmin() {
       <td><input type="checkbox" ${r.quotable ? 'checked' : ''}
                  onchange="saveProduct('${key}','quotable',this.checked,this)"></td>
       <td>${r.upload_id
-        ? `<button class="act ghost sm" onclick="retire('${r.upload_id}',false,this)">Retire</button>` : ''}</td>
+        ? `<button class="act ghost sm" onclick="retire('${r.upload_id}',false,this)">Replace</button>` : ''}</td>
     </tr>`;
   }).join('');
 
@@ -1196,13 +1227,15 @@ async function loadAdminUploads() {
       r.zip_filename ? `<div style="font-size:10px;color:var(--muted)">from ${esc(r.zip_filename)}</div>` : ''}</td>
     <td class="mono">${esc(r.pricebook_version || '—')}</td>
     <td class="num">${r.rows_loaded ? r.rows_loaded.toLocaleString() : '—'}</td>
-    <td><span class="pill ${statusPill(r.status)}">${esc(r.status)}</span></td>
+    <td><span class="pill ${statusPill(r.status)}" title="${esc(statusHint(r.status))}"
+          >${esc(statusLabel(r.status))}</span></td>
     <td>${esc(r.uploaded_by_name || '—')}</td>
     <td class="mono">${uk(r.uploaded_at)}</td>
     <td style="white-space:nowrap">
-      ${r.status === 'live' ? `<button class="act ghost sm" onclick="retire('${r.id}',false,this)">Retire</button>` : ''}
+      ${r.status === 'live' ? `<button class="act ghost sm" onclick="retire('${r.id}',false,this)">Replace</button>` : ''}
       ${r.status === 'parsed' ? `<button class="act sm" onclick="promote('${r.id}',this)">Make live</button>` : ''}
-      ${r.status !== 'live' ? `<button class="act ghost sm" onclick="retire('${r.id}',true,this)">Purge</button>` : ''}
+      ${r.status !== 'live' && r.status !== 'deleted'
+        ? `<button class="act ghost sm" onclick="retire('${r.id}',true,this)">Delete</button>` : ''}
     </td>
   </tr>`).join('');
 }

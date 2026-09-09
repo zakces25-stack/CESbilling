@@ -670,6 +670,681 @@
     }
   }
 
+  // ── Shared: supply-start windows, and terms given as a date pair ─────────────────────
+  //
+  // Four of the five suppliers below price by WHEN THE SUPPLY STARTS and give only the
+  // first day of each window. TotalEnergies gas ships 13 monthly windows, and the price
+  // falls 7.46 -> 5.47 p/kWh across them for the same meter, so a window boundary a month
+  // out is a 2p error. SSE power ships two windows six months apart. Ecotricity ships eight.
+  //
+  // The honest derivation is the LADDER: a window runs until the day before the next one
+  // starts. Same technique as British Gas's consumption bands, which publish only an upper
+  // bound. The last window has no successor, so it gets one month, which is the spacing
+  // every one of these files actually uses.
+
+  const DAY = 86400000;
+  const isoOf = (d) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  const utcOf = (iso) => { const [y, m, d] = iso.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)); };
+
+  const dayBefore = (iso) => isoOf(new Date(utcOf(iso).getTime() - DAY));
+
+  /** Same day n months on, minus a day. Clamps, so 31 Jan + 1 month is 28/29 Feb. */
+  function plusMonthsMinusDay(iso, n) {
+    const [y, m, d] = iso.split('-').map(Number);
+    const target = new Date(Date.UTC(y, m - 1 + n, 1));
+    const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+    target.setUTCDate(Math.min(d, lastDay));
+    return isoOf(new Date(target.getTime() - DAY));
+  }
+
+  /**
+   * iso start date -> last day of its window, from the set of start dates in the file.
+   *
+   * The last window has no successor, so it gets the same length as the gap before it.
+   * A fixed one month was wrong for SSE power, whose two windows are SIX months apart:
+   * the April book would have closed on 30 April and every May-to-September start would
+   * have found no price at all.
+   */
+  function startWindowLadder(dates) {
+    const uniq = [...new Set(dates.filter(Boolean))].sort();
+    const out = new Map();
+    let lastGap = 1;
+    for (let i = 0; i < uniq.length; i++) {
+      if (i + 1 < uniq.length) {
+        out.set(uniq[i], dayBefore(uniq[i + 1]));
+        lastGap = monthsBetween(uniq[i], uniq[i + 1]) || 1;
+      } else {
+        out.set(uniq[i], plusMonthsMinusDay(uniq[i], lastGap));
+      }
+    }
+    return out;
+  }
+
+  const monthsBetween = (a, b) => {
+    const [ya, ma] = a.split('-').map(Number), [yb, mb] = b.split('-').map(Number);
+    return (yb - ya) * 12 + (mb - ma);
+  };
+
+  /**
+   * Term in months from a start and an INCLUSIVE end date.
+   *
+   * Ecotricity publishes no term column at all: 2026-10-01 to 2027-09-30 is a 12 month
+   * deal, to 2028-03-31 an 18 month one. 18 and 30 month terms are real here and the portal
+   * has to offer them, or a third of Ecotricity's book is invisible.
+   */
+  function termFromDates(startIso, endIso) {
+    if (!startIso || !endIso) throw new Refuse('cannot work out the term without both dates');
+    const [ys, ms, ds] = startIso.split('-').map(Number);
+    const [ye, me, de] = endIso.split('-').map(Number);
+    let m = (ye - ys) * 12 + (me - ms);
+    if (de >= ds) m += 1;              // ends on/after the anniversary day, so a whole month
+    if (m < 1 || m > 72) throw new Refuse(`derived term ${m} months is outside 1..72`);
+    return m;
+  }
+
+  /**
+   * GSP group letter -> distributor id.
+   *
+   * MEASURED, not assumed. Ecotricity's own pricebook carries the letter, the two-digit id
+   * and the DNO name on every row, and the mapping is NOT sequential past _G: _H is 20
+   * (Southern), _J is 19 (South East), _N is 18 and _P is 17. Counting A=10, B=11... through
+   * the alphabet gets five of the fourteen wrong, which would price a Southern meter off
+   * South East Scotland's grid and look entirely plausible.
+   */
+  const GSP_TO_DNO = {
+    _a: '10', _b: '11', _c: '12', _d: '13', _e: '14', _f: '15', _g: '16',
+    _h: '20', _j: '19', _k: '21', _l: '22', _m: '23', _n: '18', _p: '17',
+  };
+  function gspToDno(v) {
+    const k = String(v == null ? '' : v).trim().toLowerCase();
+    if (!k) return null;
+    const m = k.match(/^_?([a-p])$/);
+    if (m && ('_' + m[1]) in GSP_TO_DNO) return GSP_TO_DNO['_' + m[1]];
+    throw new Refuse(`unmapped GSP group "${v}"`);
+  }
+
+  /**
+   * Exit zone -> LDZ, as a table rather than a rule.
+   *
+   * The obvious rule is "take the first two letters", and it is right for 36 of the 38 zones
+   * and wrong for Wales: WA1 is in Wales NORTH (WN) and WA2 in Wales SOUTH (WS), neither of
+   * which is "WA". Guessing cost 12,480 refused TotalEnergies rows before this table existed
+   * — better than a wrong LDZ, since the LDZ changes both the unit rate and the standing
+   * charge, but still a tenth of their book missing.
+   *
+   * Measured from SSE's gas matrix, which is the one file carrying both columns on every
+   * row: 38 zones, 18 LDZs, and no zone maps to two LDZs.
+   */
+  const ZONE_LDZ = {
+    EA1: 'EA', EA2: 'EA', EA3: 'EA', EA4: 'EA',
+    EM1: 'EM', EM2: 'EM', EM3: 'EM', EM4: 'EM',
+    LC: 'LC', LO: 'LO', LS: 'LS', LT: 'LT', LW: 'LW',
+    NE1: 'NE', NE2: 'NE', NE3: 'NE', NO1: 'NO', NO2: 'NO',
+    NT1: 'NT', NT2: 'NT', NT3: 'NT', NW1: 'NW', NW2: 'NW',
+    SC1: 'SC', SC2: 'SC', SC4: 'SC', SE1: 'SE', SE2: 'SE',
+    SO1: 'SO', SO2: 'SO', SW1: 'SW', SW2: 'SW', SW3: 'SW',
+    WA1: 'WN', WA2: 'WS',                       // the two the prefix rule gets wrong
+    WM1: 'WM', WM2: 'WM', WM3: 'WM',
+  };
+  function ldzOfZone(v) {
+    const z = String(v == null ? '' : v).trim().toUpperCase();
+    if (!z) return null;
+    if (z in ZONE_LDZ) return ZONE_LDZ[z];
+    // An unknown zone falls back to the prefix rather than refusing the row: a new zone is
+    // far more likely than a new LDZ, and the prefix is right 36 times out of 38.
+    const m = z.match(/^([A-Z]{2})/);
+    return m ? m[1] : null;
+  }
+
+  // ── Adapter 6: TotalEnergies gas ─────────────────────────────────────────────────────
+  //
+  // Nine columns and no surprises, which after British Gas is a relief.
+  //
+  //   PRODUCT_NAME  9_NE_NE1_B_20347   band index _ LDZ _ exit zone _ B _ price id
+  //   REGION        the exit zone, same as field 3 of PRODUCT_NAME
+  //   AQ_MIN/MAX    exact, non-overlapping, 0 to 292,999
+  //   CONTRACT_LENGTH  months: 12, 24, 36, 48, 60
+  //   VALID_FROM    the first day this price can start. 13 monthly windows on acquisition,
+  //                 55 on renewal, and every grid cell carries all of them.
+  //   VALID_TO      the LAST possible contract end, capped at 2032-03-08 where the curve
+  //                 runs out. NOT the end of the start window, which is why it is ignored:
+  //                 3,192 of 29,640 acquisition rows would give a nonsense window if it were.
+  //   STANDING_CHARGE  p/day, banded by AQ: 50 / 150 / 200 / 250. Zero in the _UR files.
+  //   FINAL_PRICE   p/kWh
+  //
+  // The _UR files are the same grid with the standing charge rolled into the unit rate:
+  // STANDING_CHARGE is 0 on all 29,640 rows and FINAL_PRICE runs up to 12.80 against 9.18.
+  // So sc_type comes from the figure, never from the filename.
+  //
+  // One real gap in their grid: the bands stop at 73,199 and restart at 73,201, so a meter
+  // at exactly 73,200 kWh matches nothing. That is TotalEnergies' own boundary (the small/
+  // large supply point threshold) and the honest answer is no price, not a guessed one.
+
+  function parseTotalGas(rows, supplierKey, saleScope, onRow, onRefuse, meta) {
+    const header = rows[0];
+    const A = accessor(header);
+    for (const need of ['productname', 'region', 'aqmin', 'aqmax', 'contractlength',
+                        'validfrom', 'standingcharge', 'finalprice']) {
+      if (!A.has(need)) throw new Error(`not a TotalEnergies gas layout, missing ${need}`);
+    }
+
+    // One pass for the windows, because a ladder cannot be built a row at a time.
+    const starts = [];
+    for (let n = 1; n < rows.length; n++) {
+      if (rows[n] && rows[n].length) starts.push(toDate(A.get(rows[n], 'validfrom')));
+    }
+    const ladder = startWindowLadder(starts);
+    const sorted = [...new Set(starts.filter(Boolean))].sort();
+    meta.window_open = sorted[0] || null;
+    meta.window_close = sorted.length ? ladder.get(sorted[sorted.length - 1]) : null;
+
+    for (let n = 1; n < rows.length; n++) {
+      const row = rows[n];
+      if (!row || !row.some((c) => c !== null && c !== undefined && c !== '')) continue;
+      const g = (...names) => A.get(row, ...names);
+      try {
+        const r = blankRow(supplierKey, 'gas');
+        r.sale_type = saleScope || 'any';
+        r.rate_structure = 'single';
+
+        const term = toNum(g('contractlength'));
+        if (term == null) throw new Refuse('no contract length');
+        r.term_months = Math.round(term);
+
+        const zone = String(g('region') || '').trim().toUpperCase();
+        if (!zone) throw new Refuse('no region');
+        r.exit_zone = zone;
+
+        // The LDZ is field 2 of PRODUCT_NAME. Cross-check it against the zone rather than
+        // trusting either alone: a mismatch means the composite name has been re-cut.
+        const pn = String(g('productname') || '').trim();
+        r.product_code = pn || null;
+        const parts = pn.split('_');
+        const ldzFromName = parts.length >= 3 ? parts[1].toUpperCase() : null;
+        const ldzFromZone = ldzOfZone(zone);
+        if (ldzFromName && ldzFromZone && ldzFromName !== ldzFromZone) {
+          throw new Refuse(`LDZ disagrees: "${ldzFromName}" in the product name, `
+                         + `"${ldzFromZone}" from region ${zone}`);
+        }
+        r.ldz = ldzFromName || ldzFromZone;
+
+        r.aq_min = toNum(g('aqmin'));
+        r.aq_max = toNum(g('aqmax'));
+
+        const from = toDate(g('validfrom'));
+        if (!from) throw new Refuse('no valid-from date');
+        r.start_date_min = from;
+        r.start_date_max = ladder.get(from) || plusMonthsMinusDay(from, 1);
+
+        r.standing_charge_p_day = sc(g('standingcharge'));
+        r.unit_rate_p_kwh = rate(g('finalprice'));
+        if (r.unit_rate_p_kwh == null) throw new Refuse('no unit rate on the row');
+        // The figure decides, not the filename. A _UR file is the zero standing charge
+        // product and says so by carrying 0.
+        r.sc_type = (r.standing_charge_p_day === 0 || r.standing_charge_p_day == null)
+          ? 'no_sc' : 'with_sc';
+        r.payment_method = 'DD';
+        r.product_name = r.sc_type === 'no_sc' ? 'Fixed (zero standing charge)' : 'Fixed';
+        onRow(r);
+      } catch (e) {
+        if (e instanceof Refuse) onRefuse(n + 1, e.message); else throw e;
+      }
+    }
+  }
+
+  // ── Adapter 7: Corona gas ────────────────────────────────────────────────────────────
+  //
+  // 109 columns, of which 108 are a template nobody filled in.
+  //
+  // The scary part is the rate LADDER: Rate1_A through R9_D, sixty-four columns, a block
+  // pricing model where one meter's consumption is split into bands each with its own
+  // p/kWh. The canonical row holds ONE unit rate and cannot express that. Measured on the
+  // real file: all 29,792 rows populate Rate1_A_PER_kWh and nothing else. So the row
+  // collapses to a single rate — and any row that ever uses a second block is refused by
+  // name rather than quietly losing the blocks past the first.
+  //
+  // THE STANDING CHARGE IS IN POUNDS PER DAY, not pence, despite the column being called
+  // DYLY_STDG_CHRG and every other supplier publishing pence. Confirmed by CES and by the
+  // arithmetic: at a 55,000 kWh EA1 site the raw figure is 5.46, and 546 p/day alongside
+  // Corona's 5.02 p/kWh unit rate gives GBP 4,754 a year, against SSE at GBP 5,087 and
+  // Ecotricity at GBP 3,720. Read as pence it would be GBP 2,781 and Corona would win every
+  // gas quote in the portfolio by a quarter.
+  //
+  // Ignored on purpose: DELPHISTART / DELPHIEND are a credit-score gate and CES never
+  // credit checks. Recorded here as an explicit decision, not dropped silently.
+
+  const CORONA_GAS_PRODUCT = { f: 'Fixed', ff: 'Fixed FF', standard: 'Standard (deemed)' };
+
+  function parseCoronaGas(rows, supplierKey, onRow, onRefuse, meta) {
+    const header = rows[0];
+    const A = accessor(header);
+    for (const need of ['dnoexitzone', 'fixedrateperiod', 'minconsumption', 'maxconsumption',
+                        'rate1aperkwh', 'dylystdgchrg']) {
+      if (!A.has(need)) throw new Error(`not a Corona gas layout, missing ${need}`);
+    }
+    // Every rate-block column past the first, matched on the raw header text, so a file
+    // that starts using block pricing is caught rather than losing the later blocks.
+    const blockCols = header
+      .map((h, i) => [String(h == null ? '' : h), i])
+      .filter(([h]) => /^(Rate[1-9]|R9)_[B-D]_PER_kWh$/i.test(h.trim()))
+      .map(([, i]) => i);
+
+    // The ledger shows the supply-start window this book covers, so record the span across
+    // all three of Corona's windows rather than leaving it blank.
+    const ssd = [], lsd = [];
+    for (let n = 1; n < rows.length; n++) {
+      if (!rows[n] || !rows[n].length) continue;
+      const a = toDate(A.get(rows[n], 'firstssd')), b = toDate(A.get(rows[n], 'lastssd'));
+      if (a) ssd.push(a); if (b) lsd.push(b);
+    }
+    meta.window_open = ssd.length ? ssd.sort()[0] : null;
+    meta.window_close = lsd.length ? lsd.sort()[lsd.length - 1] : null;
+
+    for (let n = 1; n < rows.length; n++) {
+      const row = rows[n];
+      if (!row || !row.some((c) => c !== null && c !== undefined && c !== '')) continue;
+      const g = (...names) => A.get(row, ...names);
+      try {
+        const extra = blockCols.filter((i) => { const v = toNum(row[i]); return v != null && v !== 0; });
+        if (extra.length) {
+          throw new Refuse(`row uses ${extra.length} rate block(s) past the first — `
+                         + 'block pricing cannot be expressed as one unit rate');
+        }
+
+        const r = blankRow(supplierKey, 'gas');
+        r.sale_type = 'any';                 // no acquisition/renewal split in this file
+        r.rate_structure = 'single';
+
+        const term = toNum(g('fixedrateperiod'));
+        if (term == null) throw new Refuse('no fixed rate period');
+        r.term_months = Math.round(term);
+
+        const zone = String(g('dnoexitzone') || '').trim().toUpperCase();
+        if (!zone) throw new Refuse('no exit zone');
+        r.exit_zone = zone;
+        r.ldz = ldzOfZone(zone);           // LLFC and MTC are 'None' on every row
+
+        r.aq_min = toNum(g('minconsumption'));
+        r.aq_max = toNum(g('maxconsumption'));
+        r.start_date_min = toDate(g('firstssd'));
+        r.start_date_max = toDate(g('lastssd'));
+        r.quote_valid_from = toDate(g('onsalefrom'));
+        r.quote_valid_to = toDate(g('onsaleto'));
+
+        r.unit_rate_p_kwh = rate(g('rate1aperkwh'));
+        if (r.unit_rate_p_kwh == null) throw new Refuse('no unit rate on the row');
+
+        // POUNDS per day -> pence per day. See the note above; this x100 is the whole
+        // difference between Corona being competitive and Corona winning everything.
+        const scRaw = toNum(g('dylystdgchrg'));
+        r.standing_charge_p_day = scRaw == null ? null : sc(Math.round(scRaw * 100 * 1e4) / 1e4);
+        r.sc_type = (r.standing_charge_p_day === 0) ? 'no_sc' : 'with_sc';
+
+        const pt = key(g('producttype'));
+        r.product_name = CORONA_GAS_PRODUCT[pt] || String(g('producttype') || '').trim() || null;
+        r.product_code = String(g('suppliertariffcode') || '').trim() || null;
+        r.green = toBool(g('renewableenergy'));
+        r.amr = toBool(g('amr'));
+        r.payment_method = 'DD';
+        onRow(r);
+      } catch (e) {
+        if (e instanceof Refuse) onRefuse(n + 1, e.message); else throw e;
+      }
+    }
+  }
+
+  // ── Adapter 8: Corona power ──────────────────────────────────────────────────────────
+  //
+  // Twenty-four honest columns. Two things need care.
+  //
+  // The distributor is given ONLY as a GSP group letter (_A to _P), so it goes through
+  // GSP_TO_DNO above, which is measured rather than counted.
+  //
+  // The rate structure is prose with the band glued on the end: "Small Non Domestic
+  // Evening Weekend - Band 1". The band is also in its own column, and the two agree on
+  // every row, so the column is used and the suffix stripped.
+  //
+  // Band N is NOT a TCR band. It is the non-domestic aggregated / related-MPAN case (616
+  // rows). Those are refused: a null band would match every meter in the portfolio.
+  //
+  // Rate 1/2/3 map differently per structure, and the structure is taken from WHICH RATES
+  // ARE PRESENT, not from the label. 224 of the 1,904 rows labelled three-rate carry only
+  // two rates, and calling those a three-rate tariff would put a night rate in an
+  // evening/weekend box.
+
+  const CORONA_PWR_STRUCT = {
+    'small non domestic unrestricted':                   'single',
+    'standard small non domestic two rate':              'day_night',
+    'small non domestic evening weekend':                'eve_weekend',
+    'small non domestic three rate evening weekend':     'day_night_ew',
+    'non domestic off peak':                             'off_peak',
+  };
+
+  function parseCoronaPower(rows, supplierKey, onRow, onRefuse, meta) {
+    const header = rows[0];
+    const A = accessor(header);
+    for (const need of ['supplyzone', 'profile', 'tarifflengthmonths', 'ratestructure',
+                        'rate1pkwh', 'dailychargepday']) {
+      if (!A.has(need)) throw new Error(`not a Corona power layout, missing ${need}`);
+    }
+    const ssd = [], lsd = [];
+    for (let n = 1; n < rows.length; n++) {
+      if (!rows[n] || !rows[n].length) continue;
+      const a = toDate(A.get(rows[n], 'firstsupplystartdate'));
+      const b = toDate(A.get(rows[n], 'lastsupplystartdate'));
+      if (a) ssd.push(a); if (b) lsd.push(b);
+    }
+    meta.window_open = ssd.length ? ssd.sort()[0] : null;
+    meta.window_close = lsd.length ? lsd.sort()[lsd.length - 1] : null;
+
+    for (let n = 1; n < rows.length; n++) {
+      const row = rows[n];
+      if (!row || !row.some((c) => c !== null && c !== undefined && c !== '')) continue;
+      const g = (...names) => A.get(row, ...names);
+      try {
+        const r = blankRow(supplierKey, 'electricity');
+        r.sale_type = 'any';
+
+        const term = toNum(g('tarifflengthmonths'));
+        if (term == null) throw new Refuse('no tariff length');
+        r.term_months = Math.round(term);
+
+        r.dno_id = gspToDno(g('supplyzone'));
+        r.gsp_group = String(g('supplyzone') || '').trim().replace(/^_/, '') || null;
+        const pc = toNum(g('profile'));
+        r.profile_class = pc == null ? null : Math.round(pc);
+
+        const bandTxt = String(g('band') || '').trim();
+        if (/^band\s*n$/i.test(bandTxt)) {
+          throw new Refuse('Band N is the aggregated related-MPAN tariff, not a TCR band');
+        }
+        r.tcr_band = tcrBand(bandTxt);
+
+        r.aq_min = toNum(g('minimumconsumptionkwh'));
+        r.aq_max = toNum(g('maximumconsumptionkwh'));
+        r.start_date_min = toDate(g('firstsupplystartdate'));
+        r.start_date_max = toDate(g('lastsupplystartdate'));
+        r.quote_valid_from = toDate(g('onsalefrom'));
+        r.quote_valid_to = toDate(g('onsaleto'));
+
+        const label = String(g('ratestructure') || '').trim()
+          .replace(/\s*-\s*(band\s*\d|band\s*n|non-domestic aggregated.*)$/i, '')
+          .toLowerCase().replace(/\s+/g, ' ');
+        const declared = CORONA_PWR_STRUCT[label];
+        if (!declared) throw new Refuse(`unmapped Corona rate structure "${g('ratestructure')}"`);
+
+        const r1 = rate(g('rate1pkwh')), r2 = rate(g('rate2pkwh')), r3 = rate(g('rate3pkwh'));
+        if (r1 == null) throw new Refuse('no unit rate on the row');
+        if (declared === 'single') { r.unit_rate_p_kwh = r1; r.rate_structure = 'single'; }
+        else if (declared === 'off_peak') {
+          // One rate covering the whole supply. It goes in the unit rate so it can actually
+          // be priced; rate_structure still says off_peak so the matcher knows what it is.
+          r.unit_rate_p_kwh = r1; r.rate_structure = 'off_peak';
+        } else if (declared === 'eve_weekend') {
+          r.unit_rate_p_kwh = r1; r.eve_weekend_p_kwh = r2;
+          r.rate_structure = r2 == null ? 'single' : 'eve_weekend';
+        } else if (declared === 'day_night') {
+          r.day_rate_p_kwh = r1; r.night_rate_p_kwh = r2;
+          if (r2 == null) { r.unit_rate_p_kwh = r1; r.day_rate_p_kwh = null; r.rate_structure = 'single'; }
+          else r.rate_structure = 'day_night';
+        } else {
+          // Three-rate. Downgrade to two if the third rate is not there, because 224 rows
+          // labelled three-rate carry only two.
+          r.day_rate_p_kwh = r1; r.night_rate_p_kwh = r2; r.eve_weekend_p_kwh = r3;
+          r.rate_structure = r3 == null ? (r2 == null ? 'single' : 'day_night') : 'day_night_ew';
+          if (r2 == null) { r.unit_rate_p_kwh = r1; r.day_rate_p_kwh = null; }
+        }
+
+        r.standing_charge_p_day = sc(g('dailychargepday'));
+        r.sc_type = (r.standing_charge_p_day === 0) ? 'no_sc' : 'with_sc';
+        r.green = toBool(g('greentariff'));
+        r.product_name = String(g('producttype') || '').trim() || null;   // Fixed / Standard
+        r.product_code = String(g('tariffcode') || '').trim() || null;
+        r.payment_method = String(g('payment') || '').trim() || null;
+        onRow(r);
+      } catch (e) {
+        if (e instanceof Refuse) onRefuse(n + 1, e.message); else throw e;
+      }
+    }
+  }
+
+  // ── Adapter 9: Ecotricity ────────────────────────────────────────────────────────────
+  //
+  // Small, clean, and the only supplier here with NO TERM COLUMN. The term is the gap
+  // between Start Date and End Date, which gives 12/18/24 on power and 12/18/24/30/36 on
+  // gas. Those 18 and 30 month terms are real products and the portal has to offer them.
+  //
+  // Power carries the distributor id outright (the "Digit code" column), which is where
+  // GSP_TO_DNO above was measured from. It also carries an "Other LLFs" column listing
+  // every LLFC that shares the price — 1,824 of 2,688 rows have a list. That is ignored on
+  // purpose: Ecotricity states the TCR band directly, the band is what the matcher uses,
+  // and exploding one row into six LLFC rows would multiply the book for nothing.
+  //
+  // Gas is keyed on LDZ and EUC only, with no exit zone at all, so exit_zone stays null and
+  // matches any zone within the LDZ. That is Ecotricity's own granularity, not a gap.
+
+  function parseEcotricity(rows, supplierKey, fuel, onRow, onRefuse, meta) {
+    const header = rows[0];
+    const A = accessor(header);
+    const isGas = A.has('euc') || fuel === 'gas';
+    if (isGas) {
+      for (const need of ['startdate', 'enddate', 'ldz', 'unitrate', 'standingcharge']) {
+        if (!A.has(need)) throw new Error(`not an Ecotricity gas layout, missing ${need}`);
+      }
+    } else {
+      for (const need of ['pc', 'digitcode', 'banding', 'scpday']) {
+        if (!A.has(need)) throw new Error(`not an Ecotricity power layout, missing ${need}`);
+      }
+    }
+
+    const startKey = isGas ? 'startdate' : 'startdate';
+    const starts = [];
+    for (let n = 1; n < rows.length; n++) {
+      if (rows[n] && rows[n].length) starts.push(toDate(A.get(rows[n], startKey)));
+    }
+    const ladder = startWindowLadder(starts);
+    const sorted = [...new Set(starts.filter(Boolean))].sort();
+    meta.window_open = sorted[0] || null;
+    meta.window_close = sorted.length ? ladder.get(sorted[sorted.length - 1]) : null;
+
+    for (let n = 1; n < rows.length; n++) {
+      const row = rows[n];
+      if (!row || !row.some((c) => c !== null && c !== undefined && c !== '')) continue;
+      const g = (...names) => A.get(row, ...names);
+      try {
+        const r = blankRow(supplierKey, isGas ? 'gas' : 'electricity');
+        r.sale_type = 'any';
+        // Ecotricity is a 100% renewable supplier; every row is green whether it says so
+        // or not, and the file does not say so.
+        r.green = true;
+
+        const from = toDate(g(startKey));
+        const to = toDate(g('enddate'));
+        if (!from) throw new Refuse('no start date');
+        r.term_months = termFromDates(from, to);
+        r.start_date_min = from;
+        r.start_date_max = ladder.get(from) || plusMonthsMinusDay(from, 1);
+
+        if (isGas) {
+          r.rate_structure = 'single';
+          r.ldz = String(g('ldz') || '').trim().toUpperCase() || null;
+          if (!r.ldz) throw new Refuse('no LDZ');
+          r.product_code = String(g('euc') || '').trim() || null;
+          r.aq_min = toNum(g('lowerband'));
+          r.aq_max = toNum(g('upperband'));
+          r.unit_rate_p_kwh = rate(g('unitrate'));
+          r.standing_charge_p_day = sc(g('standingcharge'));
+          if (r.unit_rate_p_kwh == null) throw new Refuse('no unit rate on the row');
+        } else {
+          const pc = toNum(g('pc'));
+          r.profile_class = pc == null ? null : Math.round(pc);
+          r.dno_id = dnoId(g('digitcode'));
+          r.gsp_group = String(g('region') || '').trim().replace(/^_/, '') || null;
+          r.tcr_band = tcrBand(g('banding'));
+          r.product_code = String(g('llfc') || '').trim() || null;
+          r.standing_charge_p_day = sc(g('scpday'));
+
+          const single = rate(g('singleur'));
+          const day = rate(g('dayur'));
+          const night = rate(g('nightur'));
+          if (day != null && night != null) {
+            r.day_rate_p_kwh = day; r.night_rate_p_kwh = night; r.rate_structure = 'day_night';
+          } else if (single != null) {
+            r.unit_rate_p_kwh = single; r.rate_structure = 'single';
+          } else {
+            throw new Refuse('no unit rate on the row');
+          }
+        }
+        r.sc_type = (r.standing_charge_p_day === 0) ? 'no_sc' : 'with_sc';
+        r.product_name = 'Ecotricity Fixed';
+        onRow(r);
+      } catch (e) {
+        if (e instanceof Refuse) onRefuse(n + 1, e.message); else throw e;
+      }
+    }
+  }
+
+  // ── Adapter 10: SSE ──────────────────────────────────────────────────────────────────
+  //
+  // Power on sheet OutputFile, gas on sheet SSE Choice. Both carry an explicit Term, so no
+  // date arithmetic, and both give only the first day of the start window, so the ladder
+  // applies: power ships two windows six months apart, gas eight monthly ones.
+  //
+  // The five tariff structure codes are mapped from SSE's OWN descriptions and from which
+  // rate columns each one actually fills, checked on the real file:
+  //
+  //   NHH_UNREST  "NHH unrestricted"                        Unrestricted            -> single
+  //   NHH_DN      "NHH day/night"                           Day + Night             -> day_night
+  //   NHH_DN_EW   "NHH weekday/night/evening & weekend"     Weekday + Night + E&W   -> day_night_ew
+  //   NHH_EWN_WD  "NHH evening, weekend & night / weekday"  Weekday + Non Weekday   -> day_night
+  //   OFF_PEAK    "NHH off-peak"                            Off Peak                -> off_peak
+  //
+  // NHH_EWN_WD deserves its note. It is a TWO register tariff where register two is
+  // everything that is not a weekday, so it is a day/night shape with an unusual split, not
+  // an evening-and-weekend tariff. Mapped here rather than in the shared STRUCT table
+  // precisely because the shared table is used by the BKF parser for four other suppliers
+  // and this column semantics is SSE's alone. Anyone quoting one should know the 70/30 day
+  // split assumption is doing more work than usual.
+  //
+  // TCR Band arrives as "LV No MIC 1", so the band number is taken and the voltage recorded
+  // separately: these are all LV supplies with no maximum import capacity.
+
+  const SSE_STRUCT = {
+    nhh_unrest: 'single',
+    nhh_dn:     'day_night',
+    nhh_dn_ew:  'day_night_ew',
+    nhh_ewn_wd: 'day_night',
+    off_peak:   'off_peak',
+  };
+
+  function parseSse(rows, supplierKey, fuel, onRow, onRefuse, meta) {
+    const header = rows[0];
+    const A = accessor(header);
+    const isGas = A.has('exitzone') || (!A.has('gspregion') && fuel === 'gas');
+    if (isGas) {
+      for (const need of ['term', 'exitzone', 'ldz', 'unitratepkwh']) {
+        if (!A.has(need)) throw new Error(`not an SSE gas layout, missing ${need}`);
+      }
+    } else {
+      for (const need of ['gspregion', 'profileclass', 'tariffstructure', 'term']) {
+        if (!A.has(need)) throw new Error(`not an SSE power layout, missing ${need}`);
+      }
+    }
+
+    const dateKey = isGas ? 'startdate' : 'startdate';
+    const starts = [];
+    for (let n = 1; n < rows.length; n++) {
+      if (rows[n] && rows[n].length) starts.push(toDate(A.get(rows[n], dateKey)));
+    }
+    const ladder = startWindowLadder(starts);
+    const sorted = [...new Set(starts.filter(Boolean))].sort();
+    meta.window_open = sorted[0] || null;
+    meta.window_close = sorted.length ? ladder.get(sorted[sorted.length - 1]) : null;
+
+    for (let n = 1; n < rows.length; n++) {
+      const row = rows[n];
+      if (!row || !row.some((c) => c !== null && c !== undefined && c !== '')) continue;
+      const g = (...names) => A.get(row, ...names);
+      try {
+        const r = blankRow(supplierKey, isGas ? 'gas' : 'electricity');
+        r.sale_type = 'any';                 // SSE's matrix does not split acq from renewal
+
+        const term = toNum(g('term'));
+        if (term == null) throw new Refuse('no term');
+        r.term_months = Math.round(term);
+
+        const from = toDate(g(dateKey));
+        if (from) {
+          r.start_date_min = from;
+          r.start_date_max = ladder.get(from) || plusMonthsMinusDay(from, 1);
+        }
+        // Quotation and Matrix are SSE's own reference ids, and a broker being able to quote
+        // the matrix number back to them is worth keeping.
+        r.product_code = [String(g('matrix') || '').trim(), String(g('reference') || '').trim()]
+          .filter(Boolean).join('/') || null;
+        r.product_name = 'SSE Choice';
+
+        if (isGas) {
+          r.rate_structure = 'single';
+          r.exit_zone = String(g('exitzone') || '').trim().toUpperCase() || null;
+          r.ldz = String(g('ldz') || '').trim().toUpperCase() || null;
+          r.aq_min = toNum(g('consumptionlowerband'));
+          r.aq_max = toNum(g('consumptionupperband'));
+          r.unit_rate_p_kwh = rate(g('unitratepkwh'));
+          r.standing_charge_p_day = sc(g('standardchargeratepenceperday', 'standardchargerate'));
+          if (r.unit_rate_p_kwh == null) throw new Refuse('no unit rate on the row');
+        } else {
+          r.dno_id = dnoId(g('gspregion'));
+          const pcTxt = String(g('profileclass') || '');
+          const pcm = pcTxt.match(/(\d)/);
+          if (!pcm) throw new Refuse(`cannot read a profile class from "${pcTxt}"`);
+          r.profile_class = Number(pcm[1]);
+
+          const bandTxt = String(g('tcrband') || '').trim();
+          r.tcr_band = tcrBand(bandTxt);
+          if (/no\s*mic/i.test(bandTxt)) r.voltage_level = 'LV_noMIC';
+          else if (/^lv[\s-]*sub/i.test(bandTxt)) r.voltage_level = 'LV-SUB';
+          else if (/^lv/i.test(bandTxt)) r.voltage_level = 'LV';
+
+          r.aq_min = toNum(g('minconsumption'));
+          r.aq_max = toNum(g('maxconsumption'));
+          r.standing_charge_p_day = sc(g('standingchargeratepenceperday', 'standingchargerate'));
+
+          const raw = String(g('tariffstructure') || '').trim().toUpperCase();
+          if (!(raw.toLowerCase() in SSE_STRUCT)) {
+            throw new Refuse(`unmapped SSE tariff structure "${raw}"`);
+          }
+
+          const unrest  = rate(g('unrestrictedunitratepkwh', 'unrestrictedunitrate'));
+          const day     = rate(g('dayunitratepkwh'));
+          const night   = rate(g('nightunitratepkwh'));
+          const weekday = rate(g('weekdayunitratepkwh'));
+          const nonwd   = rate(g('nonweekdayunitratepkwh'));
+          const ew      = rate(g('eveningweekendunitratepkwh'));
+          const offpk   = rate(g('offpeakunitratepkwh'));
+
+          if (raw === 'NHH_UNREST')      { r.unit_rate_p_kwh = unrest; r.rate_structure = 'single'; }
+          else if (raw === 'OFF_PEAK')   { r.unit_rate_p_kwh = offpk;  r.rate_structure = 'off_peak'; }
+          else if (raw === 'NHH_DN')     { r.day_rate_p_kwh = day; r.night_rate_p_kwh = night;
+                                           r.rate_structure = 'day_night'; }
+          else if (raw === 'NHH_DN_EW')  { r.day_rate_p_kwh = weekday; r.night_rate_p_kwh = night;
+                                           r.eve_weekend_p_kwh = ew; r.rate_structure = 'day_night_ew'; }
+          else if (raw === 'NHH_EWN_WD') { r.day_rate_p_kwh = weekday; r.night_rate_p_kwh = nonwd;
+                                           r.rate_structure = 'day_night'; }
+          else throw new Refuse(`unmapped SSE tariff structure "${raw}"`);
+
+          if (['unit_rate_p_kwh', 'day_rate_p_kwh'].every((k) => r[k] == null)) {
+            throw new Refuse(`no unit rate on the row for structure ${raw}`);
+          }
+        }
+        r.sc_type = (r.standing_charge_p_day === 0) ? 'no_sc' : 'with_sc';
+        onRow(r);
+      } catch (e) {
+        if (e instanceof Refuse) onRefuse(n + 1, e.message); else throw e;
+      }
+    }
+  }
+
   // ── Dispatch ─────────────────────────────────────────────────────────────────────────
 
   /**
@@ -680,7 +1355,7 @@
    * hides its data in is a per-supplier fact (UGP's visible sheet is a formula front end).
    */
   function parse(opts) {
-    const { parserKey, supplierKey, fuel, sheets } = opts;
+    const { parserKey, supplierKey, fuel, sheets, saleScope } = opts;
     const rows = [];
     const refusals = [];
     const meta = { version: null, window_open: null, window_close: null };
@@ -699,6 +1374,25 @@
         case 'ugp_spark': parseUgp(sheet.rows, sheet.fuel || fuel, onRow, onRefuse, meta); break;
         case 'smartest':  parseSmartest(sheet.rows, sheet.fuel || fuel, onRow, onRefuse, meta); break;
         case 'utilita':   parseUtilita(sheet.rows, onRow, onRefuse, meta); break;
+        case 'te_gas':    parseTotalGas(sheet.rows, supplierKey, saleScope, onRow, onRefuse, meta); break;
+        case 'corona_gas':   parseCoronaGas(sheet.rows, supplierKey, onRow, onRefuse, meta); break;
+        case 'corona_power': parseCoronaPower(sheet.rows, supplierKey, onRow, onRefuse, meta); break;
+        case 'ecotricity':   parseEcotricity(sheet.rows, supplierKey, sheet.fuel || fuel, onRow, onRefuse, meta); break;
+        // Corona ships two completely different layouts, 109 columns for gas and 24 for
+        // power, so the header decides which. One supplier, one parser key, two shapes.
+        case 'corona': {
+          const A = accessor(sheet.rows[0] || []);
+          if (A.has('dnoexitzone') || A.has('rate1aperkwh')) {
+            parseCoronaGas(sheet.rows, supplierKey, onRow, onRefuse, meta);
+          } else if (A.has('supplyzone') || A.has('ratestructure')) {
+            parseCoronaPower(sheet.rows, supplierKey, onRow, onRefuse, meta);
+          } else {
+            throw new Error('sheet "' + sheet.name + '" is neither the Corona gas nor the '
+              + 'Corona power layout');
+          }
+          break;
+        }
+        case 'sse':          parseSse(sheet.rows, supplierKey, sheet.fuel || fuel, onRow, onRefuse, meta); break;
         default: throw new Error(`no parser called "${parserKey}"`);
       }
     }
@@ -709,7 +1403,10 @@
     parse, normHeader, CANON_FIELDS, P_KVA_DAY_TO_MONTH,
     // exported for the test suite
     _internals: { saleType, rateStructure, tcrBand, toNum, toDate, toBool, dnoId, rate, sc,
-                  capFromDay, key, scType },
+                  capFromDay, key, scType,
+                  gspToDno, ldzOfZone, termFromDates, plusMonthsMinusDay, startWindowLadder,
+                  dayBefore, monthsBetween, GSP_TO_DNO, ZONE_LDZ, SSE_STRUCT,
+                  CORONA_PWR_STRUCT },
   };
 })(typeof window !== 'undefined' ? window : globalThis);
 
