@@ -25,9 +25,37 @@
     Header set Cache-Control "public, max-age=2592000, immutable"
   </FilesMatch>
 
-  # CSS + JS — long cache + immutable hint.
+  # ───── CSS + JS — REVALIDATE. Read this before changing it back. ─────
+  #
+  # This used to be "public, max-age=2592000, immutable" and that was simply wrong for
+  # this site. `immutable` is a promise to the browser that the bytes at this URL will
+  # NEVER change, and it is only safe when the filename carries a content hash
+  # (app.a1b2c3.js). Nothing here does. Every deploy overwrites these filenames in place,
+  # so the rule was telling browsers not to bother re-checking a file that had in fact
+  # changed — and `immutable` specifically licenses them to skip revalidation entirely.
+  #
+  # It bit twice, and both times cost hours:
+  #   flex-shared.js       reached the trading desk on deploy and the customer weeks
+  #                        later, which is the exact drift that file exists to prevent.
+  #   pricing-parsers.js   four new supplier parsers went live, pricing.html picked them
+  #                        up in five minutes (HTML is 300s above), and the desk still got
+  #                        "no parser called ecotricity" for a month's worth of edge cache.
+  #                        Then the EDF selling-days fix shipped and a re-upload was still
+  #                        parsed by the stale file, writing wrong rates into the database.
+  #
+  # Each time the fix was a per-file override, which someone has to remember to add for
+  # every new shared file. That is not a policy, it is a standing trap. So the DEFAULT is
+  # now revalidation and no file needs an override again.
+  #
+  # What it costs: one conditional request per file per page load, answered with a 304 and
+  # no body. The whole site serves THREE js files and no css at all —
+  # pricing-parsers.js (100KB), flex-shared.js (40KB), sales-sw.js (4KB) — and all three
+  # need revalidating anyway. The immutable rule was protecting nothing.
+  #
+  # If a genuinely static, versioned library is ever added, give THAT file a long-cache
+  # override here. Do not invert this default again.
   <FilesMatch "\.(css|js)$">
-    Header set Cache-Control "public, max-age=2592000, immutable"
+    Header set Cache-Control "no-cache, must-revalidate"
   </FilesMatch>
 
   # PDFs (e.g. privacy policy) — 1 day. Long enough to ease load, short
@@ -48,25 +76,20 @@
   <FilesMatch "^sales\.webmanifest$">
     Header set Cache-Control "public, max-age=3600, must-revalidate"
   </FilesMatch>
-  # Shared flex render core — MUST override the 30-day .js rule above (last match wins).
-  # flex.html and flexclient.html both load this file, and the whole point of it is that
-  # a change reaches both portals at the same moment. Cached immutable for 30 days it
-  # would reach the desk on deploy and the customer weeks later, which is the exact
-  # drift the file exists to prevent. Revalidation is a 304 on a ~25KB file — cheap.
+  # Shared flex render core. flex.html and flexclient.html both load this file and the
+  # whole point of it is that a change reaches both portals at the same moment, so it must
+  # never be cached without revalidation. The .css|.js default above already does that —
+  # this stays as a belt-and-braces marker so that if anyone ever restores a long-cache
+  # default, THIS file is still safe and the flex portals do not silently drift apart.
   <FilesMatch "^flex-shared\.js$">
     Header set Cache-Control "no-cache, max-age=0, must-revalidate"
   </FilesMatch>
 
-  # Pricebook parsers — MUST override the 30-day .js rule above, for the same reason as
-  # flex-shared and then some. pricing.html is cached 300 seconds, so the page rolls out in
-  # five minutes while its parser library would have stayed pinned for THIRTY DAYS as
-  # immutable, which browsers take as permission not even to revalidate. That is exactly
-  # what happened on 9 Sep 2026: four new supplier parsers were pushed, the page picked
-  # them up, and the desk still got 'no parser called ecotricity' because the edge and the
-  # browser were both still handing out the 8 September file.
-  #
-  # A parser change is never cosmetic — it decides what a rate MEANS — so it must never lag
-  # the page that calls it. Revalidation is a 304 on an 83KB file.
+  # Pricebook parsers. Same belt-and-braces reason as flex-shared above, and the stakes
+  # here are money: a parser change decides what a RATE MEANS, so a stale copy does not
+  # fail visibly, it writes plausible wrong prices into the database. pricing.html and
+  # pricing-parsers.js also check each other's version at load time and refuse to parse on
+  # a mismatch, so a stale file now says so instead of quietly mispricing.
   <FilesMatch "^pricing-parsers\.js$">
     Header set Cache-Control "no-cache, max-age=0, must-revalidate"
   </FilesMatch>
