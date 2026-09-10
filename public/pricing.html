@@ -1630,6 +1630,16 @@ async function priceMeter() {
     const dayPct = Number($('qSplit').value || 70) / 100;
     if (!start || !terms.length || !aq) throw new Error('Start date, at least one term, and an annual consumption.');
 
+    // How far ahead the supply starts, in days from today. EDF price on this and nothing
+    // else — see the sell_days filter below. Counted from today because that is when the
+    // quote is being issued, which is what "selling days" means.
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const [sy, sm, sd] = start.split('-').map(Number);
+    const daysAhead = Math.round(
+      (Date.UTC(sy, sm - 1, sd) - Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()))
+      / 86400000);
+    if (daysAhead < 0) throw new Error('That start date is in the past.');
+
     const dno = METER.dno_id || (METER.mpan || '').slice(0,2);
     if (METER.utility === 'electricity' && /^\d\d$/.test(dno) && (Number(dno) < 10 || Number(dno) > 23))
       throw new Error(`Distributor ${dno} is an independent network and is not in any pricebook.`);
@@ -1639,7 +1649,8 @@ async function priceMeter() {
     let sel = sb.from('pricebook_rates_live')
       .select('supplier_key,product_key,product_display,product_name,term_months,sale_type,'
             + 'rate_structure,profile_class,dno_id,ldz,exit_zone,tcr_band,aq_min,aq_max,'
-            + 'start_date_min,start_date_max,standing_charge_p_day,unit_rate_p_kwh,'
+            + 'start_date_min,start_date_max,sell_days_min,sell_days_max,'
+            + 'standing_charge_p_day,unit_rate_p_kwh,'
             + 'day_rate_p_kwh,night_rate_p_kwh,eve_weekend_p_kwh,capacity_p_kva_month,'
             + 'sc_type,green')
       .eq('fuel', METER.utility)
@@ -1652,6 +1663,13 @@ async function priceMeter() {
       .or(`aq_max.is.null,aq_max.gte.${aq}`)
       .or(`start_date_min.is.null,start_date_min.lte.${start}`)
       .or(`start_date_max.is.null,start_date_max.gte.${start}`)
+      // EDF express the supply-start window as DAYS AHEAD rather than dates, and leave
+      // every date column blank. Their 186-365 day rates are cheaper than their 1-185 ones
+      // because they are further out on the forward curve, so with this filter missing the
+      // far-forward row won every EDF quote at a price they would refuse to honour: 25.0
+      // p/kWh shown where 26.7 was the only sellable rate for a start 82 days out.
+      .or(`sell_days_min.is.null,sell_days_min.lte.${daysAhead}`)
+      .or(`sell_days_max.is.null,sell_days_max.gte.${daysAhead}`)
       .limit(8000);
 
     if (METER.utility === 'electricity') {
@@ -1747,7 +1765,8 @@ async function priceMeter() {
     shortlist.forEach(x => x.others.sort((a, b2) => a.annual - b2.annual));
 
     QUOTE = { shortlist, terms: [...new Set(shortlist.map(x => x.win.term_months))].sort((a,b)=>a-b),
-              aq, uplift, dayPct, start, incumbent, matched: rows.length, raw: raw.length,
+              aq, uplift, dayPct, start, daysAhead, incumbent,
+              matched: rows.length, raw: raw.length,
               folded, droppedWrongSale, hidden: quotes.length - shortlist.length };
     QUOTE_TERM = QUOTE.terms[0];
     renderQuotes();
@@ -1845,7 +1864,9 @@ function renderQuotes() {
     <b>${list.length}</b> supplier${list.length === 1 ? '' : 's'} can price this meter over
     ${QUOTE_TERM} months, from ${Q.raw.toLocaleString()} matched pricebook rows.
     Uplift <b>${Q.uplift.toFixed(2)} p/kWh</b> on every unit rate.
-    Annual cost on <b>${Q.aq.toLocaleString()} kWh</b> over 365 days, starting ${uk(Q.start)}.
+    Annual cost on <b>${Q.aq.toLocaleString()} kWh</b> over 365 days, starting ${uk(Q.start)}
+    — <b>${Q.daysAhead} days ahead</b>, which is what decides eligibility on any supplier
+    who prices by how far out the supply starts.
     ${Q.folded ? `${Q.folded.toLocaleString()} rows were the same price under a different
       charging band and were folded together.` : ''}
     ${Q.hidden ? `${Q.hidden.toLocaleString()} dearer products from the same suppliers are

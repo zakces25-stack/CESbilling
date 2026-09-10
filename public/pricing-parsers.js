@@ -34,7 +34,8 @@
     'supplier_key', 'fuel', 'sale_type', 'term_months', 'product_name', 'product_code',
     'dno_id', 'gsp_group', 'ldz', 'exit_zone', 'profile_class', 'rate_structure',
     'tcr_band', 'voltage_level', 'aq_min', 'aq_max',
-    'start_date_min', 'start_date_max', 'quote_valid_from', 'quote_valid_to',
+    'start_date_min', 'start_date_max', 'sell_days_min', 'sell_days_max',
+    'quote_valid_from', 'quote_valid_to',
     'payment_method', 'green', 'amr', 'sc_type',
     'standing_charge_p_day', 'unit_rate_p_kwh', 'day_rate_p_kwh', 'night_rate_p_kwh',
     'eve_weekend_p_kwh', 'offpeak_p_kwh', 'capacity_p_kva_month', 'set_uplift_p_kwh',
@@ -296,6 +297,31 @@
         r.night_rate_p_kwh = rate(g('nightrate'));
         r.eve_weekend_p_kwh = rate(g('eveningweekendrate'));
         r.set_uplift_p_kwh = toNum(g('setuplift'));
+
+        // ── EDF price by HOW FAR AHEAD THE SUPPLY STARTS, in days, not dates. ──────────
+        // Their rate card leaves MinimumContractStartDate, MaximumContractStartDate and
+        // both valid-quote-date columns BLANK on all 7,488 electricity rows, and puts the
+        // window in "Min Selling Days" / "Max Selling Days" instead: 1-185 or 186-365.
+        //
+        // 1,440 of 6,048 EDF keys carry both bands and the 186-365 one is always cheaper,
+        // being further out on the forward curve. Ignored, both rows matched, the results
+        // ranked cheapest first, and the far-forward row won every time — 25.0 p/kWh shown
+        // where 26.7 was the only rate EDF would honour for a start 82 days out. GBP 869 a
+        // year understated on one 55,008 kWh meter.
+        //
+        // Stored as a DAY RANGE, not converted to dates here. Selling days are counted
+        // from the day the quote is issued, so anchoring them to the book's issue date
+        // drifts as the book ages — and it drifts precisely at the 185/186 boundary, which
+        // is the only place the wrong row can be picked. The comparison belongs at quote
+        // time, against (start date - today).
+        const sdMin = toNum(g('minsellingdays'));
+        const sdMax = toNum(g('maxsellingdays'));
+        r.sell_days_min = sdMin == null ? null : Math.round(sdMin);
+        r.sell_days_max = sdMax == null ? null : Math.round(sdMax);
+        if (r.sell_days_min != null && r.sell_days_max != null
+            && r.sell_days_max < r.sell_days_min) {
+          throw new Refuse(`selling days run backwards: ${r.sell_days_min} to ${r.sell_days_max}`);
+        }
         // Gas puts the price in dayrate on some suppliers and unitrate on others, so check
         // every column before deciding the row prices nothing.
         if (['unit_rate_p_kwh', 'day_rate_p_kwh', 'night_rate_p_kwh', 'eve_weekend_p_kwh']
