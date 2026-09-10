@@ -736,6 +736,20 @@ function sheetPlan(parserKey, names, fuel) {
       .map(n => ({ name: n, fuel: 'gas' }));
     if (out.length) return out;
   }
+  if (parserKey === 'sefe') {
+    // SEFE's band index only becomes a consumption range via "AQ bands", and the final
+    // supply-start window is capped by a date on "Single site pricing". Both are lookups
+    // rather than prices, but without them the price sheet is unusable — so the plan takes
+    // whatever of them the workbook has, plus the one price sheet.
+    const price = names.find(n => /matrix\s*prices/i.test(n))
+               || names.find(n => /flatfile|flat\s*file/i.test(n));
+    if (!price) throw new Error('no SEFE price sheet: expected "Matrix prices" or a Flatfile sheet');
+    const out = names
+      .filter(n => /aq\s*bands|single\s*site/i.test(n))
+      .map(n => ({ name: n, fuel: 'gas' }));
+    out.push({ name: price, fuel: 'gas' });
+    return out;
+  }
   const preferred = pick('BKF') || pick('UD Partner') || pick('OutputFile') || pick('SSE Choice');
   return [{ name: preferred || names[0], fuel }];
 }
@@ -1003,11 +1017,19 @@ async function processOne(it) {
   const fileSha = await sha256Hex(buf);
   const { names, wb } = readWorkbook(new Uint8Array(buf), it.isCsv);
   const plan = sheetPlan(supplier.parser_key, names, fuel);
-  const firstRows = sheetToRows(wb, plan[0].name);
+  // Hash the sheet that carries the PRICES, and the row the parser calls the header. SEFE
+  // put a blank row and a units row above theirs, and hashing row 0 would have registered
+  // a row of empty cells as SEFE's layout — which then matches any other file that also
+  // starts blank.
+  const priceSheet = plan[plan.length - 1];
+  const firstRows = sheetToRows(wb, priceSheet.name);
   if (!firstRows.length) throw new Error('that sheet is empty');
-  const sample = normHeader(firstRows[0]);
+  const hIdx = PricingParsers.headerRowIndex
+    ? PricingParsers.headerRowIndex(supplier.parser_key, firstRows, priceSheet.name) : 0;
+  if (hIdx < 0) throw new Error(`could not find the header row on "${priceSheet.name}"`);
+  const sample = normHeader(firstRows[hIdx]);
   const hSha = await sha256Hex(new TextEncoder().encode(sample));
-  Object.assign(it, { fileSha, hSha, sample, plan, cols: firstRows[0].length,
+  Object.assign(it, { fileSha, hSha, sample, plan, cols: (firstRows[hIdx] || []).length,
                       parser_key: supplier.parser_key, skey, fuel });
 
   // ── The layout gate. On the live database a BG Lite electricity file was once uploaded

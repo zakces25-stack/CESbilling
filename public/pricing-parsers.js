@@ -1532,6 +1532,268 @@
     }
   }
 
+  // ── Where the header row actually is ─────────────────────────────────────────────────
+  //
+  // Every supplier up to now put its column names on row 1. SEFE does not: the flat file
+  // has a blank first row and a blank first column, and the matrix file has the issue date,
+  // a group banner and a units row above its header. So the LAYOUT GATE was hashing a row
+  // of empty cells, which would have registered "blank" as SEFE's fingerprint and then
+  // matched any other file that also happened to start blank.
+  //
+  // The parser knows where its own header lives, so it says. Anything not listed keeps the
+  // old behaviour of row 0.
+  /**
+   * Which row holds the column names.
+   *
+   * FOUND BY CONTENT, never by a row number. The first version of this used fixed indices
+   * (5 for the matrix, 1 for the flat file) taken from reading the files in a spreadsheet,
+   * and it broke instantly: the portal reads sheets with `blankrows: false`, which drops
+   * SEFE's empty preamble rows and shifts everything up. A row number is a fact about how
+   * the file was READ, not about the file.
+   *
+   * So: the header is the first row that names the columns this parser needs. Anything
+   * above it is preamble and anything below is data.
+   */
+  function headerRowIndex(parserKey, rows, sheetName) {
+    if (parserKey === 'sefe') return sefeHeaderRow(rows);
+    return 0;
+  }
+
+  /** The row that carries 'band' and 'ldz'. -1 if this is not a SEFE price sheet. */
+  function sefeHeaderRow(rows) {
+    for (let i = 0; i < Math.min(30, rows.length); i++) {
+      const cells = (rows[i] || []).map(c => key(c));
+      if (cells.includes('band') && cells.includes('ldz')) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * matrix or flat, decided on the HEADER'S OWN COLUMNS.
+   *
+   * Not on the sheet name and not on the filename: the flat file's sheet is called
+   * "3. Flatfile excl. zero SC" and that leading number is exactly the sort of thing a
+   * supplier renumbers between releases.
+   */
+  function sefeShape(rows, sheetName) {
+    const h = sefeHeaderRow(rows);
+    if (h >= 0) {
+      const cells = (rows[h] || []).map(c => key(c));
+      if (cells.includes('contractstartmonths')) return 'matrix';
+      if (cells.includes('contractstartdatefrom')) return 'flat';
+    }
+    // Fall back to the names only if the header is unreadable.
+    if (/matrix\s*prices/i.test(String(sheetName || ''))) return 'matrix';
+    return 'flat';
+  }
+
+  // ── Adapter 12: SEFE Energy, gas only ────────────────────────────────────────────────
+  //
+  // SEFE send the same prices twice, in two shapes, and the pair cross-validate perfectly:
+  // all 9,880 rows of the flat file are identical to the matrix file's Standard rates, to
+  // the last decimal. The matrix file carries 494 rows the flat file does not (one extra
+  // supply-start window), so it is the better upload, but both are accepted and both route
+  // to the same product — whichever arrives replaces the other.
+  //
+  //   MATRIX  sheet "Matrix prices", header on row 5.
+  //     band | LDZ | Contract term (Months) | Contract start (months) | Demand | UR cost |
+  //     SC cost | Total cost | then THREE pairs of UR/SC: Standard, low SC, zero SC.
+  //     Only Standard carries numbers today — low SC is blank on every priced row and zero
+  //     SC is "N/A" on all 46,620 — so the other two are read but expected to be absent.
+  //     36,246 of the rows are "N/A" throughout: combinations SEFE does not price.
+  //     Demand / UR cost / SC cost / Total cost are a worked example on a nominal demand,
+  //     NOT rates, and are ignored.
+  //
+  //   FLAT    sheet "3. Flatfile excl. zero SC", header on row 1, blank column A.
+  //     Matrix | Band | Min | Max | Contract Duration | LDZ | Contract startdatefrom |
+  //     Contract startdateto | Standing Charge (£/day) | Unit Rate (p/kWh)
+  //
+  // THE STANDING CHARGE IS POUNDS PER DAY. Both files label it so, which is a mercy after
+  // Corona. 0.634 to 19.806 £/day becomes 63 to 1,981 p/day, which lines up with the other
+  // gas suppliers across the same consumption bands.
+  //
+  // THE CONTRACT START IS AN OFFSET IN THE MATRIX FILE, in whole months from
+  // matrix_issue_date in cell D3. Offset 0 against the 3 Sep 2026 issue gives a window of
+  // 03/09/2026 to 02/10/2026, which is exactly what the flat file states for the same rows.
+  //
+  // SEFE price on the LDZ ALONE — there is no exit zone anywhere in either file — so
+  // exit_zone stays null and matches any zone inside the LDZ. That is their granularity,
+  // not a gap. Band 1 (1 to 2,000 kWh) is priced in neither file, so the smallest sites get
+  // no SEFE price rather than a borrowed one.
+  //
+  // The rates are COMMISSION-FREE. The workbook's own "Single site pricing" sheet has
+  // inputs for commission type, commission p/kWh and commission £/day, and shows the
+  // Standard product rates separately — so these are the raw supplier prices and CES's
+  // uplift goes on top, which is what the uplift box on the quote already does.
+
+  function parseSefe(rows, supplierKey, onRow, onRefuse, meta, sheetName, aqBands, latestStart) {
+    const shape = sefeShape(rows, sheetName);
+    const hRow = sefeHeaderRow(rows);
+    if (hRow < 0) throw new Error('no SEFE header row on sheet "' + sheetName + '": no row '
+      + 'names both band and LDZ');
+    const header = rows[hRow] || [];
+    const A = accessor(header);
+
+    if (shape === 'matrix') {
+      for (const need of ['band', 'ldz', 'contracttermmonths', 'contractstartmonths']) {
+        if (!A.has(need)) throw new Error(`not a SEFE matrix layout, missing ${need}`);
+      }
+    } else {
+      for (const need of ['band', 'min', 'max', 'contractduration', 'ldz',
+                          'contractstartdatefrom']) {
+        if (!A.has(need)) throw new Error(`not a SEFE flat-file layout, missing ${need}`);
+      }
+    }
+
+    // The matrix file dates everything off one cell. Without it the offsets are meaningless,
+    // so a missing issue date is a hard stop rather than a row-level refusal.
+    //
+    // It also needs the LATEST START DATE, because the final window is short. Deriving it
+    // as a calendar month from the start day put the last window at 2027-10-02 when SEFE's
+    // own flat file says 2027-09-30 — 741 rows two days too generous, and a quote for a
+    // 1 October start that SEFE would not honour. Their "Single site pricing" sheet states
+    // the cap, so it is read rather than guessed.
+    let issue = null;
+    if (shape === 'matrix') {
+      // Anywhere above the header. Its row number moves when blank rows are dropped, so it
+      // is found by its own label rather than by position.
+      for (let i = 0; i < hRow && !issue; i++) {
+        const row = rows[i] || [];
+        for (let j = 0; j < row.length - 1; j++) {
+          if (key(row[j]) === 'matrixissuedate') { issue = toDate(row[j + 1]); break; }
+        }
+      }
+      if (!issue) throw new Error('no matrix_issue_date in the SEFE matrix file, so the '
+        + 'contract-start offsets cannot be turned into dates');
+      meta.version = issue;
+    }
+
+    // UR and SC repeat three times across the matrix header (Standard, low SC, zero SC), so
+    // the accessor's first-wins lookup cannot separate them. Positions instead, taken from
+    // the banner row above the header rather than assumed.
+    let stdUr = -1, stdSc = -1;
+    if (shape === 'matrix') {
+      // The "Standard | low SC | zero SC" banner sits above the header, but how far above
+      // depends on whether the blank rows survived the read, so it is searched for.
+      let at = -1;
+      for (let i = hRow - 1; i >= 0 && at < 0; i--) {
+        const cells = (rows[i] || []).map(c => key(c));
+        const j = cells.indexOf('standard');
+        if (j >= 0) at = j;
+      }
+      const names = header.map(c => key(c));
+      for (let j = (at >= 0 ? at : 9); j < names.length; j++) {
+        if (stdUr < 0 && names[j] === 'ur') { stdUr = j; continue; }
+        if (stdUr >= 0 && names[j] === 'sc') { stdSc = j; break; }
+      }
+      if (stdUr < 0 || stdSc < 0) {
+        throw new Error('cannot find the Standard UR and SC columns in the SEFE matrix');
+      }
+    }
+
+    const starts = [];
+    if (shape === 'flat') {
+      for (let n = hRow + 1; n < rows.length; n++) {
+        if (rows[n] && rows[n].length) starts.push(toDate(A.get(rows[n], 'contractstartdatefrom')));
+      }
+    }
+    const ladder = shape === 'flat' ? startWindowLadder(starts) : null;
+    const sorted = [...new Set(starts.filter(Boolean))].sort();
+    if (shape === 'flat') {
+      meta.window_open = sorted[0] || null;
+      meta.window_close = sorted.length ? ladder.get(sorted[sorted.length - 1]) : null;
+    }
+
+    let openest = null, closest = null;
+    for (let n = hRow + 1; n < rows.length; n++) {
+      const row = rows[n];
+      if (!row || !row.some((c) => c !== null && c !== undefined && c !== '')) continue;
+      const g = (...names) => A.get(row, ...names);
+      try {
+        const bandTxt = String(g('band') || '').trim();
+        if (!bandTxt) continue;                  // trailing formatting rows
+
+        const r = blankRow(supplierKey, 'gas');
+        r.sale_type = 'any';                     // SEFE's matrix does not split acq from renewal
+        r.rate_structure = 'single';
+        r.payment_method = 'DD';
+        r.product_name = 'Matrix (Standard SC)';
+
+        r.ldz = String(g('ldz') || '').trim().toUpperCase() || null;
+        if (!r.ldz) throw new Refuse('no LDZ');
+        // No exit zone in either file. SEFE price per LDZ, so this stays null and matches
+        // any zone inside it.
+
+        let ur, scRaw, from, to, term;
+        if (shape === 'matrix') {
+          ur = row[stdUr]; scRaw = row[stdSc];
+          if (String(ur).trim() === 'N/A' || String(scRaw).trim() === 'N/A') {
+            throw new Refuse('SEFE do not price this band, LDZ, term and start together');
+          }
+          term = toNum(g('contracttermmonths'));
+          const off = toNum(g('contractstartmonths'));
+          if (off == null) throw new Refuse('no contract-start offset');
+          from = addMonths(issue, Math.round(off));
+          to = plusMonthsMinusDay(from, 1);
+          // SEFE's last window is short. Their own latest-start date is the truth.
+          if (latestStart && to > latestStart) to = latestStart;
+          if (latestStart && from > latestStart) {
+            throw new Refuse(`supply starts ${from}, past SEFE's latest start ${latestStart}`);
+          }
+        } else {
+          ur = g('unitratepkwh'); scRaw = g('standingchargeday', 'standingcharge');
+          term = toNum(String(g('contractduration') || '').replace(/[^0-9.]/g, ''));
+          from = toDate(g('contractstartdatefrom'));
+          if (!from) throw new Refuse('no contract start date');
+          // Their own end date, falling back to the ladder if it is ever missing.
+          to = toDate(g('contractstartdateto')) || ladder.get(from) || plusMonthsMinusDay(from, 1);
+          r.aq_min = toNum(g('min'));
+          r.aq_max = toNum(g('max'));
+        }
+
+        if (term == null) throw new Refuse('no contract duration');
+        r.term_months = Math.round(term);
+        r.start_date_min = from;
+        r.start_date_max = to;
+        if (from && (!openest || from < openest)) openest = from;
+        if (to && (!closest || to > closest)) closest = to;
+
+        // The band index only becomes a consumption range via the AQ bands table, which the
+        // matrix file carries on its own sheet. Without it the row would match every meter.
+        if (r.aq_min == null && aqBands && aqBands[bandTxt]) {
+          r.aq_min = aqBands[bandTxt][0];
+          r.aq_max = aqBands[bandTxt][1];
+        }
+        if (r.aq_min == null || r.aq_max == null) {
+          throw new Refuse(`band ${bandTxt} has no consumption range, so it would match `
+                         + 'every meter');
+        }
+        r.product_code = `band ${bandTxt} | ${r.ldz}`;
+
+        r.unit_rate_p_kwh = rate(ur);
+        if (r.unit_rate_p_kwh == null) throw new Refuse('no unit rate on the row');
+        // POUNDS per day -> pence per day. Both files label the column £/day.
+        const scN = toNum(scRaw);
+        r.standing_charge_p_day = scN == null ? null
+          : sc(Math.round(scN * 100 * 1e4) / 1e4);
+        r.sc_type = (r.standing_charge_p_day === 0) ? 'no_sc' : 'with_sc';
+        onRow(r);
+      } catch (e) {
+        if (e instanceof Refuse) onRefuse(n + 1, e.message); else throw e;
+      }
+    }
+    if (shape === 'matrix') { meta.window_open = openest; meta.window_close = closest; }
+  }
+
+  /** Same day n months on, clamped. Used for SEFE's contract-start offsets. */
+  function addMonths(iso, n) {
+    const [y, m, d] = iso.split('-').map(Number);
+    const t = new Date(Date.UTC(y, m - 1 + n, 1));
+    const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate();
+    t.setUTCDate(Math.min(d, last));
+    return isoOf(t);
+  }
+
   // ── Dispatch ─────────────────────────────────────────────────────────────────────────
 
   /**
@@ -1552,6 +1814,39 @@
       if (refusals.length < MAX_KEPT) refusals.push({ row: line, reason });
       else refusals.overflow = (refusals.overflow || 0) + 1;
     };
+
+    // SEFE's consumption ranges are on a separate sheet, so they are read before any price
+    // row is looked at.
+    let sefeBands = null, sefeLatestStart = null;
+    if (parserKey === 'sefe') {
+      // "Latest contract start date:" on the Single site pricing sheet. It caps the final
+      // supply-start window, which is shorter than a month.
+      for (const sh of sheets) {
+        for (const row of (sh.rows || []).slice(0, 40)) {
+          for (let j = 0; j < (row || []).length; j++) {
+            if (/^latestcontractstartdate/.test(key(row[j]))) {
+              for (let k2 = j + 1; k2 < row.length; k2++) {
+                const d = toDate(row[k2]);
+                if (d) { sefeLatestStart = d; break; }
+              }
+            }
+          }
+          if (sefeLatestStart) break;
+        }
+        if (sefeLatestStart) break;
+      }
+      const bs = sheets.find(sh => /aq\s*bands/i.test(sh.name || ''));
+      if (bs && bs.rows) {
+        sefeBands = {};
+        for (let i = 2; i < bs.rows.length; i++) {
+          const row = bs.rows[i] || [];
+          const band = String(row[0] == null ? '' : row[0]).trim();
+          const lo = toNum(row[1]), hi = toNum(row[2]);
+          if (band && lo != null && hi != null) sefeBands[band] = [lo, hi];
+        }
+        if (!Object.keys(sefeBands).length) sefeBands = null;
+      }
+    }
 
     for (const sheet of sheets) {
       if (!sheet.rows || !sheet.rows.length) continue;
@@ -1595,6 +1890,16 @@
           break;
         }
         case 'sse':          parseSse(sheet.rows, supplierKey, sheet.fuel || fuel, onRow, onRefuse, meta); break;
+        // SEFE's matrix file gives a BAND INDEX, not a consumption range: the ranges live
+        // on their own "AQ bands" sheet. Without it every row would match every meter, so
+        // the table is built first and the price sheet is skipped if it is missing.
+        case 'sefe': {
+          // Only the price sheets carry rows; the others are lookups already read above.
+          if (/aq\s*bands|single\s*site|postcode/i.test(sheet.name || '')) break;
+          parseSefe(sheet.rows, supplierKey, onRow, onRefuse, meta, sheet.name, sefeBands,
+                    sefeLatestStart);
+          break;
+        }
         default: throw new Error(`no parser called "${parserKey}"`);
       }
     }
@@ -1602,13 +1907,14 @@
   }
 
   root.PricingParsers = {
-    parse, normHeader, CANON_FIELDS, P_KVA_DAY_TO_MONTH,
+    parse, normHeader, headerRowIndex, CANON_FIELDS, P_KVA_DAY_TO_MONTH,
     // exported for the test suite
     _internals: { saleType, rateStructure, tcrBand, toNum, toDate, toBool, dnoId, rate, sc,
                   capFromDay, key, scType,
                   gspToDno, ldzOfZone, termFromDates, plusMonthsMinusDay, startWindowLadder,
                   dayBefore, monthsBetween, GSP_TO_DNO, ZONE_LDZ, SSE_STRUCT,
-                  CORONA_PWR_STRUCT, TE_DNO_ABBR, TE_HORIZON_MONTHS },
+                  CORONA_PWR_STRUCT, TE_DNO_ABBR, TE_HORIZON_MONTHS, sefeShape, sefeHeaderRow,
+                  addMonths },
   };
 })(typeof window !== 'undefined' ? window : globalThis);
 
