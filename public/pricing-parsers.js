@@ -1933,6 +1933,20 @@
   }
 
   root.PricingParsers = {
+    /**
+     * The version pricing.html checks against its own EXPECTS_PARSERS.
+     *
+     * Bump this whenever a change alters what a rate MEANS — a new supplier, a unit
+     * conversion, a new matching dimension like EDF's selling days. Then bump the same
+     * string in pricing.html. If the two disagree the page refuses to parse and says so.
+     *
+     * This exists because a stale parser does not fail visibly, it writes plausible wrong
+     * prices into the database. It happened: the EDF selling-days fix was deployed, CES
+     * re-uploaded EDF, and the browser was still running the previous file — so the
+     * re-upload wrote 8,916 rows with no selling days and the wrong rate kept winning.
+     * Caching headers are the first line of defence and this is the second.
+     */
+    VERSION: '2026-09-10.1',
     parse, normHeader, headerRowIndex, CANON_FIELDS, P_KVA_DAY_TO_MONTH,
     // exported for the test suite
     _internals: { saleType, rateStructure, tcrBand, toNum, toDate, toBool, dnoId, rate, sc,

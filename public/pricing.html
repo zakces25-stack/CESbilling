@@ -506,6 +506,21 @@
 // The thing this page is most careful about is refusing. A pricing tool that says "no"
 // is annoying. A pricing tool that invents a number is a wrong contract for three years.
 // ═══════════════════════════════════════════════════════════════════════════════════════
+/**
+ * The parser version this page was written against.
+ *
+ * A stale pricing-parsers.js is the most dangerous kind of deploy failure here, because it
+ * does not error — it silently produces rates built on the old rules and writes them to the
+ * database as if they were current. That is exactly what happened on 10 Sep 2026: the EDF
+ * selling-days fix went live, CES re-uploaded EDF, and their browser was still running the
+ * previous parser, so 8,916 rows went in with no selling days and the wrong rate carried on
+ * winning every EDF quote.
+ *
+ * So the two files check each other. Bump BOTH strings together whenever a parser change
+ * alters what a rate means.
+ */
+const EXPECTS_PARSERS = '2026-09-10.1';
+
 const SUPABASE_URL  = 'https://niadffxpxdohglcyagau.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pYWRmZnhweGRvaGdsY3lhZ2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3Mzc3MTksImV4cCI6MjA5NDMxMzcxOX0.x22Zh9O408PGfcPZ6rgu-a4B7WTbyH8iyT_ysr-IfIs';
 const LOGIN_DOMAIN  = 'portal.cesgb.com';
@@ -597,6 +612,15 @@ function startDesk() {
   $('whoami').classList.add('hide');
   $('app').classList.remove('hide');
   $('whoLabel').textContent = WHO;
+  const mismatch = parserMismatch();
+  if (mismatch) {
+    // Loud, and on the page they land on, because every quote is wrong until it is fixed.
+    const bar = document.createElement('div');
+    bar.className = 'note bad';
+    bar.style.cssText = 'margin:0 0 14px;font-size:13px';
+    bar.innerHTML = '<b>Stale parser library.</b> ' + esc(mismatch);
+    $('app').insertBefore(bar, $('app').firstChild);
+  }
   loadSuppliers().then(() => { if ($('xSupplier')) manualFuelChanged(); });
   loadLedger();
   showTab('price');          // the desk's job is pricing meters; pricebooks is upkeep
@@ -1006,7 +1030,26 @@ async function processQueue() {
   renderQueue();
 }
 
+/**
+ * Is the parser library the one this page expects?
+ *
+ * Returns a message when it is not. Checked before any file is read, because the failure
+ * mode is silent wrong prices rather than an error.
+ */
+function parserMismatch() {
+  if (typeof PricingParsers === 'undefined') {
+    return 'the parser library did not load at all, so nothing can be read';
+  }
+  const got = PricingParsers.VERSION || '(none)';
+  if (got === EXPECTS_PARSERS) return null;
+  return `this page expects parser version ${EXPECTS_PARSERS} but the browser has ${got}. `
+       + 'That usually means a cached copy of pricing-parsers.js. Hold Shift and reload, '
+       + 'or press Ctrl+Shift+R. Nothing has been uploaded.';
+}
+
 async function processOne(it) {
+  const bad = parserMismatch();
+  if (bad) throw new Error(bad);
   const t0 = Date.now();
   const skey = $('upSupplier').value;
   const supplier = SUPPLIERS.find(x => x.supplier_key === skey) || {};
