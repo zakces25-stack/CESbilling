@@ -1537,7 +1537,7 @@ async function findMeters() {
   try {
     rows = await q(sb.from('meters')
       .select('id,customer_id,mpan,utility,supply_type,site_name,site_address,postcode,'
-            + 'est_annual_consumption,profile_class,rate_structure,rate_structure_src,tcr_band,'
+            + 'est_annual_consumption,profile_class,rate_structure,rate_structure_src,tcr_band,tcr_band_src,'
             + 'dno_id,llfc,ldz,exit_zone,priceable,price_block_reason,supplier,contract_end_date')
       .or(`mpan.ilike.${like},customer_id.ilike.${like},site_name.ilike.${like},site_address.ilike.${like}`)
       .in('utility', ['electricity','gas'])
@@ -1669,6 +1669,7 @@ function useManualMeter() {
     rate_structure: gas ? 'single' : ($('xStruct').value || null),
     rate_structure_src: 'typed',
     tcr_band: gas ? null : ($('xBand').value || null),
+    tcr_band_src: null,
     llfc: null,
     ldz: gas ? (($('xLdz').value || '').trim().toUpperCase() || null) : null,
     exit_zone: gas ? (($('xZone').value || '').trim().toUpperCase() || null) : null,
@@ -1832,7 +1833,11 @@ async function showMeter() {
         <dt>Distributor</dt><dd>${esc(dno || '—')}${idno ? ' <span class="pill p-fail">independent network</span>' : ''}</dd>
         <dt>Profile class</dt><dd>${METER.profile_class ?? '—'}</dd>
         <dt>LLFC</dt><dd>${esc(METER.llfc || '—')}</dd>
-        <dt>TCR band</dt><dd>${esc(METER.tcr_band || '—')}</dd>
+        <dt>TCR band</dt><dd>${esc(METER.tcr_band || '—')}
+          ${METER.tcr_band && METER.tcr_band_src === 'llfc'
+            ? ' <span class="pill p-mute" title="Derived from this meter\'s LLFC and its'
+              + ' distributor, not supplied by anyone. The band moves the price by about'
+              + ' 2.26 p/kWh between band 1 and band 4.">from the LLFC</span>' : ''}</dd>
         <dt>Rate structure</dt><dd>${esc(METER.rate_structure || '—')}
           ${METER.rate_structure_src === 'inferred_from_rates'
             ? ' <span class="pill p-warn">inferred from the last contract, check it</span>' : ''}</dd>`
