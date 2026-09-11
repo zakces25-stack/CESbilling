@@ -498,6 +498,16 @@
     <!-- ══════════════════════════════════════════════════════════════════ ADMIN -->
     <section id="pane-admin" class="hide">
       <div class="card">
+        <h2>Storage</h2>
+        <div class="sub">
+          A replaced pricebook keeps its record and loses its rates. It did not always: four
+          replaced books were holding 310,704 rows, a quarter of the whole table, because
+          going live only relabelled the old one. If anything is ever stale here, it says so
+          and there is a button.
+        </div>
+        <div id="adminStorage" style="font-size:13px;line-height:1.9">Reading…</div>
+      </div>
+      <div class="card">
         <h2>Products by supplier</h2>
         <div class="sub">
           What each supplier actually sells, and which pricebook is live for it. A product is
@@ -801,7 +811,7 @@ function showTab(t) {
     $('pane-'+k).classList.toggle('hide', k !== t);
     $('tab-'+k).classList.toggle('on', k === t);
   }
-  if (t === 'admin') loadAdmin();
+  if (t === 'admin') { loadAdmin(); loadStorage(); }
   if (t === 'aq') aqInit();
 }
 
@@ -1375,10 +1385,19 @@ async function processOne(it) {
     // product because keying on (supplier, fuel) meant a REGO upload retired Standard.
     const live = await q(sb.rpc('pricebook_go_live', { p_upload: uploadId }), 'go live');
     const superseded = (live && live[0] && live[0].superseded) || 0;
+    const dropped   = (live && live[0] && live[0].rates_removed) || 0;
+
+    // Going live deletes the book it replaces. If that delete was interrupted — a big book
+    // is hundreds of thousands of rows — the old upload is already marked replaced, so the
+    // sweeper finishes it here rather than leaving the rows to sit there forever.
+    const swept = await sweepOrphanRates();
 
     it.state = 'done';
     it.msg = `${rows.length.toLocaleString()} rates in ${((Date.now()-t0)/1000).toFixed(1)}s`
-           + (superseded ? `, replaced the previous book` : `, nothing previous to replace`)
+           + (superseded
+              ? `, replaced the previous book and deleted its `
+                + `${(dropped + swept).toLocaleString()} rates`
+              : `, nothing previous to replace`)
            + (refused ? `. ${refused.toLocaleString()} rows refused` : '');
     it.buf = null; it.file = null;      // let the workbook go
   } catch (e) {
@@ -1519,7 +1538,9 @@ async function retire(id, purge, btn) {
     const res = await q(sb.rpc('pricebook_retire', { p_upload: id, p_purge: !!purge }), 'retire');
     const r = (res && res[0]) || {};
     loadLedger(); loadAdmin();
-    if (purge) alert(`${r.action || 'purged'} — ${(r.rates_removed || 0).toLocaleString()} rates deleted.`);
+    alert(`${r.action || 'done'} — ${(r.rates_removed || 0).toLocaleString()} rates deleted. `
+        + `Replacing a book now removes its rates too, not just its label.`);
+    loadStorage();
   } catch (e) { btn.disabled = false; btn.textContent = purge ? 'Delete' : 'Replace'; fail($('ledgerErr'), e.message); }
 }
 
@@ -2603,6 +2624,69 @@ function aqRender() {
       gets reconciled later and the customer can end up worse off than if it had been left
       alone. Nothing on this screen has changed any meter, AQ or contract.
     </div>`;
+}
+
+
+/**
+ * Delete every rate row belonging to a pricebook that can never be quoted again.
+ *
+ * A replaced book used to keep its rates forever. Measured 11 Sep 2026: four replaced
+ * uploads holding 310,704 rows, a quarter of the whole table, on a 500 MB plan sitting at
+ * 442 MB. Storage could only ever go up.
+ *
+ * Driven in batches from here rather than in one statement on the server, because a
+ * 300,000-row delete does not fit inside a request and the previous answer — a 120 second
+ * statement timeout — only moved where it died. Each call returns what it removed and what
+ * is left, so this loops until the number is zero and a timeout costs a batch, not the job.
+ */
+async function sweepOrphanRates(onProgress) {
+  let total = 0;
+  for (let pass = 0; pass < 200; pass++) {
+    let r;
+    try {
+      r = await q(sb.rpc('pricebook_sweep_orphan_rates', { p_batch: 20000 }), 'sweep old rates');
+    } catch (e) {
+      // Never fail an upload over housekeeping. The next upload sweeps again.
+      console.warn('could not sweep replaced pricebook rates:', e.message);
+      return total;
+    }
+    const row = (r && r[0]) || {};
+    const removed = Number(row.removed) || 0;
+    const left = Number(row.remaining) || 0;
+    total += removed;
+    if (onProgress) onProgress(total, left);
+    // Stop on `remaining`, not on an empty batch: the server already knows none are left,
+    // so waiting for a batch to come back with nothing in it is a wasted round trip on
+    // every single upload. `removed === 0` stays as the backstop against a stuck sweep.
+    if (left === 0 || removed === 0) break;
+  }
+  return total;
+}
+
+/** What the pricebook tables are costing, so this cannot creep back unnoticed. */
+async function loadStorage() {
+  const box = $('adminStorage');
+  if (!box) return;
+  try {
+    const rows = await q(sb.from('pricebook_storage').select('*').limit(1), 'storage');
+    const d = (rows && rows[0]) || {};
+    const stale = Number(d.orphan_rates) || 0;
+    box.innerHTML = `
+      <b>${Number(d.live_rates || 0).toLocaleString()}</b> live rates across
+      <b>${Number(d.live_uploads || 0)}</b> pricebooks, using <b>${esc(d.rates_size || '—')}</b>.
+      Database <b>${esc(d.database_size || '—')}</b>.
+      ${stale
+        ? `<span class="pill p-fail">${stale.toLocaleString()} rates on replaced books</span>
+           <button class="act sm" style="margin-left:8px" onclick="sweepNow(this)">Delete them now</button>`
+        : '<span class="pill p-ok">nothing stale</span>'}`;
+  } catch (e) { box.innerHTML = `<span style="color:var(--muted)">${esc(e.message)}</span>`; }
+}
+
+async function sweepNow(btn) {
+  btn.disabled = true; btn.textContent = 'Deleting…';
+  const n = await sweepOrphanRates((done) => { btn.textContent = `Deleting… ${done.toLocaleString()}`; });
+  btn.textContent = `Deleted ${n.toLocaleString()}`;
+  loadStorage();
 }
 
 async function defaultStartDate() {
