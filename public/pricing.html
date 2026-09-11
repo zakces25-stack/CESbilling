@@ -170,6 +170,7 @@
     <nav>
       <button id="tab-price" class="on" onclick="showTab('price')">Pick a meter</button>
       <button id="tab-books" onclick="showTab('books')">Pricebooks</button>
+      <button id="tab-aq" onclick="showTab('aq')">AQ Opportunities</button>
       <button id="tab-ref" onclick="showTab('ref')">Reference</button>
       <button id="tab-admin" onclick="showTab('admin')">Admin</button>
     </nav>
@@ -399,6 +400,65 @@
     </section>
 
     <!-- ══════════════════════════════════════════════════════════════════ REFERENCE -->
+
+    <!-- ═══════════════════════════════════════════════════════════════════════════════
+         AQ OPPORTUNITIES — a read-only analysis layer over the live pricebooks.
+         Changes nothing: no meter, no AQ, no contract, no quote.
+    ════════════════════════════════════════════════════════════════════════════════ -->
+    <section id="pane-aq" class="hide">
+      <div class="card">
+        <h2>AQ Opportunities</h2>
+        <div class="sub">
+          Every consumption band a supplier publishes for <b>this</b> meter, how far each one
+          is from the AQ on file, and what the move is actually worth once the standing
+          charge is counted. Nothing here changes a meter, an AQ or a contract.
+        </div>
+        <div class="row">
+          <div style="flex:2">
+            <label for="aqMpan">MPAN / MPRN</label>
+            <input id="aqMpan" class="mono" placeholder="2380000129317" oninput="aqLookup()" />
+          </div>
+          <div>
+            <label for="aqNow">Current AQ (kWh)</label>
+            <input id="aqNow" class="mono" placeholder="5,304" />
+          </div>
+          <div>
+            <label for="aqStart">Contract start</label>
+            <input id="aqStart" type="date" />
+          </div>
+          <div>
+            <label for="aqTerm">Term</label>
+            <select id="aqTerm">
+              <option value="12">12 months</option><option value="24" selected>24 months</option>
+              <option value="36">36 months</option><option value="48">48 months</option>
+              <option value="60">60 months</option>
+            </select>
+          </div>
+          <div>
+            <label for="aqUplift">CES uplift (p/kWh)</label>
+            <input id="aqUplift" class="mono" value="0.00" />
+          </div>
+        </div>
+        <div id="aqMeterNote" class="hide" style="margin-top:12px"></div>
+        <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button class="act" id="aqBtn" onclick="aqAnalyse()">Analyse every supplier</button>
+          <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:400;
+                        text-transform:none;letter-spacing:0;margin:0;color:var(--text-2)">
+            <input type="checkbox" id="aqNearOnly" style="width:auto;height:auto;margin:0"
+                   onchange="aqRender()"> just the two nearest bands each way
+          </label>
+          <span id="aqMsg" style="font-size:12px;color:var(--muted)"></span>
+        </div>
+      </div>
+
+      <div id="aqCard" class="card hide">
+        <h2>Where this meter sits</h2>
+        <div id="aqCurrent"></div>
+        <div id="aqBest" style="margin-top:16px"></div>
+        <div id="aqTables" style="margin-top:16px"></div>
+        <div id="aqNotes" class="sub" style="margin-top:14px;max-width:none"></div>
+      </div>
+    </section>
     <section id="pane-ref" class="hide">
       <div class="card">
         <h2>Gas postcode &rarr; LDZ and exit zone</h2>
@@ -737,11 +797,12 @@ function showSignIn(){
 async function signOut(){ localStorage.removeItem('pricing_who'); await sb.auth.signOut(); location.reload(); }
 
 function showTab(t) {
-  for (const k of ['books','price','ref','admin']) {
+  for (const k of ['books','price','aq','ref','admin']) {
     $('pane-'+k).classList.toggle('hide', k !== t);
     $('tab-'+k).classList.toggle('on', k === t);
   }
   if (t === 'admin') loadAdmin();
+  if (t === 'aq') aqInit();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -2133,6 +2194,415 @@ function paintSscNote() {
     : `<b>No SSC on this meter.</b> <b>${esc(who)}</b> price electricity by settlement
        configuration, so they cannot be quoted until it is known. Everyone else is priced
        normally. Put the SSC in the box above and price again.`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// AQ Opportunities
+// ═══════════════════════════════════════════════════════════════════════════════════════
+//
+// Every supplier prices in consumption bands, and the boundaries are cliffs. British Gas
+// Lite, standard electricity, 24 month, DNO 10, band 1:
+//
+//     0 – 3,499        27.31 p/kWh
+//     3,500 – 12,499   25.39 p/kWh     <- one extra kWh is worth 1.92 p/kWh
+//
+// A site sitting at 3,400 kWh is 100 kWh from a materially better price, and nothing in the
+// quote screen shows that. This tab does.
+//
+// TWO THINGS IT MUST NOT DO.
+//
+// 1. It must not optimise the unit rate alone. The standing charge moves with the band too,
+//    and it moves harder: crossing a band on British Gas gas adds up to 440.6 p/day, which
+//    is £1,608 a year. Measured across the live book, 2,592 Scottish Power electricity
+//    rungs and 6,432 BG Lite electricity rungs carry a standing charge change. So the
+//    headline number here is TOTAL annual cost, and the rate and the standing charge are
+//    shown separately underneath so nobody has to take it on trust.
+//
+// 2. It must not assume cheaper means bigger. Going UP a band costs MORE on 21,548 BG Lite
+//    electricity rungs, 14,511 TotalEnergies gas rungs, and on every single one of
+//    SmartestEnergy's 896 electricity rungs. Both directions, always.
+//
+// It changes nothing. No meter, no AQ, no contract, no quote.
+
+let AQ = null;       // the last analysis
+let AQ_METER = null; // the meter it was run on, read-only
+
+function aqInit() {
+  if (!$('aqStart').value) {
+    const d = new Date(); d.setMonth(d.getMonth() + 1);
+    $('aqStart').value = d.toISOString().slice(0, 10);
+  }
+  // Carry over whatever is on the pricing desk, if a meter is open there. Saves retyping
+  // and keeps the two screens talking about the same supply.
+  if (METER && METER.mpan && !$('aqMpan').value) {
+    $('aqMpan').value = METER.mpan;
+    aqLookup();
+  }
+}
+
+/** Pull the meter's own attributes, so the bands are the ones this supply can actually buy. */
+async function aqLookup() {
+  const mpan = ($('aqMpan').value || '').replace(/\s/g, '');
+  const note = $('aqMeterNote');
+  AQ_METER = null;
+  if (mpan.length < 6) { note.className = 'hide'; note.innerHTML = ''; return; }
+  try {
+    const rows = await q(sb.from('meters')
+      .select('id,customer_id,mpan,utility,supply_type,site_name,postcode,'
+            + 'est_annual_consumption,profile_class,rate_structure,tcr_band,ssc,ssc_status,'
+            + 'dno_id,llfc,ldz,exit_zone,supplier')
+      .eq('mpan', mpan).limit(1), 'meter for AQ analysis');
+    if (!rows.length) {
+      note.className = 'note warn';
+      note.innerHTML = `Nothing in the portfolio for <b>${esc(mpan)}</b>. Type the AQ and it
+        will still analyse, but with no distributor, profile class or band the list will be
+        short: only rows that constrain on nothing can match.`;
+      return;
+    }
+    AQ_METER = rows[0];
+    if (!$('aqNow').value) $('aqNow').value = AQ_METER.est_annual_consumption || '';
+    const bits = [];
+    if (AQ_METER.utility === 'gas') {
+      bits.push(`LDZ ${esc(AQ_METER.ldz || '—')}`, `exit zone ${esc(AQ_METER.exit_zone || '—')}`);
+    } else {
+      bits.push(`distributor ${esc(AQ_METER.dno_id || String(mpan).slice(0,2))}`,
+                `profile class ${esc(String(AQ_METER.profile_class ?? '—'))}`,
+                `${esc(AQ_METER.rate_structure || 'rate structure unknown')}`,
+                `${esc((AQ_METER.tcr_band || 'no band').replace('_',' '))}`,
+                `SSC ${esc(AQ_METER.ssc || 'unknown')}`);
+    }
+    note.className = 'note';
+    note.innerHTML = `<b>${esc(AQ_METER.customer_id || 'this meter')}</b> &mdash;
+      ${esc(AQ_METER.site_name || '')} ${esc(AQ_METER.postcode || '')}.
+      ${esc(AQ_METER.utility)}, ${bits.join(', ')}.
+      ${AQ_METER.supplier ? `Currently with <b>${esc(AQ_METER.supplier)}</b>.` : ''}
+      The bands below are only the ones this supply can actually buy.`;
+  } catch (e) {
+    note.className = 'note bad'; note.innerHTML = esc(e.message);
+  }
+}
+
+/**
+ * Total annual cost of a band, on the CUSTOMER'S OWN consumption.
+ *
+ * The AQ picks the band. It does NOT become the consumption: a site that uses 3,400 kWh
+ * still uses 3,400 kWh whatever number is on the contract. Multiplying the target AQ by the
+ * target rate would invent a customer.
+ */
+function aqAnnual(row, aq, uplift) {
+  const rate = row.unit_rate_p_kwh != null ? row.unit_rate_p_kwh
+             : (row.day_rate_p_kwh != null ? row.day_rate_p_kwh : row.night_rate_p_kwh);
+  if (rate == null) return null;
+  const r = Number(rate) + Number(uplift || 0);
+  const sc = Number(row.standing_charge_p_day || 0);
+  return { rate: r, sc, energy: aq * r / 100, standing: sc * 365 / 100,
+           total: aq * r / 100 + sc * 365 / 100 };
+}
+
+/** Everything except the AQ band has to match, or the band is not on offer to this meter. */
+function aqSameShape(a, b) {
+  const k = (x) => [x.supplier_key, x.product_key, x.product_name, x.sale_type, x.term_months,
+                    x.rate_structure, x.dno_id, x.profile_class, x.tcr_band, x.ssc,
+                    x.ldz, x.exit_zone, x.green, x.sc_type].join('|');
+  return k(a) === k(b);
+}
+
+async function aqAnalyse() {
+  const btn = $('aqBtn'), msg = $('aqMsg');
+  const aq = Number(String($('aqNow').value).replace(/[^0-9.]/g, ''));
+  const uplift = Number($('aqUplift').value) || 0;
+  const term = Number($('aqTerm').value);
+  const start = $('aqStart').value;
+  if (!(aq > 0)) { msg.textContent = 'Put the current AQ in first.'; return; }
+  btn.disabled = true; msg.textContent = 'Reading every live pricebook…';
+  try {
+    const fuel = AQ_METER ? AQ_METER.utility : 'electricity';
+    let sel = sb.from('pricebook_rates_live')
+      .select('supplier_key,product_key,product_display,product_name,quotable,fuel,sale_type,'
+            + 'term_months,rate_structure,profile_class,dno_id,ldz,exit_zone,tcr_band,ssc,'
+            + 'aq_min,aq_max,start_date_min,start_date_max,sell_days_min,sell_days_max,'
+            + 'standing_charge_p_day,unit_rate_p_kwh,day_rate_p_kwh,night_rate_p_kwh,'
+            + 'sc_type,green')
+      .eq('fuel', fuel).eq('quotable', true).eq('term_months', term)
+      .not('aq_min', 'is', null)
+      .or(`start_date_min.is.null,start_date_min.lte.${start}`)
+      .or(`start_date_max.is.null,start_date_max.gte.${start}`)
+      .limit(20000);
+
+    // The SAME constraints the quote engine applies. An AQ band nobody can sell this meter
+    // is not an opportunity, it is a distraction.
+    if (AQ_METER) {
+      if (fuel === 'electricity') {
+        const dno = AQ_METER.dno_id || String(AQ_METER.mpan || '').slice(0, 2);
+        if (dno) sel = sel.or(`dno_id.is.null,dno_id.eq.${dno}`);
+        if (AQ_METER.profile_class != null) sel = sel.or(`profile_class.is.null,profile_class.eq.${AQ_METER.profile_class}`);
+        sel = AQ_METER.rate_structure
+          ? sel.or(`rate_structure.is.null,rate_structure.eq.${AQ_METER.rate_structure},rate_structure.eq.any`)
+          : sel.or('rate_structure.is.null,rate_structure.eq.any');
+        if (AQ_METER.tcr_band) sel = sel.or(`tcr_band.is.null,tcr_band.eq.${AQ_METER.tcr_band}`);
+        if (AQ_METER.ssc) sel = sel.or(`ssc.is.null,ssc.eq.${AQ_METER.ssc}`);
+        else sel = sel.is('ssc', null);
+      } else {
+        if (AQ_METER.exit_zone) sel = sel.or(`exit_zone.is.null,exit_zone.eq.${AQ_METER.exit_zone}`);
+        if (AQ_METER.ldz) sel = sel.or(`ldz.is.null,ldz.eq.${AQ_METER.ldz}`);
+      }
+    }
+
+    const rows = await q(sel, 'AQ bands');
+
+    // The sale type is DERIVED, exactly as it is on the quote screen: only the incumbent can
+    // offer a renewal. Showing a renewal band to a customer who would be an acquisition is
+    // showing a price nobody can sell them.
+    const incumbent = AQ_METER ? supplierKeyOf(AQ_METER.supplier) : null;
+    const usable = rows.filter(r => r.sale_type === 'any'
+      || (r.sale_type === 'renewal' ? r.supplier_key === incumbent : r.supplier_key !== incumbent));
+
+    // One ladder per otherwise-identical shape.
+    const ladders = new Map();
+    for (const r of usable) {
+      if (aqAnnual(r, aq, uplift) == null) continue;
+      const key = [r.supplier_key, r.product_key, r.product_name, r.sale_type, r.term_months,
+                   r.rate_structure, r.dno_id, r.profile_class, r.tcr_band, r.ssc,
+                   r.ldz, r.exit_zone, r.green, r.sc_type].join('|');
+      if (!ladders.has(key)) ladders.set(key, []);
+      ladders.get(key).push(r);
+    }
+
+    // For each ladder: where the meter sits now, and what every other rung is worth.
+    const results = [];
+    for (const rungs of ladders.values()) {
+      const bands = new Map();
+      for (const r of rungs) {
+        const bk = `${r.aq_min}-${r.aq_max}`;
+        const c = aqAnnual(r, aq, uplift);
+        const seen = bands.get(bk);
+        if (!seen || c.total < seen.cost.total) bands.set(bk, { row: r, cost: c });
+      }
+      const ladder = [...bands.values()].sort((a, b) => Number(a.row.aq_min) - Number(b.row.aq_min));
+      if (ladder.length < 2) continue;                 // one band is not a ladder
+      const here = ladder.find(x => aq >= Number(x.row.aq_min) && aq <= Number(x.row.aq_max));
+      if (!here) continue;                             // this AQ is off the end of the book
+      for (const b of ladder) {
+        if (b === here) continue;
+        const up = Number(b.row.aq_min) > aq;
+        // What AQ actually reaches this band: its floor going up, its ceiling coming down.
+        const target = up ? Number(b.row.aq_min) : Number(b.row.aq_max);
+        results.push({
+          supplier_key: here.row.supplier_key,
+          product: here.row.product_display || here.row.product_name,
+          term: here.row.term_months, sale_type: here.row.sale_type,
+          here, band: b, target, up,
+          moveKwh: target - aq,
+          movePct: (target - aq) / aq * 100,
+          rateDelta: b.cost.rate - here.cost.rate,
+          scDelta: b.cost.sc - here.cost.sc,
+          saving: here.cost.total - b.cost.total,
+          ladder,
+        });
+      }
+    }
+
+    results.sort((a, b) => b.saving - a.saving);
+    AQ = { aq, uplift, term, start, fuel, results, ladders: ladders.size,
+           scanned: rows.length, usable: usable.length, incumbent };
+    aqRender();
+    $('aqCard').classList.remove('hide');
+    msg.textContent = '';
+  } catch (e) {
+    $('aqCard').classList.remove('hide');
+    $('aqCurrent').innerHTML = `<div class="note bad">${esc(e.message)}</div>`;
+    $('aqBest').innerHTML = ''; $('aqTables').innerHTML = ''; $('aqNotes').innerHTML = '';
+  } finally { btn.disabled = false; }
+}
+
+/** How far a move is, in words. A percentage alone does not tell you if it is plausible. */
+function aqDistance(pct) {
+  const a = Math.abs(pct);
+  if (a <= 5)  return ['very close', 'p-ok'];
+  if (a <= 15) return ['low', 'p-mute'];
+  if (a <= 30) return ['material', 'p-warn'];
+  if (a <= 50) return ['large', 'p-warn'];
+  return ['very large', 'p-fail'];
+}
+
+function aqRender() {
+  if (!AQ) return;
+  const nearOnly = $('aqNearOnly').checked;
+  const money = (v) => (v < 0 ? '−£' : '£') + Math.abs(Math.round(v)).toLocaleString();
+  const pct = (v) => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(2) + '%';
+  const kwh = (v) => (v >= 0 ? '+' : '−') + Math.abs(v).toLocaleString();
+
+  if (!AQ.results.length) {
+    $('aqCurrent').innerHTML = `<div class="note warn"><b>No AQ band analysis available.</b>
+      ${AQ.scanned.toLocaleString()} live rows were read for a ${AQ.term} month contract, but
+      none of them offers this meter more than one consumption band — so there is no
+      threshold to move across. Nothing is being hidden; the suppliers who can price this
+      meter simply do not band it.</div>`;
+    $('aqBest').innerHTML = ''; $('aqTables').innerHTML = ''; $('aqNotes').innerHTML = '';
+    return;
+  }
+
+  // Where it sits now, per supplier.
+  const hereBySup = new Map();
+  for (const r of AQ.results) if (!hereBySup.has(r.supplier_key)) hereBySup.set(r.supplier_key, r);
+  $('aqCurrent').innerHTML = `
+    <div style="font-size:13px;margin-bottom:10px">
+      On <b>${AQ.aq.toLocaleString()} kWh</b>, a ${AQ.term} month contract starting
+      <b>${uk(AQ.start)}</b>, uplift <b>${AQ.uplift.toFixed(2)} p/kWh</b>.
+    </div>
+    <div class="scroll"><table><thead><tr>
+      <th style="width:26px"></th><th>Supplier</th><th>Product</th><th>Current band</th>
+      <th class="num">Rate</th><th class="num">SC p/day</th><th class="num">Annual now</th>
+    </tr></thead><tbody>
+    ${[...hereBySup.values()].sort((a,b) => a.here.cost.total - b.here.cost.total).map(r => `
+      <tr><td>${supplierLogo(r.supplier_key, 18)}</td>
+        <td>${esc(supplierName(r.supplier_key))}</td>
+        <td>${esc(r.product || '—')}</td>
+        <td class="mono">${Number(r.here.row.aq_min).toLocaleString()} –
+            ${Number(r.here.row.aq_max) >= 9e7 ? 'no limit' : Number(r.here.row.aq_max).toLocaleString()}</td>
+        <td class="num">${n2(r.here.cost.rate, 4)}</td>
+        <td class="num">${n2(r.here.cost.sc, 2)}</td>
+        <td class="num"><b>£${Math.round(r.here.cost.total).toLocaleString()}</b></td></tr>`).join('')}
+    </tbody></table></div>`;
+
+  // The nearest rung each way, per supplier — the question actually being asked.
+  const near = [];
+  for (const [sup, any] of hereBySup) {
+    const mine = AQ.results.filter(r => r.supplier_key === sup);
+    const up = mine.filter(r => r.up).sort((a, b) => a.moveKwh - b.moveKwh)[0];
+    const dn = mine.filter(r => !r.up).sort((a, b) => b.moveKwh - a.moveKwh)[0];
+    for (const x of [dn, up]) if (x) near.push(x);
+  }
+  // ── What goes at the top has to be REACHABLE. ──────────────────────────────────────
+  // Ranking purely by pounds puts a +4,311% AQ increase first, because the biggest band is
+  // always the cheapest rate. That is not an opportunity, it is arithmetic. A site on 3,400
+  // kWh is not going to consume 150,000. The nearest band — +100 kWh for £65 — is the one
+  // somebody can actually act on, and it was buried five rows down.
+  //
+  // So the headline is the best saving among moves the site could plausibly make, and the
+  // rest stays in the table underneath where it can be read but not mistaken for advice.
+  const REACHABLE = 15;                   // percent, matching the 'low' distance band
+  const worth = AQ.results.filter(r => r.saving > 0);
+  const reachable = worth.filter(r => Math.abs(r.movePct) <= REACHABLE);
+  const best = (reachable.length ? reachable : worth).slice(0, 3);
+  const onlyFarOnes = !reachable.length && worth.length > 0;
+
+  // The two nearest rungs each way, named outright. This is the question the desk asks:
+  // "how far is the next band, and what is it worth?"
+  const nearestCards = [];
+  for (const [sup] of hereBySup) {
+    const mine = AQ.results.filter(r => r.supplier_key === sup);
+    const up = mine.filter(r => r.up).sort((a, b) => a.moveKwh - b.moveKwh)[0];
+    const dn = mine.filter(r => !r.up).sort((a, b) => b.moveKwh - a.moveKwh)[0];
+    if (up) nearestCards.push(up);
+    if (dn) nearestCards.push(dn);
+  }
+  nearestCards.sort((a, b) => Math.abs(a.movePct) - Math.abs(b.movePct));
+  const nearestHtml = !nearestCards.length ? '' : `
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+                color:var(--text-2);margin:2px 0 8px">The nearest band either way</div>
+    <div class="scroll" style="margin-bottom:18px"><table><thead><tr>
+      <th style="width:26px"></th><th>Supplier</th><th>Direction</th><th>Band</th>
+      <th class="num">Target AQ</th><th class="num">How far</th><th class="num">%</th>
+      <th class="num">Rate change</th><th class="num">Worth</th></tr></thead><tbody>
+    ${nearestCards.map(r => `<tr>
+      <td>${supplierLogo(r.supplier_key, 18)}</td>
+      <td>${esc(supplierName(r.supplier_key))}</td>
+      <td>${r.up ? 'up' : 'down'}</td>
+      <td class="mono">${Number(r.band.row.aq_min).toLocaleString()} –
+        ${Number(r.band.row.aq_max) >= 9e7 ? 'no limit' : Number(r.band.row.aq_max).toLocaleString()}</td>
+      <td class="num mono">${r.target.toLocaleString()}</td>
+      <td class="num mono">${kwh(r.moveKwh)} kWh</td>
+      <td class="num mono">${pct(r.movePct)}</td>
+      <td class="num">${r.rateDelta <= 0 ? '' : '+'}${n2(r.rateDelta, 4)} p/kWh</td>
+      <td class="num" style="font-weight:700;color:${r.saving > 0 ? 'var(--ok)' : 'var(--fail)'}">
+        ${r.saving > 0 ? '−' : '+'}£${Math.abs(Math.round(r.saving)).toLocaleString()}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+
+  $('aqBest').innerHTML = nearestHtml + (!best.length
+    ? `<div class="note">No band on any live pricebook beats the one this meter is already
+       in. That is a real answer: the AQ is already in the best band every supplier offers
+       it.</div>`
+    : `<div style="display:flex;gap:12px;flex-wrap:wrap">${best.map(r => {
+        const [word, cls] = aqDistance(r.movePct);
+        return `<div style="flex:1 1 300px;border:1px solid var(--line-2);border-radius:10px;
+                     padding:14px 16px;background:var(--panel-2)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            ${supplierLogo(r.supplier_key, 20)}
+            <b>${esc(supplierName(r.supplier_key))}</b>
+            <span class="pill ${cls}">${word}</span></div>
+          <div style="font-size:22px;font-weight:800;color:var(--ok)">${money(r.saving)}<span
+            style="font-size:12px;font-weight:400;color:var(--muted)"> a year</span></div>
+          <div style="font-size:12px;color:var(--text-2);margin-top:6px;line-height:1.55">
+            Move the AQ ${r.up ? 'up' : 'down'} to
+            <b>${r.target.toLocaleString()} kWh</b>
+            (${kwh(r.moveKwh)} kWh, ${pct(r.movePct)}).<br>
+            Rate ${n2(r.here.cost.rate,4)} &rarr; <b>${n2(r.band.cost.rate,4)}</b> p/kWh
+            (${r.rateDelta <= 0 ? '' : '+'}${n2(r.rateDelta,4)}).<br>
+            Standing charge ${n2(r.here.cost.sc,2)} &rarr; <b>${n2(r.band.cost.sc,2)}</b> p/day
+            ${Math.abs(r.scDelta) > 0.005
+              ? `<span style="color:${r.scDelta > 0 ? 'var(--fail)' : 'var(--ok)'}">
+                 (${r.scDelta > 0 ? '+' : '−'}${money(Math.abs(r.scDelta) * 365 / 100)} a year)</span>`
+              : ''}
+          </div></div>`;
+      }).join('')}</div>` + (onlyFarOnes
+        ? `<div class="note warn" style="margin-top:10px">Nothing within ${REACHABLE}% of the
+           current AQ beats the band this meter is already in. The moves above are real
+           prices but they are large changes in consumption, not adjustments — read them as
+           what the pricebook does, not as something to put on a contract.</div>`
+        : ''));
+
+  const list = nearOnly ? near : AQ.results;
+  const shown = [...list].sort((a, b) => b.saving - a.saving);
+  $('aqTables').innerHTML = `<div class="scroll"><table><thead><tr>
+      <th style="width:26px"></th><th>Supplier</th><th>Band</th><th class="num">Target AQ</th>
+      <th class="num">AQ change</th><th class="num">AQ change %</th><th>Distance</th>
+      <th class="num">Rate</th><th class="num">SC p/day</th>
+      <th class="num">Annual total</th><th class="num">Difference</th></tr></thead><tbody>
+    ${shown.map(r => {
+      const [word, cls] = aqDistance(r.movePct);
+      // A cliff: a move of under 2% that shifts the rate by a quarter of a penny or more.
+      const cliff = Math.abs(r.movePct) <= 5 && Math.abs(r.rateDelta) >= 0.25;
+      return `<tr${r.saving > 0 ? ' style="background:rgba(18,104,47,.05)"' : ''}>
+        <td>${supplierLogo(r.supplier_key, 18)}</td>
+        <td>${esc(supplierName(r.supplier_key))}
+          <div style="font-size:10px;color:var(--muted)">${esc(r.product || '')}</div></td>
+        <td class="mono">${Number(r.band.row.aq_min).toLocaleString()} –
+          ${Number(r.band.row.aq_max) >= 9e7 ? 'no limit' : Number(r.band.row.aq_max).toLocaleString()}
+          ${cliff ? '<div><span class="pill p-warn">threshold</span></div>' : ''}</td>
+        <td class="num mono">${r.target.toLocaleString()}</td>
+        <td class="num mono">${kwh(r.moveKwh)}</td>
+        <td class="num mono">${pct(r.movePct)}</td>
+        <td><span class="pill ${cls}">${word}</span></td>
+        <td class="num">${n2(r.band.cost.rate,4)}
+          <div style="font-size:10px;color:${r.rateDelta <= 0 ? 'var(--ok)' : 'var(--fail)'}">
+            ${r.rateDelta <= 0 ? '' : '+'}${n2(r.rateDelta,4)}</div></td>
+        <td class="num">${n2(r.band.cost.sc,2)}
+          ${Math.abs(r.scDelta) > 0.005
+            ? `<div style="font-size:10px;color:${r.scDelta <= 0 ? 'var(--ok)' : 'var(--fail)'}">
+               ${r.scDelta <= 0 ? '' : '+'}${n2(r.scDelta,2)}</div>` : ''}</td>
+        <td class="num">£${Math.round(r.band.cost.total).toLocaleString()}</td>
+        <td class="num" style="font-weight:700;color:${r.saving > 0 ? 'var(--ok)' : 'var(--fail)'}">
+          ${r.saving > 0 ? '−' : '+'}£${Math.abs(Math.round(r.saving)).toLocaleString()}</td>
+      </tr>`;
+    }).join('')}</tbody></table></div>`;
+
+  const cliffs = AQ.results.filter(r => Math.abs(r.movePct) <= 5 && Math.abs(r.rateDelta) >= 0.25);
+  $('aqNotes').innerHTML = `
+    ${AQ.ladders.toLocaleString()} banded pricebook ladders can price this meter over
+    ${AQ.term} months, read from ${AQ.scanned.toLocaleString()} live rows.
+    ${cliffs.length ? `<b>${cliffs.length}</b> of these bands sit within 5% of the current AQ
+      and move the unit rate by 0.25 p/kWh or more — those are the ones marked
+      <span class="pill p-warn">threshold</span>.` : ''}
+    <div class="note warn" style="margin-top:12px">
+      <b>Hypothetical price-band analysis, on the customer's current consumption.</b>
+      The target AQ only decides which band applies; the annual figures are all worked out on
+      <b>${AQ.aq.toLocaleString()} kWh</b>, because that is what the site actually uses.
+      An AQ is the supplier's basis for the contract, not a dial: correcting one that is
+      wrong or out of date is ordinary housekeeping, but a figure the site will not reach
+      gets reconciled later and the customer can end up worse off than if it had been left
+      alone. Nothing on this screen has changed any meter, AQ or contract.
+    </div>`;
 }
 
 async function defaultStartDate() {
