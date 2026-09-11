@@ -1997,8 +1997,12 @@ function fxBuildData(){
   const teOf = f => { const o = {}; for (const r of teCurves) if (r.commodity === f && r.month) o[String(r.month).slice(0,10)] = _num(r.mid); return o; };
   const _teu = teCurves.map(c => c.updated_at).filter(Boolean).sort().pop();
   const _teuTxt = _teu ? new Date(_teu).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : null;
+  // `id` must be carried through: the Orders tab renders Edit and Delete buttons straight
+  // from these rows, so dropping it put the literal string "undefined" into both handlers.
+  // Delete failed loudly (Postgres rejects "undefined" as a bigint); Edit failed SILENTLY,
+  // opening as a new order and inserting a duplicate on save.
   const ordersOf = f => orders.filter(o => o.commodity === f)
-      .map(o => ({ basket: o.basket_name, period: o.period, volume: _num(o.volume), price: o.price }));
+      .map(o => ({ id: o.id, basket: o.basket_name, period: o.period, volume: _num(o.volume), price: o.price }));
   const seedMeta = (meta.find(m => m.key === 'seed') || {}).value || {};
   const mkB = b => ({
       id: b.id, name: b.name, commodity: b.commodity, unit_vol: b.unit_vol,
@@ -3160,7 +3164,7 @@ function selectBasket(id) {
   document.querySelector('.tab-btn[data-tab="positions"]').classList.add('active');
   document.getElementById('tab-positions').classList.add('active');
 
-  document.getElementById('main-inner').scrollTop = 0;
+  fxResetScroll();
 }
 
 // ── EVENT WIRING ─────────────────────────────────────────────────
@@ -3458,13 +3462,75 @@ async function fxWrite(promise, okMsg, scope){
 }
 
 // ── state-preserving re-render ───────────────────────────────────
-function rerenderCurrent(){
-  // Every save rebuilds the detail pane wholesale, which used to throw the reader back to
-  // the top of a two-hundred-row Targets table after each price edit. Hold the scroll
-  // offset across the rebuild instead: once synchronously, once after layout, because the
-  // new content is not measured until the browser has laid it out.
-  const _scroller = document.getElementById('main-inner');
-  const _keepTop  = _scroller ? _scroller.scrollTop : 0;
+// ── scroll preservation across a re-render ───────────────────────
+// A save rebuilds a pane by replacing innerHTML. The page height collapses for an instant
+// and the browser clamps every scroll offset inside it, which threw the reader back to the
+// top of a two-hundred-row Targets table after each price edit.
+//
+// TWO scrollers matter, and the first attempt at this only held one of them. #main-inner
+// scrolls the page, but each data table ALSO scrolls inside its own .table-wrap
+// (max-height:560px, see the CSS) — and that inner one is where a reader working through a
+// long target ladder actually is. The wrap element is destroyed by the rebuild, so its
+// offset is captured by pane id and re-applied to whatever .table-wrap comes back.
+//
+// Restored twice: once synchronously, once after layout, because the new content is not
+// measured until the browser has laid it out. Nested calls (rerenderCurrent →
+// renderTargets) share a single hold, and fxResetScroll cancels a restore still queued so
+// that opening a basket genuinely starts at the top.
+let _fxScDepth = 0, _fxScTop = 0, _fxScWraps = null, _fxScGen = 0;
+function _fxScRead(){
+  const out = {};
+  document.querySelectorAll('#detail .table-wrap').forEach(w => {
+    if(!w.scrollTop) return;
+    const host = w.closest('[id]'); if(!host) return;
+    const sibs = [...host.querySelectorAll('.table-wrap')];
+    out[host.id + '#' + sibs.indexOf(w)] = w.scrollTop;
+  });
+  return out;
+}
+function _fxScWrite(map){
+  for(const key in map){
+    const cut = key.lastIndexOf('#');
+    const host = document.getElementById(key.slice(0, cut));
+    if(!host) continue;
+    const w = host.querySelectorAll('.table-wrap')[+key.slice(cut + 1)];
+    if(w) w.scrollTop = map[key];
+  }
+}
+function fxKeepScroll(fn){
+  const sc = document.getElementById('main-inner');
+  if(_fxScDepth++ === 0){
+    _fxScTop   = sc ? sc.scrollTop : 0;
+    _fxScWraps = _fxScRead();
+    _fxScGen++;
+  }
+  const gen = _fxScGen, top = _fxScTop, wraps = _fxScWraps;
+  try { return fn(); }
+  finally {
+    if(--_fxScDepth === 0){
+      const put = () => {
+        if(gen !== _fxScGen) return;          // a reset happened — leave it alone
+        if(sc && top > 0) sc.scrollTop = top;
+        _fxScWrite(wraps);
+      };
+      put();
+      requestAnimationFrame(put);
+    }
+  }
+}
+// Deliberately going to the top — cancels any pending restore from the render that
+// preceded it, which would otherwise land a frame later and undo this.
+function fxResetScroll(){
+  _fxScGen++;
+  const sc = document.getElementById('main-inner');
+  if(sc) sc.scrollTop = 0;
+  // The inner table scrollers too: a different basket's table should start at its own top,
+  // not wherever the previous basket's table happened to be sitting.
+  document.querySelectorAll('#detail .table-wrap').forEach(w => { w.scrollTop = 0; });
+}
+
+function rerenderCurrent(){ return fxKeepScroll(_fxRerenderBody); }
+function _fxRerenderBody(){
   renderSidebar();
   const bSel = selectedId ? (BASKETS.find(b=>b.id===selectedId) || (DATA.archived||[]).find(b=>b.id===selectedId)) : null;
   if (bSel){
@@ -3494,10 +3560,6 @@ function rerenderCurrent(){
     } else { el.innerHTML=''; }
   });
   fxDecorateHeader();
-  if (_scroller && _keepTop > 0){
-    _scroller.scrollTop = _keepTop;
-    requestAnimationFrame(() => { _scroller.scrollTop = _keepTop; });
-  }
 }
 
 // ── EDIT MODE toggle + header decoration ─────────────────────────
@@ -5181,6 +5243,7 @@ function fxOrderModal(fuel, id){
   <button class="fx-btn green" onclick="fxOrderSave('${fuel}',${id||'null'})">Save</button></div>`);
 }
 async function fxOrderSave(fuel,id){
+  if(id !== null && id !== undefined && !(+id > 0)) return fxMErr('This order has no id — reload the page and try again');
   const row={ commodity:fuel, basket_name:document.getElementById('fO_basket').value.trim()||null,
     period:document.getElementById('fO_period').value.trim()||null,
     volume:fxNum(document.getElementById('fO_vol').value), price:document.getElementById('fO_price').value.trim()||null, updated_by:FLEX.user };
@@ -5188,6 +5251,9 @@ async function fxOrderSave(fuel,id){
   if(await fxWrite(q,'Firm order saved')) fxCloseModal();
 }
 async function fxOrderDelete(id){
+  // Never let a missing id reach Postgres: an unfiltered .eq('id', undefined) is both an
+  // ugly error and, on a query builder that dropped the filter, a way to delete the lot.
+  if(!(+id > 0)){ fxToast('This order has no id — reload the page and try again', false); return; }
   if(!confirm('Delete this firm order?')) return;
   await fxWrite(FLEX.sb.from('flex_firm_orders').delete().eq('id',id),'Firm order deleted');
 }
@@ -5851,7 +5917,10 @@ function fxDiscardTargets(basket){
   renderTargets(basket); fxToast('Changes discarded');
 }
 // ── TARGETS v2: working tick, editable tier labels, notes ────────
-renderTargets = function(basket){
+// Staging a target edit calls THIS, not rerenderCurrent — which is why holding the scroll
+// offset only in rerenderCurrent left the tab jumping to the top on every change.
+renderTargets = function(basket){ return fxKeepScroll(() => _fxRenderTargetsBody(basket)); };
+function _fxRenderTargetsBody(basket){
   _renderTargets(basket);
   const el=document.getElementById('tab-targets'); if(!el) return;
   if(FX_TBUF_BID!==basket.id){ FX_TBUF={}; FX_TBUF_ORIG={}; FX_TBUF_BID=basket.id; }
@@ -5944,7 +6013,7 @@ renderTargets = function(basket){
       <button class="fx-btn green" onclick="fxNoteModal('targets','${basket.id}')">+ Add note</button></div>
     ${notes.length?notes.map(n=>fxNoteCard(n,true)).join(''):'<div style="font-size:12px;color:#9aa1ad">No target notes for this basket yet.</div>'}`;
   el.appendChild(nd);
-};
+}
 
 
 // ── TARGETED WAPs: scenario editor ───────────────────────────────
