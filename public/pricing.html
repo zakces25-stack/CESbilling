@@ -2276,21 +2276,34 @@ function paintSscNote() {
 let AQ = null;       // the last analysis
 let AQ_METER = null; // the meter it was run on, read-only
 
-function aqInit() {
-  if (!$('aqStart').value) {
-    const d = new Date(); d.setMonth(d.getMonth() + 1);
-    $('aqStart').value = d.toISOString().slice(0, 10);
-  }
-  // The incumbent decides the sale type here exactly as it does on the quote screen, so
-  // the picker is the same list of aliases.
+/**
+ * The incumbent pickers, from the same alias list the quote screen uses.
+ *
+ * Called from BOTH aqInit and aqLookup: setting a <select> to a value whose <option> does
+ * not exist yet silently leaves it blank, and a blank incumbent turns every renewal into an
+ * acquisition. That is a wrong answer produced by a race, which is the worst kind.
+ */
+function aqFillSuppliers() {
   for (const id of ['aqSupplier', 'aqSupplierGas']) {
     const el = $(id);
-    if (el && !el.options.length) {
+    if (el && !el.options.length && ALIASES.length) {
       const names = [...new Set(ALIASES.map(a => a.alias))].sort();
       el.innerHTML = '<option value="">not known / new connection</option>'
         + names.map(x => `<option>${esc(x)}</option>`).join('');
     }
   }
+}
+
+async function aqInit() {
+  // The incumbent decides the sale type, and it is resolved through ALIASES. Opening this
+  // tab straight after the page loads used to find that list still in flight, which left
+  // the supplier box empty and every supplier treated as an acquisition.
+  if (!ALIASES.length) { try { await loadSuppliers(); } catch (_) {} }
+  if (!$('aqStart').value) {
+    const d = new Date(); d.setMonth(d.getMonth() + 1);
+    $('aqStart').value = d.toISOString().slice(0, 10);
+  }
+  aqFillSuppliers();
   // Carry over whatever is on the pricing desk, if a meter is open there. Saves retyping
   // and keeps the two screens talking about the same supply.
   if (METER && METER.mpan && !$('aqMpan').value) {
@@ -2371,6 +2384,8 @@ async function aqLookup() {
       return;
     }
     AQ_METER = rows[0];
+    if (!ALIASES.length) { try { await loadSuppliers(); } catch (_) {} }
+    aqFillSuppliers();
     if (!$('aqNow').value) $('aqNow').value = AQ_METER.est_annual_consumption || '';
     // Fill the attribute boxes from the portfolio. They stay editable: the portfolio is
     // often stale, and a broker who has just read the bill should be able to correct it
@@ -2524,12 +2539,21 @@ async function aqAnalyse() {
       if (lo > 0) probes.add(lo - 1);                        // one band down
       if (hi < 9e7) probes.add(hi + 1);                      // one band up
     }
+    // ── All the probes at once, not one after another. ─────────────────────────────
+    // This is why it failed the first time and worked after a refresh. A real meter
+    // produces 8 to 13 band edges (worst measured 13), and they were being awaited in a
+    // loop. Cold — first use of the day, nothing in the browser, the CDN or the Postgres
+    // buffer cache — each round trip is most of a second, so thirteen of them is ten
+    // seconds and the page looks hung. Run once, warm everything, and each is ~50ms, so
+    // the retry "works immediately". The queries never depended on each other; they were
+    // sequential for no reason.
+    const list = [...probes].sort((x, y) => x - y);
+    msg.textContent = `Checking ${list.length} band edge${list.length === 1 ? '' : 's'}…`;
+    const fetched = await Promise.all(list.map(p =>
+      aqRatesAt(p, a, term, start).then(rows => ({ probe: p, rows }))));
+
     const results = [];
-    let done = 0;
-    for (const probe of [...probes].sort((x, y) => x - y)) {
-      done++;
-      msg.textContent = `Checking ${probe.toLocaleString()} kWh (${done} of ${probes.size})…`;
-      const rows = await aqRatesAt(probe, a, term, start);
+    for (const { rows } of fetched) {
       // Priced on the customer's OWN consumption. The probe AQ only decides which band
       // applies; the site still uses what it uses.
       const there = aqBestBySupplier(rows, aq, uplift);
