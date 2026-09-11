@@ -440,6 +440,39 @@
           </div>
         </div>
         <div id="aqMeterNote" class="hide" style="margin-top:12px"></div>
+        <!-- The attributes the pricebooks actually key on. Filled from the portfolio when
+             the MPAN is known, typed in when it is not. Without them the analysis cannot
+             tell which of a supplier's grids applies, and the honest answer is nothing. -->
+        <div class="row" id="aqElecRow" style="margin-top:12px">
+          <div><label for="aqDno">Distributor</label>
+            <input id="aqDno" class="mono" oninput="aqPaintMissing()" placeholder="from the MPAN" /></div>
+          <div><label for="aqPc">Profile class</label>
+            <select id="aqPc" onchange="aqPaintMissing()"><option value="">unknown</option>
+              <option>1</option><option>2</option><option>3</option><option>4</option>
+              <option value="0">0 (half hourly)</option></select></div>
+          <div><label for="aqStruct">Registers</label>
+            <select id="aqStruct" onchange="aqPaintMissing()"><option value="">unknown</option>
+              <option value="single">Single rate</option>
+              <option value="day_night">Day / night</option>
+              <option value="day_night_ew">Day / night / E&amp;W</option>
+              <option value="day_ew">Day + evening/weekend</option></select></div>
+          <div><label for="aqBand">TCR band</label>
+            <select id="aqBand" onchange="aqPaintMissing()"><option value="">unknown</option>
+              <option value="band_1">Band 1</option><option value="band_2">Band 2</option>
+              <option value="band_3">Band 3</option><option value="band_4">Band 4</option>
+            </select></div>
+          <div><label for="aqSsc">SSC</label>
+            <input id="aqSsc" class="mono" oninput="aqPaintMissing()" maxlength="4" placeholder="0393" /></div>
+          <div style="flex:1.4"><label for="aqSupplier">Current supplier</label>
+            <select id="aqSupplier" onchange="aqPaintMissing()"></select></div>
+        </div>
+        <div class="row hide" id="aqGasRow" style="margin-top:12px">
+          <div><label for="aqLdz">LDZ</label><input id="aqLdz" class="mono" oninput="aqPaintMissing()" placeholder="EA" /></div>
+          <div><label for="aqZone">Exit zone</label><input id="aqZone" class="mono" oninput="aqPaintMissing()" placeholder="EA1" /></div>
+          <div style="flex:2"><label for="aqSupplierGas">Current supplier</label>
+            <select id="aqSupplierGas" onchange="aqPaintMissing()"></select></div>
+        </div>
+        <div id="aqMissing" class="hide" style="margin-top:12px"></div>
         <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <button class="act" id="aqBtn" onclick="aqAnalyse()">Analyse every supplier</button>
           <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:400;
@@ -2253,12 +2286,73 @@ function aqInit() {
     const d = new Date(); d.setMonth(d.getMonth() + 1);
     $('aqStart').value = d.toISOString().slice(0, 10);
   }
+  // The incumbent decides the sale type here exactly as it does on the quote screen, so
+  // the picker is the same list of aliases.
+  for (const id of ['aqSupplier', 'aqSupplierGas']) {
+    const el = $(id);
+    if (el && !el.options.length) {
+      const names = [...new Set(ALIASES.map(a => a.alias))].sort();
+      el.innerHTML = '<option value="">not known / new connection</option>'
+        + names.map(x => `<option>${esc(x)}</option>`).join('');
+    }
+  }
   // Carry over whatever is on the pricing desk, if a meter is open there. Saves retyping
   // and keeps the two screens talking about the same supply.
   if (METER && METER.mpan && !$('aqMpan').value) {
     $('aqMpan').value = METER.mpan;
     aqLookup();
   }
+  aqPaintMissing();
+}
+
+/** Read the attribute boxes, whether they were filled from the portfolio or by hand. */
+function aqAttrs() {
+  const gas = $('aqGasRow') && !$('aqGasRow').classList.contains('hide');
+  const v = (id) => { const e = $(id); return e && e.value.trim() ? e.value.trim() : null; };
+  return {
+    fuel: gas ? 'gas' : 'electricity',
+    dno: gas ? null : v('aqDno'),
+    pc: gas ? null : (v('aqPc') == null ? null : Number(v('aqPc'))),
+    rate_structure: gas ? null : v('aqStruct'),
+    tcr_band: gas ? null : v('aqBand'),
+    ssc: gas ? null : (/^\d{1,4}$/.test(v('aqSsc') || '') ? v('aqSsc').padStart(4, '0') : null),
+    ldz: gas ? v('aqLdz') : null,
+    exit_zone: gas ? v('aqZone') : null,
+    supplier: v(gas ? 'aqSupplierGas' : 'aqSupplier'),
+  };
+}
+
+/**
+ * Say what is missing BEFORE anyone presses Analyse.
+ *
+ * Every one of these is something a supplier prices on. Without the TCR band, a banded
+ * pricebook cannot be matched at all; without the SSC, TotalEnergies cannot; without the
+ * register structure, every one of Scottish Power's five grids looks equally valid and the
+ * cheapest is an off-peak price for a meter that has no off-peak register. Guessing any of
+ * them is how a plausible wrong number gets in front of a customer, so the tool asks.
+ */
+function aqPaintMissing() {
+  const box = $('aqMissing');
+  if (!box) return;
+  const a = aqAttrs();
+  const miss = [];
+  if (a.fuel === 'electricity') {
+    if (!a.dno) miss.push('distributor');
+    if (a.pc == null) miss.push('profile class');
+    if (!a.rate_structure) miss.push('register structure');
+    if (!a.tcr_band) miss.push('TCR band');
+    if (!a.ssc) miss.push('SSC');
+  } else {
+    if (!a.ldz) miss.push('LDZ');
+    if (!a.exit_zone) miss.push('exit zone');
+  }
+  if (!miss.length) { box.className = 'hide'; box.innerHTML = ''; return; }
+  box.className = 'note warn';
+  box.innerHTML = `<b>Missing: ${miss.map(esc).join(', ')}.</b> Each of these is something a
+    supplier prices on, so a row that names one can only be matched if this meter names it
+    too. The analysis will still run and it will not guess — it will simply have fewer
+    suppliers in it, and the ones it drops are not necessarily the expensive ones. Fill these
+    in for a complete answer.`;
 }
 
 /** Pull the meter's own attributes, so the bands are the ones this supply can actually buy. */
@@ -2275,13 +2369,33 @@ async function aqLookup() {
       .eq('mpan', mpan).limit(1), 'meter for AQ analysis');
     if (!rows.length) {
       note.className = 'note warn';
-      note.innerHTML = `Nothing in the portfolio for <b>${esc(mpan)}</b>. Type the AQ and it
-        will still analyse, but with no distributor, profile class or band the list will be
-        short: only rows that constrain on nothing can match.`;
+      note.innerHTML = `Nothing in the portfolio for <b>${esc(mpan)}</b>. Fill the boxes
+        below in by hand — they are what the pricebooks key on, and without them the
+        analysis has almost nothing it can safely match.`;
+      aqPaintMissing();
       return;
     }
     AQ_METER = rows[0];
     if (!$('aqNow').value) $('aqNow').value = AQ_METER.est_annual_consumption || '';
+    // Fill the attribute boxes from the portfolio. They stay editable: the portfolio is
+    // often stale, and a broker who has just read the bill should be able to correct it
+    // here without it becoming a change to the meter record.
+    const gas = AQ_METER.utility === 'gas';
+    $('aqGasRow').classList.toggle('hide', !gas);
+    $('aqElecRow').classList.toggle('hide', gas);
+    if (gas) {
+      $('aqLdz').value = AQ_METER.ldz || '';
+      $('aqZone').value = AQ_METER.exit_zone || '';
+      if (AQ_METER.supplier) $('aqSupplierGas').value = AQ_METER.supplier;
+    } else {
+      $('aqDno').value = AQ_METER.dno_id || String(AQ_METER.mpan || '').slice(0, 2);
+      $('aqPc').value = AQ_METER.profile_class == null ? '' : String(AQ_METER.profile_class);
+      $('aqStruct').value = AQ_METER.rate_structure || '';
+      $('aqBand').value = AQ_METER.tcr_band || '';
+      $('aqSsc').value = AQ_METER.ssc || '';
+      if (AQ_METER.supplier) $('aqSupplier').value = AQ_METER.supplier;
+    }
+    aqPaintMissing();
     const bits = [];
     if (AQ_METER.utility === 'gas') {
       bits.push(`LDZ ${esc(AQ_METER.ldz || '—')}`, `exit zone ${esc(AQ_METER.exit_zone || '—')}`);
@@ -2337,51 +2451,24 @@ async function aqAnalyse() {
   if (!(aq > 0)) { msg.textContent = 'Put the current AQ in first.'; return; }
   btn.disabled = true; msg.textContent = 'Reading every live pricebook…';
   try {
-    const fuel = AQ_METER ? AQ_METER.utility : 'electricity';
-    let sel = sb.from('pricebook_rates_live')
-      .select('supplier_key,product_key,product_display,product_name,quotable,fuel,sale_type,'
-            + 'term_months,rate_structure,profile_class,dno_id,ldz,exit_zone,tcr_band,ssc,'
-            + 'aq_min,aq_max,start_date_min,start_date_max,sell_days_min,sell_days_max,'
-            + 'standing_charge_p_day,unit_rate_p_kwh,day_rate_p_kwh,night_rate_p_kwh,'
-            + 'sc_type,green')
-      .eq('fuel', fuel).eq('quotable', true).eq('term_months', term)
-      .not('aq_min', 'is', null)
-      .or(`start_date_min.is.null,start_date_min.lte.${start}`)
-      .or(`start_date_max.is.null,start_date_max.gte.${start}`)
-      .limit(20000);
+    const a = aqAttrs();
 
-    // The SAME constraints the quote engine applies. An AQ band nobody can sell this meter
-    // is not an opportunity, it is a distraction.
-    if (AQ_METER) {
-      if (fuel === 'electricity') {
-        const dno = AQ_METER.dno_id || String(AQ_METER.mpan || '').slice(0, 2);
-        if (dno) sel = sel.or(`dno_id.is.null,dno_id.eq.${dno}`);
-        if (AQ_METER.profile_class != null) sel = sel.or(`profile_class.is.null,profile_class.eq.${AQ_METER.profile_class}`);
-        sel = AQ_METER.rate_structure
-          ? sel.or(`rate_structure.is.null,rate_structure.eq.${AQ_METER.rate_structure},rate_structure.eq.any`)
-          : sel.or('rate_structure.is.null,rate_structure.eq.any');
-        if (AQ_METER.tcr_band) sel = sel.or(`tcr_band.is.null,tcr_band.eq.${AQ_METER.tcr_band}`);
-        if (AQ_METER.ssc) sel = sel.or(`ssc.is.null,ssc.eq.${AQ_METER.ssc}`);
-        else sel = sel.is('ssc', null);
-      } else {
-        if (AQ_METER.exit_zone) sel = sel.or(`exit_zone.is.null,exit_zone.eq.${AQ_METER.exit_zone}`);
-        if (AQ_METER.ldz) sel = sel.or(`ldz.is.null,ldz.eq.${AQ_METER.ldz}`);
-      }
-    }
-
-    const rows = await q(sel, 'AQ bands');
-
-    // The sale type is DERIVED, exactly as it is on the quote screen: only the incumbent can
-    // offer a renewal. Showing a renewal band to a customer who would be an acquisition is
-    // showing a price nobody can sell them.
-    const incumbent = AQ_METER ? supplierKeyOf(AQ_METER.supplier) : null;
-    const usable = rows.filter(r => r.sale_type === 'any'
-      || (r.sale_type === 'renewal' ? r.supplier_key === incumbent : r.supplier_key !== incumbent));
+    // ── The grouping happens in the DATABASE, not here. ─────────────────────────────
+    // Fetching the matching rows and grouping them in the browser looked fine and was not:
+    // one meter at 24 months matches 59,454 rows and PostgREST caps a response at 1,000, a
+    // cap a client-side .limit() cannot raise. So it analysed whichever 1,000 came back
+    // first and reported one supplier as the only one with bands. It was not wrong about
+    // that supplier; it never saw the other seven.
+    const rows = await q(sb.rpc('pricebook_aq_ladders', {
+      p_fuel: a.fuel, p_aq: aq, p_term: term, p_start: start,
+      p_dno: a.dno, p_profile_class: a.pc, p_rate_structure: a.rate_structure,
+      p_tcr_band: a.tcr_band, p_ssc: a.ssc, p_ldz: a.ldz, p_exit_zone: a.exit_zone,
+      p_incumbent: supplierKeyOf(a.supplier),
+    }), 'AQ bands');
 
     // One ladder per otherwise-identical shape.
     const ladders = new Map();
-    for (const r of usable) {
-      if (aqAnnual(r, aq, uplift) == null) continue;
+    for (const r of rows) {
       const key = [r.supplier_key, r.product_key, r.product_name, r.sale_type, r.term_months,
                    r.rate_structure, r.dno_id, r.profile_class, r.tcr_band, r.ssc,
                    r.ldz, r.exit_zone, r.green, r.sc_type].join('|');
@@ -2389,17 +2476,13 @@ async function aqAnalyse() {
       ladders.get(key).push(r);
     }
 
-    // For each ladder: where the meter sits now, and what every other rung is worth.
     const results = [];
     for (const rungs of ladders.values()) {
-      const bands = new Map();
-      for (const r of rungs) {
-        const bk = `${r.aq_min}-${r.aq_max}`;
-        const c = aqAnnual(r, aq, uplift);
-        const seen = bands.get(bk);
-        if (!seen || c.total < seen.cost.total) bands.set(bk, { row: r, cost: c });
-      }
-      const ladder = [...bands.values()].sort((a, b) => Number(a.row.aq_min) - Number(b.row.aq_min));
+      const ladder = rungs
+        .map(r => ({ row: r, cost: aqAnnual({
+            unit_rate_p_kwh: r.unit_rate, day_rate_p_kwh: null, night_rate_p_kwh: null,
+            standing_charge_p_day: r.standing_charge }, aq, uplift) }))
+        .sort((x, y) => Number(x.row.aq_min) - Number(y.row.aq_min));
       if (ladder.length < 2) continue;                 // one band is not a ladder
       const here = ladder.find(x => aq >= Number(x.row.aq_min) && aq <= Number(x.row.aq_max));
       if (!here) continue;                             // this AQ is off the end of the book
@@ -2424,8 +2507,8 @@ async function aqAnalyse() {
     }
 
     results.sort((a, b) => b.saving - a.saving);
-    AQ = { aq, uplift, term, start, fuel, results, ladders: ladders.size,
-           scanned: rows.length, usable: usable.length, incumbent };
+    AQ = { aq, uplift, term, start, fuel: aqAttrs().fuel, results, ladders: ladders.size,
+           scanned: rows.length, attrs: aqAttrs() };
     aqRender();
     $('aqCard').classList.remove('hide');
     msg.textContent = '';
@@ -2610,8 +2693,9 @@ function aqRender() {
 
   const cliffs = AQ.results.filter(r => Math.abs(r.movePct) <= 5 && Math.abs(r.rateDelta) >= 0.25);
   $('aqNotes').innerHTML = `
-    ${AQ.ladders.toLocaleString()} banded pricebook ladders can price this meter over
-    ${AQ.term} months, read from ${AQ.scanned.toLocaleString()} live rows.
+    ${AQ.ladders.toLocaleString()} banded pricebook ladders from
+    <b>${[...new Set(AQ.results.map(r => r.supplier_key))].length}</b> suppliers can price
+    this meter over ${AQ.term} months, across ${AQ.scanned.toLocaleString()} bands.
     ${cliffs.length ? `<b>${cliffs.length}</b> of these bands sit within 5% of the current AQ
       and move the unit rate by 0.25 p/kWh or more — those are the ones marked
       <span class="pill p-warn">threshold</span>.` : ''}
