@@ -2344,7 +2344,14 @@ async function priceMeter() {
     if (METER.utility === 'electricity') {
       if (dno) sel = sel.or(`dno_id.is.null,dno_id.eq.${dno}`);
       if (METER.profile_class != null) sel = sel.or(`profile_class.is.null,profile_class.eq.${METER.profile_class}`);
-      if (METER.rate_structure) sel = sel.or(`rate_structure.is.null,rate_structure.eq.${METER.rate_structure},rate_structure.eq.any`);
+      // A missing attribute must NARROW the search, not remove the constraint. With the
+      // rate structure unknown this used to accept every structure a supplier publishes,
+      // and the cheapest of those is always the single-register oddity — an off-peak grid
+      // priced for a meter that has only an off-peak register. Unknown now means: only
+      // rows that do not care about the rate structure at all.
+      sel = METER.rate_structure
+        ? sel.or(`rate_structure.is.null,rate_structure.eq.${METER.rate_structure},rate_structure.eq.any`)
+        : sel.or('rate_structure.is.null,rate_structure.eq.any');
       if (METER.tcr_band) sel = sel.or(`tcr_band.is.null,tcr_band.eq.${METER.tcr_band}`);
       // ── The SSC. TotalEnergies price electricity BY it. ────────────────────────────
       // Their product name says so outright: "YELG 2R B3 04_0153_2C" is PES area, 2-rate,
@@ -2399,11 +2406,28 @@ async function priceMeter() {
         energy = (aq * dayPct * d + aq * (1 - dayPct) * nt) / 100;
         basis = 'day/night';
       } else {
+        // ── ONE register is only a whole price when the ROW says it is. ──────────────
+        // The fallback below exists for EDF, whose card says "single" and puts the rate in
+        // DayRate with UnitRate blank. Applied to a row the supplier calls something else,
+        // it invents a tariff.
+        //
+        // Scottish Power publish, for one meter and one term:
+        //     Economy7  SC 76.84  day 26.31  night 20.39
+        //     OffPeak   SC 10.00            night 20.39
+        // The OffPeak row is the price of a single off-peak register on a meter that has
+        // only that register. Charging a whole year's consumption at it, with a 10p
+        // standing charge, quoted £1,171 on a meter that would really pay £1,728 — and
+        // because it is the cheapest thing in the book, it won every time.
+        const rs = r.rate_structure;
+        const oneIsWhole = rs == null || rs === 'single' || rs === 'any';
         const single = u != null ? u : (d != null ? d : (nt != null ? nt : null));
-        if (single != null) {
+        if (single != null && oneIsWhole) {
           energy = aq * single / 100;
           basis = u != null ? 'single'
                 : 'single rate, given in the ' + (d != null ? 'day' : 'night') + ' column';
+        } else if (single != null) {
+          // A real price, for a meter shaped differently from this one. Dropped, not bent.
+          basis = null;
         }
       }
       const standing = (r.standing_charge_p_day || 0) * days / 100;
