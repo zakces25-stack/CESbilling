@@ -2271,8 +2271,16 @@ async function loadSscSuppliers() {
     // pricebook_rates_live, not pricebook_rates: only a LIVE book can reach a quote, so
     // only a live book can cost anyone a wrong one. Warning about a supplier whose SSC-keyed
     // pricebook was retired months ago would be noise.
-    const hit = await q(sb.from('pricebook_rates_live').select('supplier_key')
-                          .not('ssc', 'is', null).limit(2000), 'suppliers keyed by ssc');
+    //
+    // The DISTINCT happens in the database. This used to pull rate rows and de-duplicate
+    // here, asking for 2,000 of them — and PostgREST handed back exactly 1,000, because
+    // 1,000 is a server cap that a client .limit() cannot raise. The supplier list was then
+    // whatever suppliers happened to appear in an unordered thousand rows out of 340,000, so
+    // a supplier whose SSC rows all sat past the first thousand would SILENTLY never trigger
+    // the "this meter has no SSC" warning. That is the one thing this check exists to do,
+    // and it would have looked like it was working.
+    const hit = await q(sb.from('pricebook_ssc_suppliers').select('supplier_key'),
+                        'suppliers keyed by ssc');
     SSC_SUPPLIERS = [...new Set(hit.map(r => r.supplier_key))];
   } catch (e) {
     // Swallowing this silently would turn "we could not check" into "nothing to warn
@@ -2536,25 +2544,38 @@ async function aqRatesAt(aq, a, term, start) {
           + 'night_rate_p_kwh,sc_type,green')
     .eq('fuel', a.fuel).eq('quotable', true).eq('term_months', term)
     .not('aq_min', 'is', null)
-    .or(`aq_min.is.null,aq_min.lte.${aq}`)
-    .or(`aq_max.is.null,aq_max.gte.${aq}`)
+    // ── Ask with IN, not OR. Same rows, 76x less work. ───────────────────────────────
+    // A NULL on a rate row means "applies to anything", which used to be asked for as
+    // `(col IS NULL OR col = value)`. Postgres cannot index a disjunction, so this query
+    // heap-fetched 33,948 rows and threw away all but 43. The k_ columns are the same
+    // values with NULL spelled '*', so the same question becomes an IN list, which btree
+    // answers with a seek. Measured on CES's own failing query: 21,683 buffers -> 282.
+    //
+    // That is the fix for "it fails the first time and works after a hard refresh": warm,
+    // those 21,683 buffers cost 143ms, and cold off network storage they cost 8,316ms
+    // against the authenticated role's 8s limit. 282 buffers cannot get there.
+    //
+    // aq_min and aq_max are never independently null (checked: 0 rows either way across all
+    // 1,208,290), and aq_min is already asserted NOT NULL above, so the IS NULL halves of
+    // those two were dead weight that cost an index condition.
+    .lte('aq_min', aq)
+    .gte('aq_max', aq)
     .or(`start_date_min.is.null,start_date_min.lte.${start}`)
     .or(`start_date_max.is.null,start_date_max.gte.${start}`)
     .limit(1000);
   if (a.fuel === 'electricity') {
-    if (a.dno) sel = sel.or(`dno_id.is.null,dno_id.eq.${a.dno}`); else sel = sel.is('dno_id', null);
-    if (a.pc != null) sel = sel.or(`profile_class.is.null,profile_class.eq.${a.pc}`);
-    else sel = sel.is('profile_class', null);
-    sel = a.rate_structure
-      ? sel.or(`rate_structure.is.null,rate_structure.eq.${a.rate_structure},rate_structure.eq.any`)
-      : sel.or('rate_structure.is.null,rate_structure.eq.any');
-    if (a.tcr_band) sel = sel.or(`tcr_band.is.null,tcr_band.eq.${a.tcr_band}`);
-    else sel = sel.is('tcr_band', null);
-    if (a.ssc) sel = sel.or(`ssc.is.null,ssc.eq.${a.ssc}`); else sel = sel.is('ssc', null);
+    // Each line is a one-for-one translation of what was here before, so "a missing
+    // attribute must NARROW" still holds: unknown means '*' only, never "no filter".
+    sel = a.dno ? sel.in('k_dno', ['*', a.dno]) : sel.eq('k_dno', '*');
+    sel = a.pc != null ? sel.in('k_profile_class', ['*', String(a.pc)])
+                       : sel.eq('k_profile_class', '*');
+    sel = sel.in('k_rate_structure',
+      a.rate_structure ? ['*', a.rate_structure, 'any'] : ['*', 'any']);
+    sel = a.tcr_band ? sel.in('k_tcr_band', ['*', a.tcr_band]) : sel.eq('k_tcr_band', '*');
+    sel = a.ssc ? sel.in('k_ssc', ['*', a.ssc]) : sel.eq('k_ssc', '*');
   } else {
-    if (a.ldz) sel = sel.or(`ldz.is.null,ldz.eq.${a.ldz}`); else sel = sel.is('ldz', null);
-    if (a.exit_zone) sel = sel.or(`exit_zone.is.null,exit_zone.eq.${a.exit_zone}`);
-    else sel = sel.is('exit_zone', null);
+    sel = a.ldz ? sel.in('k_ldz', ['*', a.ldz]) : sel.eq('k_ldz', '*');
+    sel = a.exit_zone ? sel.in('k_exit_zone', ['*', a.exit_zone]) : sel.eq('k_exit_zone', '*');
   }
   const rows = await q(sel, `rates at ${aq.toLocaleString()} kWh`);
   // Sale type is DERIVED, as on the quote screen: only the incumbent can offer a renewal.
@@ -2600,13 +2621,20 @@ async function aqAnalyse() {
     const now = await aqRatesAt(aq, a, term, start);
     const here = aqBestBySupplier(now, aq, uplift);
 
-    // The band edges this meter is sitting between. One kWh past each is the next band.
-    const probes = new Set();
+    // ── The two band edges nearest this meter. Two probes, not twelve. ────────────────
+    // Every matched row used to contribute its own pair of edges. On CES's own capture that
+    // was 12 probes for one meter — including AQ 0 and AQ 500,001 on a 51,675 kWh site — and
+    // seven of them came back with the identical 43 rows. "One band up and one band down"
+    // means the NEAREST edge each way across all suppliers, which is what this takes.
+    const below = [], above = [];
     for (const { row } of here.values()) {
       const lo = Number(row.aq_min), hi = Number(row.aq_max);
-      if (lo > 0) probes.add(lo - 1);                        // one band down
-      if (hi < 9e7) probes.add(hi + 1);                      // one band up
+      if (lo > 0)    below.push(lo - 1);                     // one band down
+      if (hi < 9e7)  above.push(hi + 1);                     // one band up
     }
+    const probes = new Set();
+    if (below.length) probes.add(Math.max(...below));        // the closest step down
+    if (above.length) probes.add(Math.min(...above));        // the closest step up
     // ── All the probes at once, not one after another. ─────────────────────────────
     // This is why it failed the first time and worked after a refresh. A real meter
     // produces 8 to 13 band edges (worst measured 13), and they were being awaited in a
@@ -3061,20 +3089,30 @@ async function priceMeter() {
       // p/kWh shown where 26.7 was the only sellable rate for a start 82 days out.
       .or(`sell_days_min.is.null,sell_days_min.lte.${daysAhead}`)
       .or(`sell_days_max.is.null,sell_days_max.gte.${daysAhead}`)
-      .limit(8000);
+      // 1,000, not 8,000. PostgREST caps every response at 1,000 rows and a client .limit()
+      // cannot raise it, so asking for 8,000 only made the cap invisible: the matcher would
+      // quietly analyse a thousand of them and rank on a truncated set. Saying 1,000 means
+      // the guard below can tell a full page from a short one and say so.
+      .limit(1000);
 
+    // ── IN, not OR. See the note in aqRatesAt. ─────────────────────────────────────────
+    // Every line below is a one-for-one translation of the predicate that was here:
+    //     .or('x.is.null,x.eq.V')  ->  .in('k_x', ['*', V])
+    //     .is('x', null)           ->  .eq('k_x', '*')
+    //     no filter at all         ->  still no filter
+    // so nothing about WHICH rows match changes. The k_ columns are the same values with
+    // NULL spelled '*', which turns an unindexable disjunction into an index seek.
     if (METER.utility === 'electricity') {
-      if (dno) sel = sel.or(`dno_id.is.null,dno_id.eq.${dno}`);
-      if (METER.profile_class != null) sel = sel.or(`profile_class.is.null,profile_class.eq.${METER.profile_class}`);
+      if (dno) sel = sel.in('k_dno', ['*', dno]);
+      if (METER.profile_class != null) sel = sel.in('k_profile_class', ['*', String(METER.profile_class)]);
       // A missing attribute must NARROW the search, not remove the constraint. With the
       // rate structure unknown this used to accept every structure a supplier publishes,
       // and the cheapest of those is always the single-register oddity — an off-peak grid
       // priced for a meter that has only an off-peak register. Unknown now means: only
       // rows that do not care about the rate structure at all.
-      sel = METER.rate_structure
-        ? sel.or(`rate_structure.is.null,rate_structure.eq.${METER.rate_structure},rate_structure.eq.any`)
-        : sel.or('rate_structure.is.null,rate_structure.eq.any');
-      if (METER.tcr_band) sel = sel.or(`tcr_band.is.null,tcr_band.eq.${METER.tcr_band}`);
+      sel = sel.in('k_rate_structure',
+        METER.rate_structure ? ['*', METER.rate_structure, 'any'] : ['*', 'any']);
+      if (METER.tcr_band) sel = sel.in('k_tcr_band', ['*', METER.tcr_band]);
       // ── The SSC. TotalEnergies price electricity BY it. ────────────────────────────
       // Their product name says so outright: "YELG 2R B3 04_0153_2C" is PES area, 2-rate,
       // band 3, profile class 04, SSC 0153, LLFC 2C. With the SSC missing from the match,
@@ -3084,14 +3122,20 @@ async function priceMeter() {
       //
       // A NULL ssc on a rate row means "this supplier does not price by SSC", so those rows
       // must still match. Only rows that name an SSC are constrained.
-      if (METER.ssc) sel = sel.or(`ssc.is.null,ssc.eq.${METER.ssc}`);
-      else sel = sel.is('ssc', null);   // no SSC on the meter: refuse to guess. See below.
+      if (METER.ssc) sel = sel.in('k_ssc', ['*', METER.ssc]);
+      else sel = sel.eq('k_ssc', '*');   // no SSC on the meter: refuse to guess. See below.
     } else {
-      if (METER.exit_zone) sel = sel.or(`exit_zone.is.null,exit_zone.eq.${METER.exit_zone}`);
-      if (METER.ldz)       sel = sel.or(`ldz.is.null,ldz.eq.${METER.ldz}`);
+      if (METER.exit_zone) sel = sel.in('k_exit_zone', ['*', METER.exit_zone]);
+      if (METER.ldz)       sel = sel.in('k_ldz', ['*', METER.ldz]);
     }
 
     const raw = await q(sel, 'match rates');
+
+    // ── Say so if the match hit the ceiling. ───────────────────────────────────────────
+    // PostgREST stops at 1,000 rows. A full page means there may be rows it never sent, so
+    // the cheapest row on the screen is the cheapest of what arrived, not necessarily the
+    // cheapest that exists. That is a quote that could be wrong, so it must not be silent.
+    const CAPPED = raw.length >= 1000;
 
     // ── The sale-type gate. One line, and it is the whole rule. ─────────────────────────
     const wanted = (k) => (k === incumbent ? 'renewal' : 'acquisition');
@@ -3213,7 +3257,7 @@ async function priceMeter() {
 
     QUOTE = { shortlist, terms: [...new Set(shortlist.map(x => x.win.term_months))].sort((a,b)=>a-b),
               aq, uplift, dayPct, start, daysAhead, incumbent,
-              matched: rows.length, raw: raw.length,
+              matched: rows.length, raw: raw.length, capped: CAPPED,
               folded, droppedWrongSale, hidden: quotes.length - shortlist.length };
     QUOTE_TERM = QUOTE.terms[0];
     // Drop ticks whose quote is no longer in the results — a changed consumption or start
@@ -3397,6 +3441,11 @@ function renderQuotes() {
       charging band and were folded together.` : ''}
     ${Q.hidden ? `${Q.hidden.toLocaleString()} dearer products from the same suppliers are
       not shown; each row names the one it beat.` : ''}
+    ${Q.capped ? `<div class="note bad" style="margin-top:10px">
+      <b>This match hit the 1,000 row ceiling.</b> The database will not return more than
+      that in one go, so there may be rates it never sent and the cheapest row here is the
+      cheapest of what arrived. Narrow it — fewer terms, or a start date — and price again
+      before this quote goes to a customer.</div>` : ''}
     ${Q.droppedWrongSale ? `<div class="note" style="margin-top:10px">
       ${Q.droppedWrongSale.toLocaleString()} row${Q.droppedWrongSale === 1 ? ' was' : 's were'}
       the wrong sale type for this meter and never considered. ${Q.incumbent
