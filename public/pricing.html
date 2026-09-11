@@ -2514,7 +2514,19 @@ async function aqAnalyse() {
     msg.textContent = '';
   } catch (e) {
     $('aqCard').classList.remove('hide');
-    $('aqCurrent').innerHTML = `<div class="note bad">${esc(e.message)}</div>`;
+    // A bare "canceling statement due to statement timeout" tells the desk nothing about
+    // what to do. Say what it means and what usually clears it.
+    const slow = /timeout|cancel/i.test(e.message);
+    $('aqCurrent').innerHTML = `<div class="note bad">
+      ${slow ? `<b>That took too long to work out.</b> The database gives a request eight
+                seconds and this one ran out. It is usually because the analysis is being
+                asked to consider too much: fill in the distributor, profile class, register
+                structure, TCR band and SSC above and try again — each one narrows it. If it
+                keeps happening with everything filled in, tell me, because that is a query
+                that needs fixing rather than a meter that needs more detail.`
+             : esc(e.message)}
+      <div style="font-size:11px;color:var(--muted);margin-top:8px">${esc(e.message)}</div>
+    </div>`;
     $('aqBest').innerHTML = ''; $('aqTables').innerHTML = ''; $('aqNotes').innerHTML = '';
   } finally { btn.disabled = false; }
 }
