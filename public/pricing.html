@@ -680,6 +680,25 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
 const uk  = (d) => { if (!d) return '—'; const [y,m,dd] = String(d).slice(0,10).split('-'); return `${dd}/${m}/${y}`; };
 const n2  = (v,dp=2) => (v==null || v==='' ) ? '—' : Number(v).toFixed(dp);
 
+/**
+ * Gzip a blob in the browser, or null if this browser cannot.
+ *
+ * The archive copy of a pricebook is text and compresses about ten to one, which is the
+ * difference between TotalEnergies' 65.75 MB renewal file being rejected by the storage
+ * limit and it fitting comfortably. Returns null rather than throwing so the caller falls
+ * back to the raw bytes; CompressionStream is in every current browser but this is the one
+ * place where a missing API would cost an upload.
+ */
+async function gzipBlob(blob) {
+  try {
+    if (typeof CompressionStream !== 'function' || !blob || !blob.stream) return null;
+    const out = await new Response(
+      blob.stream().pipeThrough(new CompressionStream('gzip'))).blob();
+    // Compression that made it bigger means it was already compressed. Keep the original.
+    return (out && out.size && out.size < blob.size) ? out : null;
+  } catch (e) { console.warn('gzip unavailable, storing raw:', e.message); return null; }
+}
+
 let WHO = '';              // the person on the desk, for the audit trail
 let SUPPLIERS = [];
 let METER = null;          // the meter being priced
@@ -1347,12 +1366,28 @@ async function processOne(it) {
   // ── Store, register, parse, load, promote.
   const { data: { user } } = await sb.auth.getUser();
   uploadId = crypto.randomUUID();
-  const path = `${uploadId}/${it.name}`;
+  let path = null, storeNote = '';
   try {
     it.msg = 'storing…'; renderQueue();
-    const blob = it.file || new Blob([buf]);
-    const up = await sb.storage.from(BUCKET).upload(path, blob, { upsert: false });
-    if (up.error) throw new Error('storage: ' + up.error.message);
+    const raw = it.file || new Blob([buf]);
+    // Gzipped, because a pricebook is text and compresses about ten to one. TotalEnergies'
+    // renewal power file is 65.75 MB and was rejected outright — Supabase caps every bucket
+    // at the PROJECT's global file size limit, which on the free plan could not go above
+    // 50 MB whatever the bucket said. Gzip also stops this bucket doing what the rates table
+    // did: 249 MB of source files, not one of which anything has ever read back.
+    const stored = await gzipBlob(raw) || raw;
+    const gz = stored !== raw;
+    path = `${uploadId}/${it.name}${gz ? '.gz' : ''}`;
+    const up = await sb.storage.from(BUCKET)
+      .upload(path, stored, { upsert: false, contentType: gz ? 'application/gzip' : undefined });
+    if (up.error) {
+      // The rates are the product; this copy is a receipt. Refusing to load a 254,375-row
+      // pricebook because its archive copy would not fit is the wrong way round. Recorded on
+      // the row so it is visible in the ledger rather than silently skipped.
+      console.warn('archive copy not stored:', up.error.message);
+      storeNote = ` archive_not_stored=${String(up.error.message).slice(0, 120)}`;
+      path = null;
+    }
 
     await q(sb.from('pricebook_uploads').insert({
       id: uploadId, supplier_key: skey, fuel,
@@ -1362,7 +1397,7 @@ async function processOne(it) {
       file_sha256: fileSha, header_sha256: hSha,
       parser_key: supplier.parser_key, status: 'loading', uploaded_by: user.id,
       uploaded_by_name: WHO, parse_started_at: new Date().toISOString(),
-      notes: `sheets=${plan.map(p => p.name).join('|')} cols=${it.cols}`
+      notes: `sheets=${plan.map(p => p.name).join('|')} cols=${it.cols}${storeNote}`
     }), 'create upload');
 
     it.msg = 'parsing…'; renderQueue();
@@ -1413,18 +1448,24 @@ async function processOne(it) {
     // product because keying on (supplier, fuel) meant a REGO upload retired Standard.
     const live = await q(sb.rpc('pricebook_go_live', { p_upload: uploadId }), 'go live');
     const superseded = (live && live[0] && live[0].superseded) || 0;
-    const dropped   = (live && live[0] && live[0].rates_removed) || 0;
 
-    // Going live deletes the book it replaces. If that delete was interrupted — a big book
-    // is hundreds of thousands of rows — the old upload is already marked replaced, so the
-    // sweeper finishes it here rather than leaving the rows to sit there forever.
-    const swept = await sweepOrphanRates();
+    // Going live only re-labels the book it replaces; the rates come out here, batched.
+    // It used to delete them inside the same transaction, which meant a slow cleanup could
+    // roll back the promotion and veto a perfectly good upload.
+    it.msg = 'clearing the replaced book…'; renderQueue();
+    const swept = await sweepOrphanRates((done) => {
+      it.msg = `clearing the replaced book — ${done.toLocaleString()} rates…`; renderQueue();
+    });
+    // Its source file goes with it. Keeping the CSV a deleted book came from just moved the
+    // storage from the table to the bucket, which is where 76 MB was found sitting.
+    const sweptFiles = await sweepOrphanFiles();
 
     it.state = 'done';
     it.msg = `${rows.length.toLocaleString()} rates in ${((Date.now()-t0)/1000).toFixed(1)}s`
            + (superseded
               ? `, replaced the previous book and deleted its `
-                + `${(dropped + swept).toLocaleString()} rates`
+                + `${swept.toLocaleString()} rates`
+                + (sweptFiles.files ? ` and ${mb(sweptFiles.bytes)} of source files` : '')
               : `, nothing previous to replace`)
            + (refused ? `. ${refused.toLocaleString()} rows refused` : '');
     it.buf = null; it.file = null;      // let the workbook go
@@ -1563,13 +1604,40 @@ async function retire(id, purge, btn) {
     + `can no longer be explained. Retiring instead keeps the record.`)) return;
   btn.disabled = true; btn.textContent = '…';
   try {
+    // The RPC only flips the status now, which is one row. It used to do the whole delete
+    // in the same transaction, so on TotalEnergies' 338,250-row book the call died and took
+    // the status change down with it — the button went "…" and straight back to "Replace",
+    // every time, forever. Nothing large happens inside a request any more.
     const res = await q(sb.rpc('pricebook_retire', { p_upload: id, p_purge: !!purge }), 'retire');
     const r = (res && res[0]) || {};
-    loadLedger(); loadAdmin();
-    alert(`${r.action || 'done'} — ${(r.rates_removed || 0).toLocaleString()} rates deleted. `
-        + `Replacing a book now removes its rates too, not just its label.`);
-    loadStorage();
-  } catch (e) { btn.disabled = false; btn.textContent = purge ? 'Delete' : 'Replace'; fail($('ledgerErr'), e.message); }
+    const pending = Number(r.rates_pending) || 0;
+
+    // The rates come out here, in batches, with the count moving while it works.
+    let removed = 0;
+    if (pending) {
+      btn.textContent = `0 / ${pending.toLocaleString()}`;
+      removed = await sweepOrphanRates((done) => {
+        btn.textContent = `${done.toLocaleString()} / ${pending.toLocaleString()}`;
+      });
+    }
+    btn.textContent = 'files…';
+    const files = await sweepOrphanFiles();
+
+    loadLedger(); loadAdmin(); loadStorage();
+    alert(`${r.action || 'done'} — ${removed.toLocaleString()} rates deleted`
+        + (files.files ? ` and ${files.files} source file${files.files === 1 ? '' : 's'} `
+                       + `(${mb(files.bytes)})` : '')
+        + (removed < pending
+           ? `, ${(pending - removed).toLocaleString()} still to go. The Admin tab will `
+             + `finish them, and so will the next upload.`
+           : '.'));
+  } catch (e) {
+    btn.disabled = false; btn.textContent = purge ? 'Delete' : 'Replace';
+    fail($('ledgerErr'), e.message);
+    // The ledger error line sits under a table that may be scrolled away, and CES watched
+    // this button flick back to "Replace" with no visible reason more than once.
+    alert(`Could not ${purge ? 'delete' : 'replace'} this pricebook.\n\n${e.message}`);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -2715,6 +2783,44 @@ async function sweepOrphanRates(onProgress) {
   return total;
 }
 
+/**
+ * Delete the SOURCE FILE of a pricebook that can never be quoted again.
+ *
+ * The rates leak had a twin. Measured 11 Sep 2026: 34 files, 76 MB, belonging to books
+ * marked replaced or deleted, in a bucket nothing in the codebase has ever read back — the
+ * only mentions of it anywhere are the upload and the storage_path it writes. Deleting the
+ * rates and keeping the CSV they came from just moved where the storage went.
+ *
+ * storage_path is nulled only after the object is gone, so an interrupted sweep retries the
+ * same file next time rather than losing track of it.
+ */
+async function sweepOrphanFiles(onProgress) {
+  let total = 0, bytes = 0;
+  try {
+    const rows = await q(sb.from('pricebook_orphan_files')
+      .select('upload_id, storage_path, bytes').limit(500), 'orphan files');
+    if (!rows || !rows.length) return { files: 0, bytes: 0 };
+
+    const CHUNK = 50;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const slice = rows.slice(i, i + CHUNK);
+      const del = await sb.storage.from(BUCKET).remove(slice.map(r => r.storage_path));
+      if (del.error) { console.warn('could not remove pricebook files:', del.error.message); break; }
+      await q(sb.from('pricebook_uploads').update({ storage_path: null })
+        .in('id', slice.map(r => r.upload_id)), 'clear storage_path');
+      total += slice.length;
+      bytes += slice.reduce((a, r) => a + (Number(r.bytes) || 0), 0);
+      if (onProgress) onProgress(total, rows.length);
+    }
+  } catch (e) {
+    // Housekeeping never fails an upload.
+    console.warn('could not sweep replaced pricebook files:', e.message);
+  }
+  return { files: total, bytes };
+}
+
+const mb = (b) => !b ? '0 MB' : (Number(b) / 1048576).toFixed(1) + ' MB';
+
 /** What the pricebook tables are costing, so this cannot creep back unnoticed. */
 async function loadStorage() {
   const box = $('adminStorage');
@@ -2722,13 +2828,20 @@ async function loadStorage() {
   try {
     const rows = await q(sb.from('pricebook_storage').select('*').limit(1), 'storage');
     const d = (rows && rows[0]) || {};
-    const stale = Number(d.orphan_rates) || 0;
+    const staleRates = Number(d.orphan_rates) || 0;
+    const staleFiles = Number(d.orphan_files) || 0;
     box.innerHTML = `
       <b>${Number(d.live_rates || 0).toLocaleString()}</b> live rates across
       <b>${Number(d.live_uploads || 0)}</b> pricebooks, using <b>${esc(d.rates_size || '—')}</b>.
       Database <b>${esc(d.database_size || '—')}</b>.
-      ${stale
-        ? `<span class="pill p-fail">${stale.toLocaleString()} rates on replaced books</span>
+      Source files <b>${esc(d.files_size || '—')}</b>.
+      ${staleRates || staleFiles
+        ? `<span class="pill p-fail">`
+          + [staleRates ? `${staleRates.toLocaleString()} rates` : '',
+             staleFiles ? `${staleFiles} source file${staleFiles === 1 ? '' : 's'} `
+                        + `(${esc(d.orphan_file_size || '—')})` : '']
+            .filter(Boolean).join(' and ')
+          + ` on replaced books</span>
            <button class="act sm" style="margin-left:8px" onclick="sweepNow(this)">Delete them now</button>`
         : '<span class="pill p-ok">nothing stale</span>'}`;
   } catch (e) { box.innerHTML = `<span style="color:var(--muted)">${esc(e.message)}</span>`; }
@@ -2737,7 +2850,10 @@ async function loadStorage() {
 async function sweepNow(btn) {
   btn.disabled = true; btn.textContent = 'Deleting…';
   const n = await sweepOrphanRates((done) => { btn.textContent = `Deleting… ${done.toLocaleString()}`; });
-  btn.textContent = `Deleted ${n.toLocaleString()}`;
+  btn.textContent = 'Deleting files…';
+  const f = await sweepOrphanFiles();
+  btn.textContent = `Deleted ${n.toLocaleString()} rates`
+                  + (f.files ? ` and ${f.files} file${f.files === 1 ? '' : 's'} (${mb(f.bytes)})` : '');
   loadStorage();
 }
 
