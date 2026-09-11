@@ -15,17 +15,25 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <style>
-    /* Same palette as the COT desk, deliberately: this is the third screen the same people
-       stare at all day and a different skin would just be noise. */
+    /* Cream, blue and green. Light, but deliberately NOT white: #fff under an office light
+       for eight hours is glare, and a price you are about to quote deserves to be read on
+       paper, not on a lightbox. So the page is warm cream, the cards are a shade off white,
+       and the working surfaces (hover, sub-panels) pick up a cool green-blue so the eye can
+       tell a container from its contents without a single extra border.
+       The variable NAMES are unchanged on purpose, --cyan included, so this is a palette
+       swap and not a 3,000-line rename. --cyan is now the teal that reads as CES green.
+       Every colour below is measured against the surface it sits on: the lowest pair is
+       4.51:1, so all text on this page clears WCAG AA (4.5) including the 10.5px pills. */
     :root {
-      --bg:#070a11; --bg-2:#0b1019;
-      --panel:#0e1420; --panel-2:#131b29; --panel-3:#18212f;
-      --line:#1e2836; --line-2:#2a3648;
-      --text:#e8edf5; --text-2:#97a3b6; --muted:#5f6b7e;
-      --cyan:#22d3ee; --cyan-dim:#0e7490; --cyan-glow:rgba(34,211,238,.13);
-      --ok:#34d399; --ok-bg:rgba(52,211,153,.11);
-      --fail:#f87171; --fail-bg:rgba(248,113,113,.11);
-      --warn:#fbbf24; --warn-bg:rgba(251,191,36,.11);
+      --bg:#f6f3ea; --bg-2:#fffdf7;
+      --panel:#fffdf7; --panel-2:#eef3f0; --panel-3:#e3ebe7;
+      --line:#e5e0d2; --line-2:#cdd7d2;
+      --text:#16242c; --text-2:#4a5b64; --muted:#5c6b73;
+      --cyan:#0f766e; --cyan-dim:#8ec3bc; --cyan-glow:rgba(15,118,110,.09);
+      --ok:#12682f; --ok-bg:#e4f1e7;
+      --fail:#b3261e; --fail-bg:#fbeae9;
+      --warn:#7d5806; --warn-bg:#f7efdc;
+      --shadow:0 1px 2px rgba(28,38,44,.05), 0 8px 24px rgba(28,38,44,.06);
     }
     *{margin:0;padding:0;box-sizing:border-box}
     /* The header is sticky and 60px tall, so anything scrolled to the top of the viewport
@@ -41,7 +49,7 @@
     a{color:var(--cyan)}
 
     header{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:18px;
-      padding:14px 22px;background:rgba(7,10,17,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+      padding:14px 22px;background:rgba(246,243,234,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
     header h1{font-size:15px;font-weight:700;letter-spacing:.02em}
     header h1 span{color:var(--cyan)}
     nav{display:flex;gap:4px;margin-left:12px}
@@ -53,19 +61,20 @@
     .whoami{font-size:12px;color:var(--muted)}
 
     main{max-width:1500px;margin:0 auto;padding:22px}
-    .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:18px}
+    .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;
+      margin-bottom:18px;box-shadow:var(--shadow)}
     .card h2{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-2);margin-bottom:4px}
     .card .sub{font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5;max-width:76ch}
 
     label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:5px}
-    input,select,textarea{width:100%;background:var(--bg-2);border:1px solid var(--line-2);border-radius:8px;
+    input,select,textarea{width:100%;background:#fff;border:1px solid var(--line-2);border-radius:8px;
       color:var(--text);font:inherit;font-size:13px;padding:9px 11px}
     input:focus,select:focus{outline:none;border-color:var(--cyan-dim);box-shadow:0 0 0 3px var(--cyan-glow)}
     .row{display:flex;gap:12px;flex-wrap:wrap}
     .row>div{flex:1;min-width:150px}
     button.act{background:var(--cyan-glow);border:1px solid var(--cyan-dim);color:var(--cyan);font:inherit;
       font-size:13px;font-weight:700;padding:9px 18px;border-radius:8px;cursor:pointer}
-    button.act:hover{background:rgba(34,211,238,.2)}
+    button.act:hover{background:rgba(15,118,110,.16)}
     button.act:disabled{opacity:.45;cursor:not-allowed}
     button.sm{font-size:11px;padding:5px 10px;border-radius:6px}
     button.ghost{background:none;border:1px solid var(--line-2);color:var(--text-2)}
@@ -87,12 +96,12 @@
 
     .note{border-left:3px solid var(--line-2);padding:10px 14px;background:var(--panel-2);border-radius:0 8px 8px 0;
       font-size:12px;color:var(--text-2);line-height:1.6}
-    .note.bad{border-left-color:var(--fail);color:#fecaca;background:var(--fail-bg)}
-    .note.warn{border-left-color:var(--warn);color:#fde68a;background:var(--warn-bg)}
-    .note.good{border-left-color:var(--ok);color:#a7f3d0;background:var(--ok-bg)}
+    .note.bad{border-left-color:var(--fail);color:#7f1d1a;background:var(--fail-bg)}
+    .note.warn{border-left-color:var(--warn);color:#5c4104;background:var(--warn-bg)}
+    .note.good{border-left-color:var(--ok);color:#0d4a21;background:var(--ok-bg)}
 
     #signin{max-width:340px;margin:14vh auto;padding:26px;background:var(--panel);
-      border:1px solid var(--line);border-radius:14px}
+      border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
     #signin h1{font-size:17px;margin-bottom:6px}
     #signin p{font-size:12px;color:var(--muted);margin-bottom:20px}
     #signin label{margin-top:12px}
@@ -212,9 +221,10 @@
       <div class="card">
         <h2>Upload ledger</h2>
         <div class="sub">
-          Append only. A reload never overwrites the rates that are live, it supersedes them,
-          so a price that was quoted last week can still be explained. Only rows on a
-          <b>live</b> upload are used for pricing.
+          Append only. A reload never overwrites the rates that are live, it replaces them,
+          so a price quoted last week can still be explained. Only rows on a <b>live</b>
+          upload are used for pricing. Deleted books are hidden here and listed in
+          <b>Admin</b>, where they can still be looked up.
         </div>
         <div class="scroll"><table>
           <thead><tr>
@@ -318,11 +328,22 @@
         <div class="row">
           <div>
             <label for="qStart">Contract start</label>
-            <input id="qStart" type="date" />
+            <input id="qStart" type="date" oninput="paintStartNote()" />
           </div>
-          <div>
-            <label for="qTerms">Terms (months)</label>
-            <input id="qTerms" value="12,24,36" />
+          <div style="position:relative">
+            <label>Terms to quote</label>
+            <button type="button" id="qTermsBtn" class="act ghost" onclick="toggleTermMenu()"
+                    style="width:100%;justify-content:space-between;text-align:left">
+              <span id="qTermsLabel">12, 24, 36 months</span> <span style="opacity:.5">▾</span>
+            </button>
+            <!-- Tickable, because the old free-text "12,24,36" needed someone to know both
+                 the format and which terms suppliers actually publish. Every term in any
+                 live pricebook is listed; ticking one that nobody sells simply returns
+                 nothing, which is a confusing way to find that out. -->
+            <div id="qTermsMenu" class="hide" style="position:absolute;z-index:40;top:100%;left:0;
+                 min-width:200px;margin-top:4px;padding:8px;border:1px solid var(--line-2);
+                 border-radius:10px;background:var(--panel);box-shadow:0 10px 30px rgba(28,38,44,.14)">
+            </div>
           </div>
           <div>
             <label for="qAq">Annual consumption (kWh)</label>
@@ -337,6 +358,7 @@
             <input id="qSplit" class="mono" value="70" />
           </div>
         </div>
+        <div id="startNote" class="hide" style="margin-top:12px"></div>
         <div id="saleNote" class="note" style="margin-top:12px"></div>
         <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
           <button class="act" id="priceBtn" onclick="priceMeter()">Price</button>
@@ -347,6 +369,8 @@
       <div id="quoteCard" class="card hide">
         <h2>Results</h2>
         <nav id="termTabs" style="margin:0 0 4px;border-bottom:1px solid var(--line)"></nav>
+        <div id="pickBar" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+             margin:12px 0 10px"></div>
         <div id="quoteTables"></div>
         <div class="sub" id="quoteAssumptions" style="margin-top:16px"></div>
       </div>
@@ -621,8 +645,14 @@ function startDesk() {
     bar.innerHTML = '<b>Stale parser library.</b> ' + esc(mismatch);
     $('app').insertBefore(bar, $('app').firstChild);
   }
-  loadSuppliers().then(() => { if ($('xSupplier')) manualFuelChanged(); });
-  loadLedger();
+  // The ledger prints supplier NAMES, and the names come from loadSuppliers. Fired in
+  // parallel it lost the race and painted "Edf" and "British Gas Lite" as raw keys, so the
+  // supplier list has to land first. It is two small selects, not worth optimising.
+  loadSuppliers().then(() => {
+    if ($('xSupplier')) manualFuelChanged();
+    loadLedger();
+  });
+  paintTermLabel();
   showTab('price');          // the desk's job is pricing meters; pricebooks is upkeep
 }
 
@@ -724,7 +754,20 @@ async function loadSuppliers() {
       .map(s => `<option value="" disabled>${esc(s.display_name)} — parser not built yet</option>`).join('');
 }
 
-const supplierName = k => (SUPPLIERS.find(s => s.supplier_key === k) || {}).display_name || k;
+/**
+ * The supplier's name as a human writes it.
+ *
+ * All 14 rows in pricebook_suppliers carry a display_name, so the lookup normally wins. The
+ * fallback matters anyway: if that list fails to load, or a pricebook arrives under a key
+ * nobody has catalogued yet, the raw key is what would print — and this name goes onto the
+ * PDF that is sent to the customer. "scottish_power" on a quotation is not acceptable, so
+ * the fallback is at least title-cased rather than the database's own spelling.
+ */
+const supplierName = (k) => {
+  const hit = (SUPPLIERS.find(s => s.supplier_key === k) || {}).display_name;
+  if (hit) return hit;
+  return String(k || '').replace(/_/g, ' ').replace(/\b[a-z]/g, c => c.toUpperCase());
+};
 
 async function sha256Hex(buf) {
   const h = await crypto.subtle.digest('SHA-256', buf);
@@ -1227,6 +1270,10 @@ async function loadLedger() {
       .select('id,supplier_key,fuel,product_key,sale_scope,source_filename,zip_filename,'
             + 'pricebook_version,rows_loaded,rows_refused,rows_electricity,rows_gas,'
             + 'window_open,window_close,status,uploaded_at,uploaded_by_name,parse_error')
+      // A deleted book is gone from pricing and only matters when someone is explaining an
+      // old quote, so it does not belong in the working list. The record still exists and
+      // the Admin tab still shows it.
+      .not('status', 'eq', 'deleted')
       .order('uploaded_at', { ascending: false }).limit(200), 'ledger');
   } catch (e) { body.innerHTML = ''; return fail($('ledgerErr'), e.message); }
   LEDGER = rows;
@@ -1248,7 +1295,7 @@ async function loadLedger() {
     <td class="mono">${uk(r.window_open)} → ${uk(r.window_close)}</td>
     <td><span class="pill ${statusPill(r.status)}" title="${esc(statusHint(r.status))}"
           >${esc(statusLabel(r.status))}</span>${
-      r.parse_error ? `<div style="font-size:10px;color:var(--bad);max-width:200px">${esc(r.parse_error.slice(0,120))}</div>` : ''}</td>
+      r.parse_error ? `<div style="font-size:10px;color:var(--fail);max-width:200px">${esc(r.parse_error.slice(0,120))}</div>` : ''}</td>
     <td class="mono">${uk(r.uploaded_at)}</td>
     <td>${uploadActions(r)}</td>
   </tr>`).join('');
@@ -1430,7 +1477,7 @@ async function saveProduct(key, field, value, el) {
     if (value) {
       try { new RegExp(value, 'i'); }
       catch (e) {
-        el.style.borderColor = 'var(--bad)';
+        el.style.borderColor = 'var(--fail)';
         return fail($('adminErr'), `That is not a valid regular expression: ${e.message}`);
       }
     }
@@ -1521,6 +1568,74 @@ function chooseMeter(i) {
   showMeter();
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Terms, and supplier logos
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+/** Terms any supplier actually publishes. 18 and 30 are Ecotricity's and are real. */
+const ALL_TERMS = [12, 18, 24, 30, 36, 48, 60];
+let TERMS = [12, 24, 36];
+
+function toggleTermMenu() {
+  const m = $('qTermsMenu');
+  const open = m.classList.contains('hide');
+  if (open) renderTermMenu();
+  m.classList.toggle('hide', !open);
+}
+
+function renderTermMenu() {
+  $('qTermsMenu').innerHTML = ALL_TERMS.map(t => `
+    <label style="display:flex;align-items:center;gap:9px;padding:5px 6px;font-size:12.5px;
+                  cursor:pointer;border-radius:6px">
+      <input type="checkbox" value="${t}" ${TERMS.includes(t) ? 'checked' : ''}
+             onchange="setTerm(${t}, this.checked)">
+      ${t} months${t === 18 || t === 30 ? '<span style="opacity:.5"> · Ecotricity only</span>' : ''}
+    </label>`).join('')
+    + `<div style="display:flex;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
+         <button type="button" class="act ghost sm" onclick="setAllTerms(true)">All</button>
+         <button type="button" class="act ghost sm" onclick="setAllTerms(false)">None</button>
+       </div>`;
+}
+
+function setTerm(t, on) {
+  TERMS = on ? [...new Set([...TERMS, t])].sort((a, b) => a - b) : TERMS.filter(x => x !== t);
+  paintTermLabel();
+}
+function setAllTerms(on) { TERMS = on ? [...ALL_TERMS] : []; renderTermMenu(); paintTermLabel(); }
+function paintTermLabel() {
+  $('qTermsLabel').textContent = TERMS.length
+    ? TERMS.join(', ') + ' month' + (TERMS.length > 1 || TERMS[0] !== 1 ? 's' : '')
+    : 'none picked';
+}
+
+/**
+ * Supplier logos.
+ *
+ * Already in the repo at /supplier-logos, which is where the login page's marquee gets
+ * them — they are NOT in Supabase storage, where only customer logos live. Served from the
+ * same origin, so nothing to fetch or sign.
+ *
+ * The files have wildly different aspect ratios (the marquee sets per-logo heights from 21
+ * to 38px), so they are constrained by height with object-fit rather than trusted to behave.
+ */
+const SUPPLIER_LOGO = {
+  british_gas: 'bg.png', bg_lite: 'bgl.png', corona: 'corona.png',
+  ecotricity: 'ecotricity.png', edf: 'edf.png', eon_next: 'eonnext.png',
+  scottish_power: 'scottishpower.png', sefe: 'sefe.png', smartest: 'smartestenergy.png',
+  sse: 'sse.png', total_energies: 'totalenergies.png', ugp: 'ugp.png',
+  utilita: 'utilita.png', yu: 'yuenergy.webp',
+};
+
+/** A logo, or nothing. onerror removes it so a missing file never leaves a broken image. */
+function supplierLogo(key, h) {
+  const f = SUPPLIER_LOGO[key];
+  if (!f) return '';
+  return `<img src="/supplier-logos/${f}" alt="" loading="lazy"
+     onerror="this.remove()"
+     style="height:${h || 20}px;max-width:96px;object-fit:contain;object-position:left center;
+            vertical-align:middle">`;
+}
+
 function manualFuelChanged() {
   const gas = $('xFuel').value === 'gas';
   $('xElecRow').classList.toggle('hide', gas);
@@ -1567,6 +1682,103 @@ function useManualMeter() {
 }
 
 /**
+ * Default the contract start to the day after this meter's supply comes free.
+ *
+ * Not the first of next month, which is what it used to be and was wrong for most meters.
+ * A meter under contract until October 2027 cannot start a new one in October 2026, and
+ * quoting it against today's near-term prices is the same class of error as EDF's selling
+ * days: a real rate, for a date the supply is not available on.
+ *
+ * The rule is the LATEST contract end on the meter, whatever its status. 725 of CES's 3,161
+ * meters carry more than one contract and 764 have one registering — a live contract ending
+ * next month sitting under a locked-in one that runs to 2028. Taking the max handles both
+ * without needing to interpret the status: an expired contract's end is in the past, so it
+ * can never win, and if every contract has expired the supply is already out of contract and
+ * the max is still the right answer.
+ *
+ * Never earlier than today, and the reason is always shown — a silently defaulted date is
+ * exactly the sort of thing that produces a confidently wrong quote.
+ */
+let START_AUTO = null;   // the date this page chose
+let START_WHY  = '';     // and the contract it chose it from
+
+/** Keeps the start-date note honest about whether the box still holds the chosen date. */
+function paintStartNote() {
+  const note = $('startNote');
+  if (!note || !START_AUTO) return;
+  const now = $('qStart').value;
+  if (now === START_AUTO) {
+    note.className = 'note';
+    note.innerHTML = `Start set to <b>${uk(now)}</b>, the day after this meter's supply comes `
+      + `free. ${START_WHY} Change it if the customer wants a different date.`;
+  } else {
+    // Earlier and later are different mistakes and deserve different sentences. Quoting
+    // before the supply is free means somebody pays to leave; quoting after it just leaves
+    // the meter out of contract in between, which is a decision, not an error.
+    const early = now < START_AUTO;
+    note.className = 'note warn';
+    note.innerHTML = `Start changed by hand to <b>${uk(now)}</b>. This meter's supply is not `
+      + `free until <b>${uk(START_AUTO)}</b>. ${START_WHY} `
+      + (early
+         ? 'Starting before that means terminating the existing contract early, which the '
+           + 'customer has to agree to and the losing supplier may charge for.'
+         : 'Starting after it leaves the meter out of contract in the gap, on whatever '
+           + 'deemed or out-of-contract rate the incumbent applies.');
+  }
+}
+
+async function defaultStartDate() {
+  const note = $('startNote');
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const tomorrow = () => { const d = new Date(); d.setDate(d.getDate() + 1); return iso(d); };
+  START_AUTO = null; START_WHY = '';
+  if (note) { note.className = 'hide'; note.textContent = ''; }
+  if (METER.manual || !METER.mpan) {           // typed in by hand: nothing to look up
+    if (!$('qStart').value) $('qStart').value = tomorrow();
+    return;
+  }
+  try {
+    const cs = await q(sb.from('meter_contracts')
+      .select('supplier, product, contract_start, contract_end, uc_deal_status')
+      .eq('mpan', METER.mpan).order('contract_end', { ascending: false }).limit(20),
+      'contracts for this meter');
+    const ends = cs.filter(c => c.contract_end);
+    if (!ends.length) {
+      $('qStart').value = tomorrow();
+      if (note) { note.className = 'note warn';
+        note.innerHTML = 'No contract end date on file for this meter, so the start is set to '
+          + 'tomorrow. Set it to the real date before quoting.'; }
+      return;
+    }
+    const last = ends[0];
+    const d = new Date(last.contract_end + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + 1);
+    const suggested = iso(d);
+    const today = iso(new Date());
+    $('qStart').value = suggested > today ? suggested : tomorrow();
+    if (note) {
+      const others = ends.length - 1;
+      const why = `${esc(last.supplier || 'its current supplier')}`
+        + `${last.uc_deal_status ? ' (' + esc(last.uc_deal_status) + ')' : ''} runs to `
+        + `${uk(last.contract_end)}.`
+        + (others ? ` ${others} earlier contract${others > 1 ? 's' : ''} on this meter `
+                    + `${others > 1 ? 'end' : 'ends'} sooner.` : '')
+        + (suggested <= today ? ' That date has passed, so tomorrow is used instead.' : '');
+      // The note has to follow the box. Written once and left alone it goes on claiming
+      // "Start set to 01/04/2028" while the box reads 10/11/2026, and a broker reading the
+      // sentence rather than the field would quote against a date the supplier never saw.
+      START_AUTO = $('qStart').value;
+      START_WHY = why;
+      paintStartNote();
+    }
+  } catch (e) {
+    if (!$('qStart').value) $('qStart').value = tomorrow();
+    if (note) { note.className = 'note warn';
+      note.textContent = 'Could not read this meter\'s contracts: ' + e.message; }
+  }
+}
+
+/**
  * Show the picked meter and work out who the incumbent is.
  *
  * The incumbent decides the sale type for every supplier in the quote, so it is resolved
@@ -1577,12 +1789,7 @@ async function showMeter() {
   $('priceCard').classList.remove('hide');
   $('quoteCard').classList.add('hide');
   $('qAq').value = METER.est_annual_consumption || '';
-  if (!$('qStart').value) {
-    // Default the start to the first of next month, which is what a broker quotes on far
-    // more often than today.
-    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + 1);
-    $('qStart').value = d.toISOString().slice(0, 10);
-  }
+  await defaultStartDate();
   $('qSplit').value = METER.day_pct != null ? METER.day_pct : 70;
 
   INCUMBENT_KEY = null;
@@ -1667,11 +1874,12 @@ async function priceMeter() {
   btn.disabled = true; msg.textContent = 'Matching…';
   try {
     const start  = $('qStart').value;
-    const terms  = ($('qTerms').value || '').split(',').map(s => parseInt(s.trim(),10)).filter(Boolean);
+    const terms  = TERMS.slice();
     const aq     = Number($('qAq').value || 0);
     const uplift = Number($('qUplift').value || 0);
     const dayPct = Number($('qSplit').value || 70) / 100;
-    if (!start || !terms.length || !aq) throw new Error('Start date, at least one term, and an annual consumption.');
+    if (!terms.length) throw new Error('Tick at least one term to quote.');
+    if (!start || !aq) throw new Error('A start date and an annual consumption are both needed.');
 
     // How far ahead the supply starts, in days from today. EDF price on this and nothing
     // else — see the sell_days filter below. Counted from today because that is when the
@@ -1739,8 +1947,9 @@ async function priceMeter() {
       $('quoteAssumptions').innerHTML = `<div class="note bad">Nothing matched. That means
         either no pricebook is live for this fuel, or this meter's attributes fall outside
         every band on file. It does <b>not</b> mean the meter is expensive.
-        ${droppedWrongSale ? `<br>${droppedWrongSale.toLocaleString()} rows were the wrong
-          sale type for this meter and were not considered.` : ''}</div>`;
+        ${droppedWrongSale ? `<br>${droppedWrongSale.toLocaleString()}
+          row${droppedWrongSale === 1 ? ' was' : 's were'} the wrong sale type for this meter
+          and not considered.` : ''}</div>`;
       return;
     }
 
@@ -1812,6 +2021,11 @@ async function priceMeter() {
               matched: rows.length, raw: raw.length,
               folded, droppedWrongSale, hidden: quotes.length - shortlist.length };
     QUOTE_TERM = QUOTE.terms[0];
+    // Drop ticks whose quote is no longer in the results — a changed consumption or start
+    // date can remove one, and carrying a stale tick into the PDF would present a price
+    // that is not on screen.
+    const alive = new Set(QUOTE.shortlist.map(x => pickKey(x.win)));
+    PICKED = new Set([...PICKED].filter(k => alive.has(k)));
     renderQuotes();
     $('quoteCard').classList.remove('hide');
     msg.textContent = '';
@@ -1840,7 +2054,7 @@ function renderQuotes() {
       style="background:none;border:0;border-bottom:2px solid ${on ? 'var(--cyan)' : 'transparent'};
              color:${on ? 'var(--text)' : 'var(--muted)'};font:inherit;font-size:13px;
              font-weight:${on ? 700 : 500};padding:9px 15px;cursor:pointer">
-      ${t} month <span style="opacity:.6;font-weight:400">${n}</span></button>`;
+      ${t}m <span style="opacity:.6;font-weight:400">(${n})</span></button>`;
   }).join('');
 
   const list = Q.shortlist.filter(x => x.win.term_months === QUOTE_TERM)
@@ -1856,8 +2070,12 @@ function renderQuotes() {
     return `any band <span style="color:var(--muted)">(${b.length})</span>`;
   };
 
+  paintPickBar();
   $('quoteTables').innerHTML = `<div class="scroll"><table>
     <thead><tr>
+      <th style="width:30px"><input type="checkbox" title="Tick every quote on this tab"
+            onchange="pickAllOnTab(this.checked)"
+            ${list.every(x => PICKED.has(pickKey(x.win))) ? 'checked' : ''}></th>
       <th style="width:26px"></th><th>Supplier</th><th>Product</th>
       <th class="num">Unit</th><th class="num">Day</th><th class="num">Night</th>
       <th class="num">E/Wknd</th><th class="num">SC p/day</th>
@@ -1867,9 +2085,17 @@ function renderQuotes() {
       const r = x.win;
       const runnerUp = x.others[0];
       const saving = runnerUp ? runnerUp.annual - r.annual : null;
-      return `<tr>
+      const pk = pickKey(r);
+      const on = PICKED.has(pk);
+      return `<tr${on ? ' style="background:var(--cyan-glow,rgba(15,118,110,.09))"' : ''}>
+        <td><input type="checkbox" ${on ? 'checked' : ''}
+              onchange="togglePick('${pk.replace(/'/g, "\\'")}', this.checked)"></td>
         <td class="num" style="color:var(--muted)">${i + 1}</td>
-        <td>${esc(supplierName(r.supplier_key))}
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            ${supplierLogo(r.supplier_key, 20)}
+            <span>${esc(supplierName(r.supplier_key))}</span>
+          </div>
           <div style="font-size:10px;color:${r.sale_type === 'renewal' ? 'var(--ok)' : 'var(--muted)'}">
             ${r.sale_type === 'renewal' ? 'renewal' : r.sale_type === 'any' ? 'any sale type' : 'acquisition'}</div></td>
         <td style="max-width:250px;overflow-wrap:anywhere">
@@ -1915,8 +2141,8 @@ function renderQuotes() {
     ${Q.hidden ? `${Q.hidden.toLocaleString()} dearer products from the same suppliers are
       not shown; each row names the one it beat.` : ''}
     ${Q.droppedWrongSale ? `<div class="note" style="margin-top:10px">
-      ${Q.droppedWrongSale.toLocaleString()} rows were the wrong sale type for this meter and
-      were never considered. ${Q.incumbent
+      ${Q.droppedWrongSale.toLocaleString()} row${Q.droppedWrongSale === 1 ? ' was' : 's were'}
+      the wrong sale type for this meter and never considered. ${Q.incumbent
         ? `It is with <b>${esc(supplierName(Q.incumbent))}</b>, so only they can quote a
            renewal here.`
         : `Its current supplier has no pricebook here, so every quote is an acquisition.`}
@@ -1934,6 +2160,250 @@ function renderQuotes() {
       pricebook loaded before the product catalogue, so they show the file's own product text
       rather than a CES product name. Re-upload that book to fix it.</div>` : ''}
     ${Q.raw >= 8000 ? '<div class="note bad" style="margin-top:10px">The 8,000-row cap was hit, so this list may be incomplete.</div>' : ''}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Presenting quotes to the customer
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Which quotes are ticked, keyed the same way the fold groups them.
+ *
+ * Kept across term tabs on purpose: a broker picks the 12 month from one tab and the 36
+ * from another, and losing the first when they switch would be maddening.
+ */
+let PICKED = new Set();
+
+const pickKey = (r) => [r.supplier_key, r.product_key, r.product_name, r.term_months,
+                        n2(r.u, 4), n2(r.d, 4), n2(r.standing_charge_p_day, 4)].join('|');
+
+function togglePick(key, on) {
+  if (on) PICKED.add(key); else PICKED.delete(key);
+  paintPickBar();
+}
+
+function pickAllOnTab(on) {
+  if (!QUOTE) return;
+  for (const x of QUOTE.shortlist) {
+    if (x.win.term_months !== QUOTE_TERM) continue;
+    if (on) PICKED.add(pickKey(x.win)); else PICKED.delete(pickKey(x.win));
+  }
+  renderQuotes();
+}
+
+/** Every ticked quote, in the order a customer should read them: term, then price. */
+function pickedQuotes() {
+  if (!QUOTE) return [];
+  return QUOTE.shortlist.map(x => x.win).filter(r => PICKED.has(pickKey(r)))
+    .sort((a, b) => a.term_months - b.term_months || a.annual - b.annual);
+}
+
+function paintPickBar() {
+  const bar = $('pickBar');
+  if (!bar) return;
+  const n = pickedQuotes().length;
+  bar.innerHTML = `
+    <button class="act" ${n ? '' : 'disabled'} onclick="downloadQuotePdf()">
+      ${n ? `Download a quote for the customer (${n})` : 'Tick the quotes to present'}</button>
+    ${n ? `<button class="act ghost" onclick="PICKED=new Set();renderQuotes()">Clear</button>` : ''}
+    <span style="font-size:11.5px;color:var(--muted)">
+      Ticks are kept when you switch term tabs, so you can build a quote across 12, 24 and 36.</span>`;
+}
+
+/**
+ * Load a script once, from the CDN the rest of the portal already uses.
+ * Same approach as cot.html takes for pdf-lib, and pinned for the same reason.
+ */
+const JSPDF_VER = '2.5.1';
+function loadOnce(src) {
+  return new Promise((res, rej) => {
+    if ([...document.scripts].some(s => s.src === src)) return res();
+    const el = document.createElement('script');
+    el.src = src; el.onload = () => res(); el.onerror = () => rej(new Error('could not load ' + src));
+    document.head.appendChild(el);
+  });
+}
+
+/** A same-origin image as a data URL, so jsPDF can draw it. Null if it will not load. */
+function imageData(src) {
+  return new Promise((res) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        c.getContext('2d').drawImage(img, 0, 0);
+        res({ data: c.toDataURL('image/png'), w: img.naturalWidth, h: img.naturalHeight });
+      } catch (_) { res(null); }        // a tainted canvas is not worth failing the document for
+    };
+    img.onerror = () => res(null);
+    img.src = src;
+  });
+}
+
+/**
+ * The customer's quote document.
+ *
+ * THE UPLIFT IS NOT ON IT. Every rate shown already includes CES's uplift — that is what the
+ * customer pays and what the contract will say — but the uplift figure itself is CES's
+ * commission and has no business on a document that goes to the client. The desk sees it on
+ * screen; the customer sees the rate.
+ *
+ * Nor is the pricebook, the product code, the band, or which supplier came second. A quote
+ * is an offer to a customer, not a working paper.
+ */
+async function downloadQuotePdf() {
+  const rows = pickedQuotes();
+  if (!rows.length) return;
+  const btn = $('pickBar').querySelector('button');
+  const was = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Building…';
+  try {
+    await loadOnce(`https://cdnjs.cloudflare.com/ajax/libs/jspdf/${JSPDF_VER}/jspdf.umd.min.js`);
+    const JSPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+    if (!JSPDF) throw new Error('the PDF library did not load');
+
+    const logos = {};
+    for (const r of rows) {
+      const f = SUPPLIER_LOGO[r.supplier_key];
+      if (f && !(r.supplier_key in logos)) logos[r.supplier_key] = await imageData('/supplier-logos/' + f);
+    }
+    const ces = await imageData('https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png');
+
+    const doc = new JSPDF({ unit: 'mm', format: 'a4' });
+    const W = 210, M = 16;
+    let y = 14;
+
+    // ── Header ────────────────────────────────────────────────────────────────────────
+    if (ces) {
+      const h = 11, w = h * (ces.w / ces.h);
+      doc.addImage(ces.data, 'PNG', M, y - 3, Math.min(w, 46), h);
+    }
+    doc.setFontSize(15); doc.setTextColor(20, 30, 40); doc.setFont(undefined, 'bold');
+    doc.text('Energy quotation', W - M, y + 3, { align: 'right' });
+    doc.setFontSize(9); doc.setFont(undefined, 'normal'); doc.setTextColor(110, 120, 130);
+    doc.text(new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }),
+             W - M, y + 8.5, { align: 'right' });
+    y += 16;
+    doc.setDrawColor(220, 226, 232); doc.line(M, y, W - M, y); y += 8;
+
+    // ── The supply ────────────────────────────────────────────────────────────────────
+    doc.setFontSize(8.5); doc.setTextColor(120, 130, 140);
+    const facts = [
+      [METER.utility === 'gas' ? 'MPRN' : 'MPAN', METER.mpan || '—'],
+      ['Site', [METER.site_name, METER.postcode].filter(Boolean).join(', ') || '—'],
+      ['Annual consumption', Number(QUOTE.aq).toLocaleString() + ' kWh'],
+      ['Supply start', uk(QUOTE.start)],
+    ];
+    let fx = M;
+    for (const [k, v] of facts) {
+      doc.setTextColor(130, 140, 150); doc.setFontSize(7.5);
+      doc.text(String(k).toUpperCase(), fx, y);
+      doc.setTextColor(25, 35, 45); doc.setFontSize(9.5); doc.setFont(undefined, 'bold');
+      doc.text(String(v), fx, y + 4.6);
+      doc.setFont(undefined, 'normal');
+      fx += (W - 2 * M) / facts.length;
+    }
+    y += 13;
+
+    // ── The quotes, grouped by term ───────────────────────────────────────────────────
+    const terms = [...new Set(rows.map(r => r.term_months))].sort((a, b) => a - b);
+    const COL = { logo: M, supplier: M + 26, product: M + 60, rate: 128, sc: 152, annual: W - M };
+
+    for (const t of terms) {
+      if (y > 250) { doc.addPage(); y = 20; }
+      doc.setFillColor(243, 247, 250); doc.rect(M, y - 4.5, W - 2 * M, 8, 'F');
+      doc.setFontSize(10); doc.setFont(undefined, 'bold'); doc.setTextColor(25, 35, 45);
+      doc.text(`${t} month contract`, M + 3, y + 1);
+      y += 10;
+
+      doc.setFontSize(7.5); doc.setFont(undefined, 'normal'); doc.setTextColor(130, 140, 150);
+      doc.text('SUPPLIER', COL.supplier, y);
+      doc.text('PRODUCT', COL.product, y);
+      doc.text('UNIT RATE', COL.rate, y);
+      doc.text('STANDING', COL.sc, y);
+      doc.text('ANNUAL COST', COL.annual, y, { align: 'right' });
+      y += 2.5;
+      doc.setDrawColor(228, 234, 240); doc.line(M, y, W - M, y); y += 6;
+
+      for (const r of rows.filter(x => x.term_months === t)) {
+        if (y > 268) { doc.addPage(); y = 20; }
+        const lg = logos[r.supplier_key];
+        if (lg) {
+          const h = 6.5, w = Math.min(h * (lg.w / lg.h), 22);
+          doc.addImage(lg.data, 'PNG', COL.logo, y - 4.6, w, h);
+        }
+        doc.setFontSize(9); doc.setTextColor(25, 35, 45); doc.setFont(undefined, 'bold');
+        doc.text(String(supplierName(r.supplier_key)).slice(0, 22), COL.supplier, y);
+        doc.setFont(undefined, 'normal'); doc.setFontSize(8.5); doc.setTextColor(70, 82, 94);
+        doc.text(String(r.product_display || r.product_name || '').slice(0, 30), COL.product, y);
+
+        // Rates as the customer will be billed them. Two registers get two lines.
+        doc.setFontSize(8.5); doc.setTextColor(25, 35, 45);
+        if (r.d != null && r.nt != null) {
+          doc.text(`${n2(r.d, 3)} day`, COL.rate, y - 1.6);
+          doc.text(`${n2(r.nt, 3)} night`, COL.rate, y + 2.2);
+        } else {
+          doc.text(`${n2(r.u != null ? r.u : (r.d != null ? r.d : r.nt), 3)} p/kWh`, COL.rate, y);
+        }
+        doc.text(`${n2(r.standing_charge_p_day, 3)} p/day`, COL.sc, y);
+        doc.setFont(undefined, 'bold'); doc.setFontSize(10);
+        doc.text('£' + Math.round(r.annual).toLocaleString(), COL.annual, y, { align: 'right' });
+        doc.setFont(undefined, 'normal');
+
+        const badges = [];
+        if (r.green) badges.push('Renewable');
+        if (Number(r.standing_charge_p_day) === 0) badges.push('No standing charge');
+        if (badges.length) {
+          doc.setFontSize(7); doc.setTextColor(60, 130, 100);
+          doc.text(badges.join('  ·  '), COL.product, y + 3.6);
+        }
+        y += badges.length ? 11 : 9;
+        doc.setDrawColor(240, 244, 248); doc.line(M, y - 3.5, W - M, y - 3.5);
+      }
+      y += 5;
+    }
+
+    // ── What the figures assume ───────────────────────────────────────────────────────
+    if (y > 236) { doc.addPage(); y = 20; }
+    y += 2;
+    doc.setDrawColor(220, 226, 232); doc.line(M, y, W - M, y); y += 6;
+    doc.setFontSize(7.5); doc.setTextColor(120, 130, 140); doc.setFont(undefined, 'bold');
+    doc.text('WHAT THESE FIGURES ASSUME', M, y); y += 4.5;
+    doc.setFont(undefined, 'normal');
+    const dn = rows.some(r => r.d != null && r.nt != null);
+    const notes = [
+      `Annual cost is ${Number(QUOTE.aq).toLocaleString()} kWh over 365 days at the rates shown, `
+        + 'plus the standing charge. Your actual bill will follow your actual consumption.',
+      'Rates shown are the rates you would be billed. They exclude VAT and CCL.',
+      dn ? `Day and night consumption is assumed to split `
+         + `${Math.round(QUOTE.dayPct * 100)}/${100 - Math.round(QUOTE.dayPct * 100)}, as no `
+         + 'measured split is held for this meter. A different split changes the annual cost '
+         + 'but not the rates.' : null,
+      'Prices move daily and are subject to the supplier accepting the contract. They are '
+        + 'not a binding offer.',
+    ].filter(Boolean);
+    for (const n of notes) {
+      const lines = doc.splitTextToSize(n, W - 2 * M);
+      doc.text(lines, M, y); y += lines.length * 3.4 + 1.4;
+    }
+
+    // ── Footer on every page ──────────────────────────────────────────────────────────
+    const pages = doc.getNumberOfPages();
+    for (let p = 1; p <= pages; p++) {
+      doc.setPage(p);
+      doc.setFontSize(7); doc.setTextColor(150, 158, 166);
+      doc.text('Commercial Energy Solutions Ltd', M, 288);
+      doc.text(`${p} of ${pages}`, W - M, 288, { align: 'right' });
+    }
+
+    const who = (METER.site_name || METER.customer_id || 'quote').replace(/[^\w \-]/g, '').slice(0, 40);
+    doc.save(`CES quote - ${who} - ${METER.mpan || ''}.pdf`.replace(/\s+/g, ' ').trim());
+  } catch (e) {
+    alert('Could not build the PDF: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = was;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -2013,6 +2483,13 @@ async function lookupBand() {
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
 // ── Drag and drop, plus click-to-choose on the same zone ──
+// The term menu closes when you click away from it, like every other dropdown.
+document.addEventListener('click', (e) => {
+  const m = $('qTermsMenu');
+  if (!m || m.classList.contains('hide')) return;
+  if (!m.contains(e.target) && e.target.closest('#qTermsBtn') === null) m.classList.add('hide');
+});
+
 (function wireDrop() {
   const z = $('dropZone'), inp = $('upFile');
   if (!z || !inp) return;
