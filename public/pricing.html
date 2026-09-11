@@ -34,6 +34,7 @@
       --fail:#b3261e; --fail-bg:#fbeae9;
       --warn:#7d5806; --warn-bg:#f7efdc;
       --shadow:0 1px 2px rgba(28,38,44,.05), 0 8px 24px rgba(28,38,44,.06);
+      --field-h:35px;
     }
     *{margin:0;padding:0;box-sizing:border-box}
     /* The header is sticky and 60px tall, so anything scrolled to the top of the viewport
@@ -69,6 +70,11 @@
     label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:5px}
     input,select,textarea{width:100%;background:#fff;border:1px solid var(--line-2);border-radius:8px;
       color:var(--text);font:inherit;font-size:13px;padding:9px 11px}
+    /* One height for every control that sits in a field row. A <button> and an <input> with
+       identical padding and font still differ by about 2px, because an input's content box
+       is the font's own height while a flex button's is its tallest child — and the ▾ glyph
+       is taller than the label. Naming the height is the only way the two cannot drift. */
+    input:not([type=checkbox]),select,.fieldlike{height:var(--field-h)}
     input:focus,select:focus{outline:none;border-color:var(--cyan-dim);box-shadow:0 0 0 3px var(--cyan-glow)}
     .row{display:flex;gap:12px;flex-wrap:wrap}
     .row>div{flex:1;min-width:150px}
@@ -273,13 +279,14 @@
                 <option value="gas">Gas</option>
               </select></div>
             <div><label for="xId">MPAN / MPRN</label>
-              <input id="xId" class="mono" placeholder="1900006321054" /></div>
+              <input id="xId" class="mono" placeholder="1900006321054" oninput="autofillDno()" /></div>
             <div><label for="xAq">Annual consumption (kWh)</label>
               <input id="xAq" class="mono" placeholder="40000" /></div>
           </div>
           <div class="row" id="xElecRow">
             <div><label for="xDno">Distributor</label>
-              <input id="xDno" class="mono" placeholder="from the MPAN" /></div>
+              <input id="xDno" class="mono" placeholder="from the MPAN"
+                     oninput="this.dataset.typed = this.value ? '1' : ''" /></div>
             <div><label for="xPc">Profile class</label>
               <select id="xPc">
                 <option value="">unknown</option>
@@ -300,14 +307,16 @@
                 <option value="band_3">Band 3</option><option value="band_4">Band 4</option>
               </select></div>
           </div>
-          <div class="row hide" id="xGasRow">
+          <div class="row" id="xGasRow">
+            <div><label for="xPostcode">Site postcode</label>
+              <input id="xPostcode" class="mono" placeholder="HD6 1QF" oninput="autofillZones()" /></div>
             <div><label for="xLdz">LDZ</label>
               <input id="xLdz" class="mono" placeholder="EA" /></div>
             <div><label for="xZone">Exit zone</label>
               <input id="xZone" class="mono" placeholder="EA1" /></div>
             <div style="flex:2;display:flex;align-items:flex-end">
-              <div style="font-size:11.5px;color:var(--muted)">
-                Look either up from a postcode on the Reference tab.</div></div>
+              <div id="xZoneNote" style="font-size:11.5px;color:var(--muted)">
+                Type the full postcode and the LDZ and exit zone fill themselves.</div></div>
           </div>
           <div class="row">
             <div style="flex:2"><label for="xSupplier">Current supplier</label>
@@ -332,8 +341,11 @@
           </div>
           <div style="position:relative">
             <label>Terms to quote</label>
-            <button type="button" id="qTermsBtn" class="act ghost" onclick="toggleTermMenu()"
-                    style="width:100%;justify-content:space-between;text-align:left">
+            <button type="button" id="qTermsBtn" class="fieldlike" onclick="toggleTermMenu()"
+                    style="width:100%;display:flex;align-items:center;justify-content:space-between;
+                           gap:8px;background:#fff;border:1px solid var(--line-2);border-radius:8px;
+                           color:var(--text);font:inherit;font-size:13px;font-weight:400;
+                           padding:0 11px;text-align:left;cursor:pointer">
               <span id="qTermsLabel">12, 24, 36 months</span> <span style="opacity:.5">▾</span>
             </button>
             <!-- Tickable, because the old free-text "12,24,36" needed someone to know both
@@ -363,6 +375,13 @@
         <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
           <button class="act" id="priceBtn" onclick="priceMeter()">Price</button>
           <span id="priceMsg" style="font-size:12px;color:var(--muted)"></span>
+        </div>
+        <div style="margin-top:16px;padding:12px 14px;border:1px solid var(--line-2);
+                    border-radius:10px;background:var(--panel-2)">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;
+                      letter-spacing:.06em;color:var(--text-2);margin-bottom:8px">
+            What they pay now</div>
+          <div id="currentBox"></div>
         </div>
       </div>
 
@@ -543,7 +562,7 @@
  * So the two files check each other. Bump BOTH strings together whenever a parser change
  * alters what a rate means.
  */
-const EXPECTS_PARSERS = '2026-09-10.1';
+const EXPECTS_PARSERS = '2026-09-11.1';
 
 const SUPABASE_URL  = 'https://niadffxpxdohglcyagau.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pYWRmZnhweGRvaGdsY3lhZ2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3Mzc3MTksImV4cCI6MjA5NDMxMzcxOX0.x22Zh9O408PGfcPZ6rgu-a4B7WTbyH8iyT_ysr-IfIs';
@@ -874,6 +893,20 @@ const productLabel = p => !p ? '—'
  * exception and are named as such, because JSZip cannot read them at all and a silently
  * empty queue would look like the feature is broken.
  */
+/**
+ * Supplier archives the desk can open by itself.
+ *
+ * `skip` runs on the member name BEFORE anything is decrypted or inflated, so a skipped
+ * file costs nothing at all.
+ */
+const KNOWN_ARCHIVES = [
+  { label: 'E.ON Next',
+    match: /(^|[^a-z])sme_pricebook.*\.zip$/i,
+    password: '0wBFk4FBMXu0Tpab',
+    skip: (name) => /_NC\.csv$/i.test(name),
+    skipWhy: 'new connection pricebooks, which CES does not quote' },
+];
+
 async function addFiles(list) {
   const files = [...list];
   if (!files.length) return;
@@ -883,6 +916,37 @@ async function addFiles(list) {
 
   for (const f of files) {
     if (/\.zip$/i.test(f.name)) {
+      // ── A supplier archive we already know how to open. ────────────────────────────
+      // E.ON Next password-protect their SME pricebook. The password is not a secret: it
+      // is on their broker portal and it is the same for every TPI, so it lives here
+      // rather than being typed in every month.
+      //
+      // Their zip is legacy ZipCrypto, which JSZip cannot read at all — hence readZip in
+      // pricing-parsers.js. The NEW CONNECTION members are skipped before they are even
+      // decrypted: three of the nine files, about 3 MB of CSV for supplies CES does not
+      // quote, against a 500 MB storage plan.
+      const known = KNOWN_ARCHIVES.find(a => a.match.test(f.name));
+      if (known) {
+        try {
+          const { files: members, skipped } = await PricingParsers.readZip(await f.arrayBuffer(),
+            { password: known.password, skip: known.skip });
+          for (const m of members) {
+            QUEUE.push({ id: crypto.randomUUID(), name: baseName(m.name), zipName: f.name,
+              size: m.bytes.byteLength, buf: m.bytes.buffer.slice(m.bytes.byteOffset,
+                                                                 m.bytes.byteOffset + m.bytes.byteLength),
+              isCsv: /\.csv$/i.test(m.name), state: 'queued' });
+          }
+          if (skipped.length) {
+            QUEUE.push({ id: crypto.randomUUID(), name: `${skipped.length} skipped`,
+              zipName: f.name, state: 'skipped',
+              msg: `${known.skipWhy} — ${skipped.map(baseName).join(', ')}` });
+          }
+        } catch (e) {
+          QUEUE.push({ id: crypto.randomUUID(), name: f.name, state: 'error',
+            msg: `could not open the ${known.label} archive: ${e.message}` });
+        }
+        continue;
+      }
       if (typeof JSZip === 'undefined') {
         QUEUE.push({ id: crypto.randomUUID(), name: f.name, state: 'error',
           msg: 'the zip reader did not load, so extract this one by hand' });
@@ -944,7 +1008,8 @@ async function addFiles(list) {
 function rescanQueue() {
   const skey = $('upSupplier').value;
   for (const it of QUEUE) {
-    if (it.state === 'done' || it.state === 'busy' || it.state === 'error') continue;
+    if (it.state === 'done' || it.state === 'busy' || it.state === 'error'
+        || it.state === 'skipped') continue;
     if (!skey) { it.state = 'queued'; it.product = null; it.msg = 'choose the supplier'; continue; }
     if (it.forced && it.product) continue;     // a hand-picked product survives a rescan
     it.product = matchProduct(it.name, skey);
@@ -972,14 +1037,17 @@ function renderQueue() {
   const skey = $('upSupplier').value;
   const ready = QUEUE.filter(i => i.state === 'queued' && i.product).length;
   const pill = s => ({ queued:'p-mute', busy:'p-warn', done:'p-ok', error:'p-fail',
-                       blocked:'p-mute', unrouted:'p-fail', layout:'p-fail' }[s] || 'p-mute');
+                       blocked:'p-mute', unrouted:'p-fail', layout:'p-fail',
+                       skipped:'p-mute' }[s] || 'p-mute');
   const word = s => ({ queued:'ready', busy:'working', done:'live', error:'failed',
-                       blocked:'skipped', unrouted:'no match', layout:'new layout' }[s] || s);
+                       blocked:'skipped', unrouted:'no match', layout:'new layout',
+                       skipped:'not loaded' }[s] || s);
 
   const rows = QUEUE.map(it => `<tr>
     <td style="max-width:300px;overflow-wrap:anywhere">${esc(it.name)}
       ${it.zipName ? `<div style="font-size:10.5px;color:var(--muted)">from ${esc(it.zipName)}</div>` : ''}</td>
-    <td>${skey ? `<select onchange="forceProduct('${it.id}',this.value)"
+    <td>${it.state === 'skipped' ? '<span style="color:var(--muted)">not uploaded</span>'
+      : skey ? `<select onchange="forceProduct('${it.id}',this.value)"
            style="font-size:11.5px;padding:4px 6px;max-width:230px"
            ${it.state === 'done' || it.state === 'busy' ? 'disabled' : ''}>
            <option value="">${it.product ? '— keep ' + esc(it.product.display_name) + ' —' : 'choose a product…'}</option>
@@ -1565,7 +1633,7 @@ async function findMeters() {
 
 function chooseMeter(i) {
   METER = window.__FOUND[i];
-  showMeter();
+  fillMeterGaps().catch(() => showMeter());
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -1668,6 +1736,7 @@ function useManualMeter() {
     profile_class: gas ? null : (parseInt($('xPc').value, 10) || null),
     rate_structure: gas ? 'single' : ($('xStruct').value || null),
     rate_structure_src: 'typed',
+    postcode: ($('xPostcode') && $('xPostcode').value.trim().toUpperCase()) || null,
     tcr_band: gas ? null : ($('xBand').value || null),
     tcr_band_src: null,
     llfc: null,
@@ -1678,7 +1747,7 @@ function useManualMeter() {
     contract_end_date: null,
     priceable: null, manual: true,
   };
-  showMeter();
+  fillMeterGaps().catch(() => showMeter());
   $('priceCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -1726,6 +1795,211 @@ function paintStartNote() {
          : 'Starting after it leaves the meter out of contract in the gap, on whatever '
            + 'deemed or out-of-contract rate the incumbent applies.');
   }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Filling in what can be worked out
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The distributor is the first two digits of the MPAN core. There is no lookup and no
+ * ambiguity, so asking somebody to type it is asking them to make a mistake.
+ *
+ * Only 10-28 are real: 10-23 the DNOs, 24-28 the independent networks. Anything else means
+ * the number in the box is not an MPAN core, and saying so beats filling in nonsense.
+ */
+function autofillDno() {
+  const box = $('xDno');
+  if (!box || box.dataset.typed === '1') return;      // never fight someone who typed one
+  const digits = ($('xId').value || '').replace(/\D/g, '');
+  if (digits.length < 2) { box.value = ''; return; }
+  const dno = digits.slice(0, 2);
+  box.value = (Number(dno) >= 10 && Number(dno) <= 28) ? dno : '';
+}
+
+/**
+ * LDZ and exit zone from the full postcode.
+ *
+ * Full postcode, always. 348 of 3,100 outcodes cross more than one exit zone depending on
+ * the incode, so an outcode-only answer is wrong for about 11% of sites and looks entirely
+ * normal on a quote. Where the full postcode is not held and the outcode is ambiguous this
+ * fills nothing and says why, rather than guessing.
+ */
+let ZONE_LOOKUP = 0;
+async function autofillZones() {
+  const note = $('xZoneNote'), ldz = $('xLdz'), zone = $('xZone');
+  if (!note) return;
+  const raw = ($('xPostcode').value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const mine = ++ZONE_LOOKUP;
+  if (raw.length < 5) {
+    note.textContent = 'Type the full postcode and the LDZ and exit zone fill themselves.';
+    return;
+  }
+  const incode = raw.slice(-3), outcode = raw.slice(0, -3);
+  note.textContent = 'Looking up…';
+  try {
+    const exact = await q(sb.from('ref_postcode_gas_zone')
+      .select('ldz,exit_zone').eq('outcode', outcode).eq('incode', incode).limit(1), 'postcode');
+    if (mine !== ZONE_LOOKUP) return;                 // a later keystroke already won
+    if (exact.length) {
+      ldz.value = exact[0].ldz || ''; zone.value = exact[0].exit_zone || '';
+      note.innerHTML = `Filled from <b>${esc(outcode)} ${esc(incode)}</b>.`;
+      return;
+    }
+    const oc = await q(sb.from('ref_outcode_gas_zone')
+      .select('ldz,exit_zone,ambiguous').eq('outcode', outcode).limit(1), 'outcode');
+    if (mine !== ZONE_LOOKUP) return;
+    if (!oc.length) {
+      note.innerHTML = `<b>${esc(outcode)}</b> is not in the gas zone list at all.`;
+    } else if (oc[0].ambiguous) {
+      ldz.value = ''; zone.value = '';
+      note.innerHTML = `<b>${esc(outcode)}</b> spans more than one exit zone and this full
+        postcode is not held, so nothing has been filled in. Type them by hand.`;
+    } else {
+      ldz.value = oc[0].ldz || ''; zone.value = oc[0].exit_zone || '';
+      note.innerHTML = `Filled from the <b>${esc(outcode)}</b> outcode, which has only one zone.`;
+    }
+  } catch (e) {
+    if (mine === ZONE_LOOKUP) note.textContent = 'Could not look that up: ' + e.message;
+  }
+}
+
+/**
+ * The same, for a meter out of the portfolio. Fills only what is genuinely blank: a value
+ * the portfolio holds is a fact and this must never quietly replace it.
+ */
+async function fillMeterGaps() {
+  // EVERY path through this ends in a render. It is the only thing that draws the meter
+  // facts now, so an early return here is a blank card: the typed-meter path returned
+  // before rendering and the page simply stopped.
+  if (!METER || METER.manual) { await showMeter(); return; }
+  const digits = String(METER.mpan || '').replace(/\D/g, '');
+  if (METER.utility !== 'gas' && !METER.dno_id && digits.length >= 2) {
+    const d = digits.slice(0, 2);
+    if (Number(d) >= 10 && Number(d) <= 28) { METER.dno_id = d; METER.dno_src = 'mpan'; }
+  }
+  if ((METER.ldz && METER.exit_zone) || !METER.postcode) { await showMeter(); return; }
+  const raw = String(METER.postcode).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (raw.length < 5) { await showMeter(); return; }
+  try {
+    const hit = await q(sb.from('ref_postcode_gas_zone')
+      .select('ldz,exit_zone').eq('outcode', raw.slice(0, -3)).eq('incode', raw.slice(-3))
+      .limit(1), 'postcode');
+    if (hit.length) {
+      METER.ldz = METER.ldz || hit[0].ldz;
+      METER.exit_zone = METER.exit_zone || hit[0].exit_zone;
+      METER.zone_src = 'postcode';
+    }
+  } catch (_) { /* a quote without the zone is still a quote; the matcher says so */ }
+  await showMeter();
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// What they are paying now
+// ═══════════════════════════════════════════════════════════════════════════════════════
+//
+// A quote means nothing on its own. "26 p/kWh" is only good news next to what the customer
+// is on today, and that is the first thing they ask.
+//
+// meter_contracts already carries the rates for 3,424 of 3,866 contracts, straight off the
+// sales portal, so for an existing customer there is nothing to import. It is EDITABLE
+// because the portal's figures are keyed by people and are sometimes wrong, and a broker
+// who spots that should be able to fix it in the moment rather than quote against a number
+// they know is untrue. For a prospect there is no contract at all, so it is typed in.
+//
+// It is never saved back. This is a comparison, not a correction to the record.
+
+let CURRENT = null;      // { supplier, product, u, d, nt, ew, sc, source, edited }
+
+async function loadCurrentContract() {
+  CURRENT = null;
+  if (!METER || METER.manual || !METER.mpan) { paintCurrent(); return; }
+  try {
+    const cs = await q(sb.from('meter_contracts')
+      .select('supplier,product,contract_start,contract_end,uc_deal_status,unit_rate,'
+            + 'day_rate,night_rate,eveweekend_rate,standing_charge')
+      .eq('mpan', METER.mpan).order('contract_end', { ascending: false }).limit(5),
+      'current contract');
+    // The one running now: the latest that has actually started. A locked-in contract for
+    // 2028 sets the START DATE but it is not what they are paying today.
+    const today = new Date().toISOString().slice(0, 10);
+    const live = cs.find(c => (!c.contract_start || c.contract_start <= today)
+                           && (!c.contract_end || c.contract_end >= today)) || cs[0];
+    if (live && (live.unit_rate != null || live.day_rate != null || live.standing_charge != null)) {
+      CURRENT = { supplier: live.supplier || '', product: live.product || '',
+                  u: live.unit_rate, d: live.day_rate, nt: live.night_rate,
+                  ew: live.eveweekend_rate, sc: live.standing_charge,
+                  ends: live.contract_end, source: 'portfolio', edited: false };
+    }
+  } catch (_) { /* no contract is a normal state, not an error */ }
+  paintCurrent();
+}
+
+/** Annual cost of the current contract on the same consumption and split as the quotes. */
+function currentAnnual(aq, dayPct) {
+  if (!CURRENT) return null;
+  const num = (v) => (v == null || v === '' ? null : Number(v));
+  const u = num(CURRENT.u), d = num(CURRENT.d), nt = num(CURRENT.nt), ew = num(CURRENT.ew);
+  const sc = num(CURRENT.sc) || 0;
+  let energy = null;
+  if (u != null) energy = aq * u / 100;
+  else if (d != null && nt != null) energy = (aq * dayPct * d + aq * (1 - dayPct) * nt) / 100;
+  else if (d != null) energy = aq * d / 100;
+  else if (nt != null) energy = aq * nt / 100;
+  if (energy == null) return null;
+  if (ew != null && d != null && nt == null) energy = aq * ew / 100;   // never reached; kept explicit
+  return energy + sc * 365 / 100;
+}
+
+function setCurrent(field, value) {
+  if (!CURRENT) CURRENT = { supplier:'', product:'', u:null, d:null, nt:null, ew:null, sc:null,
+                            source:'typed', edited:true };
+  CURRENT[field] = value === '' ? null : (field === 'supplier' || field === 'product' ? value : Number(value));
+  if (CURRENT.source === 'portfolio') CURRENT.edited = true;
+  if (QUOTE) renderQuotes();
+  paintCurrent();
+}
+
+function clearCurrent() { CURRENT = null; if (QUOTE) renderQuotes(); paintCurrent(); }
+
+function paintCurrent() {
+  const box = $('currentBox');
+  if (!box) return;
+  const v = (x) => (x == null ? '' : x);
+  const f = (name, label, val, w) => `<div style="flex:0 0 ${w}">
+      <label style="font-size:10px" for="cur_${name}">${label}</label>
+      <input id="cur_${name}" class="mono" style="padding:6px 8px;font-size:12px"
+             value="${esc(String(v(val)))}" placeholder="—"
+             onchange="setCurrent('${name}', this.value)"></div>`;
+  box.innerHTML = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <div style="flex:0 0 200px">
+        <label style="font-size:10px" for="cur_supplier">Current supplier</label>
+        <input id="cur_supplier" style="padding:6px 8px;font-size:12px"
+               value="${esc(v(CURRENT && CURRENT.supplier))}"
+               placeholder="${esc(METER && METER.supplier ? METER.supplier : 'who they are with')}"
+               onchange="setCurrent('supplier', this.value)"></div>
+      ${f('u', 'Unit p/kWh', CURRENT && CURRENT.u, '100px')}
+      ${f('d', 'Day', CURRENT && CURRENT.d, '90px')}
+      ${f('nt', 'Night', CURRENT && CURRENT.nt, '90px')}
+      ${f('ew', 'E/Wknd', CURRENT && CURRENT.ew, '90px')}
+      ${f('sc', 'SC p/day', CURRENT && CURRENT.sc, '100px')}
+      ${CURRENT ? `<button class="act ghost sm" onclick="clearCurrent()">Clear</button>` : ''}
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:6px">
+      ${!CURRENT
+        ? 'Nothing on file for this meter, so type what they are paying now and every quote '
+          + 'will be compared against it.'
+        : CURRENT.source === 'typed'
+        ? 'Typed in here. Not saved against the customer.'
+        : CURRENT.edited
+        ? 'Edited here. The change is used for this comparison only and is not written back '
+          + 'to the portfolio.'
+        : `From the portfolio${CURRENT.ends ? ', contract ends ' + uk(CURRENT.ends) : ''}. `
+          + 'Click any figure to correct it.'}
+    </div>`;
 }
 
 async function defaultStartDate() {
@@ -1787,6 +2061,7 @@ async function defaultStartDate() {
  * meters.supplier is free text: "EDF Energy", "E.ON Next", "Smartest Energy Business".
  */
 async function showMeter() {
+  loadCurrentContract();
   $('priceCard').classList.remove('hide');
   $('quoteCard').classList.add('hide');
   $('qAq').value = METER.est_annual_consumption || '';
@@ -1830,7 +2105,8 @@ async function showMeter() {
       <dt>${METER.utility === 'gas' ? 'MPRN' : 'MPAN'}</dt><dd>${esc(METER.mpan)}</dd>
       <dt>Site</dt><dd>${esc(METER.site_name || '—')} ${esc(METER.postcode || '')}</dd>
       ${METER.utility === 'electricity' ? `
-        <dt>Distributor</dt><dd>${esc(dno || '—')}${idno ? ' <span class="pill p-fail">independent network</span>' : ''}</dd>
+        <dt>Distributor</dt><dd>${esc(dno || '—')}${idno ? ' <span class="pill p-fail">independent network</span>' : ''}${
+          METER.dno_src === 'mpan' ? ' <span class="pill p-mute">from the MPAN</span>' : ''}</dd>
         <dt>Profile class</dt><dd>${METER.profile_class ?? '—'}</dd>
         <dt>LLFC</dt><dd>${esc(METER.llfc || '—')}</dd>
         <dt>TCR band</dt><dd>${esc(METER.tcr_band || '—')}
@@ -1841,7 +2117,8 @@ async function showMeter() {
         <dt>Rate structure</dt><dd>${esc(METER.rate_structure || '—')}
           ${METER.rate_structure_src === 'inferred_from_rates'
             ? ' <span class="pill p-warn">inferred from the last contract, check it</span>' : ''}</dd>`
-      : `<dt>LDZ</dt><dd>${esc(METER.ldz || '—')}</dd>
+      : `<dt>LDZ</dt><dd>${esc(METER.ldz || '—')}${
+             METER.zone_src === 'postcode' ? ' <span class="pill p-mute">from the postcode</span>' : ''}</dd>
          <dt>Exit zone</dt><dd>${esc(METER.exit_zone || '—')}</dd>`}
       <dt>Current supplier</dt><dd>${esc(METER.supplier || '—')} ${METER.contract_end_date ? 'to ' + uk(METER.contract_end_date) : ''}</dd>
     </dl>
@@ -2021,6 +2298,26 @@ async function priceMeter() {
     const shortlist = [...best.values()];
     shortlist.forEach(x => x.others.sort((a, b2) => a.annual - b2.annual));
 
+    // ── Always show a no/low standing charge option, even when it is not the cheapest. ──
+    // Measured on CES's own book: EDF's NSC grid beats their standard one on 0% of meters
+    // at 12 months, 3% at 36 and 25% at 48, and never by more than £84 a year. So the
+    // cheapest-per-supplier fold almost always hides it. That is the wrong call, because a
+    // zero standing charge is a different OFFER, not just a different price: it is what a
+    // customer with a seasonal or half-empty site is actually asking for. E.ON Next's Low
+    // Standing Charge grid is the same trade — 30 p/day at 31.3 p/kWh against 125 p/day at
+    // 26.3 — and it wins outright below about 6,900 kWh.
+    //
+    // One extra row per supplier per term, at most, and only where they publish one.
+    const isLowSc = (r) => Number(r.standing_charge_p_day) === 0
+                        || r.sc_type === 'no_sc' || r.sc_type === 'low_sc';
+    for (const x of shortlist) {
+      if (isLowSc(x.win)) continue;                 // already showing it
+      const alt = x.others.filter(isLowSc).sort((a, b2) => a.annual - b2.annual)[0];
+      if (!alt) continue;
+      x.lowSc = alt;
+      x.others = x.others.filter(o => o !== alt);
+    }
+
     QUOTE = { shortlist, terms: [...new Set(shortlist.map(x => x.win.term_months))].sort((a,b)=>a-b),
               aq, uplift, dayPct, start, daysAhead, incumbent,
               matched: rows.length, raw: raw.length,
@@ -2029,7 +2326,8 @@ async function priceMeter() {
     // Drop ticks whose quote is no longer in the results — a changed consumption or start
     // date can remove one, and carrying a stale tick into the PDF would present a price
     // that is not on screen.
-    const alive = new Set(QUOTE.shortlist.map(x => pickKey(x.win)));
+    const alive = new Set(QUOTE.shortlist.flatMap(x => [x.win, x.lowSc].filter(Boolean))
+                                         .map(pickKey));
     PICKED = new Set([...PICKED].filter(k => alive.has(k)));
     renderQuotes();
     $('quoteCard').classList.remove('hide');
@@ -2053,7 +2351,9 @@ function renderQuotes() {
   if (!QUOTE) return;
   const Q = QUOTE;
   $('termTabs').innerHTML = Q.terms.map(t => {
-    const n = Q.shortlist.filter(x => x.win.term_months === t).length;
+    // Counts ROWS, not suppliers: a tab showing five lines must not say (4).
+    const n = Q.shortlist.filter(x => x.win.term_months === t)
+                         .reduce((a, x) => a + 1 + (x.lowSc ? 1 : 0), 0);
     const on = t === QUOTE_TERM;
     return `<button onclick="showTerm(${t})" class="${on ? 'on' : ''}"
       style="background:none;border:0;border-bottom:2px solid ${on ? 'var(--cyan)' : 'transparent'};
@@ -2062,10 +2362,20 @@ function renderQuotes() {
       ${t}m <span style="opacity:.6;font-weight:400">(${n})</span></button>`;
   }).join('');
 
-  const list = Q.shortlist.filter(x => x.win.term_months === QUOTE_TERM)
-                          .sort((a, b) => a.win.annual - b.win.annual);
-  if (!list.length) { $('quoteTables').innerHTML = '<div class="note warn">Nothing at this term.</div>'; return; }
-  const cheapest = list[0].win.annual;
+  const groups = Q.shortlist.filter(x => x.win.term_months === QUOTE_TERM)
+                            .sort((a, b) => a.win.annual - b.win.annual);
+  if (!groups.length) { $('quoteTables').innerHTML = '<div class="note warn">Nothing at this term.</div>'; return; }
+  // One row per group, plus the group's no/low standing charge option where it has one and
+  // that is not already the row being shown. Ranked purely on annual cost, so an extra row
+  // takes its honest place in the order rather than being bolted underneath its supplier.
+  const list = groups.flatMap(x => [
+    { g: x, r: x.win, runnerUp: x.others[0], more: Math.max(0, x.others.length - 1) },
+    ...(x.lowSc ? [{ g: x, r: x.lowSc, altOf: x.win }] : []),
+  ]).sort((a, b) => a.r.annual - b.r.annual);
+  const cheapest = list[0].r.annual;
+  // The current contract is priced on the SAME consumption and day/night split as the
+  // quotes. Any other basis would make the comparison a fiction.
+  const curAnnual = currentAnnual(Q.aq, Q.dayPct);
 
   const bandLabel = (g) => {
     const b = [...g.bands].sort();
@@ -2080,15 +2390,30 @@ function renderQuotes() {
     <thead><tr>
       <th style="width:30px"><input type="checkbox" title="Tick every quote on this tab"
             onchange="pickAllOnTab(this.checked)"
-            ${list.every(x => PICKED.has(pickKey(x.win))) ? 'checked' : ''}></th>
+            ${list.every(x => PICKED.has(pickKey(x.r))) ? 'checked' : ''}></th>
       <th style="width:26px"></th><th>Supplier</th><th>Product</th>
       <th class="num">Unit</th><th class="num">Day</th><th class="num">Night</th>
       <th class="num">E/Wknd</th><th class="num">SC p/day</th>
       <th class="num">Annual £</th><th class="num">vs cheapest</th><th>Band</th>
     </tr></thead>
-    <tbody>${list.map((x, i) => {
-      const r = x.win;
-      const runnerUp = x.others[0];
+    <tbody>
+      ${curAnnual != null ? `<tr style="background:var(--warn-bg)">
+        <td></td><td></td>
+        <td><div style="display:flex;align-items:center;gap:8px">
+              <span><b>${esc(CURRENT.supplier || METER.supplier || 'Current supplier')}</b></span>
+            </div></td>
+        <td><span class="pill p-warn">CURRENT CONTRACT</span>
+            ${CURRENT.edited ? '<span class="pill p-mute">edited</span>' : ''}
+            ${CURRENT.source === 'typed' ? '<span class="pill p-mute">typed in</span>' : ''}</td>
+        <td class="num">${n2(CURRENT.u,4)}</td><td class="num">${n2(CURRENT.d,4)}</td>
+        <td class="num">${n2(CURRENT.nt,4)}</td><td class="num">${n2(CURRENT.ew,4)}</td>
+        <td class="num">${n2(CURRENT.sc,4)}</td>
+        <td class="num"><b>£${Math.round(curAnnual).toLocaleString()}</b></td>
+        <td class="num" style="color:var(--muted)">today</td>
+        <td></td></tr>` : ''}
+      ${list.map((x, i) => {
+      const r = x.r;
+      const runnerUp = x.runnerUp;
       const saving = runnerUp ? runnerUp.annual - r.annual : null;
       const pk = pickKey(r);
       const on = PICKED.has(pk);
@@ -2101,10 +2426,14 @@ function renderQuotes() {
             ${supplierLogo(r.supplier_key, 20)}
             <span>${esc(supplierName(r.supplier_key))}</span>
           </div>
-          <div style="font-size:10px;color:${r.sale_type === 'renewal' ? 'var(--ok)' : 'var(--muted)'}">
-            ${r.sale_type === 'renewal' ? 'renewal' : r.sale_type === 'any' ? 'any sale type' : 'acquisition'}</div></td>
+          </td>
         <td style="max-width:250px;overflow-wrap:anywhere">
           <b>${esc(r.product_display || r.product_name || '—')}</b>
+          ${r.sale_type === 'renewal' ? '<span class="pill p-ok">renewal</span>'
+            : r.sale_type === 'acquisition' ? '<span class="pill p-mute">acquisition</span>'
+            // 'any' means the supplier publishes ONE grid for both. That is not a fact about
+            // this quote, it is the absence of one, so it gets no badge at all.
+            : ''}
           ${Number(r.standing_charge_p_day) === 0 || r.sc_type === 'no_sc'
             // Badge on the FIGURE, not the supplier's label: BG Lite stamps every row "SC"
             // and then charges 0 p/day, and the product is literally called 0SC.
@@ -2112,14 +2441,29 @@ function renderQuotes() {
           ${r.sc_type === 'low_sc' && Number(r.standing_charge_p_day) > 0
             ? '<span class="pill p-warn">low SC</span>' : ''}
           ${r.green ? '<span class="pill p-ok">green</span>' : ''}
+          ${r.product_name && r.product_display
+            && r.product_name.toLowerCase().replace(/[^a-z0-9]/g,'')
+               !== r.product_display.toLowerCase().replace(/[^a-z0-9]/g,'')
+            // The CES name groups a supplier's grids; the pricebook's own name is what
+            // separates them. EDF publish "Fixed Online 1 Year" and "Fixed Online 1 Year
+            // Zero Standing Charge" under one CES product, and without this both rows read
+            // "Fixed Online" and look like a duplicate.
+            ? `<div style="font-size:10.5px;color:var(--text-2)">${esc(r.product_name)}</div>` : ''}
           ${saving != null && saving >= 1
             ? `<div style="font-size:10.5px;color:var(--ok);margin-top:3px">£${Math.round(saving).toLocaleString()}
                  cheaper than their ${esc(runnerUp.product_display || runnerUp.product_name || 'other product')}</div>`
             : saving != null
             ? `<div style="font-size:10.5px;color:var(--muted);margin-top:3px">same price as their
                  ${esc(runnerUp.product_display || runnerUp.product_name || 'other product')}</div>` : ''}
-          ${x.others.length > 1
-            ? `<div style="font-size:10px;color:var(--muted)">+${x.others.length - 1} more of theirs, all dearer</div>` : ''}</td>
+          ${x.altOf
+            ? `<div style="font-size:10.5px;color:var(--muted);margin-top:3px">shown because it
+                 carries no standing charge, not because it is cheaper: it is
+                 ${r.annual > x.altOf.annual
+                   ? '£' + Math.round(r.annual - x.altOf.annual).toLocaleString() + ' more'
+                   : 'the same'} than their ${esc(x.altOf.product_display || x.altOf.product_name || 'other product')}</div>`
+            : ''}
+          ${x.more > 1
+            ? `<div style="font-size:10px;color:var(--muted)">+${x.more - 1} more of theirs, all dearer</div>` : ''}</td>
         <td class="num">${n2(r.u,4)}</td><td class="num">${n2(r.d,4)}</td>
         <td class="num">${n2(r.nt,4)}</td><td class="num">${n2(r.ew,4)}</td>
         <td class="num">${n2(r.standing_charge_p_day,4)}</td>
@@ -2127,16 +2471,23 @@ function renderQuotes() {
           /column/.test(r.basis || '') ? `<div style="font-size:10px;color:var(--muted)"
             title="${esc(r.basis)}">single rate</div>` : ''}</td>
         <td class="num" style="color:${i === 0 ? 'var(--ok)' : 'var(--text-2)'}">
-          ${i === 0 ? 'cheapest' : '+£' + Math.round(r.annual - cheapest).toLocaleString()}</td>
+          ${i === 0 ? 'cheapest' : '+£' + Math.round(r.annual - cheapest).toLocaleString()}
+          ${curAnnual != null ? `<div style="font-size:10.5px;font-weight:600;color:${
+            r.annual < curAnnual ? 'var(--ok)' : 'var(--fail)'}">${
+            r.annual < curAnnual
+              ? '−£' + Math.round(curAnnual - r.annual).toLocaleString() + ' vs now'
+              : '+£' + Math.round(r.annual - curAnnual).toLocaleString() + ' vs now'}</div>` : ''}</td>
         <td>${bandLabel(r)}</td>
       </tr>`;
     }).join('')}</tbody></table></div>`;
 
-  const dn = list.some(x => x.win.d && x.win.nt);
-  const noProduct = list.filter(x => !x.win.product_display).length;
+  const dn = list.some(x => x.r.d && x.r.nt);
+  const noProduct = list.filter(x => !x.r.product_display).length;
   $('quoteAssumptions').innerHTML = `
-    <b>${list.length}</b> supplier${list.length === 1 ? '' : 's'} can price this meter over
-    ${QUOTE_TERM} months, from ${Q.raw.toLocaleString()} matched pricebook rows.
+    <b>${groups.length}</b> supplier${groups.length === 1 ? '' : 's'} can price this meter over
+    ${QUOTE_TERM} months${list.length !== groups.length
+      ? `, shown as <b>${list.length}</b> quotes because a no standing charge option is
+         listed separately` : ''}, from ${Q.raw.toLocaleString()} matched pricebook rows.
     Uplift <b>${Q.uplift.toFixed(2)} p/kWh</b> on every unit rate.
     Annual cost on <b>${Q.aq.toLocaleString()} kWh</b> over 365 days, starting ${uk(Q.start)}
     — <b>${Q.daysAhead} days ahead</b>, which is what decides eligibility on any supplier
@@ -2191,7 +2542,9 @@ function pickAllOnTab(on) {
   if (!QUOTE) return;
   for (const x of QUOTE.shortlist) {
     if (x.win.term_months !== QUOTE_TERM) continue;
-    if (on) PICKED.add(pickKey(x.win)); else PICKED.delete(pickKey(x.win));
+    for (const r of [x.win, x.lowSc].filter(Boolean)) {
+      if (on) PICKED.add(pickKey(r)); else PICKED.delete(pickKey(r));
+    }
   }
   renderQuotes();
 }
@@ -2199,7 +2552,8 @@ function pickAllOnTab(on) {
 /** Every ticked quote, in the order a customer should read them: term, then price. */
 function pickedQuotes() {
   if (!QUOTE) return [];
-  return QUOTE.shortlist.map(x => x.win).filter(r => PICKED.has(pickKey(r)))
+  return QUOTE.shortlist.flatMap(x => [x.win, x.lowSc].filter(Boolean))
+    .filter(r => PICKED.has(pickKey(r)))
     .sort((a, b) => a.term_months - b.term_months || a.annual - b.annual);
 }
 

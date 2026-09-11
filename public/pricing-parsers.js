@@ -236,6 +236,145 @@
   // Four suppliers, one parser. Columns are matched on a squashed name so Yu's lowercasing
   // and SP's extra column are not layout changes.
 
+
+  // ═══════════════════════════════════════════════════════════════════════════════════════
+  // Legacy ZipCrypto, so the E.ON Next archive opens in the browser
+  // ═══════════════════════════════════════════════════════════════════════════════════════
+  //
+  // E.ON Next ship their SME pricebook as a password-protected zip. JSZip has no decryption
+  // at all, so until now the answer was "unzip it yourself". Measured on their 8 Sep file:
+  // every member is general-purpose bit 0 set, NO 0x9901 extra field, method 8. That is the
+  // old PKWARE stream cipher, not WinZip AES — which is forty lines of arithmetic rather
+  // than a crypto dependency.
+  //
+  // Bit 3 is also set, so the sizes live in a data descriptor and the encryption header's
+  // check byte is the high byte of the DOS time, not of the CRC. Getting that wrong rejects
+  // a correct password.
+
+  const CRC_T = (() => {
+    const t = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      t[i] = c >>> 0;
+    }
+    return t;
+  })();
+  const crc1 = (crc, b) => (CRC_T[(crc ^ b) & 0xff] ^ (crc >>> 8)) >>> 0;
+
+  function zipCryptoKeys(password) {
+    let k0 = 0x12345678, k1 = 0x23456789, k2 = 0x34567890;
+    const upd = (b) => {
+      k0 = crc1(k0, b);
+      k1 = (k1 + (k0 & 0xff)) >>> 0;
+      k1 = (Math.imul(k1, 134775813) + 1) >>> 0;
+      k2 = crc1(k2, (k1 >>> 24) & 0xff);
+    };
+    for (let i = 0; i < password.length; i++) upd(password.charCodeAt(i) & 0xff);
+    return { upd, stream: () => { const t = (k2 | 2) & 0xffff;
+                                  return (Math.imul(t, t ^ 1) >>> 8) & 0xff; } };
+  }
+
+  /** Decrypt one member and strip the 12-byte header. Throws on a wrong password. */
+  function zipCryptoDecrypt(bytes, password, checkByte) {
+    const k = zipCryptoKeys(password);
+    const out = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) {
+      const p = (bytes[i] ^ k.stream()) & 0xff;
+      k.upd(p);
+      out[i] = p;
+    }
+    if (checkByte != null && out[11] !== checkByte) {
+      throw new Error('that password did not open the archive');
+    }
+    return out.subarray(12);
+  }
+
+  async function inflateRaw(bytes) {
+    if (typeof DecompressionStream === 'undefined') {
+      throw new Error('this browser cannot inflate the archive; extract it and drop the files in');
+    }
+    const ds = new DecompressionStream('deflate-raw');
+    const stream = new Blob([bytes]).stream().pipeThrough(ds);
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+
+  /**
+   * Read a zip by walking its local file headers, decrypting where necessary.
+   *
+   * Returns [{ name, bytes }]. `skip` is asked about every member BEFORE it is decrypted or
+   * inflated, so the E.ON new-connection files cost nothing at all: three of their nine
+   * members are NC, about 3 MB of CSV CES never quotes, against a 500 MB storage plan.
+   */
+  async function readZip(buffer, { password = null, skip = null } = {}) {
+    const d = new DataView(buffer);
+    const u8 = new Uint8Array(buffer);
+    const out = [];
+    const skipped = [];
+    let off = 0;
+    while (off + 30 <= u8.length && d.getUint32(off, true) === 0x04034b50) {
+      const flag = d.getUint16(off + 6, true);
+      const method = d.getUint16(off + 8, true);
+      const mtime = d.getUint16(off + 10, true);
+      const crc = d.getUint32(off + 14, true);
+      let csz = d.getUint32(off + 18, true);
+      const nl = d.getUint16(off + 26, true);
+      const el = d.getUint16(off + 28, true);
+      const name = new TextDecoder().decode(u8.subarray(off + 30, off + 30 + nl));
+      const start = off + 30 + nl + el;
+      if (!csz) throw new Error(`cannot read "${name}" from this zip: its size is not in the header`);
+      off = start + csz;
+
+      const encrypted = !!(flag & 1);
+      if (name.endsWith('/')) continue;
+      if (/(^|\/)(__MACOSX\/|\._)/.test(name)) continue;
+      if (skip && skip(name)) { skipped.push(name); continue; }
+      if (encrypted && !password) throw new Error('this zip needs a password');
+      if (flag & 0x40) throw new Error('this zip uses strong encryption, which cannot be opened here');
+
+      let body = u8.subarray(start, start + csz);
+      if (encrypted) {
+        // Bit 3 set => sizes are in a data descriptor and the check byte is the DOS time's
+        // high byte. Using the CRC's there rejects the right password.
+        const check = (flag & 8) ? ((mtime >>> 8) & 0xff) : ((crc >>> 24) & 0xff);
+        body = zipCryptoDecrypt(body, password, check);
+      }
+      if (method === 8) body = await inflateRaw(body);
+      else if (method !== 0) throw new Error(`"${name}" uses compression method ${method}, which is not supported`);
+      out.push({ name, bytes: body });
+    }
+    if (!out.length && !skipped.length) throw new Error('nothing readable in that zip');
+    return { files: out, skipped };
+  }
+
+
+  /**
+   * Turn an E.ON Next tariff code into the product name a broker would recognise.
+   *
+   *   E-2R-NEXT_1YR_FIXED_BUSINESS_RENEWABLE_LSC_TPI_v1
+   *     -> "Fixed Business 1 Year Renewable, Low Standing Charge"
+   *
+   * The register prefix (E-1R / E-2R / E-3R / G-1R) is the rate shape, which is already in
+   * RateStructure, and the term is already in ContractDuration, so neither goes in the name.
+   * What is NOT anywhere else is whether the row is the renewable grid and whether it is the
+   * low standing charge grid — and those are two genuinely different products.
+   */
+  function eonProductName(code) {
+    if (!code || !/NEXT_\d?YR|FIXED_BUSINESS/i.test(code)) return null;
+    const m = code.match(/(\d)YR/i);
+    const years = m ? Number(m[1]) : null;
+    const green = /RENEWABLE/i.test(code);
+    const lsc = /_LSC(_|$)/i.test(code);
+    const nc = /_NC(_|$)/i.test(code);
+    const bits = ['Fixed Business'];
+    if (years) bits.push(`${years} Year`);
+    if (green) bits.push('Renewable');
+    let name = bits.join(' ');
+    if (lsc) name += ', Low Standing Charge';
+    if (nc) name += ' (new connection)';
+    return name;
+  }
+
   const BKF_REQUIRED = ['utility', 'saletype', 'contractduration',
     'minimumannualconsumption', 'maximumannualconsumption', 'standingcharge'];
 
@@ -267,9 +406,19 @@
         // the rate structure there instead, so fall back when it is not a product name.
         const ti2 = String(g('tariffinformation2') || '').trim();
         const pn  = String(g('productname') || '').trim();
-        const ti2IsStructure = /^(standard|economy7|flat_economy7|three_rate|off_peak|nhh_)/i.test(ti2);
-        r.product_name = (ti2 && !ti2IsStructure ? ti2 : pn) || null;
+        // FLAT_ prefixes any of them (FLAT_ECONOMY7, FLAT_THREE_RATE), so match the prefix
+        // rather than listing every combination and missing one.
+        const ti2IsStructure = /^(flat_)?(standard|economy7|three_rate|off_peak|nhh_|eveningandweekend|eveningweekendandnight)/i.test(ti2);
         r.product_code = String(g('tariffinformation1') || '').trim() || null;
+        r.product_name = (ti2 && !ti2IsStructure ? ti2 : pn) || null;
+        // E.ON Next leave ProductName blank (or say "SingleRate", which is a rate shape and
+        // not a product) and put the real identity in the tariff code. Four electricity
+        // products and one gas product hide in there, and without this every row would come
+        // through nameless and fold into one.
+        if (!r.product_name || /^singlerate$/i.test(r.product_name)) {
+          const fromCode = eonProductName(r.product_code);
+          if (fromCode) r.product_name = fromCode;
+        }
         r.dno_id = dnoId(g('dnoid'));
         r.gsp_group = String(g('region') || '').trim() || null;
         r.ldz = String(g('ldz') || '').trim().toUpperCase() || null;
@@ -1946,11 +2095,11 @@
      * re-upload wrote 8,916 rows with no selling days and the wrong rate kept winning.
      * Caching headers are the first line of defence and this is the second.
      */
-    VERSION: '2026-09-10.1',
-    parse, normHeader, headerRowIndex, CANON_FIELDS, P_KVA_DAY_TO_MONTH,
+    VERSION: '2026-09-11.1',
+    parse, normHeader, readZip, headerRowIndex, CANON_FIELDS, P_KVA_DAY_TO_MONTH,
     // exported for the test suite
     _internals: { saleType, rateStructure, tcrBand, toNum, toDate, toBool, dnoId, rate, sc,
-                  capFromDay, key, scType,
+                  capFromDay, key, scType, eonProductName, zipCryptoDecrypt,
                   gspToDno, ldzOfZone, termFromDates, plusMonthsMinusDay, startWindowLadder,
                   dayBefore, monthsBetween, GSP_TO_DNO, ZONE_LDZ, SSE_STRUCT,
                   CORONA_PWR_STRUCT, TE_DNO_ABBR, TE_HORIZON_MONTHS, sefeShape, sefeHeaderRow,
