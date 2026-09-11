@@ -475,11 +475,6 @@
         <div id="aqMissing" class="hide" style="margin-top:12px"></div>
         <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <button class="act" id="aqBtn" onclick="aqAnalyse()">Analyse every supplier</button>
-          <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:400;
-                        text-transform:none;letter-spacing:0;margin:0;color:var(--text-2)">
-            <input type="checkbox" id="aqNearOnly" style="width:auto;height:auto;margin:0"
-                   onchange="aqRender()"> just the two nearest bands each way
-          </label>
           <span id="aqMsg" style="font-size:12px;color:var(--muted)"></span>
         </div>
       </div>
@@ -2442,6 +2437,73 @@ function aqSameShape(a, b) {
   return k(a) === k(b);
 }
 
+/**
+ * Fetch the rows a meter can be priced on at a given AQ.
+ *
+ * The SAME filters the quote engine uses, and deliberately so: this tab exists to answer
+ * "what would the quote be at a different AQ", and any difference between the two would be
+ * a difference nobody asked for. 421 rows for a real meter, well under the 1,000 PostgREST
+ * returns, and it is the query path that has been proved on the desk all day.
+ */
+async function aqRatesAt(aq, a, term, start) {
+  let sel = sb.from('pricebook_rates_live')
+    .select('supplier_key,product_key,product_display,product_name,quotable,fuel,sale_type,'
+          + 'term_months,rate_structure,profile_class,dno_id,ldz,exit_zone,tcr_band,ssc,'
+          + 'aq_min,aq_max,standing_charge_p_day,unit_rate_p_kwh,day_rate_p_kwh,'
+          + 'night_rate_p_kwh,sc_type,green')
+    .eq('fuel', a.fuel).eq('quotable', true).eq('term_months', term)
+    .not('aq_min', 'is', null)
+    .or(`aq_min.is.null,aq_min.lte.${aq}`)
+    .or(`aq_max.is.null,aq_max.gte.${aq}`)
+    .or(`start_date_min.is.null,start_date_min.lte.${start}`)
+    .or(`start_date_max.is.null,start_date_max.gte.${start}`)
+    .limit(1000);
+  if (a.fuel === 'electricity') {
+    if (a.dno) sel = sel.or(`dno_id.is.null,dno_id.eq.${a.dno}`); else sel = sel.is('dno_id', null);
+    if (a.pc != null) sel = sel.or(`profile_class.is.null,profile_class.eq.${a.pc}`);
+    else sel = sel.is('profile_class', null);
+    sel = a.rate_structure
+      ? sel.or(`rate_structure.is.null,rate_structure.eq.${a.rate_structure},rate_structure.eq.any`)
+      : sel.or('rate_structure.is.null,rate_structure.eq.any');
+    if (a.tcr_band) sel = sel.or(`tcr_band.is.null,tcr_band.eq.${a.tcr_band}`);
+    else sel = sel.is('tcr_band', null);
+    if (a.ssc) sel = sel.or(`ssc.is.null,ssc.eq.${a.ssc}`); else sel = sel.is('ssc', null);
+  } else {
+    if (a.ldz) sel = sel.or(`ldz.is.null,ldz.eq.${a.ldz}`); else sel = sel.is('ldz', null);
+    if (a.exit_zone) sel = sel.or(`exit_zone.is.null,exit_zone.eq.${a.exit_zone}`);
+    else sel = sel.is('exit_zone', null);
+  }
+  const rows = await q(sel, `rates at ${aq.toLocaleString()} kWh`);
+  // Sale type is DERIVED, as on the quote screen: only the incumbent can offer a renewal.
+  const inc = supplierKeyOf(a.supplier);
+  return rows.filter(r => r.sale_type === 'any'
+    || (r.sale_type === 'renewal' ? r.supplier_key === inc : r.supplier_key !== inc));
+}
+
+/** The cheapest row a supplier can do at this AQ, per supplier and product. */
+function aqBestBySupplier(rows, aq, uplift) {
+  const best = new Map();
+  for (const r of rows) {
+    const c = aqAnnual(r, aq, uplift);
+    if (!c) continue;
+    const k = r.supplier_key + '|' + (r.product_display || r.product_key);
+    const seen = best.get(k);
+    if (!seen || c.total < seen.cost.total) best.set(k, { row: r, cost: c });
+  }
+  return best;
+}
+
+/**
+ * Price normally, then price again one band down and one band up.
+ *
+ * This replaced a version that read every band of every ladder and grouped them. That was
+ * more work than the question needs and it timed out — 37 seconds across eight varied calls,
+ * because a parameterised function falls back to a GENERIC plan after a few executions and
+ * "x is null or x = $n" gives the planner nothing to estimate from. The measurement that
+ * said 291ms was a first call, on a custom plan; the desk was on the fifth.
+ *
+ * Three runs of the proven quote query answers the same question with none of that.
+ */
 async function aqAnalyse() {
   const btn = $('aqBtn'), msg = $('aqMsg');
   const aq = Number(String($('aqNow').value).replace(/[^0-9.]/g, ''));
@@ -2449,279 +2511,149 @@ async function aqAnalyse() {
   const term = Number($('aqTerm').value);
   const start = $('aqStart').value;
   if (!(aq > 0)) { msg.textContent = 'Put the current AQ in first.'; return; }
-  btn.disabled = true; msg.textContent = 'Reading every live pricebook…';
+  btn.disabled = true; msg.textContent = 'Pricing at the current AQ…';
   try {
     const a = aqAttrs();
+    const now = await aqRatesAt(aq, a, term, start);
+    const here = aqBestBySupplier(now, aq, uplift);
 
-    // ── The grouping happens in the DATABASE, not here. ─────────────────────────────
-    // Fetching the matching rows and grouping them in the browser looked fine and was not:
-    // one meter at 24 months matches 59,454 rows and PostgREST caps a response at 1,000, a
-    // cap a client-side .limit() cannot raise. So it analysed whichever 1,000 came back
-    // first and reported one supplier as the only one with bands. It was not wrong about
-    // that supplier; it never saw the other seven.
-    const rows = await q(sb.rpc('pricebook_aq_ladders', {
-      p_fuel: a.fuel, p_aq: aq, p_term: term, p_start: start,
-      p_dno: a.dno, p_profile_class: a.pc, p_rate_structure: a.rate_structure,
-      p_tcr_band: a.tcr_band, p_ssc: a.ssc, p_ldz: a.ldz, p_exit_zone: a.exit_zone,
-      p_incumbent: supplierKeyOf(a.supplier),
-    }), 'AQ bands');
-
-    // One ladder per otherwise-identical shape.
-    const ladders = new Map();
-    for (const r of rows) {
-      const key = [r.supplier_key, r.product_key, r.product_name, r.sale_type, r.term_months,
-                   r.rate_structure, r.dno_id, r.profile_class, r.tcr_band, r.ssc,
-                   r.ldz, r.exit_zone, r.green, r.sc_type].join('|');
-      if (!ladders.has(key)) ladders.set(key, []);
-      ladders.get(key).push(r);
+    // The band edges this meter is sitting between. One kWh past each is the next band.
+    const probes = new Set();
+    for (const { row } of here.values()) {
+      const lo = Number(row.aq_min), hi = Number(row.aq_max);
+      if (lo > 0) probes.add(lo - 1);                        // one band down
+      if (hi < 9e7) probes.add(hi + 1);                      // one band up
     }
-
     const results = [];
-    for (const rungs of ladders.values()) {
-      const ladder = rungs
-        .map(r => ({ row: r, cost: aqAnnual({
-            unit_rate_p_kwh: r.unit_rate, day_rate_p_kwh: null, night_rate_p_kwh: null,
-            standing_charge_p_day: r.standing_charge }, aq, uplift) }))
-        .sort((x, y) => Number(x.row.aq_min) - Number(y.row.aq_min));
-      if (ladder.length < 2) continue;                 // one band is not a ladder
-      const here = ladder.find(x => aq >= Number(x.row.aq_min) && aq <= Number(x.row.aq_max));
-      if (!here) continue;                             // this AQ is off the end of the book
-      for (const b of ladder) {
-        if (b === here) continue;
-        const up = Number(b.row.aq_min) > aq;
-        // What AQ actually reaches this band: its floor going up, its ceiling coming down.
-        const target = up ? Number(b.row.aq_min) : Number(b.row.aq_max);
+    let done = 0;
+    for (const probe of [...probes].sort((x, y) => x - y)) {
+      done++;
+      msg.textContent = `Checking ${probe.toLocaleString()} kWh (${done} of ${probes.size})…`;
+      const rows = await aqRatesAt(probe, a, term, start);
+      // Priced on the customer's OWN consumption. The probe AQ only decides which band
+      // applies; the site still uses what it uses.
+      const there = aqBestBySupplier(rows, aq, uplift);
+      for (const [k, alt] of there) {
+        const cur = here.get(k);
+        if (!cur) continue;                                  // supplier only appears there
+        if (Number(alt.row.aq_min) === Number(cur.row.aq_min)) continue;   // same band
+        const saving = cur.cost.total - alt.cost.total;
+        if (saving <= 0) continue;                           // only what is CHEAPER
+        const up = Number(alt.row.aq_min) > aq;
+        const target = up ? Number(alt.row.aq_min) : Number(alt.row.aq_max);
         results.push({
-          supplier_key: here.row.supplier_key,
-          product: here.row.product_display || here.row.product_name,
-          term: here.row.term_months, sale_type: here.row.sale_type,
-          here, band: b, target, up,
-          moveKwh: target - aq,
-          movePct: (target - aq) / aq * 100,
-          rateDelta: b.cost.rate - here.cost.rate,
-          scDelta: b.cost.sc - here.cost.sc,
-          saving: here.cost.total - b.cost.total,
-          ladder,
+          supplier_key: cur.row.supplier_key,
+          product: cur.row.product_display || cur.row.product_name,
+          here: cur, band: alt, target, up,
+          moveKwh: target - aq, movePct: (target - aq) / aq * 100,
+          rateDelta: alt.cost.rate - cur.cost.rate,
+          scDelta: alt.cost.sc - cur.cost.sc,
+          saving,
         });
       }
     }
-
-    results.sort((a, b) => b.saving - a.saving);
-    AQ = { aq, uplift, term, start, fuel: aqAttrs().fuel, results, ladders: ladders.size,
-           scanned: rows.length, attrs: aqAttrs() };
+    // One row per supplier: the better of its two neighbours.
+    const bySup = new Map();
+    for (const r of results) {
+      const cur = bySup.get(r.supplier_key);
+      if (!cur || r.saving > cur.saving) bySup.set(r.supplier_key, r);
+    }
+    AQ = { aq, uplift, term, start, fuel: a.fuel, attrs: a, here,
+           results: [...bySup.values()].sort((x, y) => y.saving - x.saving),
+           probes: probes.size, scanned: now.length };
     aqRender();
     $('aqCard').classList.remove('hide');
     msg.textContent = '';
   } catch (e) {
     $('aqCard').classList.remove('hide');
-    // A bare "canceling statement due to statement timeout" tells the desk nothing about
-    // what to do. Say what it means and what usually clears it.
-    const slow = /timeout|cancel/i.test(e.message);
-    $('aqCurrent').innerHTML = `<div class="note bad">
-      ${slow ? `<b>That took too long to work out.</b> The database gives a request eight
-                seconds and this one ran out. It is usually because the analysis is being
-                asked to consider too much: fill in the distributor, profile class, register
-                structure, TCR band and SSC above and try again — each one narrows it. If it
-                keeps happening with everything filled in, tell me, because that is a query
-                that needs fixing rather than a meter that needs more detail.`
-             : esc(e.message)}
-      <div style="font-size:11px;color:var(--muted);margin-top:8px">${esc(e.message)}</div>
-    </div>`;
+    $('aqCurrent').innerHTML = `<div class="note bad">${esc(e.message)}</div>`;
     $('aqBest').innerHTML = ''; $('aqTables').innerHTML = ''; $('aqNotes').innerHTML = '';
   } finally { btn.disabled = false; }
 }
 
-/** How far a move is, in words. A percentage alone does not tell you if it is plausible. */
-function aqDistance(pct) {
-  const a = Math.abs(pct);
-  if (a <= 5)  return ['very close', 'p-ok'];
-  if (a <= 15) return ['low', 'p-mute'];
-  if (a <= 30) return ['material', 'p-warn'];
-  if (a <= 50) return ['large', 'p-warn'];
-  return ['very large', 'p-fail'];
-}
-
 function aqRender() {
   if (!AQ) return;
-  const nearOnly = $('aqNearOnly').checked;
-  const money = (v) => (v < 0 ? '−£' : '£') + Math.abs(Math.round(v)).toLocaleString();
+  const money = (v) => '£' + Math.abs(Math.round(v)).toLocaleString();
   const pct = (v) => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(2) + '%';
   const kwh = (v) => (v >= 0 ? '+' : '−') + Math.abs(v).toLocaleString();
 
-  if (!AQ.results.length) {
-    $('aqCurrent').innerHTML = `<div class="note warn"><b>No AQ band analysis available.</b>
-      ${AQ.scanned.toLocaleString()} live rows were read for a ${AQ.term} month contract, but
-      none of them offers this meter more than one consumption band — so there is no
-      threshold to move across. Nothing is being hidden; the suppliers who can price this
-      meter simply do not band it.</div>`;
-    $('aqBest').innerHTML = ''; $('aqTables').innerHTML = ''; $('aqNotes').innerHTML = '';
-    return;
-  }
-
   // Where it sits now, per supplier.
-  const hereBySup = new Map();
-  for (const r of AQ.results) if (!hereBySup.has(r.supplier_key)) hereBySup.set(r.supplier_key, r);
-  $('aqCurrent').innerHTML = `
-    <div style="font-size:13px;margin-bottom:10px">
-      On <b>${AQ.aq.toLocaleString()} kWh</b>, a ${AQ.term} month contract starting
-      <b>${uk(AQ.start)}</b>, uplift <b>${AQ.uplift.toFixed(2)} p/kWh</b>.
-    </div>
-    <div class="scroll"><table><thead><tr>
-      <th style="width:26px"></th><th>Supplier</th><th>Product</th><th>Current band</th>
-      <th class="num">Rate</th><th class="num">SC p/day</th><th class="num">Annual now</th>
-    </tr></thead><tbody>
-    ${[...hereBySup.values()].sort((a,b) => a.here.cost.total - b.here.cost.total).map(r => `
-      <tr><td>${supplierLogo(r.supplier_key, 18)}</td>
-        <td>${esc(supplierName(r.supplier_key))}</td>
-        <td>${esc(r.product || '—')}</td>
-        <td class="mono">${Number(r.here.row.aq_min).toLocaleString()} –
-            ${Number(r.here.row.aq_max) >= 9e7 ? 'no limit' : Number(r.here.row.aq_max).toLocaleString()}</td>
-        <td class="num">${n2(r.here.cost.rate, 4)}</td>
-        <td class="num">${n2(r.here.cost.sc, 2)}</td>
-        <td class="num"><b>£${Math.round(r.here.cost.total).toLocaleString()}</b></td></tr>`).join('')}
-    </tbody></table></div>`;
+  $('aqCurrent').innerHTML = !AQ.here.size
+    ? `<div class="note warn"><b>Nothing can price this meter.</b> No live pricebook offers a
+       consumption band that matches it over ${AQ.term} months. Check the boxes above: with
+       the distributor, profile class, register structure, TCR band or SSC missing, only rows
+       that name none of them can match, and most suppliers name several.</div>`
+    : `<div style="font-size:13px;margin-bottom:10px">
+         On <b>${AQ.aq.toLocaleString()} kWh</b>, ${AQ.term} months from <b>${uk(AQ.start)}</b>,
+         uplift <b>${AQ.uplift.toFixed(2)} p/kWh</b>.
+       </div>
+       <div class="scroll"><table><thead><tr>
+         <th style="width:26px"></th><th>Supplier</th><th>Product</th><th>Current band</th>
+         <th class="num">Rate</th><th class="num">SC p/day</th><th class="num">Annual now</th>
+       </tr></thead><tbody>
+       ${[...AQ.here.values()].sort((a, b) => a.cost.total - b.cost.total).map(x => `
+         <tr><td>${supplierLogo(x.row.supplier_key, 18)}</td>
+           <td>${esc(supplierName(x.row.supplier_key))}</td>
+           <td>${esc(x.row.product_display || x.row.product_name || '—')}</td>
+           <td class="mono">${Number(x.row.aq_min).toLocaleString()} –
+             ${Number(x.row.aq_max) >= 9e7 ? 'no limit' : Number(x.row.aq_max).toLocaleString()}</td>
+           <td class="num">${n2(x.cost.rate, 4)}</td>
+           <td class="num">${n2(x.cost.sc, 2)}</td>
+           <td class="num"><b>£${Math.round(x.cost.total).toLocaleString()}</b></td></tr>`).join('')}
+       </tbody></table></div>`;
 
-  // The nearest rung each way, per supplier — the question actually being asked.
-  const near = [];
-  for (const [sup, any] of hereBySup) {
-    const mine = AQ.results.filter(r => r.supplier_key === sup);
-    const up = mine.filter(r => r.up).sort((a, b) => a.moveKwh - b.moveKwh)[0];
-    const dn = mine.filter(r => !r.up).sort((a, b) => b.moveKwh - a.moveKwh)[0];
-    for (const x of [dn, up]) if (x) near.push(x);
-  }
-  // ── What goes at the top has to be REACHABLE. ──────────────────────────────────────
-  // Ranking purely by pounds puts a +4,311% AQ increase first, because the biggest band is
-  // always the cheapest rate. That is not an opportunity, it is arithmetic. A site on 3,400
-  // kWh is not going to consume 150,000. The nearest band — +100 kWh for £65 — is the one
-  // somebody can actually act on, and it was buried five rows down.
-  //
-  // So the headline is the best saving among moves the site could plausibly make, and the
-  // rest stays in the table underneath where it can be read but not mistaken for advice.
-  const REACHABLE = 15;                   // percent, matching the 'low' distance band
-  const worth = AQ.results.filter(r => r.saving > 0);
-  const reachable = worth.filter(r => Math.abs(r.movePct) <= REACHABLE);
-  const best = (reachable.length ? reachable : worth).slice(0, 3);
-  const onlyFarOnes = !reachable.length && worth.length > 0;
+  // Only what is CHEAPER. A dearer band is not an opportunity and does not need a row.
+  $('aqBest').innerHTML = '';
+  $('aqTables').innerHTML = !AQ.results.length
+    ? `<div class="note">No supplier gets cheaper one band either way. The AQ on file is
+       already in the best band each of them offers this meter.</div>`
+    : `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+                   color:var(--text-2);margin:2px 0 8px">Cheaper one band away</div>
+       <div class="scroll"><table><thead><tr>
+         <th style="width:26px"></th><th>Supplier</th><th>Move the AQ</th>
+         <th class="num">Target AQ</th><th class="num">How far</th><th class="num">%</th>
+         <th class="num">Rate</th><th class="num">SC p/day</th>
+         <th class="num">Annual there</th><th class="num">Saving</th>
+       </tr></thead><tbody>
+       ${AQ.results.map(r => `
+         <tr><td>${supplierLogo(r.supplier_key, 18)}</td>
+           <td>${esc(supplierName(r.supplier_key))}
+             <div style="font-size:10px;color:var(--muted)">${esc(r.product || '')}</div></td>
+           <td>${r.up ? 'up one band' : 'down one band'}
+             <div style="font-size:10px;color:var(--muted)">into
+               ${Number(r.band.row.aq_min).toLocaleString()} –
+               ${Number(r.band.row.aq_max) >= 9e7 ? 'no limit'
+                 : Number(r.band.row.aq_max).toLocaleString()}</div></td>
+           <td class="num mono">${r.target.toLocaleString()}</td>
+           <td class="num mono">${kwh(r.moveKwh)}</td>
+           <td class="num mono">${pct(r.movePct)}</td>
+           <td class="num">${n2(r.band.cost.rate, 4)}
+             <div style="font-size:10px;color:${r.rateDelta <= 0 ? 'var(--ok)' : 'var(--fail)'}">
+               ${r.rateDelta <= 0 ? '' : '+'}${n2(r.rateDelta, 4)}</div></td>
+           <td class="num">${n2(r.band.cost.sc, 2)}
+             ${Math.abs(r.scDelta) > 0.005
+               ? `<div style="font-size:10px;color:${r.scDelta <= 0 ? 'var(--ok)' : 'var(--fail)'}">
+                  ${r.scDelta <= 0 ? '' : '+'}${n2(r.scDelta, 2)}</div>` : ''}</td>
+           <td class="num">£${Math.round(r.band.cost.total).toLocaleString()}</td>
+           <td class="num" style="font-weight:700;color:var(--ok)">−${money(r.saving)}</td>
+         </tr>`).join('')}
+       </tbody></table></div>`;
 
-  // The two nearest rungs each way, named outright. This is the question the desk asks:
-  // "how far is the next band, and what is it worth?"
-  const nearestCards = [];
-  for (const [sup] of hereBySup) {
-    const mine = AQ.results.filter(r => r.supplier_key === sup);
-    const up = mine.filter(r => r.up).sort((a, b) => a.moveKwh - b.moveKwh)[0];
-    const dn = mine.filter(r => !r.up).sort((a, b) => b.moveKwh - a.moveKwh)[0];
-    if (up) nearestCards.push(up);
-    if (dn) nearestCards.push(dn);
-  }
-  nearestCards.sort((a, b) => Math.abs(a.movePct) - Math.abs(b.movePct));
-  const nearestHtml = !nearestCards.length ? '' : `
-    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
-                color:var(--text-2);margin:2px 0 8px">The nearest band either way</div>
-    <div class="scroll" style="margin-bottom:18px"><table><thead><tr>
-      <th style="width:26px"></th><th>Supplier</th><th>Direction</th><th>Band</th>
-      <th class="num">Target AQ</th><th class="num">How far</th><th class="num">%</th>
-      <th class="num">Rate change</th><th class="num">Worth</th></tr></thead><tbody>
-    ${nearestCards.map(r => `<tr>
-      <td>${supplierLogo(r.supplier_key, 18)}</td>
-      <td>${esc(supplierName(r.supplier_key))}</td>
-      <td>${r.up ? 'up' : 'down'}</td>
-      <td class="mono">${Number(r.band.row.aq_min).toLocaleString()} –
-        ${Number(r.band.row.aq_max) >= 9e7 ? 'no limit' : Number(r.band.row.aq_max).toLocaleString()}</td>
-      <td class="num mono">${r.target.toLocaleString()}</td>
-      <td class="num mono">${kwh(r.moveKwh)} kWh</td>
-      <td class="num mono">${pct(r.movePct)}</td>
-      <td class="num">${r.rateDelta <= 0 ? '' : '+'}${n2(r.rateDelta, 4)} p/kWh</td>
-      <td class="num" style="font-weight:700;color:${r.saving > 0 ? 'var(--ok)' : 'var(--fail)'}">
-        ${r.saving > 0 ? '−' : '+'}£${Math.abs(Math.round(r.saving)).toLocaleString()}</td>
-    </tr>`).join('')}</tbody></table></div>`;
-
-  $('aqBest').innerHTML = nearestHtml + (!best.length
-    ? `<div class="note">No band on any live pricebook beats the one this meter is already
-       in. That is a real answer: the AQ is already in the best band every supplier offers
-       it.</div>`
-    : `<div style="display:flex;gap:12px;flex-wrap:wrap">${best.map(r => {
-        const [word, cls] = aqDistance(r.movePct);
-        return `<div style="flex:1 1 300px;border:1px solid var(--line-2);border-radius:10px;
-                     padding:14px 16px;background:var(--panel-2)">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-            ${supplierLogo(r.supplier_key, 20)}
-            <b>${esc(supplierName(r.supplier_key))}</b>
-            <span class="pill ${cls}">${word}</span></div>
-          <div style="font-size:22px;font-weight:800;color:var(--ok)">${money(r.saving)}<span
-            style="font-size:12px;font-weight:400;color:var(--muted)"> a year</span></div>
-          <div style="font-size:12px;color:var(--text-2);margin-top:6px;line-height:1.55">
-            Move the AQ ${r.up ? 'up' : 'down'} to
-            <b>${r.target.toLocaleString()} kWh</b>
-            (${kwh(r.moveKwh)} kWh, ${pct(r.movePct)}).<br>
-            Rate ${n2(r.here.cost.rate,4)} &rarr; <b>${n2(r.band.cost.rate,4)}</b> p/kWh
-            (${r.rateDelta <= 0 ? '' : '+'}${n2(r.rateDelta,4)}).<br>
-            Standing charge ${n2(r.here.cost.sc,2)} &rarr; <b>${n2(r.band.cost.sc,2)}</b> p/day
-            ${Math.abs(r.scDelta) > 0.005
-              ? `<span style="color:${r.scDelta > 0 ? 'var(--fail)' : 'var(--ok)'}">
-                 (${r.scDelta > 0 ? '+' : '−'}${money(Math.abs(r.scDelta) * 365 / 100)} a year)</span>`
-              : ''}
-          </div></div>`;
-      }).join('')}</div>` + (onlyFarOnes
-        ? `<div class="note warn" style="margin-top:10px">Nothing within ${REACHABLE}% of the
-           current AQ beats the band this meter is already in. The moves above are real
-           prices but they are large changes in consumption, not adjustments — read them as
-           what the pricebook does, not as something to put on a contract.</div>`
-        : ''));
-
-  const list = nearOnly ? near : AQ.results;
-  const shown = [...list].sort((a, b) => b.saving - a.saving);
-  $('aqTables').innerHTML = `<div class="scroll"><table><thead><tr>
-      <th style="width:26px"></th><th>Supplier</th><th>Band</th><th class="num">Target AQ</th>
-      <th class="num">AQ change</th><th class="num">AQ change %</th><th>Distance</th>
-      <th class="num">Rate</th><th class="num">SC p/day</th>
-      <th class="num">Annual total</th><th class="num">Difference</th></tr></thead><tbody>
-    ${shown.map(r => {
-      const [word, cls] = aqDistance(r.movePct);
-      // A cliff: a move of under 2% that shifts the rate by a quarter of a penny or more.
-      const cliff = Math.abs(r.movePct) <= 5 && Math.abs(r.rateDelta) >= 0.25;
-      return `<tr${r.saving > 0 ? ' style="background:rgba(18,104,47,.05)"' : ''}>
-        <td>${supplierLogo(r.supplier_key, 18)}</td>
-        <td>${esc(supplierName(r.supplier_key))}
-          <div style="font-size:10px;color:var(--muted)">${esc(r.product || '')}</div></td>
-        <td class="mono">${Number(r.band.row.aq_min).toLocaleString()} –
-          ${Number(r.band.row.aq_max) >= 9e7 ? 'no limit' : Number(r.band.row.aq_max).toLocaleString()}
-          ${cliff ? '<div><span class="pill p-warn">threshold</span></div>' : ''}</td>
-        <td class="num mono">${r.target.toLocaleString()}</td>
-        <td class="num mono">${kwh(r.moveKwh)}</td>
-        <td class="num mono">${pct(r.movePct)}</td>
-        <td><span class="pill ${cls}">${word}</span></td>
-        <td class="num">${n2(r.band.cost.rate,4)}
-          <div style="font-size:10px;color:${r.rateDelta <= 0 ? 'var(--ok)' : 'var(--fail)'}">
-            ${r.rateDelta <= 0 ? '' : '+'}${n2(r.rateDelta,4)}</div></td>
-        <td class="num">${n2(r.band.cost.sc,2)}
-          ${Math.abs(r.scDelta) > 0.005
-            ? `<div style="font-size:10px;color:${r.scDelta <= 0 ? 'var(--ok)' : 'var(--fail)'}">
-               ${r.scDelta <= 0 ? '' : '+'}${n2(r.scDelta,2)}</div>` : ''}</td>
-        <td class="num">£${Math.round(r.band.cost.total).toLocaleString()}</td>
-        <td class="num" style="font-weight:700;color:${r.saving > 0 ? 'var(--ok)' : 'var(--fail)'}">
-          ${r.saving > 0 ? '−' : '+'}£${Math.abs(Math.round(r.saving)).toLocaleString()}</td>
-      </tr>`;
-    }).join('')}</tbody></table></div>`;
-
-  const cliffs = AQ.results.filter(r => Math.abs(r.movePct) <= 5 && Math.abs(r.rateDelta) >= 0.25);
   $('aqNotes').innerHTML = `
-    ${AQ.ladders.toLocaleString()} banded pricebook ladders from
-    <b>${[...new Set(AQ.results.map(r => r.supplier_key))].length}</b> suppliers can price
-    this meter over ${AQ.term} months, across ${AQ.scanned.toLocaleString()} bands.
-    ${cliffs.length ? `<b>${cliffs.length}</b> of these bands sit within 5% of the current AQ
-      and move the unit rate by 0.25 p/kWh or more — those are the ones marked
-      <span class="pill p-warn">threshold</span>.` : ''}
+    Priced at the current AQ, then again one band down and one band up — ${AQ.probes}
+    ${AQ.probes === 1 ? 'check' : 'checks'} against ${AQ.scanned.toLocaleString()} matched
+    rows. Only bands that come out <b>cheaper</b> are listed; a dearer band is not an
+    opportunity.
     <div class="note warn" style="margin-top:12px">
-      <b>Hypothetical price-band analysis, on the customer's current consumption.</b>
-      The target AQ only decides which band applies; the annual figures are all worked out on
-      <b>${AQ.aq.toLocaleString()} kWh</b>, because that is what the site actually uses.
-      An AQ is the supplier's basis for the contract, not a dial: correcting one that is
-      wrong or out of date is ordinary housekeeping, but a figure the site will not reach
-      gets reconciled later and the customer can end up worse off than if it had been left
-      alone. Nothing on this screen has changed any meter, AQ or contract.
+      <b>Hypothetical, on the customer's current consumption.</b> The target AQ only decides
+      which band applies; every annual figure is worked out on <b>${AQ.aq.toLocaleString()}
+      kWh</b>, because that is what the site uses. An AQ is the supplier's basis for the
+      contract, not a dial: correcting one that is wrong or out of date is ordinary
+      housekeeping, but a figure the site will not reach gets reconciled later and the
+      customer can end up worse off than if it had been left alone. Nothing here has changed
+      any meter, AQ or contract.
     </div>`;
 }
-
 
 /**
  * Delete every rate row belonging to a pricebook that can never be quoted again.
