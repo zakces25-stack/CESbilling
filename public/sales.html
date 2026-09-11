@@ -3052,6 +3052,60 @@
         '<div style="font-size:10px;color:var(--muted);font-weight:400;letter-spacing:0.3px;">PC · SSC/MTC · LLFC</div>' +
         '</td>';
     }
+    // The SSC, on its own line, because it is now a PRICING input rather than a label.
+    // TotalEnergies quote electricity by settlement configuration: on the live book every
+    // one of their 13,255 match keys carried more than one price, a median 2.28 p/kWh
+    // apart — £912 a year on a 40,000 kWh site — so a meter without one cannot be quoted
+    // by them at all.
+    //
+    // The old 'SSC/MTC' above is whatever UtilityClick held, which is sometimes an MTC and
+    // sometimes an SSC. This is the derived, four-digit Elexon SSC, and it says how it is
+    // known. 'review' is NOT shown as a value: the MTC maps to several SSCs and picking one
+    // is the error this exists to stop.
+    function _bkSscCell(m) {
+      if (m.utility !== 'electricity')
+        return '<td style="color:var(--muted);" title="Only electricity settles on an SSC">—</td>';
+      var edit = m.id
+        ? ' <button class="btn-secondary" style="padding:2px 6px;font-size:10.5px;" ' +
+          'onclick="bkEditSsc(\'' + m.id + '\')">edit</button>' : '';
+      if (m.ssc) {
+        var how = m.ssc_status === 'edited' ? 'set by hand'
+                : m.ssc_status === 'converted' ? 'from the MTC' : '';
+        return '<td style="white-space:nowrap;"><span class="mono" style="font-weight:700;">'
+          + escapeHtml(m.ssc) + '</span>' + edit
+          + (how ? '<div style="font-size:10px;color:var(--muted);">' + how + '</div>' : '')
+          + '</td>';
+      }
+      var why = m.ssc_status === 'review'
+        ? 'The old MTC maps to more than one SSC and the portfolio export cannot separate '
+          + 'them. Look it up on the bill or the supplier portal.'
+        : 'No SSC derived for this meter.';
+      return '<td style="white-space:nowrap;">'
+        + '<span style="color:var(--danger,#b3261e);font-weight:700;" title="' + escapeHtml(why) + '">unknown</span>'
+        + edit
+        + '<div style="font-size:10px;color:var(--muted);">'
+        + (m.ssc_status === 'review' ? 'needs review' : 'not derived') + '</div></td>';
+    }
+
+    /** Type one in. Saved to the meter, because it is a fact about the supply. */
+    async function bkEditSsc(id) {
+      var m = (window._bkMeters || []).find(function(x){ return x.id === id; }) || {};
+      var v = window.prompt('SSC for this meter (four digits, e.g. 0393).\n\n'
+        + 'It is on the customer\'s bill and on the supplier portal. Leave blank to clear it.',
+        m.ssc || '');
+      if (v === null) return;
+      v = String(v).trim();
+      var ssc = /^\d{1,4}$/.test(v) ? v.padStart(4, '0') : null;
+      if (v && !ssc) { alert('An SSC is four digits.'); return; }
+      try {
+        var r = await sb.from('meters')
+          .update({ ssc: ssc, ssc_status: ssc ? 'edited' : null, ssc_src: 'sales portal' })
+          .eq('id', id);
+        if (r.error) throw new Error(r.error.message);
+        if (m) { m.ssc = ssc; m.ssc_status = ssc ? 'edited' : null; }
+        bkRenderContractTable();
+      } catch (e) { alert('Could not save the SSC: ' + e.message); }
+    }
     // Site cell: name on top, full address (incl. postcode) beneath. Both come off the
     // meter row, and the same address feeds the COT form via the sites table.
     function _bkSiteCell(m) {
@@ -3303,14 +3357,14 @@
       var title = document.getElementById('brokerCustomerTitle');
       var table = document.getElementById('brokerMetersTable');
       if (title) title.textContent = cid;
-      table.innerHTML = '<tbody><tr><td colspan="13" class="empty-state">Loading meters…</td></tr></tbody>';
+      table.innerHTML = '<tbody><tr><td colspan="14" class="empty-state">Loading meters…</td></tr></tbody>';
       sb.from('customers').select('company_name').eq('customer_id', cid).single()
         .then(function(r) { if (r.data && title) title.textContent = r.data.company_name || cid; });
       const { data, error } = await sb
         .from('meters').select('*').eq('customer_id', cid).order('mpan');
       if (error) {
         console.error('Broker load (meters):', error);
-        table.innerHTML = '<tbody><tr><td colspan="13" class="empty-state">Could not load meters. Please refresh.</td></tr></tbody>';
+        table.innerHTML = '<tbody><tr><td colspan="14" class="empty-state">Could not load meters. Please refresh.</td></tr></tbody>';
         return;
       }
       var meters = data || [];
@@ -3321,7 +3375,7 @@
       var nextCed = meters.reduce(function(mx, m){ var d = m.contract_end_date ? String(m.contract_end_date).slice(0,10) : null; return (d && (!mx || d < mx)) ? d : mx; }, null);
       var cedEl = document.getElementById('bkLatestCed'); if (cedEl) cedEl.textContent = nextCed ? fmtDateUK(nextCed) : '—';
       if (!meters.length) {
-        table.innerHTML = '<tbody><tr><td colspan="13" class="empty-state">No meters recorded for this customer yet.</td></tr></tbody>';
+        table.innerHTML = '<tbody><tr><td colspan="14" class="empty-state">No meters recorded for this customer yet.</td></tr></tbody>';
         window._bkContracts = []; bkCtrCounts();
         return;
       }
@@ -3395,12 +3449,12 @@
         '<th>CSD</th><th>CED</th>' +
         '<th class="num">Agreed kVA</th><th class="num">EAC (kWh)</th><th>Rates (p/kWh)</th>' +
         '<th class="num">Standing p/day</th><th class="num">Capacity p/kVA/day</th>' +
-        '<th>Top line</th><th></th></tr></thead>';
+        '<th>SSC</th><th>Top line</th><th></th></tr></thead>';
       if (!list.length) {
         var empty = { live: 'No live contracts for this customer.',
           registering: 'Nothing locked in and waiting to start.',
           expired: 'Nothing expired yet. Contracts appear here on their own once a CED passes.' };
-        table.innerHTML = head + '<tbody><tr><td colspan="13" class="empty-state">' +
+        table.innerHTML = head + '<tbody><tr><td colspan="14" class="empty-state">' +
           escapeHtml(empty[which]) + '</td></tr></tbody>';
         return;
       }
@@ -3427,6 +3481,7 @@
           '<td style="white-space:nowrap;">' + rt + '</td>' +
           '<td class="num">' + _bkNum(c.standing_charge, 2) + '</td>' +
           '<td class="num">' + _bkNum(c.capacity_rate, 2) + '</td>' +
+          _bkSscCell(m) +
           _bkTopLineCell(m) +
           '<td style="white-space:nowrap;">' + (m.id
             ? '<button class="btn-secondary" style="padding:4px 8px;font-size:11.5px;margin-right:3px;" onclick="bkEditMeter(\'' + m.id + '\')">Edit</button>' +

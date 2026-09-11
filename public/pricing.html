@@ -300,6 +300,8 @@
                 <option value="eve_weekend">Day + evening/weekend</option>
                 <option value="day_night_ew">Day + night + evening/weekend</option>
               </select></div>
+            <div><label for="xSsc">SSC</label>
+              <input id="xSsc" class="mono" maxlength="4" placeholder="0393" /></div>
             <div><label for="xBand">TCR band</label>
               <select id="xBand">
                 <option value="">unknown (shows every band)</option>
@@ -353,7 +355,7 @@
                  live pricebook is listed; ticking one that nobody sells simply returns
                  nothing, which is a confusing way to find that out. -->
             <div id="qTermsMenu" class="hide" style="position:absolute;z-index:40;top:100%;left:0;
-                 min-width:200px;margin-top:4px;padding:8px;border:1px solid var(--line-2);
+                 min-width:230px;margin-top:4px;padding:8px;border:1px solid var(--line-2);
                  border-radius:10px;background:var(--panel);box-shadow:0 10px 30px rgba(28,38,44,.14)">
             </div>
           </div>
@@ -371,6 +373,7 @@
           </div>
         </div>
         <div id="startNote" class="hide" style="margin-top:12px"></div>
+        <div id="sscNote" class="hide" style="margin-top:12px"></div>
         <div id="saleNote" class="note" style="margin-top:12px"></div>
         <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
           <button class="act" id="priceBtn" onclick="priceMeter()">Price</button>
@@ -562,7 +565,7 @@
  * So the two files check each other. Bump BOTH strings together whenever a parser change
  * alters what a rate means.
  */
-const EXPECTS_PARSERS = '2026-09-11.1';
+const EXPECTS_PARSERS = '2026-09-11.2';
 
 const SUPABASE_URL  = 'https://niadffxpxdohglcyagau.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pYWRmZnhweGRvaGdsY3lhZ2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3Mzc3MTksImV4cCI6MjA5NDMxMzcxOX0.x22Zh9O408PGfcPZ6rgu-a4B7WTbyH8iyT_ysr-IfIs';
@@ -670,6 +673,8 @@ function startDesk() {
   loadSuppliers().then(() => {
     if ($('xSupplier')) manualFuelChanged();
     loadLedger();
+    SSC_READY = loadSscSuppliers();
+    SSC_READY.then(paintSscNote);
   });
   paintTermLabel();
   showTab('price');          // the desk's job is pricing meters; pricebooks is upkeep
@@ -782,6 +787,25 @@ async function loadSuppliers() {
  * PDF that is sent to the customer. "scottish_power" on a quotation is not acceptable, so
  * the fallback is at least title-cased rather than the database's own spelling.
  */
+/**
+ * A supplier's name as the portfolio writes it, back to the pricebook key.
+ *
+ * The portfolio and the pricebooks do not agree on spelling — "EDF Energy" against "edf",
+ * "E.ON Next Energy" against "eon_next" — which is what pricebook_supplier_aliases exists
+ * to bridge. It decides who may quote a renewal and, now, whose logo goes on the current
+ * contract row.
+ */
+function supplierKeyOf(name) {
+  if (!name) return null;
+  const want = String(name).trim().toLowerCase();
+  const hit = ALIASES.find(a => String(a.alias).trim().toLowerCase() === want);
+  if (hit) return hit.supplier_key;
+  // Last resort: the display name itself. Costs nothing and catches the case where a
+  // supplier is in the catalogue but nobody has written an alias row for them yet.
+  const byName = SUPPLIERS.find(x => String(x.display_name).trim().toLowerCase() === want);
+  return byName ? byName.supplier_key : null;
+}
+
 const supplierName = (k) => {
   const hit = (SUPPLIERS.find(s => s.supplier_key === k) || {}).display_name;
   if (hit) return hit;
@@ -1606,6 +1630,7 @@ async function findMeters() {
     rows = await q(sb.from('meters')
       .select('id,customer_id,mpan,utility,supply_type,site_name,site_address,postcode,'
             + 'est_annual_consumption,profile_class,rate_structure,rate_structure_src,tcr_band,tcr_band_src,'
+            + 'ssc,ssc_status,ssc_note,'
             + 'dno_id,llfc,ldz,exit_zone,priceable,price_block_reason,supplier,contract_end_date')
       .or(`mpan.ilike.${like},customer_id.ilike.${like},site_name.ilike.${like},site_address.ilike.${like}`)
       .in('utility', ['electricity','gas'])
@@ -1653,9 +1678,11 @@ function toggleTermMenu() {
 
 function renderTermMenu() {
   $('qTermsMenu').innerHTML = ALL_TERMS.map(t => `
-    <label style="display:flex;align-items:center;gap:9px;padding:5px 6px;font-size:12.5px;
-                  cursor:pointer;border-radius:6px">
+    <label style="display:flex;align-items:center;gap:9px;padding:6px 8px;font-size:12.5px;
+                  font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);
+                  margin:0;white-space:nowrap;cursor:pointer;border-radius:6px">
       <input type="checkbox" value="${t}" ${TERMS.includes(t) ? 'checked' : ''}
+             style="width:auto;height:auto;flex:0 0 auto;margin:0"
              onchange="setTerm(${t}, this.checked)">
       ${t} months${t === 18 || t === 30 ? '<span style="opacity:.5"> · Ecotricity only</span>' : ''}
     </label>`).join('')
@@ -1739,6 +1766,11 @@ function useManualMeter() {
     postcode: ($('xPostcode') && $('xPostcode').value.trim().toUpperCase()) || null,
     tcr_band: gas ? null : ($('xBand').value || null),
     tcr_band_src: null,
+    // padStart on an empty string gives '0000', which is the half-hourly SSC. Pad only
+    // what somebody actually typed.
+    ssc: gas ? null : (/^\d{1,4}$/.test(($('xSsc').value || '').trim())
+                        ? ($('xSsc').value || '').trim().padStart(4, '0') : null),
+    ssc_status: gas ? null : (/^\d{1,4}$/.test(($('xSsc').value || '').trim()) ? 'edited' : null),
     llfc: null,
     ldz: gas ? (($('xLdz').value || '').trim().toUpperCase() || null) : null,
     exit_zone: gas ? (($('xZone').value || '').trim().toUpperCase() || null) : null,
@@ -2002,6 +2034,107 @@ function paintCurrent() {
     </div>`;
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// The SSC
+// ═══════════════════════════════════════════════════════════════════════════════════════
+//
+// TotalEnergies price electricity by Standard Settlement Configuration and nothing else in
+// the canonical row separates their grids. 1,779 of CES's 1,944 electricity meters now
+// carry one, derived from the UC MTC through the MDD; 135 are marked 'review' because the
+// MTC maps to more than one SSC and the export cannot separate them; 30 have nothing.
+//
+// 'review' is NOT the same as unknown. It means the answer is one of a known few and
+// guessing costs, measured on the live book, a median 2.28 p/kWh — £912 a year on a
+// 40,000 kWh site. So the desk says so, loudly, before anyone prices.
+
+/** How this meter's SSC is known, as a badge. */
+function sscBadge() {
+  if (!METER) return '';
+  const st = METER.ssc_status;
+  if (st === 'edited') return '<span class="pill p-mute">set by hand</span>';
+  if (METER.ssc && st === 'converted') return '<span class="pill p-mute">from the MTC</span>';
+  if (st === 'review') return '<span class="pill p-fail">needs review</span>';
+  if (!METER.ssc) return '<span class="pill p-fail">unknown</span>';
+  return '';
+}
+
+/**
+ * Correct the SSC by hand. Written back to the meter, because unlike the current-contract
+ * rates this IS a fact about the supply that everyone should see from now on, and somebody
+ * has just looked it up.
+ */
+async function setMeterSsc(v) {
+  const val = String(v || '').trim();
+  const ssc = /^\d{1,4}$/.test(val) ? val.padStart(4, '0') : null;
+  if (val && !ssc) { $('mSsc').value = METER.ssc || ''; return alert('An SSC is four digits.'); }
+  METER.ssc = ssc;
+  METER.ssc_status = ssc ? 'edited' : null;
+  if (!METER.manual && METER.id) {
+    try {
+      await q(sb.from('meters').update({ ssc, ssc_status: METER.ssc_status, ssc_src: WHO || 'desk' })
+                .eq('id', METER.id), 'save the SSC');
+    } catch (e) { alert('Could not save the SSC: ' + e.message); }
+  }
+  showMeter();
+}
+
+/**
+ * Which live suppliers price by SSC, so the desk can say what is at stake rather than
+ * warning in the abstract. Read once per meter selection.
+ */
+let SSC_SUPPLIERS = [];
+let SSC_READY = null;      // the in-flight load, so a meter picked early still waits for it
+async function loadSscSuppliers() {
+  try {
+    // Ask the rates table directly which suppliers actually carry an SSC. No hardcoded
+    // list of "suppliers who use SSC": the next one to start doing it must not need a code
+    // change to be warned about.
+    // pricebook_rates_live, not pricebook_rates: only a LIVE book can reach a quote, so
+    // only a live book can cost anyone a wrong one. Warning about a supplier whose SSC-keyed
+    // pricebook was retired months ago would be noise.
+    const hit = await q(sb.from('pricebook_rates_live').select('supplier_key')
+                          .not('ssc', 'is', null).limit(2000), 'suppliers keyed by ssc');
+    SSC_SUPPLIERS = [...new Set(hit.map(r => r.supplier_key))];
+  } catch (e) {
+    // Swallowing this silently would turn "we could not check" into "nothing to warn
+    // about", which is the failure mode this whole warning exists to prevent.
+    SSC_SUPPLIERS = [];
+    console.error('could not work out which suppliers price by SSC:', e.message);
+  }
+}
+
+
+/**
+ * Say, before anyone clicks Price, whether this meter can be priced on the suppliers that
+ * key by SSC — and if not, exactly what to do about it.
+ *
+ * Deliberately loud. Quietly dropping TotalEnergies out of a quote looks identical to
+ * TotalEnergies being expensive, and quietly guessing the SSC is a £912-a-year error that
+ * looks like nothing at all.
+ */
+function paintSscNote() {
+  const box = $('sscNote');
+  if (!box) return;
+  if (!METER || METER.utility !== 'electricity' || !SSC_SUPPLIERS.length) {
+    box.className = 'hide'; box.innerHTML = ''; return;
+  }
+  const who = SSC_SUPPLIERS.map(supplierName).join(', ');
+  if (METER.ssc) { box.className = 'hide'; box.innerHTML = ''; return; }
+  box.className = 'note bad';
+  box.innerHTML = METER.ssc_status === 'review'
+    ? `<b>This meter's SSC needs review before you price it.</b> Its old meter timeswitch
+       code maps to more than one settlement configuration and the portfolio export cannot
+       tell them apart${METER.ssc_note ? ` (${esc(String(METER.ssc_note).replace(/_/g,' '))})` : ''}.
+       <b>${esc(who)}</b> price by SSC, so they are left out of the quote entirely rather
+       than priced on a guess — the grids differ by about 2.28 p/kWh, which is £912 a year
+       on a 40,000 kWh site. Put the SSC in the box above (it is on the customer's bill or
+       the supplier's portal) and price again.`
+    : `<b>No SSC on this meter.</b> <b>${esc(who)}</b> price electricity by settlement
+       configuration, so they cannot be quoted until it is known. Everyone else is priced
+       normally. Put the SSC in the box above and price again.`;
+}
+
 async function defaultStartDate() {
   const note = $('startNote');
   const iso = (d) => d.toISOString().slice(0, 10);
@@ -2068,12 +2201,9 @@ async function showMeter() {
   await defaultStartDate();
   $('qSplit').value = METER.day_pct != null ? METER.day_pct : 70;
 
-  INCUMBENT_KEY = null;
-  if (METER.supplier) {
-    const hit = ALIASES.find(a =>
-      String(a.alias).trim().toLowerCase() === String(METER.supplier).trim().toLowerCase());
-    INCUMBENT_KEY = hit ? hit.supplier_key : null;
-  }
+  INCUMBENT_KEY = supplierKeyOf(METER.supplier);
+  if (SSC_READY) await SSC_READY;
+  paintSscNote();
   const sup = SUPPLIERS.filter(x => x.parser_ready).length;
   $('saleNote').className = 'note';
   $('saleNote').innerHTML = !METER.supplier
@@ -2103,6 +2233,12 @@ async function showMeter() {
       <dt>Customer</dt><dd>${esc(METER.customer_id)}${METER.manual
         ? ' <span class="pill p-warn">typed in, nothing saved</span>' : ''}</dd>
       <dt>${METER.utility === 'gas' ? 'MPRN' : 'MPAN'}</dt><dd>${esc(METER.mpan)}</dd>
+      ${METER.utility === 'electricity' ? `
+        <dt>SSC</dt><dd>
+          <input id="mSsc" class="mono" value="${esc(METER.ssc || '')}" placeholder="unknown"
+                 maxlength="4" style="width:74px;padding:3px 6px;font-size:12.5px;height:auto"
+                 onchange="setMeterSsc(this.value)">
+          ${sscBadge()}</dd>` : ''}
       <dt>Site</dt><dd>${esc(METER.site_name || '—')} ${esc(METER.postcode || '')}</dd>
       ${METER.utility === 'electricity' ? `
         <dt>Distributor</dt><dd>${esc(dno || '—')}${idno ? ' <span class="pill p-fail">independent network</span>' : ''}${
@@ -2181,7 +2317,7 @@ async function priceMeter() {
 
     let sel = sb.from('pricebook_rates_live')
       .select('supplier_key,product_key,product_display,product_name,term_months,sale_type,'
-            + 'rate_structure,profile_class,dno_id,ldz,exit_zone,tcr_band,aq_min,aq_max,'
+            + 'rate_structure,profile_class,dno_id,ldz,exit_zone,tcr_band,ssc,aq_min,aq_max,'
             + 'start_date_min,start_date_max,sell_days_min,sell_days_max,'
             + 'standing_charge_p_day,unit_rate_p_kwh,'
             + 'day_rate_p_kwh,night_rate_p_kwh,eve_weekend_p_kwh,capacity_p_kva_month,'
@@ -2210,6 +2346,17 @@ async function priceMeter() {
       if (METER.profile_class != null) sel = sel.or(`profile_class.is.null,profile_class.eq.${METER.profile_class}`);
       if (METER.rate_structure) sel = sel.or(`rate_structure.is.null,rate_structure.eq.${METER.rate_structure},rate_structure.eq.any`);
       if (METER.tcr_band) sel = sel.or(`tcr_band.is.null,tcr_band.eq.${METER.tcr_band}`);
+      // ── The SSC. TotalEnergies price electricity BY it. ────────────────────────────
+      // Their product name says so outright: "YELG 2R B3 04_0153_2C" is PES area, 2-rate,
+      // band 3, profile class 04, SSC 0153, LLFC 2C. With the SSC missing from the match,
+      // every one of their 13,255 keys carried more than one price — up to 120 — with a
+      // median spread of 2.28 p/kWh, £912 a year on a 40,000 kWh site. The fold picked the
+      // cheapest, so TotalEnergies won quotes at prices TotalEnergies would refuse.
+      //
+      // A NULL ssc on a rate row means "this supplier does not price by SSC", so those rows
+      // must still match. Only rows that name an SSC are constrained.
+      if (METER.ssc) sel = sel.or(`ssc.is.null,ssc.eq.${METER.ssc}`);
+      else sel = sel.is('ssc', null);   // no SSC on the meter: refuse to guess. See below.
     } else {
       if (METER.exit_zone) sel = sel.or(`exit_zone.is.null,exit_zone.eq.${METER.exit_zone}`);
       if (METER.ldz)       sel = sel.or(`ldz.is.null,ldz.eq.${METER.ldz}`);
@@ -2377,6 +2524,19 @@ function renderQuotes() {
   // quotes. Any other basis would make the comparison a fiction.
   const curAnnual = currentAnnual(Q.aq, Q.dayPct);
 
+  // Against the CURRENT CONTRACT, not against the cheapest quote. "+£377 vs the next best
+  // deal" is a fact about our shortlist; "£1,763 less than you pay now" is the only number
+  // the customer is actually deciding on.
+  const annualDiff = (a, cur) => {
+    if (cur == null) return '<span style="color:var(--muted)">—</span>';
+    const d = Math.round(a - cur);
+    if (d === 0) return '<span style="color:var(--muted)">no change</span>';
+    const pct = Math.round(Math.abs(d) / cur * 100);
+    return `<span style="color:${d < 0 ? 'var(--ok)' : 'var(--fail)'};font-weight:600">
+      ${d < 0 ? '−' : '+'}£${Math.abs(d).toLocaleString()}</span>
+      <div style="font-size:10px;color:var(--muted)">${pct}% ${d < 0 ? 'saving' : 'increase'}</div>`;
+  };
+
   const bandLabel = (g) => {
     const b = [...g.bands].sort();
     if (b.length === 1) return b[0] === '—' ? 'any band' : b[0].replace('band_', 'band ');
@@ -2394,12 +2554,13 @@ function renderQuotes() {
       <th style="width:26px"></th><th>Supplier</th><th>Product</th>
       <th class="num">Unit</th><th class="num">Day</th><th class="num">Night</th>
       <th class="num">E/Wknd</th><th class="num">SC p/day</th>
-      <th class="num">Annual £</th><th class="num">vs cheapest</th><th>Band</th>
+      <th class="num">Annual £</th><th class="num">Annual diff</th><th>Band</th>
     </tr></thead>
     <tbody>
       ${curAnnual != null ? `<tr style="background:var(--warn-bg)">
         <td></td><td></td>
         <td><div style="display:flex;align-items:center;gap:8px">
+              ${supplierLogo(supplierKeyOf(CURRENT.supplier || METER.supplier), 20)}
               <span><b>${esc(CURRENT.supplier || METER.supplier || 'Current supplier')}</b></span>
             </div></td>
         <td><span class="pill p-warn">CURRENT CONTRACT</span>
@@ -2470,13 +2631,7 @@ function renderQuotes() {
         <td class="num"><b>£${Math.round(r.annual).toLocaleString()}</b>${
           /column/.test(r.basis || '') ? `<div style="font-size:10px;color:var(--muted)"
             title="${esc(r.basis)}">single rate</div>` : ''}</td>
-        <td class="num" style="color:${i === 0 ? 'var(--ok)' : 'var(--text-2)'}">
-          ${i === 0 ? 'cheapest' : '+£' + Math.round(r.annual - cheapest).toLocaleString()}
-          ${curAnnual != null ? `<div style="font-size:10.5px;font-weight:600;color:${
-            r.annual < curAnnual ? 'var(--ok)' : 'var(--fail)'}">${
-            r.annual < curAnnual
-              ? '−£' + Math.round(curAnnual - r.annual).toLocaleString() + ' vs now'
-              : '+£' + Math.round(r.annual - curAnnual).toLocaleString() + ' vs now'}</div>` : ''}</td>
+        <td class="num">${annualDiff(r.annual, curAnnual)}</td>
         <td>${bandLabel(r)}</td>
       </tr>`;
     }).join('')}</tbody></table></div>`;
@@ -2611,6 +2766,64 @@ function imageData(src) {
  * Nor is the pricebook, the product code, the band, or which supplier came second. A quote
  * is an offer to a customer, not a working paper.
  */
+/**
+ * The customer's quote sheet, in CES's own format.
+ *
+ * Modelled line for line on the sheets CES already send (Eight White Ltd, 27 Jan 2026):
+ * landscape A4, the market-fluctuation declaration at the top, the supply and the CES
+ * contact block side by side, one table of deals with the CURRENT CONTRACT pinned first,
+ * and the commissions disclosure on its own final page.
+ *
+ * THE UPLIFT IS NOT ON THE PRICE PAGES. Every rate shown already includes it — that is
+ * what the customer pays and what the contract will say — but the figure itself is CES's
+ * commission and belongs only in the disclosure at the back, which is exactly what the
+ * declaration at the front promises. Nor is the pricebook, the product key, the band, the
+ * SSC, or which supplier came second: a quote is an offer, not a working paper.
+ */
+const CES_CONTACT = {
+  lines: ['CES House', '2B Manor Road', 'Beckenham', 'Kent', 'BR3 5LE'],
+  phone: '02030 988777',
+};
+
+const QUOTE_DECLARATION =
+  'Prices must be confirmed at quote acceptance stage due to market fluctuations. '
++ 'We work with most but not all energy suppliers so we cannot guarantee to cover the '
++ 'entire market. Prices shown exclude VAT, Climate Charge and Nuclear RAB Levies and are '
++ 'subject to supplier contract terms & conditions which may introduce other 3rd-party '
++ 'charges. CES commission is included and shown on the final page.';
+
+const COMMISSION_DISCLOSURE = [
+  'The prices quoted include a p/kWh or estimated annual value of commission for Commercial '
+  + 'Energy Solutions Ltd (CES).',
+  'Where a multiyear contract is selected, total commission is the annual value multiplied '
+  + 'by the number of contracted years.',
+  'Commission includes CES energy procurement and account management services during the '
+  + 'contract term and is not subject to retail price index regardless of contract term.',
+  'Services included: Contract renewal management, First bill and meter read validation, '
+  + 'Utility Portal, Billing query management, Meter fault repair co-ordination, Reduced '
+  + 'V.A.T declaration, Change of Tenancy, Capacity (kVA) assessment and Expenditure / '
+  + 'Carbon (CO2e) reporting.',
+];
+
+/** "Non Half Hourly Electric", "Half Hourly Electric", "Gas" — as the sheet words it. */
+function utilityLabel() {
+  if (!METER) return '';
+  if (METER.utility === 'gas') return 'Gas';
+  const hh = String(METER.supply_type || '').toUpperCase() === 'HH'
+          || String(METER.profile_class) === '0' || String(METER.profile_class) === '00';
+  return (hh ? 'Half Hourly' : 'Non Half Hourly') + ' Electric';
+}
+
+/** "Standard (Single Rate)", "Day / Night", "Day + Evening/Weekend". */
+function meterTypeLabel() {
+  const rs = String((METER && METER.rate_structure) || '').toLowerCase();
+  if (rs === 'day_night') return 'Day / Night';
+  if (rs === 'day_night_ew' || rs === 'three_rate') return 'Day / Night / Evening & Weekend';
+  if (rs === 'day_ew') return 'Day + Evening/Weekend';
+  if (rs === 'single') return 'Standard (Single Rate)';
+  return '—';
+}
+
 async function downloadQuotePdf() {
   const rows = pickedQuotes();
   if (!rows.length) return;
@@ -2622,148 +2835,231 @@ async function downloadQuotePdf() {
     const JSPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
     if (!JSPDF) throw new Error('the PDF library did not load');
 
+    // Every logo the sheet needs, the current supplier's included.
+    const curKey = CURRENT ? supplierKeyOf(CURRENT.supplier || METER.supplier) : null;
     const logos = {};
-    for (const r of rows) {
-      const f = SUPPLIER_LOGO[r.supplier_key];
-      if (f && !(r.supplier_key in logos)) logos[r.supplier_key] = await imageData('/supplier-logos/' + f);
+    for (const k of [...new Set([...rows.map(r => r.supplier_key), curKey].filter(Boolean))]) {
+      const f = SUPPLIER_LOGO[k];
+      if (f) logos[k] = await imageData('/supplier-logos/' + f);
     }
-    const ces = await imageData('https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/public/public-docs/ces_logo.png');
+    const ces = await imageData('https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/'
+                              + 'public/public-docs/ces_logo.png');
 
-    const doc = new JSPDF({ unit: 'mm', format: 'a4' });
-    const W = 210, M = 16;
-    let y = 14;
+    const doc = new JSPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+    const W = 297, H = 210, M = 12;
+    const BLUE = [10, 120, 173];
+    const INK = [25, 35, 45];
+    const GREY = [110, 120, 130];
 
-    // ── Header ────────────────────────────────────────────────────────────────────────
-    if (ces) {
-      const h = 11, w = h * (ces.w / ces.h);
-      doc.addImage(ces.data, 'PNG', M, y - 3, Math.min(w, 46), h);
-    }
-    doc.setFontSize(15); doc.setTextColor(20, 30, 40); doc.setFont(undefined, 'bold');
-    doc.text('Energy quotation', W - M, y + 3, { align: 'right' });
-    doc.setFontSize(9); doc.setFont(undefined, 'normal'); doc.setTextColor(110, 120, 130);
-    doc.text(new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }),
-             W - M, y + 8.5, { align: 'right' });
-    y += 16;
-    doc.setDrawColor(220, 226, 232); doc.line(M, y, W - M, y); y += 8;
+    const curAnnual = currentAnnual(Number(QUOTE.aq), Number(QUOTE.dayPct));
 
-    // ── The supply ────────────────────────────────────────────────────────────────────
-    doc.setFontSize(8.5); doc.setTextColor(120, 130, 140);
-    const facts = [
-      [METER.utility === 'gas' ? 'MPRN' : 'MPAN', METER.mpan || '—'],
-      ['Site', [METER.site_name, METER.postcode].filter(Boolean).join(', ') || '—'],
-      ['Annual consumption', Number(QUOTE.aq).toLocaleString() + ' kWh'],
-      ['Supply start', uk(QUOTE.start)],
-    ];
-    let fx = M;
-    for (const [k, v] of facts) {
-      doc.setTextColor(130, 140, 150); doc.setFontSize(7.5);
-      doc.text(String(k).toUpperCase(), fx, y);
-      doc.setTextColor(25, 35, 45); doc.setFontSize(9.5); doc.setFont(undefined, 'bold');
-      doc.text(String(v), fx, y + 4.6);
-      doc.setFont(undefined, 'normal');
-      fx += (W - 2 * M) / facts.length;
-    }
-    y += 13;
+    // ── Columns, laid out once and reused on every page. ────────────────────────────
+    const C = {
+      logo: M, supplier: M + 22, term: 84, product: 112,
+      day: 176, night: 199, ew: 222, sc: 250, annual: 272, diff: W - M,
+    };
 
-    // ── The quotes, grouped by term ───────────────────────────────────────────────────
-    const terms = [...new Set(rows.map(r => r.term_months))].sort((a, b) => a - b);
-    const COL = { logo: M, supplier: M + 26, product: M + 60, rate: 128, sc: 152, annual: W - M };
-
-    for (const t of terms) {
-      if (y > 250) { doc.addPage(); y = 20; }
-      doc.setFillColor(243, 247, 250); doc.rect(M, y - 4.5, W - 2 * M, 8, 'F');
-      doc.setFontSize(10); doc.setFont(undefined, 'bold'); doc.setTextColor(25, 35, 45);
-      doc.text(`${t} month contract`, M + 3, y + 1);
-      y += 10;
-
-      doc.setFontSize(7.5); doc.setFont(undefined, 'normal'); doc.setTextColor(130, 140, 150);
-      doc.text('SUPPLIER', COL.supplier, y);
-      doc.text('PRODUCT', COL.product, y);
-      doc.text('UNIT RATE', COL.rate, y);
-      doc.text('STANDING', COL.sc, y);
-      doc.text('ANNUAL COST', COL.annual, y, { align: 'right' });
-      y += 2.5;
-      doc.setDrawColor(228, 234, 240); doc.line(M, y, W - M, y); y += 6;
-
-      for (const r of rows.filter(x => x.term_months === t)) {
-        if (y > 268) { doc.addPage(); y = 20; }
-        const lg = logos[r.supplier_key];
-        if (lg) {
-          const h = 6.5, w = Math.min(h * (lg.w / lg.h), 22);
-          doc.addImage(lg.data, 'PNG', COL.logo, y - 4.6, w, h);
-        }
-        doc.setFontSize(9); doc.setTextColor(25, 35, 45); doc.setFont(undefined, 'bold');
-        doc.text(String(supplierName(r.supplier_key)).slice(0, 22), COL.supplier, y);
-        doc.setFont(undefined, 'normal'); doc.setFontSize(8.5); doc.setTextColor(70, 82, 94);
-        doc.text(String(r.product_display || r.product_name || '').slice(0, 30), COL.product, y);
-
-        // Rates as the customer will be billed them. Two registers get two lines.
-        doc.setFontSize(8.5); doc.setTextColor(25, 35, 45);
-        if (r.d != null && r.nt != null) {
-          doc.text(`${n2(r.d, 3)} day`, COL.rate, y - 1.6);
-          doc.text(`${n2(r.nt, 3)} night`, COL.rate, y + 2.2);
-        } else {
-          doc.text(`${n2(r.u != null ? r.u : (r.d != null ? r.d : r.nt), 3)} p/kWh`, COL.rate, y);
-        }
-        doc.text(`${n2(r.standing_charge_p_day, 3)} p/day`, COL.sc, y);
-        doc.setFont(undefined, 'bold'); doc.setFontSize(10);
-        doc.text('£' + Math.round(r.annual).toLocaleString(), COL.annual, y, { align: 'right' });
-        doc.setFont(undefined, 'normal');
-
-        const badges = [];
-        if (r.green) badges.push('Renewable');
-        if (Number(r.standing_charge_p_day) === 0) badges.push('No standing charge');
-        if (badges.length) {
-          doc.setFontSize(7); doc.setTextColor(60, 130, 100);
-          doc.text(badges.join('  ·  '), COL.product, y + 3.6);
-        }
-        y += badges.length ? 11 : 9;
-        doc.setDrawColor(240, 244, 248); doc.line(M, y - 3.5, W - M, y - 3.5);
+    const header = () => {
+      let y = M + 4;
+      if (ces) {
+        const h = 12, w = Math.min(h * (ces.w / ces.h), 52);
+        doc.addImage(ces.data, 'PNG', W - M - w, y - 4, w, h);
       }
+      doc.setFont(undefined, 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GREY);
+      const dec = doc.splitTextToSize(QUOTE_DECLARATION, W - 2 * M - 60);
+      doc.text(dec, M, y);
+      return y + dec.length * 3.2 + 4;
+    };
+
+    const tableHead = (y) => {
+      doc.setFillColor(...BLUE);
+      doc.rect(M, y - 4.5, W - 2 * M, 9, 'F');
+      doc.setFontSize(7); doc.setTextColor(255, 255, 255); doc.setFont(undefined, 'bold');
+      doc.text('SUPPLIER', C.supplier, y);
+      doc.text('CONTRACT DURATION', C.term, y);
+      doc.text('PRODUCT NAME', C.product, y);
+      doc.text('UNIT RATE (DAY)', C.day, y, { align: 'right' });
+      doc.text('NIGHT', C.night, y, { align: 'right' });
+      doc.text('E/WKND', C.ew, y, { align: 'right' });
+      doc.text('STANDING CHARGE', C.sc, y, { align: 'right' });
+      doc.text('ANNUAL COST', C.annual, y, { align: 'right' });
+      doc.text('ANNUAL DIFF', C.diff, y, { align: 'right' });
+      doc.setFont(undefined, 'normal');
+      return y + 9;
+    };
+
+    /** One priced line. `cur` draws it as the highlighted current-contract row. */
+    const line = (y, o) => {
+      if (o.cur) { doc.setFillColor(238, 244, 248); doc.rect(M, y - 5, W - 2 * M, 10, 'F'); }
+      const lg = o.key ? logos[o.key] : null;
+      if (lg) {
+        const h = 6, w = Math.min(h * (lg.w / lg.h), 19);
+        doc.addImage(lg.data, 'PNG', C.logo, y - 4, w, h);
+      }
+      doc.setFontSize(8); doc.setTextColor(...INK);
+      doc.setFont(undefined, o.cur ? 'bold' : 'normal');
+      doc.text(String(o.supplier).slice(0, 20), C.supplier, y);
+      doc.text(o.term, C.term, y);
+      doc.setFont(undefined, 'normal'); doc.setFontSize(7.5);
+      doc.text(doc.splitTextToSize(String(o.product || ''), C.day - C.product - 14)[0] || '',
+               C.product, y);
+      doc.setFontSize(8);
+      const num = (v) => (v == null ? '-' : n2(v, 4));
+      doc.text(num(o.day), C.day, y, { align: 'right' });
+      doc.text(num(o.night), C.night, y, { align: 'right' });
+      doc.text(num(o.ew), C.ew, y, { align: 'right' });
+      doc.text(o.sc == null ? '-' : `${n2(o.sc, 4)} p/day`, C.sc, y, { align: 'right' });
+      doc.setFont(undefined, 'bold');
+      doc.text('£' + Math.round(o.annual).toLocaleString(), C.annual, y, { align: 'right' });
+      doc.setFont(undefined, 'normal');
+
+      if (o.cur || curAnnual == null) {
+        doc.setTextColor(...GREY);
+        doc.text(o.cur ? '-' : 'n/a', C.diff, y, { align: 'right' });
+      } else {
+        const d = Math.round(o.annual - curAnnual);
+        const pct = Math.round(Math.abs(d) / curAnnual * 100);
+        doc.setTextColor(...(d <= 0 ? [21, 110, 60] : [170, 40, 35]));
+        doc.text(`${d <= 0 ? '−' : '+'} £${Math.abs(d).toLocaleString()}`, C.diff, y, { align: 'right' });
+        doc.setFontSize(6.5); doc.setTextColor(...GREY);
+        doc.text(`(${pct}% ${d <= 0 ? 'saving' : 'increase'})`, C.diff, y + 3.2, { align: 'right' });
+        doc.setFontSize(8);
+      }
+      doc.setDrawColor(226, 232, 238);
+      doc.line(M, y + 5, W - M, y + 5);
+      return y + 10.5;
+    };
+
+    // ── Page 1: declaration, who it is for, the supply, and CES's contact block. ─────
+    let y = header();
+
+    doc.setFontSize(14); doc.setTextColor(...BLUE); doc.setFont(undefined, 'bold');
+    doc.text(`Quote Results for ${METER.customer_id || 'your business'}`, M, y + 4);
+    doc.setFont(undefined, 'normal');
+    y += 11;
+
+    const facts = [
+      ['Utility Type', utilityLabel()],
+      ['Site Address', [METER.site_name, METER.site_address, METER.postcode]
+        .filter(Boolean).join(', ') || '—'],
+      [METER.utility === 'gas' ? 'Meter Number (MPRN)' : 'Meter Number (MPAN)', METER.mpan || '—'],
+      ['Meter Type', meterTypeLabel()],
+      ['Contract Start Date', uk(QUOTE.start)],
+      ['Consumption (Annual)', Number(QUOTE.aq).toLocaleString() + ' kWh'],
+      ['Date Quoted', uk(new Date().toISOString().slice(0, 10))],
+    ];
+    const factTop = y;
+    doc.setFontSize(8.5);
+    for (const [k, v] of facts) {
+      doc.setTextColor(...GREY); doc.text(k + ':', M, y);
+      doc.setTextColor(...INK);
+      doc.text(doc.splitTextToSize(String(v), 150)[0] || '', M + 36, y);
       y += 5;
     }
+    // CES's own block, right-aligned, beside the supply.
+    let cy = factTop;
+    doc.setFontSize(8.5); doc.setTextColor(...INK);
+    for (const l of CES_CONTACT.lines) { doc.text(l, W - M, cy, { align: 'right' }); cy += 5; }
+    if (WHO) { doc.text('Account Manager: ' + WHO, W - M, cy, { align: 'right' }); cy += 5; }
+    doc.setTextColor(...GREY);
+    doc.text(CES_CONTACT.phone, W - M, cy, { align: 'right' });
 
-    // ── What the figures assume ───────────────────────────────────────────────────────
-    if (y > 236) { doc.addPage(); y = 20; }
-    y += 2;
-    doc.setDrawColor(220, 226, 232); doc.line(M, y, W - M, y); y += 6;
-    doc.setFontSize(7.5); doc.setTextColor(120, 130, 140); doc.setFont(undefined, 'bold');
-    doc.text('WHAT THESE FIGURES ASSUME', M, y); y += 4.5;
-    doc.setFont(undefined, 'normal');
+    y = Math.max(y, cy) + 6;
+    doc.setFontSize(9); doc.setTextColor(...INK);
+    doc.text('We’ve searched our network of suppliers and found these deals for your business:',
+             M, y);
+    y += 8;
+    y = tableHead(y);
+
+    // The current contract first, because every Annual Diff on the sheet is measured
+    // against it and a reader needs to see the baseline before the comparisons.
+    if (curAnnual != null) {
+      y = line(y, { cur: true, key: curKey,
+                    supplier: CURRENT.supplier || METER.supplier || 'Current supplier',
+                    term: 'CURRENT CONTRACT', product: '',
+                    day: CURRENT.u != null ? CURRENT.u : CURRENT.d, night: CURRENT.nt,
+                    ew: CURRENT.ew, sc: CURRENT.sc, annual: curAnnual });
+    }
+
+    for (const r of rows) {
+      if (y > H - 26) { doc.addPage(); y = header(); y = tableHead(y + 2); }
+      y = line(y, { key: r.supplier_key, supplier: supplierName(r.supplier_key),
+                    term: `${r.term_months} months`,
+                    product: [r.product_display || r.product_name,
+                              Number(r.standing_charge_p_day) === 0 ? '(no standing charge)' : '',
+                              r.green ? '(renewable)' : ''].filter(Boolean).join(' '),
+                    day: r.u != null ? r.u : r.d, night: r.nt, ew: r.ew,
+                    sc: r.standing_charge_p_day, annual: r.annual });
+    }
+
+    // ── What the figures assume, under the table. ────────────────────────────────────
+    if (y > H - 40) { doc.addPage(); y = header(); }
+    y += 3;
+    doc.setDrawColor(...BLUE); doc.line(M, y, W - M, y); y += 5;
+    doc.setFontSize(7.5); doc.setTextColor(...GREY);
     const dn = rows.some(r => r.d != null && r.nt != null);
     const notes = [
-      `Annual cost is ${Number(QUOTE.aq).toLocaleString()} kWh over 365 days at the rates shown, `
-        + 'plus the standing charge. Your actual bill will follow your actual consumption.',
-      'Rates shown are the rates you would be billed. They exclude VAT and CCL.',
-      dn ? `Day and night consumption is assumed to split `
+      `Annual cost is ${Number(QUOTE.aq).toLocaleString()} kWh over 365 days at the rates `
+        + 'shown, plus the standing charge. Your actual bill will follow your actual consumption.',
+      dn ? 'Day and night consumption is assumed to split '
          + `${Math.round(QUOTE.dayPct * 100)}/${100 - Math.round(QUOTE.dayPct * 100)}, as no `
          + 'measured split is held for this meter. A different split changes the annual cost '
          + 'but not the rates.' : null,
-      'Prices move daily and are subject to the supplier accepting the contract. They are '
-        + 'not a binding offer.',
+      curAnnual != null
+        ? 'Annual Diff compares each deal against your current contract on the same '
+          + 'consumption, so the two are measured the same way.' : null,
     ].filter(Boolean);
-    for (const n of notes) {
-      const lines = doc.splitTextToSize(n, W - 2 * M);
-      doc.text(lines, M, y); y += lines.length * 3.4 + 1.4;
+    for (const nline of notes) {
+      const ls = doc.splitTextToSize(nline, W - 2 * M);
+      doc.text(ls, M, y); y += ls.length * 3.2 + 1.2;
     }
 
-    // ── Footer on every page ──────────────────────────────────────────────────────────
+    // ── The commissions disclosure, on its own page, as CES's sheets have it. ────────
+    doc.addPage();
+    let dy = M + 6;
+    if (ces) {
+      const h = 12, w = Math.min(h * (ces.w / ces.h), 52);
+      doc.addImage(ces.data, 'PNG', W - M - w, dy - 6, w, h);
+    }
+    doc.setFontSize(14); doc.setTextColor(...BLUE); doc.setFont(undefined, 'bold');
+    doc.text('Commissions Disclosure', M, dy + 2);
+    doc.setFont(undefined, 'normal');
+    dy += 12;
+    doc.setFontSize(9); doc.setTextColor(...INK);
+    for (const p of COMMISSION_DISCLOSURE) {
+      const ls = doc.splitTextToSize(p, W - 2 * M);
+      doc.text(ls, M, dy); dy += ls.length * 4.4 + 3.5;
+    }
+    // The figure itself. Promised on page one, so it has to actually be here.
+    dy += 2;
+    doc.setDrawColor(...BLUE); doc.line(M, dy, W - M, dy); dy += 6;
+    const up = Number(QUOTE.uplift) || 0;
+    doc.setFontSize(9.5); doc.setTextColor(...INK); doc.setFont(undefined, 'bold');
+    doc.text(`Commission included in these prices: ${up.toFixed(2)} p/kWh`, M, dy);
+    doc.setFont(undefined, 'normal'); doc.setTextColor(...GREY); doc.setFontSize(8.5);
+    doc.text(`On ${Number(QUOTE.aq).toLocaleString()} kWh a year that is an estimated `
+           + `£${Math.round(up * Number(QUOTE.aq) / 100).toLocaleString()} a year.`, M, dy + 5);
+
+    // ── Footer on every page. ────────────────────────────────────────────────────────
     const pages = doc.getNumberOfPages();
     for (let p = 1; p <= pages; p++) {
       doc.setPage(p);
       doc.setFontSize(7); doc.setTextColor(150, 158, 166);
-      doc.text('Commercial Energy Solutions Ltd', M, 288);
-      doc.text(`${p} of ${pages}`, W - M, 288, { align: 'right' });
+      doc.text('Commercial Energy Solutions Ltd', M, H - 6);
+      doc.text(`Page ${p} of ${pages}`, W - M, H - 6, { align: 'right' });
     }
 
-    const who = (METER.site_name || METER.customer_id || 'quote').replace(/[^\w \-]/g, '').slice(0, 40);
-    doc.save(`CES quote - ${who} - ${METER.mpan || ''}.pdf`.replace(/\s+/g, ' ').trim());
+    const who = (METER.customer_id || METER.site_name || 'quote').replace(/[^\w \-]/g, '').slice(0, 40);
+    const kind = METER.utility === 'gas' ? 'Gas' : 'Electric';
+    doc.save(`${who} - ${kind} Quote - Commercial Energy Solutions - `
+           + `${new Date().toISOString().slice(0, 10)}.pdf`.replace(/\s+/g, ' '));
   } catch (e) {
     alert('Could not build the PDF: ' + e.message);
   } finally {
     btn.disabled = false; btn.textContent = was;
   }
 }
+
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
 // Reference lookups

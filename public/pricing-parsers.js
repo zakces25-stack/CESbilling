@@ -33,7 +33,7 @@
   const CANON_FIELDS = [
     'supplier_key', 'fuel', 'sale_type', 'term_months', 'product_name', 'product_code',
     'dno_id', 'gsp_group', 'ldz', 'exit_zone', 'profile_class', 'rate_structure',
-    'tcr_band', 'voltage_level', 'aq_min', 'aq_max',
+    'tcr_band', 'ssc', 'voltage_level', 'aq_min', 'aq_max',
     'start_date_min', 'start_date_max', 'sell_days_min', 'sell_days_max',
     'quote_valid_from', 'quote_valid_to',
     'payment_method', 'green', 'amr', 'sc_type',
@@ -1619,11 +1619,22 @@
 
         // The band lives inside the product name and nowhere else. "YELG 2R B3 04_0153_2C".
         const pn = String(g('productname') || '').trim();
-        // SSC and the DUoS tariff codes are the finest key any of these books uses, and
-        // meters carries neither, so they go in the code where a broker can at least see
-        // which configuration a price came from.
-        r.product_code = [pn, String(g('ssc') || '').trim(),
-                          String(g('duostariffidcodes') || '').trim()]
+        // ── The SSC is a MATCHING DIMENSION, not a note. ────────────────────────────
+        // It used to be folded into product_code as a human-readable breadcrumb because
+        // meters carried no SSC to match it against. Measured once TE power was actually
+        // loaded: of 13,255 distinct match keys (distributor + profile class + rate shape +
+        // band + consumption band + term), **every single one** carried more than one
+        // price, up to 120 behind one key, median spread 2.28 p/kWh — £912 a year on a
+        // 40,000 kWh site, 26.84 p/kWh at worst. The fold then picked the cheapest, so
+        // TotalEnergies won quotes at prices TotalEnergies would refuse.
+        //
+        // meters.ssc now exists (1,779 of 1,944 electricity meters), so the SSC goes in its
+        // own column and the matcher uses it.
+        const sscRaw = String(g('ssc') || '').trim();
+        r.ssc = /^\d{1,4}$/.test(sscRaw) ? sscRaw.padStart(4, '0') : null;
+        if (!r.ssc) throw new Refuse(`no SSC on a TotalEnergies power row ("${sscRaw}") — `
+                                   + 'their prices differ by SSC and cannot be matched without it');
+        r.product_code = [pn, r.ssc, String(g('duostariffidcodes') || '').trim()]
                          .filter(Boolean).join(' | ') || null;
         const parts = pn.split(/\s+/);
         const bm = pn.match(/\bB([1-4])\b/);
@@ -2095,7 +2106,7 @@
      * re-upload wrote 8,916 rows with no selling days and the wrong rate kept winning.
      * Caching headers are the first line of defence and this is the second.
      */
-    VERSION: '2026-09-11.1',
+    VERSION: '2026-09-11.2',
     parse, normHeader, readZip, headerRowIndex, CANON_FIELDS, P_KVA_DAY_TO_MONTH,
     // exported for the test suite
     _internals: { saleType, rateStructure, tcrBand, toNum, toDate, toBool, dnoId, rate, sc,
