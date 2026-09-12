@@ -32,7 +32,10 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026-09-14.2';
+  var VERSION = '2026-09-14.3';
+  // Where the two CES price sheet templates live. Same ?v= discipline as this file: .htaccess
+  // caches for 30 days, so a changed template needs a changed URL or nobody receives it.
+  var TEMPLATE_BASE = '/quote-templates/';
   var PDFJS_VER = '3.11.174';
 
   // ── CES's disclosure, WORD FOR WORD as CES supplied it, 14 Sep 2026 ─────────────────────
@@ -82,6 +85,8 @@
     '.sqv .sq-btn.ghost{background:transparent;color:var(--cyan,var(--navy,#0f766e))}',
     '.sqv .sq-btn.sm{padding:5px 10px;font-size:12px}',
     '.sqv .sq-btn.xs{padding:2px 7px;font-size:11px;border-radius:5px}',
+    '.sqv .sq-cmp{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted,#6b7280)}',
+    '.sqv .sq-cmp select{font-family:inherit;font-size:12px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--ink,#111827);padding:4px 8px;border:1px solid var(--line,#e2e5ec);border-radius:7px;background:#fff}',
     '.sqv .sq-msg{font-size:12.5px;color:var(--muted,#5c6b73)}',
     '.sqv .sq-msg.bad{color:#b3261e}',
     '.sqv .sq-staged{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:10px}',
@@ -291,245 +296,373 @@
     for (var i = 0; i < buf.length; i++) c = (c >>> 8) ^ CRC[(c ^ buf[i]) & 0xFF];
     return (c ^ -1) >>> 0;
   }
-  function zipStore(entries) {                       // [{name, bytes}] -> Uint8Array
-    var enc = new TextEncoder();
-    var locals = [], central = [], offset = 0, total = 0;
-    var DOS_TIME = 0, DOS_DATE = ((2026 - 1980) << 9) | (1 << 5) | 1;   // 1 Jan 2026, pinned
-    entries.forEach(function (e) {
-      var name = enc.encode(e.name), data = e.bytes;
-      var crc = crc32(data);
-      var lh = new Uint8Array(30), dv = new DataView(lh.buffer);
-      dv.setUint32(0, 0x04034b50, true); dv.setUint16(4, 20, true); dv.setUint16(6, 0, true);
-      dv.setUint16(8, 0, true); dv.setUint16(10, DOS_TIME, true); dv.setUint16(12, DOS_DATE, true);
-      dv.setUint32(14, crc, true); dv.setUint32(18, data.length, true); dv.setUint32(22, data.length, true);
-      dv.setUint16(26, name.length, true); dv.setUint16(28, 0, true);
-      locals.push(lh, name, data);
-      var ch = new Uint8Array(46), cv = new DataView(ch.buffer);
-      cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true);
-      cv.setUint16(8, 0, true); cv.setUint16(10, 0, true); cv.setUint16(12, DOS_TIME, true); cv.setUint16(14, DOS_DATE, true);
-      cv.setUint32(16, crc, true); cv.setUint32(20, data.length, true); cv.setUint32(24, data.length, true);
-      cv.setUint16(28, name.length, true); cv.setUint32(42, offset, true);
-      central.push(ch, name);
-      offset += 30 + name.length + data.length;
-    });
-    var cdSize = central.reduce(function (n, b) { return n + b.length; }, 0);
-    var eocd = new Uint8Array(22), ev = new DataView(eocd.buffer);
-    ev.setUint32(0, 0x06054b50, true);
-    ev.setUint16(8, entries.length, true); ev.setUint16(10, entries.length, true);
-    ev.setUint32(12, cdSize, true); ev.setUint32(16, offset, true);
-    var parts = locals.concat(central, [eocd]);
-    parts.forEach(function (b) { total += b.length; });
-    var out = new Uint8Array(total), at = 0;
-    parts.forEach(function (b) { out.set(b, at); at += b.length; });
-    return out;
-  }
   var xesc = function (v) {
     return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c];
     }).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
   };
-  var colName = function (i) { var n = ''; i++; while (i > 0) { var r = (i - 1) % 26; n = String.fromCharCode(65 + r) + n; i = (i - r - 1) / 26; } return n; };
 
-  // Style indices used below. Kept as names so the sheet builder reads as a description of the
-  // document rather than a list of magic numbers.
-  var ST = { plain: 0, title: 1, subtitle: 2, label: 3, value: 4, th: 5, td: 6, td3: 7, td2: 8,
-             money: 9, supplier: 10, diffUp: 11, diffDown: 12, disc: 13, low3: 14, low2: 15,
-             low: 16, discHead: 17, tdInt: 18, lowInt: 19, tdIntPlain: 20, td2Plain: 21 };
-  var STYLES_XML =
-    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
-    '<numFmts count="4">' +
-      '<numFmt numFmtId="164" formatCode="0.000"/><numFmt numFmtId="165" formatCode="0.00"/>' +
-      '<numFmt numFmtId="166" formatCode="&quot;£&quot;#,##0"/><numFmt numFmtId="167" formatCode="#,##0"/>' +
-    '</numFmts>' +
-    '<fonts count="11">' +
-      '<font><sz val="11"/><name val="Calibri"/></font>' +
-      '<font><b/><sz val="16"/><name val="Calibri"/></font>' +
-      '<font><sz val="10"/><color rgb="FF6B7280"/><name val="Calibri"/></font>' +
-      '<font><b/><sz val="11"/><name val="Calibri"/></font>' +
-      '<font><b/><sz val="10"/><name val="Calibri"/></font>' +
-      '<font><sz val="10"/><name val="Calibri"/></font>' +
-      '<font><b/><sz val="10"/><color rgb="FFC0392B"/><name val="Calibri"/></font>' +
-      '<font><b/><sz val="10"/><color rgb="FF1A7F37"/><name val="Calibri"/></font>' +
-      '<font><sz val="9"/><name val="Calibri"/></font>' +
-      '<font><b/><sz val="10"/><color rgb="FF8A1C1C"/><name val="Calibri"/></font>' +
-      '<font><b/><sz val="9"/><name val="Calibri"/></font>' +
-    '</fonts>' +
-    '<fills count="4">' +
-      '<fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>' +
-      '<fill><patternFill patternType="solid"><fgColor rgb="FFD9D9D9"/><bgColor indexed="64"/></patternFill></fill>' +
-      '<fill><patternFill patternType="solid"><fgColor rgb="FFFDE2E2"/><bgColor indexed="64"/></patternFill></fill>' +
-    '</fills>' +
-    '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border>' +
-      '<border><left style="thin"><color rgb="FF333333"/></left><right style="thin"><color rgb="FF333333"/></right>' +
-      '<top style="thin"><color rgb="FF333333"/></top><bottom style="thin"><color rgb="FF333333"/></bottom><diagonal/></border>' +
-    '</borders>' +
-    '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-    '<cellXfs count="22">' +
-      '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +                                                    // 0 plain
-      '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +                                      // 1 title
-      '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +                                      // 2 subtitle
-      '<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +                                      // 3 label
-      '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="left"/></xf>' + // 4 value
-      '<xf numFmtId="0" fontId="4" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>' + // 5 th
-      '<xf numFmtId="0" fontId="5" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>' + // 6 td
-      '<xf numFmtId="164" fontId="5" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>' + // 7 td3
-      '<xf numFmtId="165" fontId="5" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>' + // 8 td2
-      '<xf numFmtId="166" fontId="4" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>' + // 9 money
-      '<xf numFmtId="0" fontId="4" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>' + // 10 supplier
-      '<xf numFmtId="166" fontId="6" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>' + // 11 diff up
-      '<xf numFmtId="166" fontId="7" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>' + // 12 diff down
-      '<xf numFmtId="0" fontId="8" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="top" wrapText="1"/></xf>' + // 13 disclosure
-      '<xf numFmtId="164" fontId="9" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>' + // 14 low3
-      '<xf numFmtId="165" fontId="9" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>' + // 15 low2
-      '<xf numFmtId="0" fontId="9" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>' + // 16 low
-      '<xf numFmtId="0" fontId="10" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +                                     // 17 disclosure heading
-      '<xf numFmtId="167" fontId="5" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>' + // 18 int
-      '<xf numFmtId="167" fontId="9" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>' + // 19 low int
-      '<xf numFmtId="167" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="left"/></xf>' + // 20 int, no border
-      '<xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="left"/></xf>' + // 21 2dp, no border
-    '</cellXfs>' +
-    '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
-    '</styleSheet>';
+  // ═════════════════════════════════════════════════════════════════════════════════════════
+  // THE CES PRICE SHEET
+  //
+  // The customer's document is not one this file invents: it is CES's own "Gas Price Sheet"
+  // and "HH Electric Price Sheet", filled in. So the broker sends the sheet the customer
+  // already recognises, logo, borders, print setup and all.
+  //
+  // The rule that makes that safe, and it was learned on these exact two files: NOTHING that is
+  // not being changed may be re-serialised. Round-tripping the workbook through a spreadsheet
+  // library renames the XML namespace prefixes (r: becomes ns4:), rebuilds the style table with
+  // different indices, and drops the grouped drawing that IS the CES logo — and Excel then
+  // refuses the file with "we found a problem with some content". So: open the zip, edit three
+  // parts AS TEXT, and copy every other entry back with its original compressed bytes untouched.
+  //
+  // Nothing here is hard-coded to a style number either. The row styles, the payment-method
+  // cell, the trailing spacer cells and the thick bottom border are all READ OUT of the
+  // template's own rows 15, 16 and the last row of its block, so if CES restyles the sheet the
+  // export follows without anyone editing this file.
+  // ═════════════════════════════════════════════════════════════════════════════════════════
 
-  /**
-   * One sheet, written out. `rows` is a list of { h?, cells: [null | {v, s, n?}] }: `n` marks a
-   * number (everything else is written as an inline string, so there is no shared-string table
-   * to keep in step).
-   */
-  function xlsxBytes(o) {
-    var enc = new TextEncoder();
-    var cols = (o.cols || []).map(function (w, i) {
-      return '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>';
-    }).join('');
-    var rows = (o.rows || []).map(function (row, ri) {
-      var cells = (row.cells || []).map(function (c, ci) {
-        if (!c || (c.v == null || c.v === '')) return '';
-        var ref = colName(ci) + (ri + 1);
-        var st = ' s="' + (c.s || 0) + '"';
-        return c.n
-          ? '<c r="' + ref + '"' + st + '><v>' + Number(c.v) + '</v></c>'
-          : '<c r="' + ref + '"' + st + ' t="inlineStr"><is><t xml:space="preserve">' + xesc(c.v) + '</t></is></c>';
-      }).join('');
-      return '<row r="' + (ri + 1) + '"' + (row.h ? ' ht="' + row.h + '" customHeight="1"' : '') + '>' + cells + '</row>';
-    }).join('');
-    var merges = (o.merges || []).length
-      ? '<mergeCells count="' + o.merges.length + '">' + o.merges.map(function (m) { return '<mergeCell ref="' + m + '"/>'; }).join('') + '</mergeCells>'
-      : '';
-    var sheet = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
-      '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>' +
-      '<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>' +
-      '<sheetFormatPr defaultRowHeight="15"/>' +
-      (cols ? '<cols>' + cols + '</cols>' : '') +
-      '<sheetData>' + rows + '</sheetData>' + merges +
-      '<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/>' +
-      '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>' +
-      '</worksheet>';
-    var name = xesc((o.sheetName || 'Price Analysis').slice(0, 31));
-    var files = [
-      { name: '[Content_Types].xml', bytes: enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
-        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
-        '<Default Extension="xml" ContentType="application/xml"/>' +
-        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
-        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
-        '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
-        '</Types>') },
-      { name: '_rels/.rels', bytes: enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
-        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
-        '</Relationships>') },
-      { name: 'xl/workbook.xml', bytes: enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
-        '<sheets><sheet name="' + name + '" sheetId="1" r:id="rId1"/></sheets></workbook>') },
-      { name: 'xl/_rels/workbook.xml.rels', bytes: enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
-        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
-        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
-        '</Relationships>') },
-      { name: 'xl/styles.xml', bytes: enc.encode(STYLES_XML) },
-      { name: 'xl/worksheets/sheet1.xml', bytes: enc.encode(sheet) },
-    ];
-    return zipStore(files);
-  }
+  var TEMPLATES = {
+    gas: {
+      file: 'gas-price-sheet.xlsx',
+      title: 'Gas Price Analysis',
+      first: 15, last: 32,                          // the quote block as the template ships it
+      // header cells: the label lives in the cell and the value is appended to it
+      strings: { B9: 'Business Name: ', B10: 'Site: ', B11: 'Date: ', B12: 'MPRN: ', C12: 'CSD: ' },
+      // where the consumption goes, and which of the view's figures fills it
+      numbers: { F12: 'kwh' },
+      cols: { supplier: 'B', sc: 'C', unit: 'D', term: 'E', pay: 'F', annual: 'G', diff: 'H' },
+      annualF: function (r) { return '($C' + r + '*365)/100+($D' + r + '*$F$12)/100'; },
+      diffF: function (r, base) { return 'SUM(G' + r + '-$G$' + base + ')'; },
+      values: function (q) { return { sc: q.sc, unit: q.unit != null ? q.unit : q.day, term: q.term }; },
+    },
+    electricity: {
+      file: 'hh-electric-price-sheet.xlsx',
+      title: 'Electricity Price Analysis',
+      first: 15, last: 40,
+      strings: { B9: 'Business Name: ', B10: 'Site: ', B11: 'Date: ', B12: 'MPAN: ', D12: 'SSD: ' },
+      numbers: { J12: 'day', K12: 'night', L12: 'kva' },
+      // G (Feed-In / pass-through) and H (CCL) are HIDDEN columns in the template and the
+      // portal has no figure for them: they are left empty, which contributes nothing to the
+      // annual cost formula.
+      cols: { supplier: 'B', sc: 'C', cap: 'D', day: 'E', night: 'F', term: 'I', pay: 'J', annual: 'K', diff: 'L' },
+      annualF: function (r) {
+        return 'SUM(C' + r + '*365)/100+(D' + r + '*$L$12*12)/100+(E' + r + '*$J$12)/100+(F' + r + '*$K$12)/100' +
+               '+(G' + r + '*($J$12+$K$12))/100+(H' + r + '*($J$12+$K$12))/100';
+      },
+      diffF: function (r, base) { return 'SUM(K' + r + '-$K$' + base + ')'; },
+      values: function (q) {
+        // The template has a Day column and a Night column and no single-rate column, so a
+        // one-rate quote goes in BOTH: day x rate + night x rate is the same as total x rate.
+        //
+        // The order these are tried in has to be annualFor()'s order exactly. It was the other
+        // way round at first, and a row carrying a single rate AND day/night figures then cost
+        // one thing on screen and a different thing on the sheet the customer received.
+        var d = null, n = null;
+        if (q.unit != null) { d = q.unit; n = q.unit; }
+        else if (q.day != null && q.night != null) { d = q.day; n = q.night; }
+        else if (q.day != null) { d = q.day; n = q.day; }
+        return { sc: q.sc, cap: q.cap, day: d, night: n, term: q.term };
+      },
+    },
+  };
 
-  /**
-   * The price analysis as a workbook: the customer's details in boxes at the top, the same
-   * table with the same columns in the same order, and the disclosure in a box underneath.
-   * Pure, so the test can build one and read it back with a real spreadsheet library.
-   */
-  function buildWorkbook(v) {
-    var gas = v.fuel === 'gas';
-    var twoRate = !gas && v.rows.some(function (x) { return x.r.night != null; });
-    var hasCap = !gas && v.rows.some(function (x) { return x.r.cap != null; });
-    var heads = ['Supplier', 'Standing Charge\np/day']
-      .concat(gas ? ['Unit Rate\np/kWh'] : (twoRate ? ['Day Units\np/kWh', 'Night Units\np/kWh'] : ['Unit Rate\np/kWh']))
-      .concat(hasCap ? ['Capacity charge\np/kVA/month'] : [])
-      .concat(['Contract Period\n(months)', 'Payment\nMethod', 'Approx. Annual\nExpenditure', 'Difference']);
-    var N = heads.length, last = colName(N - 1);
-    var widths = [30].concat(heads.slice(1).map(function () { return 15; }));
-    var rows = [], merges = [];
-    var put = function (cells, h) { rows.push({ cells: cells, h: h }); return rows.length; };
-    var span = function (r) { merges.push('A' + r + ':' + last + r); };
-    // label in A, value merged across the rest. A kWh or a rate goes in as a NUMBER with a
-    // format, not as text, so the sheet can be summed and sorted like a spreadsheet.
-    var pair = function (label, value, numFmt) {
-      var isNum = numFmt != null && value !== '' && value != null && isFinite(Number(value));
-      var cells = [{ v: label, s: ST.label }, { v: value == null ? '' : value, s: isNum ? numFmt : ST.value, n: isNum }];
-      var r = put(cells);
-      if (N > 2) merges.push('B' + r + ':' + last + r);
-    };
-
-    span(put([{ v: (gas ? 'Gas' : 'Electricity') + ' Price Analysis', s: ST.title }], 22));
-    span(put([{ v: v.subtitle, s: ST.subtitle }]));
-    put([]);
-    pair('Business name', v.business);
-    pair('Site', v.site);
-    pair(gas ? 'MPRN' : 'MPAN', v.mpan);
-    pair('Contract start', v.csd);
-    pair('Fuel', gas ? 'Gas' : 'Electricity');
-    if (gas) pair('Annual consumption (kWh)', v.kwh.kwh || '', ST.tdIntPlain);
-    else {
-      pair('Day (kWh a year)', v.kwh.day || '', ST.tdIntPlain);
-      pair('Night (kWh a year)', v.kwh.night || '', ST.tdIntPlain);
-      if (v.kwh.kva) pair('Capacity (kVA)', v.kwh.kva, ST.tdIntPlain);
+  // ── zip, opened and closed without disturbing what is inside ─────────────────────────────
+  function inflateRaw(bytes) {
+    if (typeof DecompressionStream === 'undefined') {
+      return Promise.reject(new Error('this browser cannot open the price sheet template (no DecompressionStream); use Chrome, Edge or a current Firefox'));
     }
-    if (v.commission == null) pair('CES commission (p/kWh)', 'not stated yet');
-    else pair('CES commission (p/kWh)', Number(v.commission), ST.td2Plain);
-    pair('Prepared', v.dateText);
-    put([]);
-    put(heads.map(function (h) { return { v: h, s: ST.th }; }), 30);
-
-    v.rows.forEach(function (x) {
-      var r = x.r;
-      // The supplier cell carries the SUPPLIER, exactly as the screen does. The reader's
-      // "product" for an export is usually a sheet title or a term, which is why it is not on
-      // the screen either.
-      var cells = [{ v: r.supplier, s: ST.supplier },
-                   { v: r.sc, n: true, s: r.scLow ? ST.low2 : ST.td2 }];
-      var rateKey = r.unit != null ? 'unit' : 'day';
-      cells.push({ v: r[rateKey], n: true, s: r[rateKey + 'Low'] ? ST.low3 : ST.td3 });
-      if (!gas && twoRate) cells.push({ v: r.night, n: true, s: r.nightLow ? ST.low3 : ST.td3 });
-      if (hasCap) cells.push({ v: r.cap, n: true, s: r.capLow ? ST.low2 : ST.td2 });
-      cells.push(r.current ? { v: 'Current', s: ST.td } : { v: r.term, n: r.term != null, s: r.termLow ? ST.lowInt : ST.tdInt });
-      cells.push({ v: r.pay || '', s: ST.td });
-      cells.push({ v: x.annual == null ? '' : Math.round(x.annual), n: x.annual != null, s: ST.money });
-      cells.push(r.current ? { v: 'n/a', s: ST.td }
-        : { v: x.diff == null ? '' : Math.round(x.diff), n: x.diff != null, s: x.diff != null && x.diff < 0 ? ST.diffDown : ST.diffUp });
-      put(cells);
-    });
-
-    put([]);
-    put([{ v: (gas ? 'Gas' : 'Electricity') + ' quotation: important information', s: ST.discHead }]);
-    // One merged, wrapped cell. A merged cell does not auto-fit, so the height is worked out
-    // from the text: roughly (sum of the column widths) characters to a line at 9pt.
-    var perLine = widths.reduce(function (a, b) { return a + b; }, 0) * 1.05;
-    var lines = Math.ceil(v.disclosure.length / perLine) + 1;
-    var r2 = put([{ v: v.disclosure, s: ST.disc }], Math.min(409, lines * 12 + 10));
-    span(r2);
-    return { sheetName: (gas ? 'Gas' : 'Electricity') + ' Price Analysis', cols: widths, rows: rows, merges: merges };
+    var ds = new DecompressionStream('deflate-raw');
+    var w = ds.writable.getWriter(); w.write(bytes); w.close();
+    return new Response(ds.readable).arrayBuffer().then(function (b) { return new Uint8Array(b); });
   }
+  /** Every entry, keeping its COMPRESSED bytes so anything untouched can be copied verbatim. */
+  function unzip(buf) {
+    var dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength), dec = new TextDecoder();
+    var eocd = -1;
+    for (var i = buf.length - 22; i >= 0 && i > buf.length - 66000; i--) { if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
+    if (eocd < 0) throw new Error('the price sheet template is not a readable .xlsx');
+    var n = dv.getUint16(eocd + 10, true), at = dv.getUint32(eocd + 16, true);
+    var entries = [], byName = {};
+    for (var k = 0; k < n; k++) {
+      if (dv.getUint32(at, true) !== 0x02014b50) throw new Error('the template zip index is damaged');
+      var method = dv.getUint16(at + 10, true), crc = dv.getUint32(at + 16, true);
+      var csize = dv.getUint32(at + 20, true), usize = dv.getUint32(at + 24, true);
+      var nlen = dv.getUint16(at + 28, true), elen = dv.getUint16(at + 30, true), clen = dv.getUint16(at + 32, true);
+      var lho = dv.getUint32(at + 42, true);
+      var name = dec.decode(buf.subarray(at + 46, at + 46 + nlen));
+      // The LOCAL header's extra field is often a different length from the central one, so the
+      // payload has to be found from the local header, never from the central directory's.
+      var lnlen = dv.getUint16(lho + 26, true), lelen = dv.getUint16(lho + 28, true);
+      var start = lho + 30 + lnlen + lelen;
+      var e = { name: name, method: method, crc: crc, csize: csize, usize: usize, raw: buf.subarray(start, start + csize) };
+      entries.push(e); byName[name] = e;
+      at += 46 + nlen + elen + clen;
+    }
+    return { entries: entries, byName: byName };
+  }
+  function readPart(zip, name) {
+    var e = zip.byName[name];
+    if (!e) return Promise.resolve(null);
+    if (e.method === 0) return Promise.resolve(new TextDecoder().decode(e.raw));
+    return inflateRaw(e.raw).then(function (b) { return new TextDecoder().decode(b); });
+  }
+  /**
+   * Write the archive back. Edited parts go in STORED (uncompressed, which every reader
+   * accepts and which needs no deflate implementation); every other entry keeps the exact
+   * compressed bytes, CRC and method it arrived with, so styles.xml, the drawing and the logo
+   * image come out byte-identical to the template. The timestamp is pinned, so the same quotes
+   * exported twice give the same file.
+   */
+  function rezip(zip, edits, drop) {
+    var enc = new TextEncoder(), locals = [], central = [], offset = 0, count = 0;
+    var DOS_TIME = 0, DOS_DATE = ((2026 - 1980) << 9) | (1 << 5) | 1;
+    zip.entries.forEach(function (e) {
+      if (drop && drop.indexOf(e.name) >= 0) return;
+      var edited = Object.prototype.hasOwnProperty.call(edits, e.name);
+      var data, method, crc, usize;
+      if (edited) { data = enc.encode(edits[e.name]); method = 0; crc = crc32(data); usize = data.length; }
+      else { data = e.raw; method = e.method; crc = e.crc; usize = e.usize; }
+      var name = enc.encode(e.name);
+      var lh = new Uint8Array(30), dv = new DataView(lh.buffer);
+      dv.setUint32(0, 0x04034b50, true); dv.setUint16(4, 20, true); dv.setUint16(6, 0, true);
+      dv.setUint16(8, method, true); dv.setUint16(10, DOS_TIME, true); dv.setUint16(12, DOS_DATE, true);
+      dv.setUint32(14, crc, true); dv.setUint32(18, data.length, true); dv.setUint32(22, usize, true);
+      dv.setUint16(26, name.length, true); dv.setUint16(28, 0, true);
+      locals.push(lh, name, data);
+      var ch = new Uint8Array(46), cv = new DataView(ch.buffer);
+      cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true);
+      cv.setUint16(8, 0, true); cv.setUint16(10, method, true); cv.setUint16(12, DOS_TIME, true); cv.setUint16(14, DOS_DATE, true);
+      cv.setUint32(16, crc, true); cv.setUint32(20, data.length, true); cv.setUint32(24, usize, true);
+      cv.setUint16(28, name.length, true); cv.setUint32(42, offset, true);
+      central.push(ch, name);
+      offset += 30 + name.length + data.length; count++;
+    });
+    var cdSize = central.reduce(function (n, b) { return n + b.length; }, 0);
+    var eocd = new Uint8Array(22), ev = new DataView(eocd.buffer);
+    ev.setUint32(0, 0x06054b50, true);
+    ev.setUint16(8, count, true); ev.setUint16(10, count, true);
+    ev.setUint32(12, cdSize, true); ev.setUint32(16, offset, true);
+    var parts = locals.concat(central, [eocd]), total = 0;
+    parts.forEach(function (b) { total += b.length; });
+    var out = new Uint8Array(total), p = 0;
+    parts.forEach(function (b) { out.set(b, p); p += b.length; });
+    return out;
+  }
+
+  // ── the sheet surgery ────────────────────────────────────────────────────────────────────
+  var splitSheet = function (xml) {
+    var a = xml.indexOf('<sheetData>'), b = xml.indexOf('</sheetData>');
+    if (a < 0 || b < 0) throw new Error('the template sheet has no sheetData');
+    return { head: xml.slice(0, a + 11), body: xml.slice(a + 11, b), tail: xml.slice(b) };
+  };
+  /**
+   * The template's rows, by number, as raw XML.
+   *
+   * Scanned rather than matched with one regular expression: a row's cells contain '/>' of
+   * their own, so a lazy `<row ...>...(/>|</row>)` pattern stops at the first cell and returns
+   * a fragment. The row TAG is measured first, and only then is its end looked for.
+   */
+  function sheetRows(body) {
+    var out = {}, i = 0;
+    while (i < body.length) {
+      var s = body.indexOf('<row ', i); if (s < 0) break;
+      var tagEnd = body.indexOf('>', s);
+      if (tagEnd < 0) break;
+      var end = body[tagEnd - 1] === '/' ? tagEnd + 1 : body.indexOf('</row>', tagEnd) + 6;
+      var xml = body.slice(s, end);
+      var num = Number((xml.match(/<row [^>]*\br="(\d+)"/) || [])[1]);
+      if (num) out[num] = xml;
+      i = end;
+    }
+    return out;
+  }
+  /** The style index of each column's cell in a row, e.g. {B:'41', C:'38'}, plus the row's own attributes. */
+  function rowShape(rowXml) {
+    var attrs = (rowXml.match(/^<row ([^>]*?)\/?>/) || [, ''])[1].replace(/\br="\d+"\s*/, '');
+    var styles = {}, order = [], re = /<c r="([A-Z]+)\d+"([^>]*?)(?:\/>|>)/g, m;
+    while ((m = re.exec(rowXml))) {
+      var st = (m[2].match(/\bs="(\d+)"/) || [])[1];
+      styles[m[1]] = st == null ? null : st;
+      order.push(m[1]);
+    }
+    return { attrs: attrs, styles: styles, order: order };
+  }
+  var cellXml = function (col, row, style, kind, value) {
+    var s = style == null ? '' : ' s="' + style + '"';
+    if (kind === 'blank' || value == null || value === '') return '<c r="' + col + row + '"' + s + '/>';
+    if (kind === 'str') return '<c r="' + col + row + '"' + s + ' t="inlineStr"><is><t xml:space="preserve">' + xesc(value) + '</t></is></c>';
+    if (kind === 'f') return '<c r="' + col + row + '"' + s + '><f>' + xesc(value) + '</f></c>';
+    return '<c r="' + col + row + '"' + s + '><v>' + value + '</v></c>';
+  };
+  /** Shift every row and cell reference in a chunk of sheetData by delta. */
+  function shiftRows(chunk, delta) {
+    if (!delta) return chunk;
+    return chunk
+      .replace(/<row ([^>]*?)\br="(\d+)"/g, function (_, pre, n) { return '<row ' + pre + 'r="' + (Number(n) + delta) + '"'; })
+      .replace(/<c r="([A-Z]+)(\d+)"/g, function (_, c, n) { return '<c r="' + c + (Number(n) + delta) + '"'; });
+  }
+  var shiftRef = function (ref, after, delta) {
+    return ref.replace(/([A-Z]+)(\d+)/g, function (whole, c, n) {
+      var r = Number(n);
+      return r > after ? c + (r + delta) : whole;
+    });
+  };
+
+  /**
+   * Fill a CES price sheet template with a view of the quote table.
+   *
+   * `spec` is what `currentView()` returns, plus `compare` ('Current contract' | 'Renewal
+   * offer'). The first row of the view is the comparison row and lands on row 15, which is the
+   * row every Difference formula in the template points at; the rest follow in the order the
+   * view gives them, which is cheapest first.
+   *
+   * Returns the finished .xlsx as bytes.
+   */
+  function fillPriceSheet(templateBytes, spec) {
+    var T = TEMPLATES[spec.fuel === 'gas' ? 'gas' : 'electricity'];
+    var zip = unzip(templateBytes);
+    return Promise.all([readPart(zip, 'xl/worksheets/sheet1.xml'), readPart(zip, 'xl/workbook.xml'),
+                        readPart(zip, 'xl/sharedStrings.xml'), readPart(zip, '[Content_Types].xml'),
+                        readPart(zip, 'xl/_rels/workbook.xml.rels')])
+      .then(function (parts) {
+        var sheet = parts[0], book = parts[1], strings = parts[2], types = parts[3], rels = parts[4];
+        if (!sheet || !book) throw new Error('the price sheet template is missing its worksheet');
+        var S3 = splitSheet(sheet), rows = sheetRows(S3.body);
+        if (!rows[T.first] || !rows[T.last]) throw new Error('the price sheet template does not have the expected quote rows');
+
+        // The three shapes the block is built from, read out of the template itself.
+        var baseShape = rowShape(rows[T.first]), midShape = rowShape(rows[T.first + 1]), endShape = rowShape(rows[T.last]);
+        var quotes = spec.rows || [];
+        if (!quotes.length) throw new Error('there are no quotes to put on the sheet');
+        var n = quotes.length, firstR = T.first, lastR = firstR + n - 1, delta = lastR - T.last;
+
+        var built = [];
+        quotes.forEach(function (q, i) {
+          var r = firstR + i;
+          var shape = i === 0 ? baseShape : (i === n - 1 ? endShape : midShape);
+          // One quote only means the comparison row IS the last row: it must carry the block's
+          // bottom border, so the closing shape wins.
+          if (n === 1) shape = endShape;
+          var vals = T.values(q.r || q);
+          var cells = [], seen = {};
+          Object.keys(T.cols).forEach(function (key) {
+            var col = T.cols[key]; seen[col] = 1;
+            var st = shape.styles[col];
+            if (key === 'supplier') cells.push([col, cellXml(col, r, st, 'str', q.r ? q.r.supplier : q.supplier)]);
+            else if (key === 'pay') cells.push([col, cellXml(col, r, st, 'str', (q.r && q.r.pay) || 'DD')]);
+            else if (key === 'annual') cells.push([col, cellXml(col, r, st, 'f', T.annualF(r))]);
+            else if (key === 'diff') cells.push([col, i === 0 ? cellXml(col, r, st, 'str', 'n/a') : cellXml(col, r, st, 'f', T.diffF(r, firstR))]);
+            else cells.push([col, cellXml(col, r, st, 'n', vals[key] == null ? null : vals[key])]);
+          });
+          // Columns the template has but this fuel does not fill (the hidden Feed-In and CCL
+          // columns, and the spacer cells to the right) are kept, empty, so the row's borders
+          // and shading are unbroken.
+          shape.order.forEach(function (col) { if (!seen[col]) cells.push([col, cellXml(col, r, shape.styles[col], 'blank', null)]); });
+          cells.sort(function (a, b) { return (a[0].length - b[0].length) || (a[0] < b[0] ? -1 : 1); });
+          built.push('<row r="' + r + '" ' + shape.attrs + '>' + cells.map(function (c) { return c[1]; }).join('') + '</row>');
+        });
+
+        // Everything above the block is untouched; everything below it moves by delta.
+        var above = [], below = [];
+        Object.keys(rows).map(Number).sort(function (a, b) { return a - b; }).forEach(function (r) {
+          if (r < T.first) above.push(rows[r]);
+          else if (r > T.last) below.push(shiftRows(rows[r], delta));
+        });
+        var body = above.join('') + built.join('') + below.join('');
+
+        // Header boxes: the label stays, the value is appended to it.
+        Object.keys(T.strings).forEach(function (coord) {
+          var label = T.strings[coord], key = { B9: 'business', B10: 'site', B11: 'dateText', B12: 'mpan', C12: 'csd', D12: 'csd' }[coord];
+          var val = spec[key] == null ? '' : String(spec[key]);
+          body = setCell(body, coord, function (st) { return cellXml(coord.replace(/\d+/, ''), Number(coord.match(/\d+/)[0]), st, 'str', label + val); });
+        });
+        Object.keys(T.numbers).forEach(function (coord) {
+          var v = (spec.kwh || {})[T.numbers[coord]];
+          body = setCell(body, coord, function (st) {
+            return cellXml(coord.replace(/\d+/, ''), Number(coord.match(/\d+/)[0]), st, v == null || v === '' ? 'blank' : 'n', v == null ? null : Number(v));
+          });
+        });
+
+        var tail = S3.tail;
+        // The merges, the saved sort and the sheet's extent all have to follow the block.
+        tail = tail.replace(/<mergeCell ref="([^"]+)"\/>/g, function (_, ref) { return '<mergeCell ref="' + shiftRef(ref, T.last, delta) + '"/>'; });
+        tail = tail.replace(/<sortState\b[\s\S]*?<\/sortState>/, function (s) {
+          if (n < 3) return '';                       // nothing left below the comparison row to sort
+          return s.replace(/ref="([^"]+)"/g, function (__, ref) {
+            return 'ref="' + ref.replace(/([A-Z]+)(\d+):([A-Z]+)(\d+)/, function (w, c1, r1, c2, r2) {
+              void w; void r2; return c1 + r1 + ':' + c2 + lastR;
+            }) + '"';
+          });
+        });
+        var head = S3.head.replace(/<dimension ref="([A-Z]+\d+):([A-Z]+)(\d+)"\/>/, function (_, tl, c, r) {
+          return '<dimension ref="' + tl + ':' + c + (Number(r) + delta) + '"/>';
+        });
+        // The template was saved scrolled down the page with a cell selected; open at the top.
+        head = head.replace(/\s*topLeftCell="[^"]*"/, '')
+                   .replace(/<selection[^>]*\/>/, '<selection activeCell="B9" sqref="B9"/>');
+
+        var edits = {};
+        edits['xl/worksheets/sheet1.xml'] = head + body + tail;
+
+        // Every formula cell in the template carries a stale cached 0. Without this Excel shows
+        // those zeros instead of recalculating, and the whole Annual Expenditure column reads
+        // nothing. LibreOffice needs it too.
+        var calc = book.match(/<calcPr\b[^>]*\/>/);
+        if (calc) {
+          var c2 = calc[0].indexOf('fullCalcOnLoad') >= 0 ? calc[0].replace(/fullCalcOnLoad="[^"]*"/, 'fullCalcOnLoad="1"')
+                                                          : calc[0].replace(/\/>$/, ' fullCalcOnLoad="1"/>');
+          book = book.replace(calc[0], c2);
+        } else { book = book.replace('</workbook>', '<calcPr fullCalcOnLoad="1"/></workbook>'); }
+        // The electricity sheet's tab is named for the meter; the gas one is not.
+        if (T.file.indexOf('hh-electric') === 0 && spec.mpan) {
+          book = book.replace(/(<sheet name=")[^"]*(")/, function (_, a, b) { return a + xesc(String(spec.mpan).slice(0, 28)) + b; });
+        }
+        edits['xl/workbook.xml'] = book;
+
+        // The disclosure paragraph carries CES's commission placeholders.
+        if (strings) edits['xl/sharedStrings.xml'] = fillDisclosureStrings(strings, spec);
+
+        // calcChain lists which cells hold formulas and in what order. It is now wrong, and
+        // Excel rebuilds it from scratch, so it is dropped along with the two references to it.
+        var drop = [];
+        if (zip.byName['xl/calcChain.xml']) {
+          drop.push('xl/calcChain.xml');
+          if (types) edits['[Content_Types].xml'] = types.replace(/<Override PartName="\/xl\/calcChain\.xml"[^>]*\/>/, '');
+          if (rels) edits['xl/_rels/workbook.xml.rels'] = rels.replace(/<Relationship[^>]*calcChain\.xml"[^>]*\/>/, '');
+        }
+        return rezip(zip, edits, drop);
+      });
+  }
+  /** Replace one cell in a chunk of sheetData, keeping whatever style it already had. */
+  function setCell(body, coord, make) {
+    var re = new RegExp('<c r="' + coord + '"([^>]*?)(?:/>|>[\\s\\S]*?</c>)');
+    var m = body.match(re);
+    if (!m) return body;
+    var st = (m[1].match(/\bs="(\d+)"/) || [])[1];
+    return body.replace(re, make(st == null ? null : st));
+  }
+  /**
+   * The template's own disclosure paragraph has the commission left blank ("include 0.0p/kwh
+   * commission or estimated annual value of £0", "include p/kwh commission, an estimated annual
+   * value of £"). Fill both in, in the shared string table, so the sheet the customer reads
+   * states what CES earns inside the rates.
+   */
+  function fillDisclosureStrings(xml, spec) {
+    var p = spec.commission, kwh = spec.totalKwh || 0;
+    var pen = p == null ? null : Number(p).toFixed(2);
+    var ann = p == null ? null : '£' + Math.round(kwh * p / 100).toLocaleString('en-GB');
+    if (pen == null) return xml;
+    return xml
+      .replace(/include \d+(?:\.\d+)?p\/kwh commission or estimated annual value of £[\d,]*/g,
+               'include ' + pen + 'p/kwh commission or estimated annual value of ' + ann)
+      .replace(/include p\/kwh commission, an estimated annual value of £ commission/g,
+               'include ' + pen + 'p/kwh commission, an estimated annual value of ' + ann + ' commission');
+  }
+
+  // The workbook this file used to write by hand — its own styles, its own table, its own
+  // idea of what the document should look like — is gone. The export fills CES's real price
+  // sheet template instead, so there is only one answer to "what does the customer receive".
 
   // ── The view ──────────────────────────────────────────────────────────────────────────────
   function mount(host, opts) {
@@ -591,10 +724,13 @@
       '</div>' +
       '<div class="sq-card sq-result" id="sqResultCard" style="display:none">' +
         '<div class="sq-top"><div><div class="sq-title" id="sqTitle">Electricity Price Analysis</div><div class="sq-sub" id="sqSubtitle"></div></div>' +
-          '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+          '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+            '<label class="sq-cmp" for="sqCompare">Compare against' +
+              '<select id="sqCompare"><option value="Current contract">Current contract</option>' +
+              '<option value="Renewal offer">Renewal offer</option></select></label>' +
             '<button class="sq-btn ghost sm" id="sqConfirmAll">Confirm all figures</button>' +
             '<button class="sq-btn ghost sm" id="sqAddRow">+ Add a row</button>' +
-            '<button class="sq-btn sm" id="sqExport">Export to Excel</button>' +
+            '<button class="sq-btn sm" id="sqExport">Download price sheet</button>' +
             '<button class="sq-btn ghost sm" id="sqClear">Start again</button>' +
           '</div></div>' +
         '<div id="sqWarn" style="padding:0 18px"></div>' +
@@ -1072,8 +1208,10 @@
         x.diff = (cur && !x.r.current && x.annual != null && cur.annual != null) ? x.annual - cur.annual : null;
       });
       var pkwh = commissionInForce();
+      var cmp = $('sqCompare');
       return {
-        fuel: gas ? 'gas' : 'electricity', rows: shown, kwh: K, commission: pkwh,
+        fuel: gas ? 'gas' : 'electricity', rows: shown, kwh: K, commission: pkwh, totalKwh: totalKwh(),
+        compare: cmp ? cmp.value : 'Current contract',
         business: $('sqBusiness').value, site: $('sqSite').value, mpan: $('sqMpan').value,
         csd: $('sqCsd').value ? $('sqCsd').value.split('-').reverse().join('/') : '',
         dateText: new Date().toLocaleDateString('en-GB'),
@@ -1081,22 +1219,71 @@
         disclosure: disclosureText(fuel(), pkwh, totalKwh()),
       };
     }
+    /**
+     * Which figures on the sheet about to be sent are still the reader's guess.
+     *
+     * A red cell means nobody has checked it against the supplier's document. This sheet goes
+     * to a customer, so the broker is told exactly which rows and which figures before it is
+     * built, and has to say yes.
+     */
+    function unconfirmed(view) {
+      var names = { sc: 'standing charge', unit: 'unit rate', day: 'day rate', night: 'night rate',
+                    cap: 'capacity charge', term: 'contract length', com: 'commission' };
+      var out = [];
+      view.rows.forEach(function (x) {
+        var bad = Object.keys(names).filter(function (k) { return x.r[k + 'Low'] && x.r[k] != null; });
+        if (bad.length) out.push((x.r.supplier || 'a row') + (x.r.term ? ' ' + x.r.term + 'm' : '') + ': ' +
+          bad.map(function (k) { return names[k]; }).join(', '));
+      });
+      return out;
+    }
+    /**
+     * Fill CES's own price sheet and hand it over.
+     *
+     * The first row of the view is the comparison row, and it lands on row 15 of the template,
+     * which is the row every Difference formula points at. The rest follow cheapest first, and
+     * the block is grown or trimmed so the sheet ends on the last quote with nothing blank
+     * underneath it.
+     */
     function exportExcel() {
       if (!S.rows.length) { say('Nothing to export yet.', true); return; }
-      try {
-        var v = currentView();
-        var bytes = xlsxBytes(buildWorkbook(v));
-        var who = (v.business || 'Quote').replace(/[^\w &'\-]/g, '').slice(0, 50).trim() || 'Quote';
-        var name = who + ' - ' + (v.fuel === 'gas' ? 'Gas' : 'Electricity') + ' Price Analysis - Commercial Energy Solutions - '
-          + new Date().toISOString().slice(0, 10) + '.xlsx';
-        var blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a'); a.href = url; a.download = name;
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
-        say('Exported ' + name + '.');
-        S.lastExport = { name: name, bytes: bytes };
-      } catch (e) { say('Could not export: ' + (e.message || e), true); }
+      var v = currentView();
+      if (!v.rows.length) { say('Nothing to export on this fuel.', true); return; }
+      if (!v.rows[0].r.current) {
+        say('Tick "current" on the row that is the customer\'s ' + v.compare.toLowerCase() +
+            '. That row is what everything else is compared against on the sheet.', true);
+        return;
+      }
+      var red = unconfirmed(v);
+      if (red.length && typeof confirm === 'function' &&
+          !confirm('These figures have not been checked against the supplier\'s document:\n\n  ' +
+                   red.join('\n  ') + '\n\nThe price sheet goes to the customer. Build it anyway?')) {
+        say('Price sheet not built. Click the red figures to correct them, or use Confirm all.', true);
+        return;
+      }
+      var T = TEMPLATES[v.fuel === 'gas' ? 'gas' : 'electricity'];
+      say('Building the ' + (v.fuel === 'gas' ? 'gas' : 'electricity') + ' price sheet…');
+      $('sqExport').disabled = true;
+      // The promise is RETURNED, not just started: a caller that wants to know when the file
+      // exists can wait for it, and the test does.
+      return fetch(TEMPLATE_BASE + T.file)
+        .then(function (r) { if (!r.ok) throw new Error('the price sheet template could not be loaded (HTTP ' + r.status + ')'); return r.arrayBuffer(); })
+        .then(function (buf) { return fillPriceSheet(new Uint8Array(buf), v); })
+        .then(function (bytes) {
+          var who = (v.business || 'Quote').replace(/[^\w &'\-]/g, '').slice(0, 50).trim() || 'Quote';
+          var name = who + ' - ' + (v.fuel === 'gas' ? 'Gas' : 'Electricity') + ' Price Sheet - '
+            + new Date().toISOString().slice(0, 10) + '.xlsx';
+          var blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a'); a.href = url; a.download = name;
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+          say('Built ' + name + ': ' + v.rows.length + ' row' + (v.rows.length === 1 ? '' : 's') +
+              ', ' + v.compare.toLowerCase() + ' first, then cheapest to dearest.');
+          S.lastExport = { name: name, bytes: bytes };
+        })
+        .catch(function (e) { say('Could not build the price sheet: ' + (e.message || e), true); })
+        .then(function () { $('sqExport').disabled = false; });
     }
     function clear() {
       S.rows = []; S.meta = {}; S.detected = null;
@@ -1131,7 +1318,7 @@
       stage: stage, readStaged: readStaged, textOf: textOf, extract: extract, extractPasted: extractPasted,
       hhdDropped: hhdDropped, readStarkHhd: readStarkHhd, commissionInForce: commissionInForce, kwhBoxes: kwhBoxes,
       currentView: currentView, exportExcel: exportExcel, disclosureText: disclosureText,
-      fnErrorMessage: fnErrorMessage,
+      fnErrorMessage: fnErrorMessage, unconfirmed: unconfirmed, totalKwh: totalKwh,
       render: render, addRow: addRow, clear: clear, confirmAll: confirmAll, setCurrent: setCurrent, remove: remove,
       fuelChanged: paintConsumption, paintConsumption: paintConsumption,
     };
@@ -1140,7 +1327,9 @@
   root.SupplierQuotes = { VERSION: VERSION, SUPPLIERS: SUPPLIERS, DISCLOSURE: DISCLOSURE, mount: mount,
     visibleSheets: visibleSheets, workbookText: workbookText, annualFor: annualFor,
     csvRows: csvRows, readStarkHhd: readStarkHhd, disclosureText: disclosureText,
-    xlsxBytes: xlsxBytes, buildWorkbook: buildWorkbook };
+    TEMPLATES: TEMPLATES, TEMPLATE_BASE: TEMPLATE_BASE, fillPriceSheet: fillPriceSheet,
+    unzip: unzip, readPart: readPart, rezip: rezip, sheetRows: sheetRows, rowShape: rowShape,
+    shiftRows: shiftRows, fillDisclosureStrings: fillDisclosureStrings };
 })(typeof window !== 'undefined' ? window : globalThis);
 
 if (typeof module !== 'undefined' && module.exports) {
