@@ -749,7 +749,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="/pricing-parsers.js?v=2026-09-12.1"></script>
 <script src="/pricing-contracts.js?v=2026-09-13.1"></script>
-<script src="/supplier-quotes.js?v=2026-09-13.1"></script>
+<script src="/supplier-quotes.js?v=2026-09-14.1"></script>
 <script>
 // ═══════════════════════════════════════════════════════════════════════════════════════
 // CES Pricing Desk
@@ -2696,20 +2696,31 @@ function currentAnnual(k) {
  */
 function readStarkHhd(text, wantMpan) {
   const rows = PricingParsers.csvRows(text);
-  const hi = rows.findIndex(r => r[0] && /company\s*name/i.test(r[0]) && r.some(c => /mpan/i.test(c)));
-  if (hi < 0) throw new Error('this does not look like a Stark export (no "Company Name … MPAN" header row)');
-  const hdr = rows[hi].map(c => String(c).toLowerCase());
-  const mpanCol = hdr.findIndex(c => /mpan/.test(c));
-  const dateCol = hdr.findIndex(c => /date/.test(c));
+  // THE COLUMN IS FOUND BY AN EXACT HEADER, NOT A SUBSTRING. /mpan/ matches "co-MPAN-y", so
+  // the substring search picked column 0 of every real Stark file, read "Blank Table Ltd" as
+  // the MPAN, stripped it to nothing and skipped every row: this threw "no readable
+  // half-hourly rows" on every genuine export. Stark's Meter Sequential header is
+  // Company Name, Site Name, Online Meter Name, MPAN, Meter ID, Type, Est, Date, 00:00…
+  let hi = rows.findIndex(r => r.some(c => /^\s*mpan\s*$/i.test(c)) && r.some(c => /^\s*date\s*$/i.test(c)));
+  if (hi < 0) hi = rows.findIndex(r => r[0] && /company\s*name/i.test(r[0]) && r.some(c => /\bmpan\b/i.test(c)));
+  if (hi < 0) throw new Error('this does not look like a Stark export (no header row naming MPAN and Date)');
+  const hdr = rows[hi].map(c => String(c).toLowerCase().trim());
+  const pick = (exact, loose) => { const i = hdr.findIndex(c => exact.test(c)); return i >= 0 ? i : hdr.findIndex(c => loose.test(c)); };
+  const mpanCol = pick(/^mpan$/, /\bmpan\b/);
+  const dateCol = pick(/^date$/, /\bdate\b/);
+  if (dateCol < 0) throw new Error('this Stark export has no Date column');
   const first = hdr.findIndex((c, i) => i > dateCol && /^\d{1,2}:\d{2}/.test(c));
   const readStart = first > 0 ? first : dateCol + 1;
   const want = String(wantMpan || '').replace(/\D/g, '');
+  // Stark's site-aggregated export writes N/A in the MPAN column; filtering on it would throw
+  // every row away, and those files are one meter each.
+  const hasMpans = mpanCol >= 0 && rows.slice(hi + 1).some(r => /\d{6,}/.test(String(r[mpanCol] || '')));
 
   let day = 0, night = 0, ew = 0, days = 0, from = null, to = null, others = new Set();
   for (const r of rows.slice(hi + 1)) {
-    const mpan = String(r[mpanCol] || '').replace(/\D/g, '');
-    if (!mpan) continue;
-    if (want && mpan !== want) { others.add(mpan); continue; }
+    const mpan = hasMpans ? String(r[mpanCol] || '').replace(/\D/g, '') : '';
+    if (hasMpans && !mpan) continue;
+    if (hasMpans && want && mpan !== want) { others.add(mpan); continue; }
     const m = String(r[dateCol] || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
     if (!m) continue;
     const yy = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
