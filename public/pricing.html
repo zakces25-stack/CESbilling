@@ -122,7 +122,24 @@
     .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:12.5px}
     .kv dt{color:var(--muted);white-space:nowrap}
     .kv dd{font-family:'JetBrains Mono',monospace}
-  </style>
+  .ctgrid { display:grid; grid-template-columns: minmax(0,1fr) 420px; gap:16px; align-items:start; }
+@media (max-width:1100px) { .ctgrid { grid-template-columns:1fr; } }
+.ctpane { background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+.cttools { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:10px 12px; border-bottom:1px solid var(--line); }
+.ctscroll { overflow:auto; padding:14px; background:#2a3238; min-height:320px; max-height:calc(100vh - 230px); }
+.ctpage { position:relative; margin:0 auto 12px; background:#fff; box-shadow:0 6px 20px rgba(0,0,0,.35); }
+.ctpage canvas { display:block; }
+.ctpage .hl { position:absolute; border:2px solid var(--cyan); background:rgba(15,118,110,.14); border-radius:2px; pointer-events:none; }
+.ctpage .hl.sel { border-color:#d97706; background:rgba(217,119,6,.18); box-shadow:0 0 0 3px rgba(217,119,6,.25); }
+.ctlist { max-height:calc(100vh - 360px); overflow-y:auto; }
+.ctsec { padding:8px 16px 4px; font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--text-2); background:var(--panel-2); border-top:1px solid var(--line); }
+.ctrow { display:grid; grid-template-columns: 1fr 150px; gap:8px; align-items:center; padding:6px 16px; border-top:1px solid var(--line); cursor:pointer; }
+.ctrow:hover, .ctrow.sel { background:var(--panel-2); }
+.ctrow label { font-size:12px; color:var(--text); margin:0; cursor:pointer; }
+.ctrow input { height:28px; font-size:12px; padding:0 8px; }
+.ctrow.fixed input { color:var(--muted); background:var(--panel-2); }
+.ctrow.blank label::after { content:' · blank'; color:var(--muted); font-weight:400; }
+</style>
 </head>
 <body>
 
@@ -171,6 +188,7 @@
       <button id="tab-price" class="on" onclick="showTab('price')">Pick a meter</button>
       <button id="tab-books" onclick="showTab('books')">Pricebooks</button>
       <button id="tab-aq" onclick="showTab('aq')">AQ Opportunities</button>
+      <button id="tab-contracts" onclick="showTab('contracts')">Contracts</button>
       <button id="tab-ref" onclick="showTab('ref')">Reference</button>
       <button id="tab-admin" onclick="showTab('admin')">Admin</button>
     </nav>
@@ -338,6 +356,17 @@
         <h2>Price it</h2>
         <div id="meterFacts" style="margin-bottom:16px"></div>
         <div class="row">
+          <div style="flex:2">
+            <label for="qCustomer">Customer name <span style="font-weight:400;color:var(--muted)">
+              (as it appears on the quote)</span></label>
+            <input id="qCustomer" placeholder="The business this quote is for" />
+          </div>
+          <div style="flex:2">
+            <label for="qManager">Account manager</label>
+            <select id="qManager"></select>
+          </div>
+        </div>
+        <div class="row">
           <div>
             <label for="qStart">Contract start</label>
             <input id="qStart" type="date" oninput="paintStartNote()" />
@@ -361,17 +390,28 @@
             </div>
           </div>
           <div>
-            <label for="qAq">Annual consumption (kWh)</label>
-            <input id="qAq" class="mono" />
-          </div>
-          <div>
             <label for="qUplift">CES uplift (p/kWh)</label>
             <input id="qUplift" class="mono" value="0.00" />
           </div>
-          <div>
-            <label for="qSplit">Day % (day/night meters)</label>
-            <input id="qSplit" class="mono" value="70" />
-          </div>
+        </div>
+        <!-- One box per register the meter actually has, not a total and a percentage. A
+             day/night meter gets Day kWh and Night kWh; a three-register meter gets the
+             evening/weekend box too; a single-rate meter gets one box. The total and the
+             split are worked out from what is typed, and a Stark half-hourly export can
+             fill the boxes with a measured split instead of a guess. -->
+        <div class="row" id="kwhRow" style="align-items:flex-end"></div>
+        <div id="kwhNote" style="margin-top:8px;font-size:11.5px;color:var(--muted)"></div>
+        <div id="hhdDrop" style="margin-top:10px;padding:10px 14px;border:1px dashed var(--line-2);
+             border-radius:10px;font-size:12px;color:var(--muted);cursor:pointer"
+             ondragover="event.preventDefault();this.style.borderColor='var(--cyan)'"
+             ondragleave="this.style.borderColor='var(--line-2)'"
+             ondrop="event.preventDefault();this.style.borderColor='var(--line-2)';hhdDropped(event.dataTransfer.files)"
+             onclick="$('hhdFile').click()">
+          <b>Measure the split from half-hourly data</b> — drop a Stark export here (or click).
+          Night is 00:00–07:00, evening/weekend is weekday 19:00–07:00 and all weekend; the
+          boxes fill with the annualised kWh per register.
+          <input id="hhdFile" type="file" accept=".csv" style="display:none"
+                 onchange="hhdDropped(this.files);this.value=''">
         </div>
         <div id="startNote" class="hide" style="margin-top:12px"></div>
         <div id="sscNote" class="hide" style="margin-top:12px"></div>
@@ -523,6 +563,60 @@
       </div>
     </section>
 
+    <!-- ═══════════════════════════════════════════════════════════════════════════════
+         CONTRACTS — the supplier's own acceptance form, filled from a ticked quote.
+         British Gas Business and EDF are AcroForms filled field by field; British Gas Lite is
+         a spreadsheet filled cell by cell with the PDF drawn on BG Lite's own sheet. Nothing
+         here writes a signature or a bank detail: those boxes are not in any map.
+    ════════════════════════════════════════════════════════════════════════════════ -->
+    <section id="pane-contracts" class="hide">
+      <div class="card" id="ctPickCard">
+        <h2>Contracts</h2>
+        <div class="sub">Tick a quote on the Pick a meter tab, then choose it here. The supplier's
+          own contract acceptance form is filled from the portal — customer, site, meter, rates,
+          term, start date, account manager, CES commission — and opened for checking. Boxes the
+          portal does not hold (contact name, phone, company number) are left for you to type.
+          <b>Signature and bank details are never touched.</b></div>
+        <div id="ctPick" style="margin-top:14px"></div>
+      </div>
+
+      <div id="ctEditor" class="hide">
+        <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 12px">
+          <button class="act ghost" onclick="contractsBack()">&larr; Back</button>
+          <h2 id="ctTitle" style="margin:0"></h2>
+          <span id="ctSub" style="font-size:12px;color:var(--muted)"></span>
+        </div>
+        <div class="ctgrid">
+          <div class="ctpane">
+            <div class="cttools">
+              <button class="act ghost sm" onclick="ctZoom(-0.15)">&minus;</button>
+              <span class="mono" id="ctZoomLab" style="font-size:11.5px;color:var(--muted)">100%</span>
+              <button class="act ghost sm" onclick="ctZoom(0.15)">+</button>
+              <span style="flex:1"></span>
+              <button class="act" id="ctDownloadPdf" onclick="contractDownload('pdf')">Download the PDF</button>
+              <button class="act ghost hide" id="ctDownloadXlsx" onclick="contractDownload('xlsx')">Download the Excel</button>
+            </div>
+            <div class="ctscroll" id="ctScroll"><p style="color:var(--muted);font-size:13px;padding:14px">Filling…</p></div>
+          </div>
+          <div class="card" style="padding:0;overflow:hidden">
+            <div style="padding:14px 16px 10px">
+              <h3 style="margin:0 0 4px;font-size:14px">Boxes on the form
+                <span class="mono" id="ctCount" style="color:var(--muted);font-weight:600;font-size:12px"></span></h3>
+              <p style="color:var(--muted);font-size:12px;margin:0">In the order the form reads. Click one to find it
+                on the page. Type, then <b>Redraw</b> to see it on the form; only the boxes you change move.
+                Blank boxes are things the portal does not hold.</p>
+            </div>
+            <div class="ctlist" id="ctList"></div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--line)">
+              <button class="act" onclick="contractRedraw()">Redraw</button>
+              <button class="act ghost" onclick="ctBlanksOnly=!ctBlanksOnly;ctRenderList()">Blanks only</button>
+              <span id="ctMsg" style="font-size:12px;color:var(--muted)"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- ══════════════════════════════════════════════════════════════════ ADMIN -->
     <section id="pane-admin" class="hide">
       <div class="card">
@@ -639,6 +733,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="/pricing-parsers.js"></script>
+<script src="/pricing-contracts.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════════════════════════════════════
 // CES Pricing Desk
@@ -663,7 +758,7 @@
  * So the two files check each other. Bump BOTH strings together whenever a parser change
  * alters what a rate means.
  */
-const EXPECTS_PARSERS = '2026-09-11.2';
+const EXPECTS_PARSERS = '2026-09-12.1';
 
 const SUPABASE_URL  = 'https://niadffxpxdohglcyagau.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pYWRmZnhweGRvaGdsY3lhZ2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3Mzc3MTksImV4cCI6MjA5NDMxMzcxOX0.x22Zh9O408PGfcPZ6rgu-a4B7WTbyH8iyT_ysr-IfIs';
@@ -854,12 +949,13 @@ function showSignIn(){
 async function signOut(){ localStorage.removeItem('pricing_who'); await sb.auth.signOut(); location.reload(); }
 
 function showTab(t) {
-  for (const k of ['books','price','aq','ref','admin']) {
+  for (const k of ['books','price','aq','contracts','ref','admin']) {
     $('pane-'+k).classList.toggle('hide', k !== t);
     $('tab-'+k).classList.toggle('on', k === t);
   }
   if (t === 'admin') { loadAdmin(); loadStorage(); }
   if (t === 'aq') aqInit();
+  if (t === 'contracts') contractsInit();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -984,16 +1080,26 @@ function sheetPlan(parserKey, names, fuel) {
 
 function readWorkbook(buf, isCsv) {
   if (isCsv) {
-    const wb = XLSX.read(buf, { type: 'array', raw: true });
-    return { names: wb.SheetNames, wb };
+    // A CSV never goes through SheetJS. Given TotalEnergies' 88 MB renewal power file it
+    // built a worksheet with one property per cell, sixteen million of them, and V8 refused
+    // with "Too many properties to enumerate" before anything could read it back. On a
+    // server it did not finish in three minutes. PricingParsers.csvRows does it in under
+    // three seconds as plain arrays of strings, which is exactly what SheetJS with raw:true
+    // handed the parsers before, so nothing downstream changes.
+    //
+    // Parsed ONCE and kept: the header check and the full parse both ask for the same
+    // sheet, and the old path re-read the file for each.
+    const rows = PricingParsers.csvRows(new TextDecoder('utf-8').decode(buf));
+    return { names: ['Sheet1'], wb: { SheetNames: ['Sheet1'], Sheets: { Sheet1: rows }, csv: true } };
   }
   // cellDates so dates arrive as Dates rather than Excel serials. The parser reads them
   // with LOCAL getters, because SheetJS builds them in local time.
   const wb = XLSX.read(buf, { cellDates: true });
   return { names: wb.SheetNames, wb };
 }
-const sheetToRows = (wb, name) =>
-  XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, raw: true });
+const sheetToRows = (wb, name) => wb.csv
+  ? wb.Sheets[name]
+  : XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, raw: true });
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
 // Product routing
@@ -1641,6 +1747,243 @@ async function retire(id, purge, btn) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
+// Contracts — the supplier's own acceptance form, filled from a ticked quote.
+//
+// The heavy lifting is in pricing-contracts.js (the data model, the three form maps, the
+// fill engines). This is the desk: pick a ticked quote, fill from a PRISTINE template, show
+// the pages through pdf.js with the boxes outlined, let the desk correct a box and redraw,
+// and download. Same shape as the COT desk's form tab, so it needs no explaining twice.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+const PDFJS_VER = '3.11.174', PDFLIB_VER = '1.17.1';
+let _pdfjs = null, _pdflib = null;
+// Not "pdfjsLib": that is the global pdf.js itself assigns when it loads, and a function
+// of the same name is overwritten by it after the first call — "pdfjsLib is not a function"
+// on the second redraw. Same trap as an element id shadowing a function of the same name.
+async function loadPdfJs() {
+  if (_pdfjs) return _pdfjs;
+  await loadOnce(`https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VER}/pdf.min.js`);
+  const lib = window.pdfjsLib || (window['pdfjs-dist/build/pdf']);
+  if (!lib) throw new Error('pdf.js did not load');
+  lib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VER}/pdf.worker.min.js`;
+  return (_pdfjs = lib);
+}
+async function pdflibLib() {
+  if (_pdflib) return _pdflib;
+  await loadOnce(`https://cdn.jsdelivr.net/npm/pdf-lib@${PDFLIB_VER}/dist/pdf-lib.min.js`);
+  if (!window.PDFLib) throw new Error('pdf-lib did not load');
+  return (_pdflib = window.PDFLib);
+}
+
+const CT = { form: null, data: null, values: null, fields: [], boxes: [], pages: [], sel: null,
+             zoom: 1, tpl: {}, pdfBytes: null, seq: 0 };
+let ctBlanksOnly = false;
+
+/** Template bytes, fetched once per path and kept pristine. */
+async function ctTemplate(path) {
+  if (CT.tpl[path]) return CT.tpl[path];
+  const r = await fetch(path, { cache: 'no-cache' });
+  if (!r.ok) throw new Error(`could not load ${path} (${r.status})`);
+  return (CT.tpl[path] = new Uint8Array(await r.arrayBuffer()));
+}
+
+function contractsInit() {
+  const box = $('ctPick');
+  const rows = pickedQuotes();
+  if (!QUOTE || !rows.length) {
+    box.innerHTML = `<div class="note">Nothing is ticked. Price a meter on the <b>Pick a meter</b> tab and
+      tick the quote the customer is taking, then come back here.</div>`;
+    return;
+  }
+  box.innerHTML = `<table class="tbl"><thead><tr><th>Supplier</th><th>Term</th><th>Product</th>
+      <th style="text-align:right">Annual</th><th>Form</th><th></th></tr></thead><tbody>` +
+    rows.map((r, i) => {
+      const fk = PricingContracts.FORM_FOR_SUPPLIER[r.supplier_key];
+      const f = fk && PricingContracts.FORMS[fk];
+      return `<tr>
+        <td>${supplierLogo(r.supplier_key, 18)} ${esc(supplierName(r.supplier_key))}</td>
+        <td>${r.term_months} months</td>
+        <td>${esc(r.product_display || r.product_name || '')}</td>
+        <td style="text-align:right" class="mono">£${Math.round(r.annual).toLocaleString()}</td>
+        <td style="font-size:12px;color:var(--muted)">${f ? esc(f.label) : 'no contract form for this supplier yet'}</td>
+        <td>${f ? `<button class="act sm" onclick="contractOpen(${i})">Fill the contract</button>` : ''}</td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+async function contractOpen(i) {
+  const row = pickedQuotes()[i];
+  if (!row) return;
+  const fk = PricingContracts.FORM_FOR_SUPPLIER[row.supplier_key];
+  const form = PricingContracts.FORMS[fk];
+  if (!form) return;
+  $('ctPickCard').classList.add('hide'); $('ctEditor').classList.remove('hide');
+  $('ctTitle').textContent = form.label;
+  $('ctSub').textContent = `${QUOTE.customer || METER.customer_id || ''} · ${METER.mpan || ''} · ${row.term_months} months from ${uk(QUOTE.start)}`;
+  $('ctDownloadXlsx').classList.toggle('hide', form.kind !== 'xlsx');
+  CT.form = form; CT.sel = null; CT.zoom = 1;
+  CT.data = PricingContracts.buildContractData({
+    meter: METER, quote: QUOTE, row, current: CURRENT || {}, customer: QUOTE.customer, manager: QUOTE.manager });
+  CT.fields = form.fields(CT.data);
+  CT.values = PricingContracts.initialValues(form, CT.data);
+  ctRenderList();
+  await contractRedraw();
+}
+
+function contractsBack() {
+  $('ctEditor').classList.add('hide'); $('ctPickCard').classList.remove('hide');
+  $('ctScroll').innerHTML = ''; CT.pages = [];
+  contractsInit();
+}
+
+/** Fill from the pristine template with the current values, then paint the pages. */
+async function contractRedraw() {
+  const seq = ++CT.seq;
+  const msg = $('ctMsg'); msg.textContent = 'Filling…';
+  try {
+    // Read the boxes back into the values first: Redraw is what applies typing.
+    for (const f of CT.fields) {
+      const el = document.getElementById('ctv_' + f.id);
+      if (el && !f.fixed) CT.values[f.id] = el.value;
+    }
+    const PDFLib = await pdflibLib();
+    let out;
+    if (CT.form.kind === 'acroform') {
+      const tpl = await ctTemplate(CT.form.template);
+      out = await PricingContracts.fillAcroform(PDFLib, tpl, CT.form, CT.data, CT.values, { flatten: false });
+      if (out.problems.length) console.warn('contract fill:', out.problems);
+    } else {
+      const C = PricingContracts.BGL_CELLS[CT.data.fuel];
+      const [face, geo] = await Promise.all([ctTemplate(C.face), ctGeometry()]);
+      out = await PricingContracts.overlayBgLitePdf(PDFLib, face, CT.data, CT.values, geo);
+    }
+    if (seq !== CT.seq) return;
+    CT.pdfBytes = out.bytes; CT.boxes = out.boxes;
+    await ctPaint(seq);
+    msg.textContent = '';
+  } catch (e) {
+    msg.textContent = 'Could not fill the form: ' + e.message;
+    $('ctScroll').innerHTML = `<p style="color:var(--fail);font-size:13px;padding:14px">${esc(e.message)}</p>`;
+  }
+}
+async function ctGeometry() {
+  if (PricingContracts.getGeometry()) return PricingContracts.getGeometry();
+  const r = await fetch('/contract-forms/bgl_geometry.json', { cache: 'no-cache' });
+  if (!r.ok) throw new Error('the BG Lite cell geometry is missing');
+  const g = await r.json(); PricingContracts.setGeometry(g); return g;
+}
+
+async function ctPaint(seq) {
+  const lib = await loadPdfJs();
+  const scroll = $('ctScroll');
+  const doc = await lib.getDocument({ data: CT.pdfBytes.slice() }).promise;
+  if (seq !== CT.seq) return;
+  scroll.innerHTML = ''; CT.pages = [];
+  const avail = Math.max(300, (scroll.clientWidth || 700) - 30);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  for (let n = 1; n <= doc.numPages; n++) {
+    if (seq !== CT.seq) return;
+    const page = await doc.getPage(n);
+    const base = page.getViewport({ scale: 1 });
+    const scale = (avail / base.width) * CT.zoom;
+    const vp = page.getViewport({ scale });
+    const holder = document.createElement('div');
+    holder.className = 'ctpage';
+    holder.style.width = Math.floor(vp.width) + 'px'; holder.style.height = Math.floor(vp.height) + 'px';
+    const cv = document.createElement('canvas');
+    cv.width = Math.floor(vp.width * dpr); cv.height = Math.floor(vp.height * dpr);
+    cv.style.width = holder.style.width; cv.style.height = holder.style.height;
+    holder.appendChild(cv); scroll.appendChild(holder);
+    // The AcroForm's own widgets are drawn by pdf.js; we want the values visible without
+    // the form layer's boxes doubling up, so render with annotations but no interactive forms.
+    await page.render({ canvasContext: cv.getContext('2d'), viewport: page.getViewport({ scale: scale * dpr }),
+                        annotationMode: lib.AnnotationMode ? lib.AnnotationMode.ENABLE : undefined }).promise;
+    CT.pages[n - 1] = { el: holder, vp, base };
+  }
+  $('ctZoomLab').textContent = Math.round(CT.zoom * 100) + '%';
+  ctDrawBoxes();
+}
+
+/** Outline every filled box; the selected one in amber. */
+function ctDrawBoxes() {
+  document.querySelectorAll('.ctpage .hl').forEach(el => el.remove());
+  for (const b of CT.boxes) {
+    const pg = CT.pages[b.page || 0];
+    if (!pg || b.x == null) continue;
+    const s = pg.vp.scale;
+    const el = document.createElement('div');
+    el.className = 'hl' + (CT.sel === b.id ? ' sel' : '');
+    el.style.left = (b.x * s - 2) + 'px';
+    el.style.top = ((pg.base.height - b.y - b.h) * s - 2) + 'px';
+    el.style.width = (b.w * s + 4) + 'px';
+    el.style.height = (b.h * s + 4) + 'px';
+    pg.el.appendChild(el);
+  }
+}
+function ctSelect(id) {
+  CT.sel = id;
+  document.querySelectorAll('.ctrow').forEach(r => r.classList.toggle('sel', r.dataset.id === id));
+  ctDrawBoxes();
+  const b = CT.boxes.find(x => x.id === id);
+  const pg = b && CT.pages[b.page || 0];
+  if (pg) {
+    const y = (pg.base.height - b.y - b.h) * pg.vp.scale;
+    $('ctScroll').scrollTo({ top: pg.el.offsetTop + y - 120, behavior: 'smooth' });
+  }
+  const inp = document.getElementById('ctv_' + id);
+  if (inp && !inp.disabled) inp.focus();
+}
+function ctZoom(d) { CT.zoom = Math.min(2.5, Math.max(0.5, CT.zoom + d)); ctPaint(++CT.seq); }
+
+function ctRenderList() {
+  const list = $('ctList');
+  let html = '', section = null, n = 0, blanks = 0;
+  for (const f of CT.fields) {
+    const v = CT.values[f.id] == null ? '' : String(CT.values[f.id]);
+    const blank = v === '';
+    if (blank) blanks++;
+    if (ctBlanksOnly && !blank) continue;
+    if (f.section !== section) { section = f.section; html += `<div class="ctsec">${esc(section)}</div>`; }
+    n++;
+    html += `<div class="ctrow${f.fixed ? ' fixed' : ''}${blank ? ' blank' : ''}" data-id="${esc(f.id)}"
+                  onclick="ctSelect('${esc(f.id)}')">
+      <label for="ctv_${esc(f.id)}">${esc(f.label)}</label>
+      <input id="ctv_${esc(f.id)}" value="${esc(v)}" ${f.fixed ? 'disabled' : ''}
+             ${f.options ? `list="ctopts_${esc(f.id)}"` : ''} onclick="event.stopPropagation()"
+             onkeydown="if(event.key==='Enter'){event.preventDefault();contractRedraw();}">
+      ${f.options ? `<datalist id="ctopts_${esc(f.id)}">${Object.keys(f.options).filter(Boolean).map(o => `<option value="${esc(o)}">`).join('')}</datalist>` : ''}
+    </div>`;
+  }
+  list.innerHTML = html || '<p style="padding:14px;font-size:12px;color:var(--muted)">Nothing blank.</p>';
+  $('ctCount').textContent = `${CT.fields.length} boxes, ${blanks} blank`;
+}
+
+async function contractDownload(kind) {
+  const who = (QUOTE.customer || METER.customer_id || 'contract').replace(/[^\w &'\-]/g, '').slice(0, 50);
+  const stem = `${who} - ${CT.form.key === 'bg_lite' ? 'BGL' : CT.form.key === 'edf' ? 'EDF' : 'BG'} ${CT.data.contract.term_months}m ${CT.data.fuel === 'gas' ? 'Gas' : 'Electricity'} Contract`;
+  try {
+    if (kind === 'xlsx') {
+      const tpl = await ctTemplate(CT.form.template);
+      const bytes = await PricingContracts.fillBgLiteXlsx(JSZip, tpl, CT.data, CT.values);
+      return saveBytes(bytes, `${stem}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    }
+    const PDFLib = await pdflibLib();
+    let bytes;
+    if (CT.form.kind === 'acroform') {
+      // Flattened for the download, as the contracts CES send are: the values become part of
+      // the page and cannot be edited on the way to the customer.
+      const tpl = await ctTemplate(CT.form.template);
+      bytes = (await PricingContracts.fillAcroform(PDFLib, tpl, CT.form, CT.data, CT.values, { flatten: true })).bytes;
+    } else bytes = CT.pdfBytes;
+    saveBytes(bytes, `${stem}.pdf`, 'application/pdf');
+  } catch (e) { alert('Could not build the download: ' + e.message); }
+}
+function saveBytes(bytes, name, type) {
+  const url = URL.createObjectURL(new Blob([bytes], { type }));
+  const a = document.createElement('a'); a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
 // Admin
 // ═══════════════════════════════════════════════════════════════════════════════════════
 async function loadAdmin() {
@@ -2147,20 +2490,248 @@ async function loadCurrentContract() {
   paintCurrent();
 }
 
-/** Annual cost of the current contract on the same consumption and split as the quotes. */
-function currentAnnual(aq, dayPct) {
-  if (!CURRENT) return null;
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Consumption per register.
+//
+// The desk used to take one annual figure and a "day %" and apply the split to every
+// two-rate price. That is a guess dressed as an input, and it made a three-register meter's
+// evening/weekend consumption vanish. Now the meter type decides which boxes exist, the
+// figure in each box is what that register is expected to use, and the maths charges each
+// register at its own rate. The total and the split are derived, never typed.
+//
+// A Stark half-hourly export fills the boxes with a MEASURED split. Fixed windows, the same
+// every time so two quotes can be compared: night 00:00–07:00 every day; evening/weekend is
+// weekday 19:00–07:00 plus the whole weekend; day is what is left. A three-register meter
+// gets all three; a day/night meter folds evening/weekend into day.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+const REGISTERS = {
+  single:       ['total'],
+  day_night:    ['day', 'night'],
+  eve_weekend:  ['day', 'ew'],
+  day_night_ew: ['day', 'night', 'ew'],
+  off_peak:     ['night'],
+};
+const REGISTER_LABEL = { total: 'Annual consumption (kWh)', day: 'Day kWh', night: 'Night kWh',
+                         ew: 'Evening / weekend kWh' };
+let KWH_SOURCE = null;      // { kind:'hhd', days, from, to, file } once measured, else null
+
+function meterRegisters() {
+  const rs = String((METER && METER.rate_structure) || '').toLowerCase();
+  return REGISTERS[rs] || ['total'];
+}
+
+/** Draw the boxes the meter's type calls for. Keeps any figure a box already had. */
+function paintKwhBoxes(prefill) {
+  const row = $('kwhRow');
+  if (!row) return;
+  const regs = meterRegisters();
+  const keep = {};
+  for (const r of ['total', 'day', 'night', 'ew']) {
+    const el = $('qKwh' + r[0].toUpperCase() + r.slice(1));
+    if (el) keep[r] = el.value;
+  }
+  row.innerHTML = regs.map(r => `
+    <div><label for="qKwh${r[0].toUpperCase() + r.slice(1)}">${REGISTER_LABEL[r]}</label>
+      <input id="qKwh${r[0].toUpperCase() + r.slice(1)}" class="mono" inputmode="numeric"
+             oninput="KWH_SOURCE=null;paintKwhNote()" value="${esc(prefill && prefill[r] != null ? prefill[r] : (keep[r] || ''))}"></div>`).join('')
+    + (regs.length > 1 ? `<div style="flex:1.6"><label>&nbsp;</label>
+         <div id="kwhTotal" class="fieldlike" style="display:flex;align-items:center;height:var(--field-h);
+              padding:0 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);
+              font-size:12.5px;color:var(--text-2)"></div></div>` : '');
+  paintKwhNote();
+}
+
+/** The figures in the boxes, as one object the maths can use. */
+function readKwh() {
+  const regs = meterRegisters();
+  const v = (id) => { const el = $(id); return el ? (Number(String(el.value).replace(/[^0-9.]/g, '')) || 0) : 0; };
+  const k = { regs, day: 0, night: 0, ew: 0, total: 0, source: KWH_SOURCE };
+  if (regs.length === 1 && regs[0] === 'total') k.total = v('qKwhTotal');
+  else {
+    if (regs.includes('day'))   k.day   = v('qKwhDay');
+    if (regs.includes('night')) k.night = v('qKwhNight');
+    if (regs.includes('ew'))    k.ew    = v('qKwhEw');
+    k.total = k.day + k.night + k.ew;
+  }
+  return k;
+}
+
+/** "Total 55,008 kWh · 73% day / 27% night · measured from 91 days of half-hourly data". */
+function splitText(k, long) {
+  if (!k || k.regs.length === 1) return '';
+  const pct = (x) => k.total ? Math.round(x / k.total * 100) : 0;
+  const parts = [];
+  if (k.regs.includes('day'))   parts.push(`${pct(k.day)}% day`);
+  if (k.regs.includes('night')) parts.push(`${pct(k.night)}% night`);
+  if (k.regs.includes('ew'))    parts.push(`${pct(k.ew)}% evening/weekend`);
+  const how = k.source && k.source.kind === 'hhd'
+    ? `measured from ${k.source.days} days of half-hourly data (${uk(k.source.from)} to ${uk(k.source.to)}), scaled to a year`
+    : 'as entered';
+  return `${parts.join(' / ')}${long ? ', ' + how : ''}`;
+}
+
+function paintKwhNote() {
+  const k = readKwh();
+  const t = $('kwhTotal');
+  if (t) t.textContent = k.total ? `Total ${k.total.toLocaleString()} kWh · ${splitText(k)}` : 'Total —';
+  const n = $('kwhNote');
+  if (!n) return;
+  n.textContent = k.regs.length === 1
+    ? (String((METER && METER.rate_structure) || '') ? '' :
+       'No meter type is held for this meter, so it is priced as single rate on the total.')
+    : (k.source && k.source.kind === 'hhd'
+       ? `Split ${splitText(k, true)}.`
+       : 'Type the kWh each register is expected to use. The split is worked out from the boxes.');
+}
+
+/**
+ * The energy part of an annual cost for a set of rates and a set of register consumptions.
+ *
+ * Shared by the quotes and the current contract so the two are measured the same way.
+ * Returns { energy (£), basis, single } or null when these rates cannot price this meter.
+ *
+ * Which registers are FILLED decides the maths, not what the file calls the structure.
+ * EDF's rate card says "single" and puts the rate in DayRate with UnitRate blank; reading
+ * that as day-and-night with a free night made EDF the cheapest supplier on every meter.
+ *
+ * ONE register is only a whole price when the ROW says it is. Scottish Power publish, for one
+ * meter and one term, Economy7 (SC 76.84, day 26.31, night 20.39) and OffPeak (SC 10.00,
+ * night 20.39). The OffPeak row is the price of a single off-peak register on a meter that
+ * has only that register. Charging a whole year at it quoted £1,171 on a meter that would
+ * really pay £1,728, and because it is the cheapest thing in the book it won every time.
+ */
+function energyCost(rates, k, rs) {
   const num = (v) => (v == null || v === '' ? null : Number(v));
-  const u = num(CURRENT.u), d = num(CURRENT.d), nt = num(CURRENT.nt), ew = num(CURRENT.ew);
-  const sc = num(CURRENT.sc) || 0;
-  let energy = null;
-  if (u != null) energy = aq * u / 100;
-  else if (d != null && nt != null) energy = (aq * dayPct * d + aq * (1 - dayPct) * nt) / 100;
-  else if (d != null) energy = aq * d / 100;
-  else if (nt != null) energy = aq * nt / 100;
-  if (energy == null) return null;
-  if (ew != null && d != null && nt == null) energy = aq * ew / 100;   // never reached; kept explicit
-  return energy + sc * 365 / 100;
+  const u = num(rates.u), d = num(rates.d), nt = num(rates.nt), ew = num(rates.ew);
+  const multi = k.regs.length > 1;
+  const p = (kwh, rate) => kwh * rate / 100;
+
+  if (u != null) return { energy: p(k.total, u), basis: 'single rate on the total', single: true };
+
+  if (d != null && nt != null) {
+    if (!multi) {
+      // A single-register meter cannot be read as day and night: the supplier bills the one
+      // register at the day rate. No invented 70/30.
+      return { energy: p(k.total, d), basis: 'day rate on a single-register meter' };
+    }
+    let energy = p(k.day, d) + p(k.night, nt), basis = 'day / night';
+    if (k.regs.includes('ew')) {
+      if (ew != null) { energy += p(k.ew, ew); basis = 'day / night / evening & weekend'; }
+      else { energy += p(k.ew, d); basis = 'day / night, evening & weekend kWh at the day rate'; }
+    }
+    return { energy, basis };
+  }
+
+  if (d != null && ew != null && nt == null) {
+    // A day + evening/weekend tariff.
+    if (!multi) return { energy: p(k.total, d), basis: 'day rate on a single-register meter' };
+    const energy = p(k.day + k.night, d) + p(k.ew, ew);     // no night register on this tariff
+    return { energy, basis: k.night ? 'day + evening/weekend, night kWh at the day rate' : 'day + evening/weekend' };
+  }
+
+  // One register given, and the row must SAY that one register is the whole price.
+  const oneIsWhole = rs == null || rs === 'single' || rs === 'any';
+  const single = d != null ? d : (nt != null ? nt : null);
+  if (single != null && oneIsWhole) {
+    return { energy: p(k.total, single), single: true,
+             basis: 'single rate, given in the ' + (d != null ? 'day' : 'night') + ' column' };
+  }
+  if (nt != null && d == null && k.regs.length === 1 && k.regs[0] === 'night') {
+    return { energy: p(k.night || k.total, nt), basis: 'off-peak register only' };
+  }
+  return null;    // a real price, for a meter shaped differently from this one. Dropped, not bent.
+}
+
+/** Annual cost of the current contract on the same consumption as the quotes. */
+function currentAnnual(k) {
+  if (!CURRENT || !k) return null;
+  const e = energyCost(CURRENT, k, null);
+  if (!e) return null;
+  const sc = (CURRENT.sc == null || CURRENT.sc === '' ? 0 : Number(CURRENT.sc));
+  return e.energy + sc * 365 / 100;
+}
+
+// ── Stark half-hourly export → kWh per register ─────────────────────────────────────────
+/**
+ * Read a Stark "meter sequential" CSV. Header row has "Company Name" in the first column and
+ * an MPAN column; each data row is site, MPAN, serial, estimate flag, date (dd/mm/yy) and then
+ * 48 half-hour kWh readings from 00:00 (46 or 50 on the clock-change days). Returns the kWh
+ * per register over the period and the period itself, or throws with a reason.
+ */
+function readStarkHhd(text, wantMpan) {
+  const rows = PricingParsers.csvRows(text);
+  const hi = rows.findIndex(r => r[0] && /company\s*name/i.test(r[0]) && r.some(c => /mpan/i.test(c)));
+  if (hi < 0) throw new Error('this does not look like a Stark export (no "Company Name … MPAN" header row)');
+  const hdr = rows[hi].map(c => String(c).toLowerCase());
+  const mpanCol = hdr.findIndex(c => /mpan/.test(c));
+  const dateCol = hdr.findIndex(c => /date/.test(c));
+  const first = hdr.findIndex((c, i) => i > dateCol && /^\d{1,2}:\d{2}/.test(c));
+  const readStart = first > 0 ? first : dateCol + 1;
+  const want = String(wantMpan || '').replace(/\D/g, '');
+
+  let day = 0, night = 0, ew = 0, days = 0, from = null, to = null, others = new Set();
+  for (const r of rows.slice(hi + 1)) {
+    const mpan = String(r[mpanCol] || '').replace(/\D/g, '');
+    if (!mpan) continue;
+    if (want && mpan !== want) { others.add(mpan); continue; }
+    const m = String(r[dateCol] || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (!m) continue;
+    const yy = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+    const date = new Date(Date.UTC(yy, Number(m[2]) - 1, Number(m[1])));
+    const iso = date.toISOString().slice(0, 10);
+    const cells = r.slice(readStart).map(c => String(c).trim());
+    while (cells.length && cells[cells.length - 1] === '') cells.pop();
+    if (!cells.length) continue;
+    const wkend = date.getUTCDay() === 0 || date.getUTCDay() === 6;
+    const n = cells.length;                          // 48 normally; 46 / 50 on clock change
+    cells.forEach((c, i) => {
+      const v = Number(c);
+      if (!c || c === '-' || !isFinite(v)) return;
+      const hour = i * 24 / n;                       // position in the day, clock-change safe
+      if (hour < 7) night += v;
+      else if (wkend || hour >= 19) ew += v;
+      else day += v;
+    });
+    days++;
+    if (!from || iso < from) from = iso;
+    if (!to || iso > to) to = iso;
+  }
+  if (!days) {
+    throw new Error(want && others.size
+      ? `no rows for MPAN ${want}; the file holds ${[...others].slice(0, 3).join(', ')}${others.size > 3 ? '…' : ''}`
+      : 'no readable half-hourly rows');
+  }
+  return { day, night, ew, days, from, to };
+}
+
+async function hhdDropped(files) {
+  const f = files && files[0];
+  if (!f || !METER) return;
+  const note = $('kwhNote');
+  try {
+    note.textContent = 'Reading half-hourly data…';
+    const text = await f.text();
+    const h = readStarkHhd(text, METER.manual ? null : METER.mpan);
+    const scale = 365 / h.days;
+    const regs = meterRegisters();
+    const fill = {};
+    const rnd = (x) => Math.round(x * scale);
+    if (regs.length === 1) fill.total = rnd(h.day + h.night + h.ew);
+    else {
+      fill.night = regs.includes('night') ? rnd(h.night) : 0;
+      fill.ew    = regs.includes('ew') ? rnd(h.ew) : 0;
+      // What this meter has no register for is billed as day.
+      fill.day   = rnd(h.day + (regs.includes('night') ? 0 : h.night) + (regs.includes('ew') ? 0 : h.ew));
+    }
+    KWH_SOURCE = { kind: 'hhd', days: h.days, from: h.from, to: h.to, file: f.name };
+    paintKwhBoxes(fill);
+    if (h.days < 28) {
+      note.textContent += ` Only ${h.days} days of data: the annual figure is a big extrapolation.`;
+    }
+  } catch (e) {
+    KWH_SOURCE = null;
+    note.textContent = 'Could not use that file: ' + e.message;
+  }
 }
 
 function setCurrent(field, value) {
@@ -2937,6 +3508,45 @@ async function defaultStartDate() {
 }
 
 /**
+ * The account manager box: every broker by formal name, with the customer's own manager
+ * selected. Read through pricing_managers / pricing_customer_manager, which expose only a
+ * name and an email, so the desk needs no access to profiles to print a name on a quote.
+ */
+let MANAGERS = null;
+async function paintManagers(customerId) {
+  const sel = $('qManager');
+  if (!sel) return;
+  try {
+    if (!MANAGERS) MANAGERS = await q(sb.from('pricing_managers').select('manager_name, manager_email'), 'managers');
+  } catch (e) { MANAGERS = []; console.warn('managers:', e.message); }
+  let pick = null;
+  if (customerId) {
+    try {
+      const r = await q(sb.from('pricing_customer_manager').select('manager_name, manager_email')
+                          .eq('customer_id', customerId).limit(1), 'customer manager');
+      if (r && r[0] && r[0].manager_name) pick = r[0];
+    } catch (e) { console.warn('customer manager:', e.message); }
+  }
+  const opts = (MANAGERS || []).slice();
+  if (pick && !opts.some(m => m.manager_name === pick.manager_name)) opts.unshift(pick);
+  sel.innerHTML = `<option value="">— none shown —</option>` + opts.map(m =>
+    `<option value="${esc(m.manager_name)}" data-email="${esc(m.manager_email || '')}"
+       ${pick && m.manager_name === pick.manager_name ? 'selected' : ''}>${esc(m.manager_name)}${m.manager_email ? ' · ' + esc(m.manager_email) : ''}</option>`).join('');
+  // A hand-typed meter has no customer record: default to whoever is on the desk, if they
+  // are a broker, so the box is never silently blank on a document.
+  if (!pick && WHO) {
+    const me = opts.find(m => m.manager_name && WHO && m.manager_name.toLowerCase() === WHO.toLowerCase());
+    if (me) sel.value = me.manager_name;
+  }
+}
+function pickedManager() {
+  const sel = $('qManager');
+  if (!sel || !sel.value) return null;
+  const o = sel.selectedOptions[0];
+  return { name: sel.value, email: (o && o.dataset.email) || '' };
+}
+
+/**
  * Show the picked meter and work out who the incumbent is.
  *
  * The incumbent decides the sale type for every supplier in the quote, so it is resolved
@@ -2947,9 +3557,21 @@ async function showMeter() {
   loadCurrentContract();
   $('priceCard').classList.remove('hide');
   $('quoteCard').classList.add('hide');
-  $('qAq').value = METER.est_annual_consumption || '';
+
+  // Who the quote is for, and who looks after them. A portfolio meter brings both from the
+  // sales portal; a hand-typed one gets an empty name box, because "typed in by hand" on a
+  // customer's document is not a customer name.
+  $('qCustomer').value = METER.manual ? '' : (METER.customer_id || '');
+  await paintManagers(METER.manual ? null : METER.customer_id);
+
+  // One box per register, prefilled from the portfolio's annual figure. With no measured
+  // split the whole figure lands in the first box and the desk moves it; a guessed 70/30
+  // typed in for them would look like knowledge.
+  KWH_SOURCE = null;
+  const regs = meterRegisters();
+  const est = METER.est_annual_consumption ? Math.round(Number(METER.est_annual_consumption)) : '';
+  paintKwhBoxes(regs.length === 1 ? { total: est } : { [regs[0]]: est });
   await defaultStartDate();
-  $('qSplit').value = METER.day_pct != null ? METER.day_pct : 70;
 
   INCUMBENT_KEY = supplierKeyOf(METER.supplier);
   if (SSC_READY) await SSC_READY;
@@ -3043,11 +3665,14 @@ async function priceMeter() {
   try {
     const start  = $('qStart').value;
     const terms  = TERMS.slice();
-    const aq     = Number($('qAq').value || 0);
+    const kwh    = readKwh();
+    const aq     = kwh.total;
     const uplift = Number($('qUplift').value || 0);
-    const dayPct = Number($('qSplit').value || 70) / 100;
+    const customer = ($('qCustomer').value || '').trim();
+    const manager  = pickedManager();
     if (!terms.length) throw new Error('Tick at least one term to quote.');
-    if (!start || !aq) throw new Error('A start date and an annual consumption are both needed.');
+    if (!start || !aq) throw new Error('A start date and a consumption in at least one register are both needed.');
+    if (!customer) throw new Error('Put the customer\'s name in first. It goes on the quote.');
 
     // How far ahead the supply starts, in days from today. EDF price on this and nothing
     // else — see the sell_days filter below. Counted from today because that is when the
@@ -3162,42 +3787,13 @@ async function priceMeter() {
       const up = (v) => v == null ? null : v + uplift;
       const u  = up(r.unit_rate_p_kwh), d = up(r.day_rate_p_kwh);
       const nt = up(r.night_rate_p_kwh), ew = up(r.eve_weekend_p_kwh);
-
-      // Which registers are FILLED decides the maths, not what the file calls the structure.
-      // EDF's rate card says "single" and puts the rate in DayRate with UnitRate blank;
-      // reading that as day-and-night with a free night made EDF the cheapest supplier on
-      // every meter.
-      let energy = null, basis = null;
-      if (d != null && nt != null) {
-        energy = (aq * dayPct * d + aq * (1 - dayPct) * nt) / 100;
-        basis = 'day/night';
-      } else {
-        // ── ONE register is only a whole price when the ROW says it is. ──────────────
-        // The fallback below exists for EDF, whose card says "single" and puts the rate in
-        // DayRate with UnitRate blank. Applied to a row the supplier calls something else,
-        // it invents a tariff.
-        //
-        // Scottish Power publish, for one meter and one term:
-        //     Economy7  SC 76.84  day 26.31  night 20.39
-        //     OffPeak   SC 10.00            night 20.39
-        // The OffPeak row is the price of a single off-peak register on a meter that has
-        // only that register. Charging a whole year's consumption at it, with a 10p
-        // standing charge, quoted £1,171 on a meter that would really pay £1,728 — and
-        // because it is the cheapest thing in the book, it won every time.
-        const rs = r.rate_structure;
-        const oneIsWhole = rs == null || rs === 'single' || rs === 'any';
-        const single = u != null ? u : (d != null ? d : (nt != null ? nt : null));
-        if (single != null && oneIsWhole) {
-          energy = aq * single / 100;
-          basis = u != null ? 'single'
-                : 'single rate, given in the ' + (d != null ? 'day' : 'night') + ' column';
-        } else if (single != null) {
-          // A real price, for a meter shaped differently from this one. Dropped, not bent.
-          basis = null;
-        }
-      }
+      // Each register at its own rate, on the kWh typed or measured for that register. The
+      // rules for which rows can price which meters live in energyCost, shared with the
+      // current-contract figure so the two are measured identically.
+      const e = energyCost({ u, d, nt, ew }, kwh, r.rate_structure);
       const standing = (r.standing_charge_p_day || 0) * days / 100;
-      return { ...r, u, d, nt, ew, basis, annual: energy == null ? null : energy + standing };
+      return { ...r, u, d, nt, ew, basis: e ? e.basis : null, single: !!(e && e.single),
+               annual: e ? e.energy + standing : null };
     }).filter(r => r.annual != null);
 
     // ── Fold the duplicates. ───────────────────────────────────────────────────────────
@@ -3255,8 +3851,24 @@ async function priceMeter() {
       x.others = x.others.filter(o => o !== alt);
     }
 
+    // ── Does a single-rate product beat every two-rate one for this split? ────────────
+    // E.ON Next sell a single-rate product alongside their day/night one, and on a meter
+    // whose night share is small the single rate is the better deal. That is worth saying
+    // out loud rather than leaving the customer to assume two rates are always better.
+    let singleWins = null;
+    if (kwh.regs.length > 1) {
+      const byTerm = new Map();
+      for (const x of shortlist) {
+        const t = x.win.term_months;
+        if (!byTerm.has(t) || x.win.annual < byTerm.get(t).annual) byTerm.set(t, x.win);
+      }
+      const wins = [...byTerm.entries()].filter(([, w]) => w.single)
+        .map(([t, w]) => `${supplierName(w.supplier_key)} ${w.product_display || w.product_name || ''} at ${t} months`);
+      if (wins.length) singleWins = wins.join('; ');
+    }
+
     QUOTE = { shortlist, terms: [...new Set(shortlist.map(x => x.win.term_months))].sort((a,b)=>a-b),
-              aq, uplift, dayPct, start, daysAhead, incumbent,
+              aq, kwh, uplift, start, daysAhead, incumbent, customer, manager, singleWins,
               matched: rows.length, raw: raw.length, capped: CAPPED,
               folded, droppedWrongSale, hidden: quotes.length - shortlist.length };
     QUOTE_TERM = QUOTE.terms[0];
@@ -3312,7 +3924,7 @@ function renderQuotes() {
   const cheapest = list[0].r.annual;
   // The current contract is priced on the SAME consumption and day/night split as the
   // quotes. Any other basis would make the comparison a fiction.
-  const curAnnual = currentAnnual(Q.aq, Q.dayPct);
+  const curAnnual = currentAnnual(Q.kwh);
 
   // Against the CURRENT CONTRACT, not against the cheapest quote. "+£377 vs the next best
   // deal" is a fact about our shortlist; "£1,763 less than you pay now" is the only number
@@ -3434,7 +4046,11 @@ function renderQuotes() {
       ? `, shown as <b>${list.length}</b> quotes because a no standing charge option is
          listed separately` : ''}, from ${Q.raw.toLocaleString()} matched pricebook rows.
     Uplift <b>${Q.uplift.toFixed(2)} p/kWh</b> on every unit rate.
-    Annual cost on <b>${Q.aq.toLocaleString()} kWh</b> over 365 days, starting ${uk(Q.start)}
+    Annual cost on <b>${Q.aq.toLocaleString()} kWh</b>${Q.kwh.regs.length > 1
+      ? ` (${[Q.kwh.regs.includes('day') ? Q.kwh.day.toLocaleString() + ' day' : '',
+              Q.kwh.regs.includes('night') ? Q.kwh.night.toLocaleString() + ' night' : '',
+              Q.kwh.regs.includes('ew') ? Q.kwh.ew.toLocaleString() + ' evening/weekend' : ''].filter(Boolean).join(', ')})` : ''}
+    over 365 days, starting ${uk(Q.start)}
     — <b>${Q.daysAhead} days ahead</b>, which is what decides eligibility on any supplier
     who prices by how far out the supply starts.
     ${Q.folded ? `${Q.folded.toLocaleString()} rows were the same price under a different
@@ -3459,13 +4075,17 @@ function renderQuotes() {
       together; where they differ you are seeing more than one band's price and only the
       band this meter is really in applies. Decode the LLFC on the Reference tab to settle
       it.</div>` : ''}
-    ${dn ? `<div class="note warn" style="margin-top:10px">Day/night split assumed
-      <b>${Math.round(Q.dayPct*100)}/${100-Math.round(Q.dayPct*100)}</b> because no measured
-      split is held for this meter. Change it above and price again.</div>` : ''}
+    ${Q.kwh.regs.length > 1 ? `<div class="note${Q.kwh.source ? '' : ' warn'}" style="margin-top:10px">
+      Consumption split <b>${esc(splitText(Q.kwh, true))}</b>${Q.kwh.source ? '.'
+        : '. If the real split is known, type it above and price again; a measured split from a Stark export is better still.'}</div>` : ''}
+    ${Q.singleWins ? `<div class="note" style="margin-top:10px"><b>A single-rate product is the
+      cheapest option on this split</b> (${esc(Q.singleWins)}). On a multi-register meter that
+      means the day/night difference is not worth having at these rates; it is worth telling
+      the customer rather than assuming they want to stay on two rates.</div>` : ''}
     ${noProduct ? `<div class="note warn" style="margin-top:10px">${noProduct} came from a
       pricebook loaded before the product catalogue, so they show the file's own product text
       rather than a CES product name. Re-upload that book to fix it.</div>` : ''}
-    ${Q.raw >= 8000 ? '<div class="note bad" style="margin-top:10px">The 8,000-row cap was hit, so this list may be incomplete.</div>' : ''}`;
+`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -3587,10 +4207,11 @@ const QUOTE_DECLARATION =
 + 'subject to supplier contract terms & conditions which may introduce other 3rd-party '
 + 'charges. CES commission is included and shown on the final page.';
 
-const COMMISSION_DISCLOSURE = [
-  'The prices quoted include a p/kWh or estimated annual value of commission for Commercial '
-  + 'Energy Solutions Ltd (CES).',
-  'Where a multiyear contract is selected, total commission is the annual value multiplied '
+// The first sentence carries the figures and is built at print time, exactly as CES's own
+// sheets word it: "The prices quoted include 1.00 p/kwh or estimated annual value of £3.32
+// commission for Commercial Energy Solutions Ltd (CES)." What follows is fixed.
+const COMMISSION_DISCLOSURE_TAIL = [
+  'Where a multiyear contract selected, total commission is annual value multiplied '
   + 'by the number of contracted years.',
   'Commission includes CES energy procurement and account management services during the '
   + 'contract term and is not subject to retail price index regardless of contract term.',
@@ -3630,154 +4251,187 @@ async function downloadQuotePdf() {
     const JSPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
     if (!JSPDF) throw new Error('the PDF library did not load');
 
-    // Every logo the sheet needs, the current supplier's included.
+    // Every logo the sheet needs, the current supplier's included. All same-origin: a
+    // cross-origin image drawn through a canvas taints it, toDataURL throws, and the logo
+    // silently comes back null — which is why the CES logo was missing from the sheet.
     const curKey = CURRENT ? supplierKeyOf(CURRENT.supplier || METER.supplier) : null;
     const logos = {};
     for (const k of [...new Set([...rows.map(r => r.supplier_key), curKey].filter(Boolean))]) {
       const f = SUPPLIER_LOGO[k];
       if (f) logos[k] = await imageData('/supplier-logos/' + f);
     }
-    const ces = await imageData('https://niadffxpxdohglcyagau.supabase.co/storage/v1/object/'
-                              + 'public/public-docs/ces_logo.png');
+    const ces = await imageData('/ces_logo.png');
 
     const doc = new JSPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
-    const W = 297, H = 210, M = 12;
-    const BLUE = [10, 120, 173];
-    const INK = [25, 35, 45];
-    const GREY = [110, 120, 130];
+    const W = 297, H = 210, M = 14;
+    const INK  = [30, 30, 30];
+    const GREY = [95, 95, 95];
+    const RULE = [180, 180, 180];
+    const BLUE = [0, 112, 192];      // the blue CES's sheets use for the current contract
+    const RED  = [200, 0, 0];
+    const F = 'helvetica';
+    doc.setFont(F, 'normal');
 
-    const curAnnual = currentAnnual(Number(QUOTE.aq), Number(QUOTE.dayPct));
+    const K = QUOTE.kwh;
+    const curAnnual = currentAnnual(K);
 
-    // ── Columns, laid out once and reused on every page. ────────────────────────────
+    /** Draw an image to FIT a box, never stretched: scale by whichever side binds. */
+    const fit = (img, x, y, maxW, maxH, align) => {
+      if (!img) return false;
+      const s = Math.min(maxW / img.w, maxH / img.h);
+      const w = img.w * s, h = img.h * s;
+      const dx = align === 'right' ? x + maxW - w : align === 'center' ? x + (maxW - w) / 2 : x;
+      doc.addImage(img.data, 'PNG', dx, y + (maxH - h) / 2, w, h);
+      return true;
+    };
+
+    // ── Columns. Product Name gets the room, because it wraps. ──────────────────────
     const C = {
-      logo: M, supplier: M + 22, term: 84, product: 112,
-      day: 176, night: 199, ew: 222, sc: 250, annual: 272, diff: W - M,
+      supplier: { x: M,        w: 40 },
+      term:     { x: M + 43,   w: 26 },
+      product:  { x: M + 72,   w: 50 },
+      day:      { x: M + 125,  w: 22 },
+      night:    { x: M + 150,  w: 22 },
+      ew:       { x: M + 175,  w: 22 },
+      sc:       { x: M + 200,  w: 27 },
+      annual:   { x: M + 230,  w: 20 },
+      diff:     { x: M + 253,  w: 28 },
     };
+    const right = (c) => c.x + c.w;
+    const mid   = (c) => c.x + c.w / 2;
 
-    const header = () => {
-      let y = M + 4;
-      if (ces) {
-        const h = 12, w = Math.min(h * (ces.w / ces.h), 52);
-        doc.addImage(ces.data, 'PNG', W - M - w, y - 4, w, h);
-      }
-      doc.setFont(undefined, 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GREY);
-      const dec = doc.splitTextToSize(QUOTE_DECLARATION, W - 2 * M - 60);
-      doc.text(dec, M, y);
-      return y + dec.length * 3.2 + 4;
-    };
-
-    const tableHead = (y) => {
-      doc.setFillColor(...BLUE);
-      doc.rect(M, y - 4.5, W - 2 * M, 9, 'F');
-      doc.setFontSize(7); doc.setTextColor(255, 255, 255); doc.setFont(undefined, 'bold');
-      doc.text('SUPPLIER', C.supplier, y);
-      doc.text('CONTRACT DURATION', C.term, y);
-      doc.text('PRODUCT NAME', C.product, y);
-      doc.text('UNIT RATE (DAY)', C.day, y, { align: 'right' });
-      doc.text('NIGHT', C.night, y, { align: 'right' });
-      doc.text('E/WKND', C.ew, y, { align: 'right' });
-      doc.text('STANDING CHARGE', C.sc, y, { align: 'right' });
-      doc.text('ANNUAL COST', C.annual, y, { align: 'right' });
-      doc.text('ANNUAL DIFF', C.diff, y, { align: 'right' });
-      doc.setFont(undefined, 'normal');
+    // ── The top of page one: the declaration in its box, the CES logo, the title. ────
+    const topOfPage1 = () => {
+      doc.setFont(F, 'normal'); doc.setFontSize(7.6); doc.setTextColor(...INK);
+      const boxW = W - 2 * M - 62;
+      const lines = doc.splitTextToSize(QUOTE_DECLARATION, boxW - 6);
+      const boxH = lines.length * 3.4 + 5;
+      doc.setDrawColor(...INK); doc.setLineWidth(0.3);
+      doc.rect(M, M - 4, boxW, boxH);
+      doc.text(lines, M + 3, M - 4 + 4.2);
+      fit(ces, W - M - 54, M - 5, 54, 20, 'right');
+      let y = M - 4 + boxH + 9;
+      doc.setFontSize(15); doc.setFont(F, 'normal'); doc.setTextColor(...INK);
+      doc.text(`Quote Results for ${QUOTE.customer || METER.customer_id || 'your business'}`, M, y);
       return y + 9;
     };
 
-    /** One priced line. `cur` draws it as the highlighted current-contract row. */
-    const line = (y, o) => {
-      if (o.cur) { doc.setFillColor(238, 244, 248); doc.rect(M, y - 5, W - 2 * M, 10, 'F'); }
-      const lg = o.key ? logos[o.key] : null;
-      if (lg) {
-        const h = 6, w = Math.min(h * (lg.w / lg.h), 19);
-        doc.addImage(lg.data, 'PNG', C.logo, y - 4, w, h);
-      }
-      doc.setFontSize(8); doc.setTextColor(...INK);
-      doc.setFont(undefined, o.cur ? 'bold' : 'normal');
-      doc.text(String(o.supplier).slice(0, 20), C.supplier, y);
-      doc.text(o.term, C.term, y);
-      doc.setFont(undefined, 'normal'); doc.setFontSize(7.5);
-      doc.text(doc.splitTextToSize(String(o.product || ''), C.day - C.product - 14)[0] || '',
-               C.product, y);
-      doc.setFontSize(8);
-      const num = (v) => (v == null ? '-' : n2(v, 4));
-      doc.text(num(o.day), C.day, y, { align: 'right' });
-      doc.text(num(o.night), C.night, y, { align: 'right' });
-      doc.text(num(o.ew), C.ew, y, { align: 'right' });
-      doc.text(o.sc == null ? '-' : `${n2(o.sc, 4)} p/day`, C.sc, y, { align: 'right' });
-      doc.setFont(undefined, 'bold');
-      doc.text('£' + Math.round(o.annual).toLocaleString(), C.annual, y, { align: 'right' });
-      doc.setFont(undefined, 'normal');
-
-      if (o.cur || curAnnual == null) {
-        doc.setTextColor(...GREY);
-        doc.text(o.cur ? '-' : 'n/a', C.diff, y, { align: 'right' });
-      } else {
-        const d = Math.round(o.annual - curAnnual);
-        const pct = Math.round(Math.abs(d) / curAnnual * 100);
-        doc.setTextColor(...(d <= 0 ? [21, 110, 60] : [170, 40, 35]));
-        doc.text(`${d <= 0 ? '−' : '+'} £${Math.abs(d).toLocaleString()}`, C.diff, y, { align: 'right' });
-        doc.setFontSize(6.5); doc.setTextColor(...GREY);
-        doc.text(`(${pct}% ${d <= 0 ? 'saving' : 'increase'})`, C.diff, y + 3.2, { align: 'right' });
-        doc.setFontSize(8);
-      }
-      doc.setDrawColor(226, 232, 238);
-      doc.line(M, y + 5, W - M, y + 5);
-      return y + 10.5;
+    const colHead = (y) => {
+      doc.setFont(F, 'normal'); doc.setFontSize(7.2); doc.setTextColor(...GREY);
+      const h = (c, t, align) => {
+        const ls = String(t).split('\n');
+        ls.forEach((l, i) => doc.text(l, align === 'right' ? right(c) : align === 'center' ? mid(c) : c.x,
+                                       y + i * 3.2, { align: align || 'left' }));
+      };
+      h(C.supplier, 'Supplier', 'center');
+      h(C.term, 'Contract Duration', 'center');
+      h(C.product, 'Product Name', 'center');
+      h(C.day, 'Unit Rate (Day)\np/kWh', 'center');
+      h(C.night, 'Night Rate\np/kWh', 'center');
+      h(C.ew, 'E/Wknd Rate\np/kWh', 'center');
+      h(C.sc, 'Standing Charge', 'center');
+      h(C.annual, 'Annual Cost', 'center');
+      h(C.diff, 'Annual Diff', 'center');
+      const yy = y + 5.5;
+      doc.setDrawColor(...RULE); doc.setLineWidth(0.25);
+      doc.line(M, yy, W - M, yy);
+      return yy + 2;
     };
 
-    // ── Page 1: declaration, who it is for, the supply, and CES's contact block. ─────
-    let y = header();
+    const ROW = 15;      // tall rows, so a wrapped product name and a two-line diff both fit
+    const num = (v) => (v == null ? '-' : n2(v, 4));
 
-    doc.setFontSize(14); doc.setTextColor(...BLUE); doc.setFont(undefined, 'bold');
-    doc.text(`Quote Results for ${METER.customer_id || 'your business'}`, M, y + 4);
-    doc.setFont(undefined, 'normal');
-    y += 11;
+    /** One priced line. `cur` draws it as the current contract, in CES's blue. */
+    const line = (y, o) => {
+      const cy = y + ROW / 2;          // vertical centre of the row
+      const col = o.cur ? BLUE : INK;
+      // Supplier: the logo if we hold one, otherwise the name. Never a squashed logo.
+      const lg = o.key ? logos[o.key] : null;
+      if (!fit(lg, C.supplier.x + 2, y + 2.5, C.supplier.w - 4, ROW - 5, 'center')) {
+        doc.setFont(F, 'normal'); doc.setFontSize(8.5); doc.setTextColor(...col);
+        const nm = doc.splitTextToSize(String(o.supplier || ''), C.supplier.w - 2);
+        doc.text(nm.slice(0, 2), mid(C.supplier), cy - (nm.length > 1 ? 1.6 : 0) + 1.2, { align: 'center' });
+      }
+      doc.setFont(F, 'normal'); doc.setFontSize(8.5); doc.setTextColor(...col);
+      doc.text(o.term, mid(C.term), cy + 1.2, { align: 'center' });
 
+      const pl = doc.splitTextToSize(String(o.product || ''), C.product.w - 2).slice(0, 3);
+      doc.setFontSize(o.cur ? 8.5 : 8);
+      doc.text(pl, mid(C.product), cy + 1.2 - (pl.length - 1) * 1.7, { align: 'center' });
+
+      doc.setFontSize(8.5); doc.setTextColor(...col);
+      doc.text(num(o.day),   mid(C.day),   cy + 1.2, { align: 'center' });
+      doc.text(num(o.night), mid(C.night), cy + 1.2, { align: 'center' });
+      doc.text(num(o.ew),    mid(C.ew),    cy + 1.2, { align: 'center' });
+      doc.text(o.sc == null ? '-' : `${n2(o.sc, 4)} p/day`, mid(C.sc), cy + 1.2, { align: 'center' });
+      doc.setFontSize(9.5);
+      doc.text('£' + Math.round(o.annual).toLocaleString(), mid(C.annual), cy + 1.3, { align: 'center' });
+
+      doc.setFontSize(8.5);
+      if (o.cur || curAnnual == null) {
+        doc.setTextColor(...GREY);
+        doc.text('-', mid(C.diff), cy + 1.2, { align: 'center' });
+      } else {
+        const d = Math.round(o.annual - curAnnual);
+        const pct = curAnnual ? Math.round(Math.abs(d) / curAnnual * 100) : 0;
+        doc.setTextColor(...(d > 0 ? RED : INK));
+        doc.text(`${d > 0 ? '+' : '-'} £${Math.abs(d).toLocaleString()}`, mid(C.diff), cy - 0.6, { align: 'center' });
+        doc.setFontSize(7.5);
+        doc.text(`(${pct}% ${d > 0 ? 'Increase' : 'Saving'})`, mid(C.diff), cy + 3.2, { align: 'center' });
+      }
+      doc.setDrawColor(...RULE); doc.setLineWidth(0.2);
+      doc.line(M, y + ROW, W - M, y + ROW);
+      return y + ROW;
+    };
+
+    // ── Page 1 ──────────────────────────────────────────────────────────────────────
+    let y = topOfPage1();
+
+    // The supply on the left, CES on the right. "Label: value" on one line, as CES's sheets.
     const facts = [
       ['Utility Type', utilityLabel()],
-      ['Site Address', [METER.site_name, METER.site_address, METER.postcode]
-        .filter(Boolean).join(', ') || '—'],
-      [METER.utility === 'gas' ? 'Meter Number (MPRN)' : 'Meter Number (MPAN)', METER.mpan || '—'],
+      ['Site Address', [METER.site_name, METER.site_address, METER.postcode].filter(Boolean).join(', ') || '—'],
+      ['Meter Number', METER.mpan || '—'],
       ['Meter Type', meterTypeLabel()],
       ['Contract Start Date', uk(QUOTE.start)],
-      ['Consumption (Annual)', Number(QUOTE.aq).toLocaleString() + ' kWh'],
+      ['Consumption (Annual)', Number(QUOTE.aq).toLocaleString() + ' kWh'
+         + (K.regs.length > 1 ? `  (${splitText(K)})` : '')],
       ['Date Quoted', uk(new Date().toISOString().slice(0, 10))],
     ];
     const factTop = y;
-    doc.setFontSize(8.5);
+    doc.setFontSize(9); doc.setTextColor(...INK); doc.setFont(F, 'normal');
     for (const [k, v] of facts) {
-      doc.setTextColor(...GREY); doc.text(k + ':', M, y);
-      doc.setTextColor(...INK);
-      doc.text(doc.splitTextToSize(String(v), 150)[0] || '', M + 36, y);
-      y += 5;
+      const t = doc.splitTextToSize(`${k}: ${v}`, W - 2 * M - 70);
+      doc.text(t, M, y); y += t.length * 4.6 + 0.6;
     }
-    // CES's own block, right-aligned, beside the supply.
     let cy = factTop;
-    doc.setFontSize(8.5); doc.setTextColor(...INK);
-    for (const l of CES_CONTACT.lines) { doc.text(l, W - M, cy, { align: 'right' }); cy += 5; }
-    if (WHO) { doc.text('Account Manager: ' + WHO, W - M, cy, { align: 'right' }); cy += 5; }
-    doc.setTextColor(...GREY);
-    doc.text(CES_CONTACT.phone, W - M, cy, { align: 'right' });
+    for (const l of CES_CONTACT.lines) { doc.text(l, W - M, cy, { align: 'right' }); cy += 4.6; }
+    cy += 3;
+    const mgr = QUOTE.manager;
+    if (mgr && mgr.name) { doc.text('Account Manager: ' + mgr.name, W - M, cy, { align: 'right' }); cy += 4.6; }
+    doc.text(CES_CONTACT.phone, W - M, cy, { align: 'right' }); cy += 4.6;
+    if (mgr && mgr.email) { doc.text(mgr.email, W - M, cy, { align: 'right' }); cy += 4.6; }
 
-    y = Math.max(y, cy) + 6;
-    doc.setFontSize(9); doc.setTextColor(...INK);
-    doc.text('We’ve searched our network of suppliers and found these deals for your business:',
-             M, y);
+    y = Math.max(y, cy) + 8;
+    doc.setFontSize(10.5); doc.setTextColor(...INK);
+    doc.text('We’ve searched our network of suppliers and found these deals for your business:', M, y);
     y += 8;
-    y = tableHead(y);
+    y = colHead(y);
 
-    // The current contract first, because every Annual Diff on the sheet is measured
-    // against it and a reader needs to see the baseline before the comparisons.
+    const bottom = H - 16;
+    const newPage = () => { doc.addPage(); return colHead(M + 4); };
+
+    // The current contract first: every Annual Diff is measured against it.
     if (curAnnual != null) {
       y = line(y, { cur: true, key: curKey,
                     supplier: CURRENT.supplier || METER.supplier || 'Current supplier',
-                    term: 'CURRENT CONTRACT', product: '',
+                    term: CURRENT.term_months ? `${CURRENT.term_months} months` : 'Current',
+                    product: 'CURRENT CONTRACT',
                     day: CURRENT.u != null ? CURRENT.u : CURRENT.d, night: CURRENT.nt,
                     ew: CURRENT.ew, sc: CURRENT.sc, annual: curAnnual });
     }
-
     for (const r of rows) {
-      if (y > H - 26) { doc.addPage(); y = header(); y = tableHead(y + 2); }
+      if (y + ROW > bottom) y = newPage();
       y = line(y, { key: r.supplier_key, supplier: supplierName(r.supplier_key),
                     term: `${r.term_months} months`,
                     product: [r.product_display || r.product_name,
@@ -3787,65 +4441,61 @@ async function downloadQuotePdf() {
                     sc: r.standing_charge_p_day, annual: r.annual });
     }
 
-    // ── What the figures assume, under the table. ────────────────────────────────────
-    if (y > H - 40) { doc.addPage(); y = header(); }
-    y += 3;
-    doc.setDrawColor(...BLUE); doc.line(M, y, W - M, y); y += 5;
-    doc.setFontSize(7.5); doc.setTextColor(...GREY);
-    const dn = rows.some(r => r.d != null && r.nt != null);
+    // What the figures assume, under the table.
     const notes = [
-      `Annual cost is ${Number(QUOTE.aq).toLocaleString()} kWh over 365 days at the rates `
-        + 'shown, plus the standing charge. Your actual bill will follow your actual consumption.',
-      dn ? 'Day and night consumption is assumed to split '
-         + `${Math.round(QUOTE.dayPct * 100)}/${100 - Math.round(QUOTE.dayPct * 100)}, as no `
-         + 'measured split is held for this meter. A different split changes the annual cost '
-         + 'but not the rates.' : null,
+      `Annual cost is ${Number(QUOTE.aq).toLocaleString()} kWh over 365 days at the rates shown, `
+        + 'plus the standing charge. Your actual bill will follow your actual consumption.',
+      K.regs.length > 1
+        ? `Consumption by register: ${[K.regs.includes('day') ? K.day.toLocaleString() + ' kWh day' : '',
+                                      K.regs.includes('night') ? K.night.toLocaleString() + ' kWh night' : '',
+                                      K.regs.includes('ew') ? K.ew.toLocaleString() + ' kWh evening/weekend' : '']
+            .filter(Boolean).join(', ')} (${splitText(K, true)}). A different split changes the annual cost but not the rates.`
+        : null,
       curAnnual != null
-        ? 'Annual Diff compares each deal against your current contract on the same '
-          + 'consumption, so the two are measured the same way.' : null,
+        ? 'Annual Diff compares each deal against your current contract on the same consumption.' : null,
     ].filter(Boolean);
+    const noteH = notes.length * 7 + 6;
+    if (y + noteH > bottom) { doc.addPage(); y = M + 4; }
+    y += 5;
+    doc.setFontSize(7.8); doc.setTextColor(...GREY);
     for (const nline of notes) {
       const ls = doc.splitTextToSize(nline, W - 2 * M);
-      doc.text(ls, M, y); y += ls.length * 3.2 + 1.2;
+      doc.text(ls, M, y); y += ls.length * 3.4 + 1.6;
     }
 
-    // ── The commissions disclosure, on its own page, as CES's sheets have it. ────────
+    // ── Commissions Disclosure, its own page, worded exactly as CES's sheets. ───────
     doc.addPage();
-    let dy = M + 6;
-    if (ces) {
-      const h = 12, w = Math.min(h * (ces.w / ces.h), 52);
-      doc.addImage(ces.data, 'PNG', W - M - w, dy - 6, w, h);
-    }
-    doc.setFontSize(14); doc.setTextColor(...BLUE); doc.setFont(undefined, 'bold');
-    doc.text('Commissions Disclosure', M, dy + 2);
-    doc.setFont(undefined, 'normal');
-    dy += 12;
-    doc.setFontSize(9); doc.setTextColor(...INK);
-    for (const p of COMMISSION_DISCLOSURE) {
-      const ls = doc.splitTextToSize(p, W - 2 * M);
-      doc.text(ls, M, dy); dy += ls.length * 4.4 + 3.5;
-    }
-    // The figure itself. Promised on page one, so it has to actually be here.
-    dy += 2;
-    doc.setDrawColor(...BLUE); doc.line(M, dy, W - M, dy); dy += 6;
+    let dy = M + 8;
+    fit(ces, W - M - 54, M - 5, 54, 20, 'right');
+    doc.setFontSize(12.5); doc.setTextColor(...INK); doc.setFont(F, 'bold');
+    doc.text('Commissions Disclosure', W / 2, dy + 4, { align: 'center' });
+    doc.setFont(F, 'normal');
+    dy += 16;
     const up = Number(QUOTE.uplift) || 0;
-    doc.setFontSize(9.5); doc.setTextColor(...INK); doc.setFont(undefined, 'bold');
-    doc.text(`Commission included in these prices: ${up.toFixed(2)} p/kWh`, M, dy);
-    doc.setFont(undefined, 'normal'); doc.setTextColor(...GREY); doc.setFontSize(8.5);
-    doc.text(`On ${Number(QUOTE.aq).toLocaleString()} kWh a year that is an estimated `
-           + `£${Math.round(up * Number(QUOTE.aq) / 100).toLocaleString()} a year.`, M, dy + 5);
+    const annualCommission = up * Number(QUOTE.aq) / 100;
+    const money = (v) => '£' + (v >= 100 ? Math.round(v).toLocaleString() : v.toFixed(2));
+    const paras = [
+      `The prices quoted include ${up.toFixed(2)} p/kwh or estimated annual value of `
+        + `${money(annualCommission)} commission for Commercial Energy Solutions Ltd (CES).`,
+      ...COMMISSION_DISCLOSURE_TAIL,
+    ];
+    doc.setFontSize(9.5); doc.setTextColor(...INK);
+    for (const p of paras) {
+      const ls = doc.splitTextToSize(p, W - 2 * M - 20);
+      doc.text(ls, M + 10, dy); dy += ls.length * 4.6 + 4;
+    }
 
     // ── Footer on every page. ────────────────────────────────────────────────────────
     const pages = doc.getNumberOfPages();
     for (let p = 1; p <= pages; p++) {
       doc.setPage(p);
-      doc.setFontSize(7); doc.setTextColor(150, 158, 166);
-      doc.text('Commercial Energy Solutions Ltd', M, H - 6);
-      doc.text(`Page ${p} of ${pages}`, W - M, H - 6, { align: 'right' });
+      doc.setFont(F, 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GREY);
+      doc.text(`Page ${p} of ${pages}`, W - M, H - 7, { align: 'right' });
     }
 
-    const who = (METER.customer_id || METER.site_name || 'quote').replace(/[^\w \-]/g, '').slice(0, 40);
-    const kind = METER.utility === 'gas' ? 'Gas' : 'Electric';
+    const who = (QUOTE.customer || METER.customer_id || METER.site_name || 'quote')
+      .replace(/[^\w &'\-]/g, '').slice(0, 50);
+    const kind = METER.utility === 'gas' ? 'Gas' : `Electric ${utilityLabel().startsWith('Half') ? 'HH' : 'NHH'}`;
     doc.save(`${who} - ${kind} Quote - Commercial Energy Solutions - `
            + `${new Date().toISOString().slice(0, 10)}.pdf`.replace(/\s+/g, ' '));
   } catch (e) {

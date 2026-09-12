@@ -54,6 +54,52 @@
     return parts.join(' | ');
   }
 
+  /**
+   * CSV text -> array of arrays of strings. One pass, no per-cell objects.
+   *
+   * A CSV never goes through SheetJS. Handed the TotalEnergies renewal power file (88 MB,
+   * about 800,000 rows, 20 columns) SheetJS builds a worksheet with one property per CELL —
+   * sixteen million of them — and V8 refuses with "Too many properties to enumerate" before
+   * sheet_to_json can read it back. On a server it did not finish in three minutes; this does
+   * the same file in under three seconds and keeps the rows as plain arrays.
+   *
+   * RFC 4180: quoted fields, doubled quotes inside them, commas and newlines inside quotes,
+   * \r\n and \n line ends, a UTF-8 BOM. Values stay as strings, which is what SheetJS with
+   * raw:true gave the parsers before, so nothing downstream changes. Blank lines are dropped,
+   * matching sheet_to_json's blankrows:false. Every supplier CSV CES receives is
+   * comma-separated (EDF, E.ON Next, TotalEnergies), so no delimiter sniffing.
+   */
+  function csvRows(text) {
+    const rows = [];
+    let row = [], field = '', i = 0, q = false;
+    const n = text.length;
+    if (text.charCodeAt(0) === 0xFEFF) i = 1;
+    let start = i;
+    const push = () => { row.push(field); field = ''; };
+    const endRow = () => { if (row.length > 1 || row[0] !== '') rows.push(row); row = []; };
+    while (i < n) {
+      const c = text.charCodeAt(i);
+      if (q) {
+        if (c === 34) {                                            // closing or doubled quote
+          if (text.charCodeAt(i + 1) === 34) { field += text.slice(start, i + 1); i += 2; start = i; continue; }
+          field += text.slice(start, i); q = false; i++; start = i; continue;
+        }
+        i++; continue;
+      }
+      if (c === 34) { q = true; i++; start = i; continue; }
+      if (c === 44) { field += text.slice(start, i); push(); i++; start = i; continue; }
+      if (c === 10 || c === 13) {
+        field += text.slice(start, i); push(); endRow();
+        if (c === 13 && text.charCodeAt(i + 1) === 10) i++;
+        i++; start = i; continue;
+      }
+      i++;
+    }
+    field += text.slice(start, i);
+    if (field !== '' || row.length) { push(); endRow(); }
+    return rows;
+  }
+
   const SALE = {
     acquisition: 'acquisition', acq: 'acquisition', new: 'acquisition',
     'new business': 'acquisition', '1': 'acquisition',
@@ -2106,8 +2152,8 @@
      * re-upload wrote 8,916 rows with no selling days and the wrong rate kept winning.
      * Caching headers are the first line of defence and this is the second.
      */
-    VERSION: '2026-09-11.2',
-    parse, normHeader, readZip, headerRowIndex, CANON_FIELDS, P_KVA_DAY_TO_MONTH,
+    VERSION: '2026-09-12.1',
+    parse, normHeader, readZip, headerRowIndex, csvRows, CANON_FIELDS, P_KVA_DAY_TO_MONTH,
     // exported for the test suite
     _internals: { saleType, rateStructure, tcrBand, toNum, toDate, toBool, dnoId, rate, sc,
                   capFromDay, key, scType, eonProductName, zipCryptoDecrypt,
