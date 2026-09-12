@@ -34,8 +34,8 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '2026-09-12.1';
-  const CES = { name: 'Commercial Energy Solutions Ltd', phone: '02030 988777' };
+  const VERSION = '2026-09-13.1';
+  const CES = { name: 'Commercial Energy Solutions Ltd', phone: '02030 988777', edf_qdss: 'C35COMM03' };
 
   // ── Formatting, as the filled examples have it ────────────────────────────────────────
   const num = (v) => (v == null || v === '' ? null : Number(v));
@@ -56,14 +56,36 @@
     d.setUTCDate(d.getUTCDate() - 1);                       // a 12-month term from 1 Oct ends 30 Sep
     return d.toISOString().slice(0, 10);
   }
-  /** The MPAN as the forms box it: S | PC | MTC | LLFC over | dd | dddd | dddd | ddd. */
-  function mpanParts(core, topLine, pc, mtc, llfc) {
+  /**
+   * The MPAN as CES box it on every supplier contract:
+   *
+   *     S | PC (2) | SSC (4) | LLFC (3)
+   *       | dd     | dddd    | dddd | ddd
+   *
+   * The middle box of a printed MPAN top line is, strictly, the three-digit meter time-switch
+   * code. CES write the four-digit SSC there instead, and so do the suppliers' own forms as
+   * CES have completed them: Kent Foods "03 0393 631", Duc Tien "04 0151 204", Finetec
+   * "S 03 0393 N12", a half-hourly site "00 0000 G02". This follows that convention, because
+   * the contract has to look like the ones the suppliers already accept from CES.
+   *
+   * A stored top line wins when it is complete (9 characters); otherwise the parts are taken
+   * from the meter's own columns, padded as they are written: PC to 2 digits, SSC to 4, a
+   * numeric LLFC to 3 (an alphanumeric one, "G02" or "2D", is left alone).
+   */
+  function mpanParts(core, topLine, pc, ssc, llfc) {
     const c = String(core || '').replace(/\D/g, '');
-    const t = String(topLine || '').replace(/\s/g, '');
-    const parts = { pc: pc || '', mtc: mtc || '', llfc: llfc || '' };
-    if (t.length >= 8) { parts.pc = parts.pc || t.slice(0, 2); parts.mtc = parts.mtc || t.slice(2, 5); parts.llfc = parts.llfc || t.slice(5, 8); }
-    parts.pc = String(parts.pc || '').padStart(parts.pc ? 2 : 0, '0');
-    return { ...parts, core: c, c1: c.slice(0, 2), c2: c.slice(2, 6), c3: c.slice(6, 10), c4: c.slice(10, 13) };
+    const t = String(topLine || '').replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+    const parts = { pc: '', ssc: '', llfc: '' };
+    if (/^\d{6}[0-9A-Z]{3}$/.test(t)) {
+      parts.pc = t.slice(0, 2); parts.ssc = t.slice(2, 6); parts.llfc = t.slice(6, 9);
+    } else {
+      const p = String(pc == null ? '' : pc).trim(), s = String(ssc || '').trim(), l = String(llfc || '').trim().toUpperCase();
+      parts.pc = /^\d{1,2}$/.test(p) ? p.padStart(2, '0') : p;
+      parts.ssc = /^\d{1,4}$/.test(s) ? s.padStart(4, '0') : s;
+      parts.llfc = /^\d{1,3}$/.test(l) ? l.padStart(3, '0') : l;
+    }
+    const topLineOut = (parts.pc || parts.ssc || parts.llfc) ? [parts.pc, parts.ssc, parts.llfc].join(' ').trim() : '';
+    return { ...parts, top_line: topLineOut, core: c, c1: c.slice(0, 2), c2: c.slice(2, 6), c3: c.slice(6, 10), c4: c.slice(10, 13) };
   }
   /** "Unit 4, Atlas Business Centre, Oxgate Lane, London" -> lines for a form with 2 lines + city. */
   function splitAddress(addr, postcode) {
@@ -92,7 +114,11 @@
     const annualCommission = uplift * (kwh.total || 0) / 100;
     const addr = splitAddress(meter.site_address, meter.postcode);
     const sale = row.sale_type === 'renewal' ? 'renewal' : (row.sale_type === 'upgrade' ? 'upgrade' : 'acquisition');
-    const mp = mpanParts(meter.mpan, meter.top_line, meter.profile_class, meter.mtc, meter.llfc);
+    const mp = mpanParts(meter.mpan, meter.top_line, meter.profile_class, meter.ssc, meter.llfc);
+    // The name on the contract is the customer's TRADING name as the desk typed or confirmed
+    // it in the customer box. Never the portfolio's customer_id: that is a slug
+    // ("uko-glass-limited") and one reached a contract before this line existed.
+    const customerName = String(x.customer || '').trim();
     // Rates as they were QUOTED: uplift already on them. That is what the contract says.
     const rates = { u: num(row.u), d: num(row.d), nt: num(row.nt), ew: num(row.ew), sc: num(row.standing_charge_p_day) };
     // The unit-charge rows in the order the supplier forms use them.
@@ -105,16 +131,20 @@
       fuel, supplier_key: row.supplier_key || '',
       broker: { name: CES.name, agent: (x.manager && x.manager.name) || '', phone: CES.phone,
                 email: (x.manager && x.manager.email) || '' },
-      customer: { business_name: x.customer || meter.customer_id || '', contact_name: '', phone: '',
+      customer: { business_name: customerName, contact_name: '', phone: '',
                   email: '', reg_number: '', trading_as: '', business_type: '' },
-      supply: { name: x.customer || meter.customer_id || '', address: [meter.site_address, meter.postcode].filter(Boolean).join(', '),
+      supply: { name: customerName, address: [meter.site_address, meter.postcode].filter(Boolean).join(', '),
                 line1: addr.line1, line2: addr.line2, city: addr.city, postcode: meter.postcode || '',
                 site_name: meter.site_name || '' },
       meter: { mpan: fuel === 'electricity' ? mp.core : '', mprn: fuel === 'gas' ? String(meter.mpan || '').replace(/\D/g, '') : '',
-               pc: mp.pc, mtc: mp.mtc, llfc: mp.llfc, c1: mp.c1, c2: mp.c2, c3: mp.c3, c4: mp.c4,
-               serial: meter.meter_serial || '', type: meterType, top_line: meter.top_line || '' },
+               pc: mp.pc, ssc: mp.ssc, llfc: mp.llfc, c1: mp.c1, c2: mp.c2, c3: mp.c3, c4: mp.c4,
+               serial: meter.meter_serial || '', type: meterType, top_line: mp.top_line },
       contract: { term_months: termMonths, years, start, end, sale,
                   product: row.product_display || row.product_name || '',
+                  // The supplier's own product code where the pricebook carries one (EDF:
+                  // "E-1R-EDF_FOL_06M_B2_1YR_26-07-02_v1-E"). That is what EDF's form asks
+                  // for; the display name is what the customer's quote shows.
+                  product_code: row.product_code || '',
                   sc: rates.sc, u: rates.u, d: rates.d, nt: rates.nt, ew: rates.ew, unitRows,
                   kwh: Math.round(kwh.total || 0), kwh_day: Math.round(kwh.day || 0), kwh_night: Math.round(kwh.night || 0) },
       commission: { pkwh: uplift, annual: annualCommission, total: annualCommission * (years || 1) },
@@ -155,7 +185,7 @@
       if (g) add({ id: 'mprn', section: 'Meter point', label: 'Gas — meter point reference (MPRN)', name: 'Text Field 3010', get: () => d.meter.mprn });
       if (e) {
         add({ id: 'mpan_pc', section: 'Meter point', label: 'MPAN profile class', name: 'Text Field 3018', get: () => d.meter.pc });
-        add({ id: 'mpan_mtc', section: 'Meter point', label: 'MPAN meter time-switch code', name: 'Text Field 3023', get: () => d.meter.mtc });
+        add({ id: 'mpan_ssc', section: 'Meter point', label: 'MPAN SSC (middle of the top line)', name: 'Text Field 3023', get: () => d.meter.ssc });
         add({ id: 'mpan_llfc', section: 'Meter point', label: 'MPAN line loss factor class', name: 'Text Field 3024', get: () => d.meter.llfc });
         add({ id: 'mpan_c1', section: 'Meter point', label: 'MPAN core (distributor)', name: 'Text Field 3019', get: () => d.meter.c1 });
         add({ id: 'mpan_c2', section: 'Meter point', label: 'MPAN core (digits 3–6)', name: 'Text Field 3020', get: () => d.meter.c2 });
@@ -200,7 +230,9 @@
       const end = dateParts(d.contract.end), cur = dateParts(d.current.end);
       const F = []; const add = (o) => F.push(o);
       add({ id: 'tpi', section: 'TPI', label: 'TPI Name', name: 'Text Field 1388', get: () => CES.name, fixed: true });
-      add({ id: 'qdss', section: 'TPI', label: 'QDSS Number', name: 'Text Field 1389', get: () => '' });
+      // CES's EDF QDSS number. It is the same on every EDF contract CES send, so it is
+      // filled, and left editable in case EDF ever reissue it.
+      add({ id: 'qdss', section: 'TPI', label: 'QDSS Number', name: 'Text Field 1389', get: () => CES.edf_qdss });
       add({ id: 'sales_type', section: 'TPI', label: 'Sales Type', name: 'Text Field 1390', get: () => (d.contract.sale === 'renewal' ? 'Renewal' : 'Acquisition') });
       add({ id: 'business_name', section: 'Business contact details', label: 'Business name', name: 'Text Field 353', get: () => d.customer.business_name });
       add({ id: 'contact_name', section: 'Business contact details', label: 'Contact name', name: 'Text Field 354', get: () => d.customer.contact_name });
@@ -219,7 +251,7 @@
       add({ id: 'billing_town', section: 'Billing details', label: 'Town, County', name: 'Text Field 371', get: () => d.supply.city });
       add({ id: 'billing_postcode', section: 'Billing details', label: 'Postcode', name: 'Text Field 372', get: () => d.supply.postcode });
       if (e) {
-        add({ id: 'product', section: 'Electricity', label: 'Product code', name: 'Text Field 373', get: () => d.contract.product });
+        add({ id: 'product', section: 'Electricity', label: 'Product code', name: 'Text Field 373', get: () => d.contract.product_code || d.contract.product });
         add({ id: 'sc', section: 'Electricity', label: 'Standing charge (p/day)', name: 'Text Field 374', get: () => fmt3(d.contract.sc) });
         add({ id: 'unit', section: 'Electricity', label: 'Unit rate (p/kWh)', name: 'Text Field 378', get: () => fmt3(d.contract.u) });
         add({ id: 'day', section: 'Electricity', label: 'Day (p/kWh)', name: 'Text Field 375', get: () => fmt3(d.contract.d) });
@@ -229,7 +261,7 @@
         add({ id: 'review_m', section: 'Electricity', label: 'Price review date — MM', name: 'Text Field 381', get: () => (end ? end.m : '') });
         add({ id: 'review_y', section: 'Electricity', label: 'Price review date — YYYY', name: 'Text Field 382', get: () => (end ? end.yyyy : '') });
         add({ id: 'mpan_pc', section: 'Electricity', label: 'MPAN profile class', name: 'Text Field 386', get: () => d.meter.pc });
-        add({ id: 'mpan_mtc', section: 'Electricity', label: 'MPAN meter time-switch code', name: 'Text Field 387', get: () => d.meter.mtc });
+        add({ id: 'mpan_ssc', section: 'Electricity', label: 'MPAN SSC (middle of the top line)', name: 'Text Field 387', get: () => d.meter.ssc });
         add({ id: 'mpan_llfc', section: 'Electricity', label: 'MPAN line loss factor class', name: 'Text Field 388', get: () => d.meter.llfc });
         add({ id: 'mpan_c1', section: 'Electricity', label: 'MPAN core (distributor)', name: 'Text Field 392', get: () => d.meter.c1 });
         add({ id: 'mpan_c2', section: 'Electricity', label: 'MPAN core (digits 3–6)', name: 'Text Field 391', get: () => d.meter.c2 });
@@ -275,7 +307,7 @@
   const BGL_CELLS = {
     electricity: { sheet: 'BGL Electricity Contract', face: '/contract-forms/bg_lite_elec_v6.0.pdf',
       broker_name: 'I20', agent_name: 'I22', broker_phone: 'I24',
-      mpan_pc: 'V22', mpan_mtc: 'AB22', mpan_llfc: 'AI22', mpan_core1: 'V24', mpan_core2: 'X24', mpan_core3: 'AD24', mpan_core4: 'AI24',
+      mpan_pc: 'V22', mpan_ssc: 'AB22', mpan_llfc: 'AI22', mpan_core1: 'V24', mpan_core2: 'X24', mpan_core3: 'AD24', mpan_core4: 'AI24',
       commission_total: 'C29', commission_years: 'H29', commission_pkwh: 'H31',
       business_name: 'I37', business_phone: 'I39', site_addr1: 'I41', site_addr2: 'I43', site_city: 'I45', site_postcode: 'I47',
       contract_years: 'AA37', standing_charge: 'AA39', unit1: 'AA41', unit2: 'AA43', unit3: 'AA45', eac: 'AA47',
@@ -309,7 +341,7 @@
       add({ id: 'broker_phone', section: 'Broker details', label: 'Broker contact number', get: () => d.broker.phone });
       if (e) {
         add({ id: 'mpan_pc', section: 'Meter point', label: 'MPAN profile class', get: () => d.meter.pc });
-        add({ id: 'mpan_mtc', section: 'Meter point', label: 'MPAN meter time-switch code', get: () => d.meter.mtc });
+        add({ id: 'mpan_ssc', section: 'Meter point', label: 'MPAN SSC (middle of the top line)', get: () => d.meter.ssc });
         add({ id: 'mpan_llfc', section: 'Meter point', label: 'MPAN line loss factor class', get: () => d.meter.llfc });
         add({ id: 'mpan_core1', section: 'Meter point', label: 'MPAN core (distributor)', get: () => d.meter.c1 });
         add({ id: 'mpan_core2', section: 'Meter point', label: 'MPAN core (digits 3–6)', get: () => d.meter.c2 });
@@ -394,7 +426,12 @@
           // as the wide ones.
           const r = rectOf(tf);
           const narrow = r && r.w < 16;
-          tf.setFontSize(f.multiline ? 7.5 : (narrow ? 0 : (r && r.h < 10 ? 7.5 : 8)));
+          let size = f.multiline ? 7.5 : (narrow ? 0 : (r && r.h < 10 ? 7.5 : 8));
+          // A value that does not FIT its box at that size shrinks to fit rather than being
+          // clipped: EDF's QDSS box is 49pt wide and "C35COMM03" at 8pt lost its last digit.
+          // The 4pt allowance is the two 2pt cell paddings pdf-lib draws with.
+          if (size > 0 && r && r.w && v && !f.multiline && helv.widthOfTextAtSize(v, size) > r.w - 4) size = 0;
+          tf.setFontSize(size);
           boxes.push({ id: f.id, ...r });
         } else if (f.chars) {
           const chars = [...v.replace(/\s/g, '')];

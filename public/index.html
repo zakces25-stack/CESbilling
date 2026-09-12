@@ -2893,7 +2893,67 @@
       btn.textContent = 'Loading your portal…';
       await loadProfileAndRoute(data.user);
     }
-    async function loadProfileAndRoute(user) {
+
+    // ───── WHICH PORTAL IS THIS LOGIN FOR? ─────
+    // One rule for every front door, evaluated in the database (my_portals(), migration
+    // _40): billing needs a customer whose portal_scope includes 'billing'; sales needs a
+    // broker; pricing and cot need their team flags; a flex-only client gets 'flexclient';
+    // an admin gets everything. The page-side derivation below is the SAME rule, used only
+    // if the function is unreachable, so a deploy that lands the page before the migration
+    // cannot lock everyone out — and cannot let anyone extra in either.
+    //
+    // Why this exists: the pricing and COT team logins are role='customer' with no customer
+    // row, and the old gate only refused a customer whose row's scope excluded billing. No
+    // row, no scope, straight through to the customer dashboard.
+    function derivePortals(profile) {
+      var scope = (profile.customers && profile.customers.portal_scope) || [];
+      var out = [];
+      if (profile.is_admin) out.push('admin');
+      if (profile.is_admin || (profile.role === 'customer' && profile.customer_id && scope.indexOf('billing') >= 0)) out.push('billing');
+      if (profile.is_admin || (profile.customer_id && scope.indexOf('carbon') >= 0)) out.push('carbon');
+      if (profile.customer_id && scope.indexOf('flex') >= 0) out.push('flexclient');
+      if (profile.is_admin || profile.role === 'flex' || profile.flex_team || profile.flex_reports_admin) out.push('flex');
+      if (profile.is_admin || profile.role === 'broker') out.push('sales');
+      if (profile.is_admin || profile.pricing_team) out.push('pricing');
+      if (profile.is_admin || profile.cot_team) out.push('cot');
+      return out;
+    }
+    async function portalsFor(profile) {
+      try {
+        var r = await sb.rpc('my_portals');
+        if (!r.error && Array.isArray(r.data)) return r.data;
+      } catch (e) { /* fall through to the page-side copy of the rule */ }
+      return derivePortals(profile);
+    }
+    // Where a login that does not belong here should go instead. Order matters: a broker
+    // who is also on the pricing team is told about the Sales portal, their day job.
+    function wrongDoorMessage(portals) {
+      var L = function(href, name) { return '<a href="' + href + '" style="color:var(--navy);font-weight:700;text-decoration:underline;">' + name + '</a>'; };
+      if (portals.indexOf('sales') >= 0)      return 'Sales team — please sign in at the ' + L('/sales', 'Sales portal') + '.';
+      if (portals.indexOf('pricing') >= 0)    return 'This is a pricing team login. Please use the ' + L('/pricing.html', 'Pricing desk') + '.';
+      if (portals.indexOf('cot') >= 0)        return 'This is a COT team login. Please use the ' + L('/cot.html', 'COT desk') + '.';
+      if (portals.indexOf('flexclient') >= 0) return 'Your account is set up for the ' + L('/flex', 'Flex portal') + '. Please sign in there.';
+      if (portals.indexOf('flex') >= 0)       return 'This login is for the ' + L('/flex', 'Flex trading desk') + '.';
+      return 'This account does not have access to the billing portal. Please contact CES.';
+    }
+    // Refuse the door. A fresh sign-in is signed out again (the session was created here a
+    // moment ago and nobody else relies on it). A session restored on page load is NOT
+    // signed out: every CES-side portal shares one login on this origin, so signing out here
+    // would also log the pricing desk or COT desk out of the tab it is actually working in.
+    // The page stays on the login screen with the message, and Sign in with the right
+    // credentials replaces the session anyway.
+    async function refuseDoor(portals, fromRestore) {
+      if (!fromRestore) await sb.auth.signOut();
+      currentUser = null;
+      showPage('loginPage');
+      var _e = document.getElementById('loginErr');
+      if (_e) { _e.innerHTML = wrongDoorMessage(portals); _e.style.display = 'block'; }
+      var _b = document.getElementById('loginBtn'); if (_b) { _b.disabled = false; _b.textContent = 'Sign in'; }
+      if (window.turnstile && typeof turnstile.reset === 'function') turnstile.reset();
+      window._turnstileToken = null;
+    }
+
+    async function loadProfileAndRoute(user, fromRestore) {
       const { data: profile, error } = await sb
         .from('profiles')
         .select('*, customers!profiles_customer_id_fkey(company_name, has_logo, portal_scope)')
@@ -2903,6 +2963,12 @@
         document.getElementById('loginErr').textContent = 'Profile not found. Contact CES.';
         document.getElementById('loginErr').style.display = 'block';
         await sb.auth.signOut();
+        return;
+      }
+      // The gate. Before anything about this login is kept or shown.
+      var portals = await portalsFor(profile);
+      if (portals.indexOf('billing') < 0) {
+        await refuseDoor(portals, !!fromRestore);
         return;
       }
       currentUser = {
@@ -2919,39 +2985,9 @@
         salesLead:  !!profile.sales_lead,
         execView:   !!profile.exec_view
       };
-      // Brokers belong in the Sales portal (billcesgb.com/sales), not the billing portal.
-      if (currentUser.isBroker) {
-        await sb.auth.signOut();
-        currentUser = null;
-        var _be = document.getElementById('loginErr');
-        if (_be) { _be.innerHTML = 'Sales team — please sign in at the <a href="/sales" style="color:var(--navy);font-weight:700;text-decoration:underline;">Sales portal</a>.'; _be.style.display = 'block'; }
-        var _bb = document.getElementById('loginBtn'); if (_bb) { _bb.disabled = false; _bb.textContent = 'Sign in'; }
-        if (window.turnstile && typeof turnstile.reset === 'function') turnstile.reset();
-        window._turnstileToken = null;
-        return;
-      }
-      // Flex-only clients belong in the flex portal, not here. customers.portal_scope
-      // is the existing column for this: {billing} for billing customers, {flex} for
-      // flex clients. Without this check any role='customer' profile — including a
-      // flex client like Pulsant — lands on the billing dashboard, which is wrong.
-      // Admins and brokers are exempt; a customer with no scope set keeps the old
-      // behaviour so nothing existing breaks.
-      if (!currentUser.isAdmin && currentUser.role === 'customer') {
-        var _scope = (profile.customers && profile.customers.portal_scope) || [];
-        if (_scope.length && _scope.indexOf('billing') === -1) {
-          await sb.auth.signOut();
-          currentUser = null;
-          var _fe = document.getElementById('loginErr');
-          if (_fe) { _fe.innerHTML = _scope.indexOf('flex') !== -1
-              ? 'Your account is set up for the <a href="/flex" style="color:var(--navy);font-weight:700;text-decoration:underline;">Flex portal</a>. Please sign in there.'
-              : 'This account does not have access to the billing portal. Please contact CES.';
-            _fe.style.display = 'block'; }
-          var _fb = document.getElementById('loginBtn'); if (_fb) { _fb.disabled = false; _fb.textContent = 'Sign in'; }
-          if (window.turnstile && typeof turnstile.reset === 'function') turnstile.reset();
-          window._turnstileToken = null;
-          return;
-        }
-      }
+      // Brokers (Sales portal) and flex-only clients (Flex portal) were turned away here by
+      // two separate checks. Both are now the one gate above: neither login carries
+      // 'billing' in my_portals(), and wrongDoorMessage() points each at its own door.
       showPage(currentUser.isAdmin ? 'adminPage' : 'dashPage');
       setupIdleTimeout();
       logAction('login', null, { is_admin: currentUser.isAdmin, role: currentUser.role });
@@ -11834,7 +11870,10 @@
     async function init() {
       const { data: { session } } = await sb.auth.getSession();
       if (session) {
-        await loadProfileAndRoute(session.user);
+        // A session found on load may belong to another CES portal on this origin (the
+        // pricing desk, the COT desk, the sales portal). If it is not a billing login the
+        // gate shows the login screen with a pointer and leaves the session alone.
+        await loadProfileAndRoute(session.user, true);
       } else {
         showPage('loginPage');
         maybeShowSessionBanner();

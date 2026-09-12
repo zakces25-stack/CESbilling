@@ -321,6 +321,8 @@
               </select></div>
             <div><label for="xSsc">SSC</label>
               <input id="xSsc" class="mono" maxlength="4" placeholder="0393" /></div>
+            <div><label for="xLlfc">LLFC</label>
+              <input id="xLlfc" class="mono" maxlength="3" placeholder="631" /></div>
             <div><label for="xBand">TCR band</label>
               <select id="xBand">
                 <option value="">unknown (shows every band)</option>
@@ -2151,7 +2153,7 @@ async function findMeters() {
     rows = await q(sb.from('meters')
       .select('id,customer_id,mpan,utility,supply_type,site_name,site_address,postcode,'
             + 'est_annual_consumption,profile_class,rate_structure,rate_structure_src,tcr_band,tcr_band_src,'
-            + 'ssc,ssc_status,ssc_note,'
+            + 'ssc,ssc_status,ssc_note,ssc_src,top_line,meter_serial,'
             + 'dno_id,llfc,ldz,exit_zone,priceable,price_block_reason,supplier,contract_end_date')
       .or(`mpan.ilike.${like},customer_id.ilike.${like},site_name.ilike.${like},site_address.ilike.${like}`)
       .in('utility', ['electricity','gas'])
@@ -2292,7 +2294,11 @@ function useManualMeter() {
     ssc: gas ? null : (/^\d{1,4}$/.test(($('xSsc').value || '').trim())
                         ? ($('xSsc').value || '').trim().padStart(4, '0') : null),
     ssc_status: gas ? null : (/^\d{1,4}$/.test(($('xSsc').value || '').trim()) ? 'edited' : null),
-    llfc: null,
+    // The LLFC completes the top line on the contract (PC | SSC | LLFC). A numeric one is
+    // written to three digits as it appears on a bill; "G02" or "2D" is kept as typed.
+    llfc: gas ? null : (() => { const l = ($('xLlfc').value || '').trim().toUpperCase();
+                                return !l ? null : (/^\d{1,3}$/.test(l) ? l.padStart(3, '0') : l); })(),
+    top_line: null,
     ldz: gas ? (($('xLdz').value || '').trim().toUpperCase() || null) : null,
     exit_zone: gas ? (($('xZone').value || '').trim().toUpperCase() || null) : null,
     supplier: $('xSupplier').value === '__other' ? 'Another supplier'
@@ -2797,35 +2803,126 @@ function paintCurrent() {
 // guessing costs, measured on the live book, a median 2.28 p/kWh — £912 a year on a
 // 40,000 kWh site. So the desk says so, loudly, before anyone prices.
 
-/** How this meter's SSC is known, as a badge. */
-function sscBadge() {
-  if (!METER) return '';
-  const st = METER.ssc_status;
-  if (st === 'edited') return '<span class="pill p-mute">set by hand</span>';
-  if (METER.ssc && st === 'converted') return '<span class="pill p-mute">from the MTC</span>';
-  if (st === 'review') return '<span class="pill p-fail">needs review</span>';
-  if (!METER.ssc) return '<span class="pill p-fail">unknown</span>';
-  return '';
+/**
+ * The MPAN top line, as CES write it on every supplier contract:  PC | SSC | LLFC
+ * ("03 0393 631"; a half-hourly site "00 0000 G02").
+ *
+ * meters.top_line has never been populated — it is NULL on all 1,944 electricity meters —
+ * so the line is COMPOSED from the three columns the matcher already reads (profile_class,
+ * ssc, llfc), and a part the portfolio does not know shows as a gap the desk can fill:
+ * "·· 0393 631" for the 162 meters that have an SSC and an LLFC but no profile class.
+ *
+ * Strictly the middle of a printed top line is the three-digit MTC; CES and the suppliers'
+ * forms as CES complete them use the four-digit SSC, so that is what goes here and on the
+ * contracts (see mpanParts in pricing-contracts.js).
+ */
+function meterTopLine(m) {
+  if (!m || m.utility !== 'electricity') return { pc: '', ssc: '', llfc: '', text: '', complete: false };
+  const parts = PricingContracts._internals.mpanParts(m.mpan, m.top_line, m.profile_class, m.ssc, m.llfc);
+  const complete = /^\d{2}$/.test(parts.pc) && /^\d{4}$/.test(parts.ssc) && /^[0-9A-Z]{3}$/.test(parts.llfc);
+  return { pc: parts.pc, ssc: parts.ssc, llfc: parts.llfc, complete,
+           text: [parts.pc || '··', parts.ssc || '····', parts.llfc || '···'].join(' ') };
 }
 
 /**
- * Correct the SSC by hand. Written back to the meter, because unlike the current-contract
- * rates this IS a fact about the supply that everyone should see from now on, and somebody
- * has just looked it up.
+ * Read a typed top line back into its parts. Accepts "03 0393 631", "030393631",
+ * "03/0393/631", and a gap written as dots, dashes or question marks ("·· 0393 631").
+ * Returns null when it cannot be read at all.
  */
-async function setMeterSsc(v) {
-  const val = String(v || '').trim();
-  const ssc = /^\d{1,4}$/.test(val) ? val.padStart(4, '0') : null;
-  if (val && !ssc) { $('mSsc').value = METER.ssc || ''; return alert('An SSC is four digits.'); }
-  METER.ssc = ssc;
-  METER.ssc_status = ssc ? 'edited' : null;
-  if (!METER.manual && METER.id) {
-    try {
-      await q(sb.from('meters').update({ ssc, ssc_status: METER.ssc_status, ssc_src: WHO || 'desk' })
-                .eq('id', METER.id), 'save the SSC');
-    } catch (e) { alert('Could not save the SSC: ' + e.message); }
+function parseTopLine(v) {
+  const raw = String(v || '').trim().toUpperCase();
+  if (!raw) return { pc: null, ssc: null, llfc: null, empty: true };
+  const gap = (s) => /^[·.\-?_*]+$/.test(s);
+  const groups = raw.split(/[\s\/|,]+/).filter(Boolean);
+  let pc, ssc, llfc;
+  if (groups.length === 3) [pc, ssc, llfc] = groups;
+  else if (groups.length === 1 && /^[0-9A-Z]{9}$/.test(groups[0])) { pc = groups[0].slice(0, 2); ssc = groups[0].slice(2, 6); llfc = groups[0].slice(6, 9); }
+  else return { error: null };
+  const out = {};
+  out.pc   = gap(pc)   ? null : (/^\d{1,2}$/.test(pc) ? pc.padStart(2, '0') : undefined);
+  // The SSC is exactly four digits. A three-digit middle value is a meter timeswitch code
+  // (801, 807), which is the very confusion the SSC-in-the-middle convention exists to end,
+  // so it is refused with a message rather than padded into a settlement configuration
+  // that does not exist.
+  out.ssc  = gap(ssc)  ? null : (/^\d{4}$/.test(ssc) ? ssc : undefined);
+  out.llfc = gap(llfc) ? null : (/^\d{1,3}$/.test(llfc) ? llfc.padStart(3, '0') : (/^[0-9A-Z]{2,3}$/.test(llfc) ? llfc : undefined));
+  if (out.pc === undefined || out.ssc === undefined || out.llfc === undefined) {
+    return { error: out.ssc === undefined && /^\d{3}$/.test(ssc)
+      ? `"${ssc}" is three digits, so it is a meter timeswitch code, not an SSC. The middle of the top line is the four-digit settlement configuration (0393, 0151, 0000 for half-hourly).`
+      : null };
   }
-  showMeter();
+  return out;
+}
+
+/**
+ * Correct the top line by hand, and keep the meter's own columns in step with it: the
+ * profile class and SSC drive the match, the LLFC drives the TCR band. Written back to the
+ * portfolio when the line is complete, because unlike the current-contract rates this IS a
+ * fact about the supply that everyone should see from now on, and somebody has just looked
+ * it up. The write goes through pricing_set_top_line(): the pricing login can read meters
+ * but has no UPDATE policy, so a direct update here would report success and change nothing
+ * (measured: zero rows). A partial line — one part still a gap — is kept on the desk only,
+ * and the badge says so.
+ */
+async function setMeterTopLine(v) {
+  const p = parseTopLine(v);
+  if (!p || 'error' in p) {
+    $('mTop').value = meterTopLine(METER).text;
+    return alert((p && p.error ? p.error + '\n\n' : '')
+               + 'A top line is three parts: profile class (2 digits), SSC (4 digits), LLFC (3), '
+               + 'for example 03 0393 631. Leave a part as ·· if it is not known.');
+  }
+  if (p.empty) { $('mTop').value = meterTopLine(METER).text; return; }
+  // '00' is a real profile class (half-hourly); the columns are stored unpadded.
+  METER.profile_class = p.pc == null ? null : String(parseInt(p.pc, 10));
+  METER.ssc = p.ssc;
+  METER.ssc_status = p.ssc ? 'edited' : null;
+  METER.ssc_note = null;
+  const llfcChanged = (METER.llfc || null) !== (p.llfc || null);
+  METER.llfc = p.llfc;
+  METER.top_line_src = 'edited';
+  METER.top_line = (p.pc && p.ssc && p.llfc) ? `${p.pc} ${p.ssc} ${p.llfc}` : null;
+  if (llfcChanged) {
+    // The band belonged to the old LLFC. Look the new one up; unknown stays unknown.
+    METER.tcr_band = null; METER.tcr_band_src = null;
+    const dno = METER.dno_id || String(METER.mpan || '').replace(/\D/g, '').slice(0, 2);
+    if (p.llfc && dno) {
+      try {
+        const hit = await q(sb.from('ref_llfc_band').select('band').eq('dno_id', dno).eq('llfc', p.llfc).limit(1), 'band for LLFC');
+        if (hit && hit[0] && hit[0].band) { METER.tcr_band = hit[0].band; METER.tcr_band_src = 'llfc'; }
+      } catch (e) { console.warn('band lookup:', e.message); }
+    }
+  }
+  if (!METER.manual && METER.id && METER.top_line) {
+    try {
+      const saved = await q(sb.rpc('pricing_set_top_line', { p_meter_id: METER.id, p_top_line: METER.top_line }), 'save the top line');
+      const s = Array.isArray(saved) ? saved[0] : saved;
+      if (s && typeof s === 'object') {
+        Object.assign(METER, { profile_class: s.profile_class, ssc: s.ssc, ssc_status: s.ssc_status, llfc: s.llfc,
+                               dno_id: s.dno_id || METER.dno_id, tcr_band: s.tcr_band, tcr_band_src: s.tcr_band_src,
+                               top_line: s.top_line, top_line_src: 'saved' });
+      }
+    } catch (e) { alert('The top line is on this quote, but could not be saved to the meter: ' + e.message); }
+  }
+  // Redraw the facts and the SSC warning only. The consumption boxes, the start date, the
+  // customer name and the terms are the desk's work and stay exactly as typed.
+  paintMeterFacts();
+  paintSscNote();
+}
+
+/** How the top line is known, as a badge. */
+function topLineBadge() {
+  const t = meterTopLine(METER);
+  if (METER.top_line_src === 'saved') return '<span class="pill p-ok">saved to the meter</span>';
+  if (METER.top_line_src === 'edited') return t.complete
+    ? '<span class="pill p-mute">set by hand</span>'
+    : '<span class="pill p-warn">incomplete — on this quote only</span>';
+  if (!t.pc && !t.ssc && !t.llfc) return '<span class="pill p-fail">unknown — type it</span>';
+  if (!t.complete) return '<span class="pill p-warn">part missing — fill the gap</span>';
+  if (METER.ssc_status === 'review') return '<span class="pill p-fail">SSC needs review</span>';
+  if (METER.ssc && METER.ssc_status === 'converted') return '<span class="pill p-mute">SSC from the MTC</span>';
+  if (METER.ssc_status === 'edited') return '<span class="pill p-mute">set by hand</span>';
+  return '<span class="pill p-mute">from the portfolio</span>';
 }
 
 /**
@@ -2885,11 +2982,11 @@ function paintSscNote() {
        tell them apart${METER.ssc_note ? ` (${esc(String(METER.ssc_note).replace(/_/g,' '))})` : ''}.
        <b>${esc(who)}</b> price by SSC, so they are left out of the quote entirely rather
        than priced on a guess — the grids differ by about 2.28 p/kWh, which is £912 a year
-       on a 40,000 kWh site. Put the SSC in the box above (it is on the customer's bill or
-       the supplier's portal) and price again.`
+       on a 40,000 kWh site. Put the SSC in the middle of the top line above (it is on the
+       customer's bill or the supplier's portal) and price again.`
     : `<b>No SSC on this meter.</b> <b>${esc(who)}</b> price electricity by settlement
        configuration, so they cannot be quoted until it is known. Everyone else is priced
-       normally. Put the SSC in the box above and price again.`;
+       normally. Put the SSC in the middle of the top line above and price again.`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -3513,18 +3610,20 @@ async function defaultStartDate() {
  * name and an email, so the desk needs no access to profiles to print a name on a quote.
  */
 let MANAGERS = null;
+let QCUST_FOR = null;      // which meter the customer box was last prefilled for
 async function paintManagers(customerId) {
   const sel = $('qManager');
   if (!sel) return;
   try {
     if (!MANAGERS) MANAGERS = await q(sb.from('pricing_managers').select('manager_name, manager_email'), 'managers');
   } catch (e) { MANAGERS = []; console.warn('managers:', e.message); }
-  let pick = null;
+  let pick = null, cust = null;
   if (customerId) {
     try {
-      const r = await q(sb.from('pricing_customer_manager').select('manager_name, manager_email')
+      const r = await q(sb.from('pricing_customer_manager').select('company_name, manager_name, manager_email')
                           .eq('customer_id', customerId).limit(1), 'customer manager');
-      if (r && r[0] && r[0].manager_name) pick = r[0];
+      cust = (r && r[0]) || null;
+      if (cust && cust.manager_name) pick = cust;
     } catch (e) { console.warn('customer manager:', e.message); }
   }
   const opts = (MANAGERS || []).slice();
@@ -3538,6 +3637,59 @@ async function paintManagers(customerId) {
     const me = opts.find(m => m.manager_name && WHO && m.manager_name.toLowerCase() === WHO.toLowerCase());
     if (me) sel.value = me.manager_name;
   }
+  return cust;
+}
+
+/**
+ * A company name as it should read on a document.
+ *
+ * 158 of the 562 customers are held exactly as Companies House prints them — "UKO GLASS
+ * LIMITED" — and that is not how CES write a customer's name on a quote or a contract
+ * ("UKO Glass Limited", as every contract they have sent reads). An all-capitals name is
+ * re-cased word by word: a word of one to three letters is taken to be initials and left as
+ * it is (UKO, GS, RTM, NI), the company-form words get their usual casing (Limited, Ltd,
+ * PLC, LLP), and the little joining words go lower-case except at the start. A name that
+ * already has mixed case is somebody's deliberate spelling and is left alone.
+ *
+ * This is a PREFILL for an editable box, never a silent rewrite: the desk sees it before it
+ * prints.
+ */
+function tradingName(name) {
+  const s = String(name || '').trim();
+  if (!s || s !== s.toUpperCase()) return s;                 // mixed case already: theirs
+  const KEEP = new Set(['PLC', 'LLP', 'LLC', 'CIC', 'CIO', 'UK', 'NI', 'EU', 'USA', 'GB', 'RTM', 'GP', 'HR', 'IT', 'TV', 'DJ', 'PR', 'BBC', 'NHS', 'FC', 'CC', 'RFC', 'AFC']);
+  const FORM = { LIMITED: 'Limited', LTD: 'Ltd', COMPANY: 'Company', CO: 'Co', INC: 'Inc', GROUP: 'Group',
+                 HOLDINGS: 'Holdings', TRUST: 'Trust', PARTNERSHIP: 'Partnership', ITS: "It's", ST: 'St', MT: 'Mt' };
+  const SMALL = new Set(['AND', 'OF', 'THE', 'FOR', 'ON', 'IN', 'AT', 'BY', 'TO', 'A', 'AN', 'OR', 'T/A']);
+  // Three-letter WORDS, which a Companies House name is full of, as against three-letter
+  // initials (UKO, MSN, RTM). Anything short and not listed here is taken to be initials.
+  const WORDS = new Set(('TEA SON INN BAR CAR DAY SPA GYM HUB ART SUN SEA BOX DOG CAT TOP PET VAN NEW OLD BIG RED ONE TWO SIX TEN '
+    + 'AGE AID AIR ALL ARM BAY BED BEE BIN BUS CAB CAP COW CUP CUT DEN DRY EGG END EYE FAN FAR FEW FIT FIX FLY FOX FUN GAS GEM GIN '
+    + 'GUM HAT HAY HEN HIP HOP HOT HUT ICE INK JAM JAR JET JOB JOY KEY KID KIT LAB LAD LAW LEG LOG LOT LOW MAN MAP MAT MIX MUD NET '
+    + 'NUT OAK OIL OWL PAD PAN PEA PEN PIE PIG PIN PIT POD POT PUB RAM RAY ROD ROW RUG RUN SAW SET SKY SPY TAB TAG TAN TAP TAX TIE '
+    + 'TIN TIP TOE TON TOY TUB VAT WAR WAX WAY WEB WIG WIN WOK ZOO ACE AXE BAG BAT BUD BUN BUY CAN COD DAM DEW DIG DIP DOT ELM ERA '
+    + 'EVE FEE FIG FIR FOG FUR GAP GEL HAM HOG HUE IVY JAW KEG LAP LIP MOB MOP NAP OAR ORB ORE PAL PAY PEG PLY POP PRO PUP RIG ROB '
+    + 'RUM RYE SAP SEW SIR SUB SUM TEE TOW URN USE VET WED YEW ZIP MEN WAY OUR YOU HIS HER ITS ANY FAT MID OFF OUT OWN PER VIA WAY '
+    + 'ALE ASH BAN BOW ELF FIN GAL GUY HAL HUG JOE JOY KIN LEE LOO MAY MOO NAN OAT PAM PAT RAG RAT RAW RIB RIM ROY SAM SUE TED TIM '
+    + 'TOM VIC WIT YAK BOB JIM ANN AMY BEN DAN DON GUS IAN JAN JON KEN KIM LEN LEO MAX MEL REG RON SID VAL WES ZOE KAY LIZ RAJ ALI '
+    + 'EVA ADA DUC LEA JAY DEE ELI ABE ROB RAY').split(' '));
+  const word = (w, first) => {
+    const m = w.match(/^([(\["']*)(.*?)([)\]"'.,]*)$/);              // brackets and quotes stay as they are
+    const lead = m[1], bare = m[2], tail = m[3];
+    const letters = bare.replace(/[^A-Z]/g, '');
+    let core;
+    if (FORM[bare] || FORM[letters]) core = FORM[bare] || FORM[letters];
+    else if (KEEP.has(bare)) core = bare;
+    else if (SMALL.has(bare)) core = first ? bare.charAt(0) + bare.slice(1).toLowerCase() : bare.toLowerCase();
+    else if (/^\d/.test(bare)) core = bare;                                 // "22", "83", "1ST"
+    else if (letters.length <= 3 && /^[A-Z&]+$/.test(bare) && !WORDS.has(bare)) core = bare;   // initials: UKO, GS, MSN, J&S
+    else core = bare.toLowerCase()
+                    .replace(/(^|[-&/])([a-z])/g, (x, a, b) => a + b.toUpperCase())      // Hi-Tech, J&S, A/B
+                    .replace(/(['’])([a-z])(?=[a-z])/g, (x, a, b) => a + b.toUpperCase()) // O'Dell, but Mary's
+                    .replace(/^Mc([a-z])/, (x, b) => 'Mc' + b.toUpperCase());
+    return lead + core + tail;
+  };
+  return s.split(/\s+/).map((w, i) => word(w, i === 0)).join(' ');
 }
 function pickedManager() {
   const sel = $('qManager');
@@ -3561,8 +3713,18 @@ async function showMeter() {
   // Who the quote is for, and who looks after them. A portfolio meter brings both from the
   // sales portal; a hand-typed one gets an empty name box, because "typed in by hand" on a
   // customer's document is not a customer name.
-  $('qCustomer').value = METER.manual ? '' : (METER.customer_id || '');
-  await paintManagers(METER.manual ? null : METER.customer_id);
+  //
+  // The name is the customer's TRADING name (customers.company_name, re-cased from Companies
+  // House capitals where needed), never the customer_id: that is a slug, and
+  // "uko-glass-limited" reached a contract when this box was filled from it. Prefilled once
+  // per meter, so a name the desk has corrected survives the redraws that follow a top-line
+  // edit or a saved rate.
+  const cust = await paintManagers(METER.manual ? null : METER.customer_id);
+  const meterKey = METER.manual ? 'manual:' + (METER.mpan || '') : String(METER.id || METER.mpan || '');
+  if (QCUST_FOR !== meterKey) {
+    $('qCustomer').value = METER.manual ? '' : tradingName((cust && cust.company_name) || '');
+    QCUST_FOR = meterKey;
+  }
 
   // One box per register, prefilled from the portfolio's annual figure. With no measured
   // split the whole figure lands in the first box and the desk moves it; a guessed 70/30
@@ -3589,7 +3751,17 @@ async function showMeter() {
     : `This meter is with <b>${esc(METER.supplier)}</b>, which has no pricebook here, so
        <b>every quote below is an acquisition</b>. That is the right answer — nobody else
        can offer a renewal on it.`;
+  paintMeterFacts();
+}
 
+/**
+ * The facts panel on its own, so a correction to the top line redraws the facts and
+ * nothing else. Going back through showMeter() for that reset the consumption boxes to the
+ * portfolio figure and the start date to its default — a measured HHD split and a chosen
+ * start date, gone because somebody fixed an LLFC.
+ */
+function paintMeterFacts() {
+  if (!METER) return;
   const missing = [];
   if (METER.utility === 'electricity') {
     if (!METER.dno_id && !/^\d{2}/.test(METER.mpan || '')) missing.push('distributor id');
@@ -3600,22 +3772,27 @@ async function showMeter() {
   }
   const dno = METER.dno_id || (METER.mpan || '').slice(0,2);
   const idno = /^\d\d$/.test(dno) && (Number(dno) < 10 || Number(dno) > 23);
+  const top = meterTopLine(METER);
   $('meterFacts').innerHTML = `
     <dl class="kv">
       <dt>Customer</dt><dd>${esc(METER.customer_id)}${METER.manual
         ? ' <span class="pill p-warn">typed in, nothing saved</span>' : ''}</dd>
       <dt>${METER.utility === 'gas' ? 'MPRN' : 'MPAN'}</dt><dd>${esc(METER.mpan)}</dd>
       ${METER.utility === 'electricity' ? `
-        <dt>SSC</dt><dd>
-          <input id="mSsc" class="mono" value="${esc(METER.ssc || '')}" placeholder="unknown"
-                 maxlength="4" style="width:74px;padding:3px 6px;font-size:12.5px;height:auto"
-                 onchange="setMeterSsc(this.value)">
-          ${sscBadge()}</dd>` : ''}
+        <dt>Top line</dt><dd>
+          <input id="mTop" class="mono" value="${esc(top.text)}" placeholder="03 0393 631"
+                 maxlength="14" spellcheck="false"
+                 style="width:128px;padding:3px 8px;font-size:12.5px;height:auto;letter-spacing:.06em"
+                 onchange="setMeterTopLine(this.value)"
+                 title="Profile class · SSC · LLFC, as it is boxed on the contract. Edit it here if the portfolio's is out of date.">
+          <span style="font-size:10.5px;color:var(--muted);margin-left:6px">PC · SSC · LLFC</span>
+          ${topLineBadge()}</dd>` : ''}
       <dt>Site</dt><dd>${esc(METER.site_name || '—')} ${esc(METER.postcode || '')}</dd>
       ${METER.utility === 'electricity' ? `
         <dt>Distributor</dt><dd>${esc(dno || '—')}${idno ? ' <span class="pill p-fail">independent network</span>' : ''}${
           METER.dno_src === 'mpan' ? ' <span class="pill p-mute">from the MPAN</span>' : ''}</dd>
         <dt>Profile class</dt><dd>${METER.profile_class ?? '—'}</dd>
+        <dt>SSC</dt><dd>${esc(METER.ssc || '—')}</dd>
         <dt>LLFC</dt><dd>${esc(METER.llfc || '—')}</dd>
         <dt>TCR band</dt><dd>${esc(METER.tcr_band || '—')}
           ${METER.tcr_band && METER.tcr_band_src === 'llfc'
@@ -3636,7 +3813,10 @@ async function showMeter() {
        pricing it off a neighbouring region.</div>` : ''}
     ${missing.length ? `<div class="note warn" style="margin-top:12px">Missing:
        <b>${esc(missing.join(', '))}</b>. Pricing will only return rows that do not constrain
-       on what is missing, so the list will be short and possibly wrong. Fill these in first.</div>` : ''}`;
+       on what is missing, so the list will be short and possibly wrong. Fill these in first${
+       METER.utility === 'electricity' && missing.includes('profile class')
+         ? ' — the profile class is the first two digits of the top line above; type the line from the customer\'s bill and it is saved to the meter'
+         : ''}.</div>` : ''}`;
 }
 
 /**
@@ -3671,6 +3851,10 @@ async function priceMeter() {
     const customer = ($('qCustomer').value || '').trim();
     const manager  = pickedManager();
     if (!terms.length) throw new Error('Tick at least one term to quote.');
+    // A meter that cannot be priced here at all says so before anything else is asked for.
+    const dno = METER.dno_id || (METER.mpan || '').slice(0,2);
+    if (METER.utility === 'electricity' && /^\d\d$/.test(dno) && (Number(dno) < 10 || Number(dno) > 23))
+      throw new Error(`Distributor ${dno} is an independent network and is not in any pricebook.`);
     if (!start || !aq) throw new Error('A start date and a consumption in at least one register are both needed.');
     if (!customer) throw new Error('Put the customer\'s name in first. It goes on the quote.');
 
@@ -3684,14 +3868,12 @@ async function priceMeter() {
       / 86400000);
     if (daysAhead < 0) throw new Error('That start date is in the past.');
 
-    const dno = METER.dno_id || (METER.mpan || '').slice(0,2);
-    if (METER.utility === 'electricity' && /^\d\d$/.test(dno) && (Number(dno) < 10 || Number(dno) > 23))
-      throw new Error(`Distributor ${dno} is an independent network and is not in any pricebook.`);
-
     const incumbent = INCUMBENT_KEY;    // set when the meter was picked, may be null
 
     let sel = sb.from('pricebook_rates_live')
-      .select('supplier_key,product_key,product_display,product_name,term_months,sale_type,'
+      // product_code is the supplier's own code for the row (EDF: "E-1R-EDF_FOL_06M_B2_1YR_
+      // 26-07-02_v1-E"). The customer never sees it; EDF's contract form asks for it.
+      .select('supplier_key,product_key,product_display,product_name,product_code,term_months,sale_type,'
             + 'rate_structure,profile_class,dno_id,ldz,exit_zone,tcr_band,ssc,aq_min,aq_max,'
             + 'start_date_min,start_date_max,sell_days_min,sell_days_max,'
             + 'standing_charge_p_day,unit_rate_p_kwh,'
@@ -4286,16 +4468,20 @@ async function downloadQuotePdf() {
     };
 
     // ── Columns. Product Name gets the room, because it wraps. ──────────────────────
+    // Every column sits inside the printed rule, M .. W-M (14 .. 283 mm). The Annual Diff
+    // column used to run to 295 mm — past the rule by 12 mm — so "(109% Increase)" printed
+    // beyond the line. The right edge of the last column IS the rule now, and a test reads
+    // the PDF back and checks that no text passes it.
     const C = {
-      supplier: { x: M,        w: 40 },
-      term:     { x: M + 43,   w: 26 },
-      product:  { x: M + 72,   w: 50 },
-      day:      { x: M + 125,  w: 22 },
-      night:    { x: M + 150,  w: 22 },
-      ew:       { x: M + 175,  w: 22 },
-      sc:       { x: M + 200,  w: 27 },
-      annual:   { x: M + 230,  w: 20 },
-      diff:     { x: M + 253,  w: 28 },
+      supplier: { x: M,        w: 38 },
+      term:     { x: M + 41,   w: 24 },
+      product:  { x: M + 68,   w: 50 },
+      day:      { x: M + 121,  w: 21 },
+      night:    { x: M + 144,  w: 21 },
+      ew:       { x: M + 167,  w: 21 },
+      sc:       { x: M + 190,  w: 26 },
+      annual:   { x: M + 218,  w: 22 },
+      diff:     { x: M + 242,  w: 27 },       // right edge = M + 269 = W - M
     };
     const right = (c) => c.x + c.w;
     const mid   = (c) => c.x + c.w / 2;
@@ -4312,7 +4498,8 @@ async function downloadQuotePdf() {
       fit(ces, W - M - 54, M - 5, 54, 20, 'right');
       let y = M - 4 + boxH + 9;
       doc.setFontSize(15); doc.setFont(F, 'normal'); doc.setTextColor(...INK);
-      doc.text(`Quote Results for ${QUOTE.customer || METER.customer_id || 'your business'}`, M, y);
+      // Never the customer_id here: it is a slug ("uko-glass-limited"), not a name.
+      doc.text(`Quote Results for ${QUOTE.customer || 'your business'}`, M, y);
       return y + 9;
     };
 
@@ -4345,9 +4532,11 @@ async function downloadQuotePdf() {
     const line = (y, o) => {
       const cy = y + ROW / 2;          // vertical centre of the row
       const col = o.cur ? BLUE : INK;
-      // Supplier: the logo if we hold one, otherwise the name. Never a squashed logo.
+      // Supplier: the logo if we hold one, otherwise the name. Never a squashed logo, and
+      // a little smaller than the row allows (30 x 8 mm at most) so it sits in the row
+      // rather than filling it.
       const lg = o.key ? logos[o.key] : null;
-      if (!fit(lg, C.supplier.x + 2, y + 2.5, C.supplier.w - 4, ROW - 5, 'center')) {
+      if (!fit(lg, C.supplier.x + 4, y + 3.5, C.supplier.w - 8, ROW - 7, 'center')) {
         doc.setFont(F, 'normal'); doc.setFontSize(8.5); doc.setTextColor(...col);
         const nm = doc.splitTextToSize(String(o.supplier || ''), C.supplier.w - 2);
         doc.text(nm.slice(0, 2), mid(C.supplier), cy - (nm.length > 1 ? 1.6 : 0) + 1.2, { align: 'center' });
@@ -4465,12 +4654,8 @@ async function downloadQuotePdf() {
 
     // ── Commissions Disclosure, its own page, worded exactly as CES's sheets. ───────
     doc.addPage();
-    let dy = M + 8;
+    const DISCLOSURE_TITLE = 'Commissions Disclosure';
     fit(ces, W - M - 54, M - 5, 54, 20, 'right');
-    doc.setFontSize(12.5); doc.setTextColor(...INK); doc.setFont(F, 'bold');
-    doc.text('Commissions Disclosure', W / 2, dy + 4, { align: 'center' });
-    doc.setFont(F, 'normal');
-    dy += 16;
     const up = Number(QUOTE.uplift) || 0;
     const annualCommission = up * Number(QUOTE.aq) / 100;
     const money = (v) => '£' + (v >= 100 ? Math.round(v).toLocaleString() : v.toFixed(2));
@@ -4479,11 +4664,24 @@ async function downloadQuotePdf() {
         + `${money(annualCommission)} commission for Commercial Energy Solutions Ltd (CES).`,
       ...COMMISSION_DISCLOSURE_TAIL,
     ];
-    doc.setFontSize(9.5); doc.setTextColor(...INK);
-    for (const p of paras) {
-      const ls = doc.splitTextToSize(p, W - 2 * M - 20);
-      doc.text(ls, M + 10, dy); dy += ls.length * 4.6 + 4;
-    }
+    // The whole statement — title and paragraphs — sits in one ruled box, as it does on the
+    // sheets CES already send (Eight White: a framed block centred on the final page).
+    // Measure the wrapped text first, draw the frame, then the text inside it.
+    doc.setFont(F, 'normal'); doc.setFontSize(9.5); doc.setTextColor(...INK);
+    const PAD = 8, BX = M + 16, BW = W - 2 * M - 32, TEXT_W = BW - 2 * PAD, LH = 4.6, GAP = 4, TITLE_H = 14;
+    const wrapped = paras.map(p => doc.splitTextToSize(p, TEXT_W));
+    const bodyH = wrapped.reduce((h, ls) => h + ls.length * LH + GAP, 0) - GAP;
+    const boxH = PAD + TITLE_H + bodyH + PAD;
+    const by = M + 24;
+    doc.setDrawColor(...INK); doc.setLineWidth(0.35);
+    doc.rect(BX, by, BW, boxH);
+    doc.setFontSize(12.5); doc.setFont(F, 'bold');
+    doc.text(DISCLOSURE_TITLE, W / 2, by + PAD + 4, { align: 'center' });
+    doc.setLineWidth(0.25);
+    doc.line(W / 2 - 24, by + PAD + 6, W / 2 + 24, by + PAD + 6);
+    doc.setFont(F, 'normal'); doc.setFontSize(9.5);
+    let ty = by + PAD + TITLE_H + 3.2;
+    for (const ls of wrapped) { doc.text(ls, BX + PAD, ty); ty += ls.length * LH + GAP; }
 
     // ── Footer on every page. ────────────────────────────────────────────────────────
     const pages = doc.getNumberOfPages();
@@ -4493,7 +4691,7 @@ async function downloadQuotePdf() {
       doc.text(`Page ${p} of ${pages}`, W - M, H - 7, { align: 'right' });
     }
 
-    const who = (QUOTE.customer || METER.customer_id || METER.site_name || 'quote')
+    const who = (QUOTE.customer || METER.site_name || 'quote')
       .replace(/[^\w &'\-]/g, '').slice(0, 50);
     const kind = METER.utility === 'gas' ? 'Gas' : `Electric ${utilityLabel().startsWith('Half') ? 'HH' : 'NHH'}`;
     doc.save(`${who} - ${kind} Quote - Commercial Energy Solutions - `

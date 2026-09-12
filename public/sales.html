@@ -2188,8 +2188,15 @@
               <div><label class="sq-lab">Site</label><input id="sqSite" class="sq-in" placeholder="supply address"></div>
               <div><label class="sq-lab">MPAN / MPRN</label><input id="sqMpan" class="sq-in" inputmode="numeric"></div>
               <div><label class="sq-lab">Contract start</label><input id="sqCsd" class="sq-in" type="date"></div>
+              <!-- Fuel: read from the document unless the broker picks one. When a supplier puts gas
+                   and electricity on one spreadsheet, the fuel picked here is the ONLY one read. -->
               <div><label class="sq-lab">Fuel</label>
-                <select id="sqFuel" class="sq-in" onchange="sqPaintConsumption()"><option value="electricity">Electricity</option><option value="gas">Gas</option></select></div>
+                <select id="sqFuel" class="sq-in" onchange="sqFuelChanged()"><option value="auto">Detect from the quote</option><option value="electricity">Electricity</option><option value="gas">Gas</option></select></div>
+              <!-- Supplier: a forwarded table or a bare rate card often never says who it is from.
+                   Picked here, the name is used wherever the document is silent, never over a
+                   name the document gives. -->
+              <div><label class="sq-lab">Supplier</label>
+                <select id="sqSupplier" class="sq-in"><option value="">Named in the document</option></select></div>
             </div>
             <div id="sqConsumption" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 14px;margin-bottom:12px;"></div>
             <div id="sqDrop" class="sq-drop"
@@ -2229,6 +2236,7 @@
               <span style="display:inline-block;width:10px;height:10px;background:#fde2e2;border:1px solid #c0392b;vertical-align:middle;margin-right:5px;"></span>
               A red figure is one the reader was not sure of, or whose unit it could not see. Click it to correct, or use Confirm all once checked.
               Capacity is shown in p/kVA/month, standing charge in p/day, rates in p/kWh. Approx. annual expenditure is worked out on the consumption above.
+              Gas is always one unit rate. "Commission included" is what the supplier says is built into their rates, in p/kWh, where the document says so.
             </div>
           </div>
         </div>
@@ -3086,11 +3094,22 @@
       }
 
       // ── Sales portal is broker-only ──
+      // Everyone else is pointed at THEIR door, from the same rule the billing portal uses
+      // (my_portals(), migration _40): a flex client at the Flex portal, a billing customer
+      // at the billing portal. Sending a flex client to the billing portal, which then sent
+      // them on to flex, was two wrong doors instead of one.
       if (!currentUser.isBroker) {
+        var _portals = [];
+        try { var _pr = await sb.rpc('my_portals'); if (!_pr.error && Array.isArray(_pr.data)) _portals = _pr.data; } catch (e) {}
+        var _L = function(href, name) { return '<a href="' + href + '" style="color:var(--navy);font-weight:700;text-decoration:underline;">' + name + '</a>'; };
+        var _msg = _portals.indexOf('flexclient') >= 0 ? 'Your account is set up for the ' + _L('/flex', 'Flex portal') + '. Please sign in there.'
+                 : _portals.indexOf('billing') >= 0    ? 'This isn\'t a sales account. Please sign in at the ' + _L('/', 'billing portal') + '.'
+                 : _portals.indexOf('flex') >= 0       ? 'This login is for the ' + _L('/flex', 'Flex trading desk') + '.'
+                 : 'This account does not have access to the sales portal. Please contact CES.';
         await sb.auth.signOut();
         currentUser = null;
         var _e = document.getElementById('loginErr');
-        if (_e) { _e.innerHTML = 'This isn\'t a sales account. Please sign in at the <a href="/" style="color:var(--navy);font-weight:700;text-decoration:underline;">billing portal</a>.'; _e.style.display = 'block'; }
+        if (_e) { _e.innerHTML = _msg; _e.style.display = 'block'; }
         var _b = document.getElementById('loginBtn'); if (_b) { _b.disabled = false; _b.textContent = 'Sign in'; }
         if (window.turnstile && typeof turnstile.reset === 'function') turnstile.reset();
         window._turnstileToken = null;
@@ -8044,10 +8063,37 @@
     // out in this page from the consumption boxes, the same way for every row, so rows are
     // comparable whatever the supplier's own document said.
     // ═══════════════════════════════════════════════════════════════════════════════════
-    var SQ = { rows: [], meta: {}, seq: 0 };
+    var SQ = { rows: [], meta: {}, seq: 0, detected: null };
     var SQ_PDFJS = '3.11.174';
-    function sqInit() { sqPaintConsumption(); }
-    function sqFuel() { return document.getElementById('sqFuel').value; }
+    // The suppliers CES deal with, for the Supplier box. Alphabetical; "Other" lets a broker
+    // type one the list does not have.
+    var SQ_SUPPLIERS = ['British Gas', 'British Gas Lite', 'Brook Green Supply', 'Corona Energy', 'Crown Gas & Power', 'Drax',
+      'Ecotricity', 'EDF', 'E.ON Next', 'Good Energy', 'Marble Power', 'npower', 'Octopus Energy', 'Opus Energy', 'Pozitive Energy',
+      'Regent Gas', 'Scottish Power', 'SEFE Energy', 'Shell Energy', 'SmartestEnergy', 'SSE', 'TotalEnergies', 'UGP', 'Utilita',
+      'Valda Energy', 'YU Energy'];
+    function sqInit() {
+      var sel = document.getElementById('sqSupplier');
+      if (sel && sel.options.length <= 1) {
+        SQ_SUPPLIERS.forEach(function (s) { var o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o); });
+        var other = document.createElement('option'); other.value = '__other'; other.textContent = 'Other (type it)…'; sel.appendChild(other);
+        sel.onchange = function () {
+          if (sel.value !== '__other') return;
+          var typed = window.prompt('Supplier name as it should appear on the table:', '') || '';
+          typed = typed.trim();
+          if (!typed) { sel.value = ''; return; }
+          var o = document.createElement('option'); o.value = typed; o.textContent = typed; sel.insertBefore(o, other); sel.value = typed;
+        };
+      }
+      sqPaintConsumption();
+    }
+    /** The fuel in force: the broker's choice, else what the reader detected, else electricity. */
+    function sqFuel() {
+      var v = document.getElementById('sqFuel').value;
+      return v === 'auto' ? (SQ.detected || 'electricity') : v;
+    }
+    function sqFuelChosen() { var v = document.getElementById('sqFuel').value; return v === 'auto' ? 'auto' : v; }
+    function sqSupplierHint() { var v = document.getElementById('sqSupplier').value; return v === '__other' ? '' : v; }
+    function sqFuelChanged() { sqPaintConsumption(); }
     function sqPaintConsumption() {
       var host = document.getElementById('sqConsumption'); if (!host) return;
       var keep = {}; host.querySelectorAll('input').forEach(function (i) { keep[i.id] = i.value; });
@@ -8144,38 +8190,50 @@
     async function sqExtract(text, images, kind, filename) {
       var seq = ++SQ.seq;
       sqSay('Reading ' + filename + '…');
-      var r = await sb.functions.invoke('quote-extract', { body: { text: text, images: images, kind: kind, filename: filename } });
+      // The broker's steers travel with the document: the fuel (or 'auto') and the supplier
+      // the document may not name. With a fuel chosen, the server returns ONLY that fuel.
+      var r = await sb.functions.invoke('quote-extract', { body: { text: text, images: images, kind: kind, filename: filename,
+        fuel: sqFuelChosen(), supplier_hint: sqSupplierHint() } });
       if (r.error) { sqSay('The reader failed: ' + (r.error.message || r.error), true); return; }
       var d = r.data || {};
       if (!d.ok) { sqSay('The reader failed: ' + (d.error || 'unknown') + (d.detail ? ' — ' + d.detail : ''), true); return; }
       var fill = function (id, v) { var e = document.getElementById(id); if (e && !e.value && v) e.value = v; };
-      fill('sqBusiness', d.customer); fill('sqSite', d.site); fill('sqMpan', d.mpan_or_mprn);
+      fill('sqBusiness', d.customer); fill('sqSite', d.site); fill('sqMpan', d.mpan_or_mprn); fill('sqCsd', d.contract_start_date);
+      // Fuel: what the reader saw, unless the broker had already chosen. A document pricing
+      // BOTH fuels with nothing chosen shows the majority fuel and says the other is a
+      // switch of the selector away (its rows are kept, hidden, not thrown away).
       var fuels = (d.quotes || []).map(function (q) { return q.fuel; }).filter(function (x) { return x !== 'unknown'; });
-      if (fuels.length && !SQ.rows.length) {
-        var gas = fuels.filter(function (x) { return x === 'gas'; }).length > fuels.length / 2;
-        document.getElementById('sqFuel').value = gas ? 'gas' : 'electricity'; sqPaintConsumption();
+      if (sqFuelChosen() === 'auto' && fuels.length && !SQ.rows.length) {
+        var nGas = fuels.filter(function (x) { return x === 'gas'; }).length;
+        SQ.detected = d.document_fuel === 'gas' || d.document_fuel === 'electricity' ? d.document_fuel : (nGas > fuels.length / 2 ? 'gas' : 'electricity');
+        sqPaintConsumption();
       }
       if (d.annual_consumption_kwh) {
         if (sqFuel() === 'gas') fill('sqKwh', String(Math.round(d.annual_consumption_kwh)));
         else fill('sqDay', String(Math.round(d.annual_consumption_kwh)));
       }
       (d.quotes || []).forEach(function (q) {
+        var com = q.commission || { value: null, confidence: 'low' };
         SQ.rows.push({
           id: 'q' + Math.random().toString(36).slice(2, 8), source: filename,
-          supplier: q.supplier || '?', product: q.product || '', fuel: q.fuel,
+          supplier: q.supplier || '?', supplierFromHint: !!q.supplier_from_hint, product: q.product || '', fuel: q.fuel,
           term: q.term_months, termLow: q.term_confidence === 'low',
+          start: q.start_date || null,
           pay: q.payment_method || 'DD',
           sc: q.standing_charge.value, scLow: q.standing_charge.confidence === 'low',
           unit: q.unit_rate.value, unitLow: q.unit_rate.confidence === 'low' && q.unit_rate.value != null,
           day: q.day_rate.value, dayLow: q.day_rate.confidence === 'low' && q.day_rate.value != null,
           night: q.night_rate.value, nightLow: q.night_rate.confidence === 'low' && q.night_rate.value != null,
           cap: q.capacity_charge.value, capLow: q.capacity_charge.confidence === 'low' && q.capacity_charge.value != null,
-          notes: q.notes || '', current: false,
+          com: com.value, comLow: com.confidence === 'low' && com.value != null, comIncluded: q.commission_included,
+          notes: q.notes || '', flags: q.flags || [], current: false,
         });
       });
       SQ.meta.warnings = (SQ.meta.warnings || []).concat(d.warnings || []);
-      SQ.meta.model = d.model; SQ.meta.ms = d.ms;
-      sqSay('Read ' + (d.quotes || []).length + ' priced option' + ((d.quotes || []).length === 1 ? '' : 's') + ' from ' + filename + ' in ' + Math.round((d.ms || 0) / 1000) + 's.');
+      SQ.meta.model = d.model; SQ.meta.ms = d.ms; SQ.meta.documentFuel = d.document_fuel;
+      var n = (d.quotes || []).length;
+      sqSay('Read ' + n + ' priced option' + (n === 1 ? '' : 's') + ' from ' + filename + ' in ' + Math.round((d.ms || 0) / 1000) + 's'
+        + (d.fuel_applied && d.fuel_applied !== 'auto' ? ' (' + d.fuel_applied + ' only)' : '') + '.');
       document.getElementById('sqResultCard').style.display = '';
       sqRender();
     }
@@ -8197,17 +8255,25 @@
       var cap = r.cap != null && kva ? kva * r.cap * 12 / 100 : 0;     // p/kVA/month × kVA × 12
       return energy + sc + cap;
     }
+    /** The rows for the fuel in force. A row of unknown fuel belongs to whichever fuel is showing. */
+    function sqVisibleRows() {
+      var f = sqFuel();
+      return SQ.rows.filter(function (r) { return !r.fuel || r.fuel === 'unknown' || r.fuel === f; });
+    }
     function sqRender() {
       var tbl = document.getElementById('sqTable'); if (!tbl || !SQ.rows.length) return;
       var gas = sqFuel() === 'gas';
-      var twoRate = !gas && SQ.rows.some(function (r) { return r.night != null; });
-      var hasCap = !gas && SQ.rows.some(function (r) { return r.cap != null; });
+      var shown = sqVisibleRows();
+      var hidden = SQ.rows.length - shown.length;
+      var twoRate = !gas && shown.some(function (r) { return r.night != null; });
+      var hasCap = !gas && shown.some(function (r) { return r.cap != null; });
+      var hasCom = shown.some(function (r) { return r.com != null || r.comIncluded != null; });
       document.getElementById('sqTitle').textContent = (gas ? 'Gas' : 'Electricity') + ' Price Analysis';
       var b = document.getElementById('sqBusiness').value, site = document.getElementById('sqSite').value,
           mp = document.getElementById('sqMpan').value, csd = document.getElementById('sqCsd').value;
       document.getElementById('sqSubtitle').textContent = [b, site, mp ? (gas ? 'MPRN ' : 'MPAN ') + mp : '', csd ? 'CSD ' + csd.split('-').reverse().join('/') : '',
         'Date ' + new Date().toLocaleDateString('en-GB')].filter(Boolean).join(' · ');
-      var rows = SQ.rows.map(function (r) { return { r: r, annual: sqAnnual(r) }; });
+      var rows = shown.map(function (r) { return { r: r, annual: sqAnnual(r) }; });
       var cur = rows.find(function (x) { return x.r.current; });
       rows.sort(function (a, b) { if (a.r.current) return -1; if (b.r.current) return 1; return (a.annual == null ? 1e18 : a.annual) - (b.annual == null ? 1e18 : b.annual); });
       var money = function (v) { return v == null ? '—' : '£' + Math.round(v).toLocaleString(); };
@@ -8216,10 +8282,20 @@
         var txt = v == null ? '' : Number(v).toFixed(dp);
         return '<td class="edit' + (low ? ' low' : '') + (cls ? ' ' + cls : '') + '" title="' + (low ? 'Not certain — click to check or correct' : 'click to edit') + '" onclick="sqEdit(this,\'' + r.id + '\',\'' + key + '\',' + dp + ')">' + txt + '</td>';
       };
+      // Commission the supplier says is in the rates: the figure in p/kWh, "included" when
+      // they say so without a figure, "excluded" when they say the rates are bare.
+      var comCell = function (r) {
+        if (r.current) return '<td style="color:var(--muted);">—</td>';
+        var low = r.comLow;
+        var txt = r.com != null ? Number(r.com).toFixed(2) + ' p/kWh' : (r.comIncluded === true ? 'included' : (r.comIncluded === false ? 'excluded' : ''));
+        return '<td class="edit' + (low ? ' low' : '') + '" title="' + (low ? 'Not certain — click to check or correct' : 'Commission the supplier says is built into these rates, p/kWh. Click to edit.') + '" onclick="sqEdit(this,\'' + r.id + '\',\'com\',2)">' + txt + '</td>';
+      };
       var head = '<tr><th>Supplier</th><th>Standing Charge<br>p/day</th>'
         + (gas ? '<th>Unit Rate<br>p/kWh</th>' : (twoRate ? '<th>Day Units<br>p/kWh</th><th>Night Units<br>p/kWh</th>' : '<th>Unit Rate<br>p/kWh</th>'))
         + (hasCap ? '<th>Capacity charge<br>p/kVA/month</th>' : '')
-        + '<th>Contract Period<br>(months)</th><th>Payment<br>Method</th><th>Approx. Annual<br>Expenditure</th><th>Difference</th><th></th></tr>';
+        + '<th>Contract Period<br>(months)</th><th>Payment<br>Method</th>'
+        + (hasCom ? '<th>Commission<br>included</th>' : '')
+        + '<th>Approx. Annual<br>Expenditure</th><th>Difference</th><th></th></tr>';
       var body = rows.map(function (x) {
         var r = x.r;
         var diff = (cur && !r.current && x.annual != null && cur.annual != null) ? x.annual - cur.annual : null;
@@ -8227,12 +8303,15 @@
           : twoRate ? (cell(r, r.unit != null ? 'unit' : 'day', 3) + cell(r, 'night', 3))
           : cell(r, r.unit != null ? 'unit' : 'day', 3);
         return '<tr class="' + (r.current ? 'cur' : '') + '">'
-          + '<td class="sup edit" onclick="sqEdit(this,\'' + r.id + '\',\'supplier\',null)">' + escapeHtml(r.supplier) + (r.product ? ' <span style="font-weight:400;color:#555;">' + escapeHtml(r.product) + '</span>' : '') + '</td>'
+          + '<td class="sup edit" onclick="sqEdit(this,\'' + r.id + '\',\'supplier\',null)"' + (r.supplierFromHint ? ' title="The document did not name the supplier; this is the one picked above"' : '') + '>' + escapeHtml(r.supplier)
+          + (r.supplierFromHint ? ' <span style="font-weight:400;color:#8a6d1c;font-size:10.5px;">(picked)</span>' : '')
+          + (r.product ? ' <span style="font-weight:400;color:#555;">' + escapeHtml(r.product) + '</span>' : '') + '</td>'
           + cell(r, 'sc', 2)
           + rate
           + (hasCap ? cell(r, 'cap', 2) : '')
           + (r.current ? '<td>Current</td>' : '<td class="edit' + (r.termLow ? ' low' : '') + '" onclick="sqEdit(this,\'' + r.id + '\',\'term\',0)">' + (r.term == null ? '' : r.term) + '</td>')
           + '<td class="edit" onclick="sqEdit(this,\'' + r.id + '\',\'pay\',null)">' + escapeHtml(r.pay || '') + '</td>'
+          + (hasCom ? comCell(r) : '')
           + '<td style="font-weight:600;">' + money(x.annual) + '</td>'
           + (r.current ? '<td class="diff up">n/a</td>' : '<td class="diff ' + (diff != null && diff < 0 ? 'down' : 'up') + '">' + (diff == null ? '' : (diff < 0 ? '-' : '') + '£' + Math.abs(Math.round(diff)).toLocaleString()) + '</td>')
           + '<td style="font-size:11px;"><label title="Mark this as the customer\'s current contract"><input type="checkbox" ' + (r.current ? 'checked' : '') + ' onchange="sqSetCurrent(\'' + r.id + '\',this.checked)"> current</label>'
@@ -8241,8 +8320,9 @@
       }).join('');
       tbl.innerHTML = head + body;
       var w = document.getElementById('sqWarn');
-      var lows = SQ.rows.filter(function (r) { return r.scLow || r.unitLow || r.dayLow || r.nightLow || r.capLow || r.termLow; }).length;
+      var lows = shown.filter(function (r) { return r.scLow || r.unitLow || r.dayLow || r.nightLow || r.capLow || r.termLow || r.comLow; }).length;
       w.innerHTML = (lows ? '<div style="margin:10px 0;padding:8px 12px;border-radius:8px;background:#fde2e2;color:#8a1c1c;font-size:12.5px;"><b>' + lows + ' row' + (lows === 1 ? ' has' : 's have') + ' a figure the reader was not sure of.</b> Check the red cells against the supplier\'s document, click to correct, then Confirm all.</div>' : '')
+        + (hidden ? '<div style="margin:10px 0;padding:8px 12px;border-radius:8px;background:#fff4d6;color:#6b4e00;font-size:12.5px;"><b>' + hidden + ' ' + (gas ? 'electricity' : 'gas') + ' option' + (hidden === 1 ? '' : 's') + ' in this document ' + (hidden === 1 ? 'is' : 'are') + ' not shown.</b> This table is ' + (gas ? 'gas' : 'electricity') + '; switch the Fuel box above to see the other.</div>' : '')
         + ((SQ.meta.warnings || []).length ? '<div style="margin:10px 0;font-size:12px;color:var(--muted);">Reader notes: ' + escapeHtml(SQ.meta.warnings.slice(0, 4).join(' · ')) + '</div>' : '')
         + (!cur ? '<div style="margin:10px 0;font-size:12px;color:var(--muted);">Tick <b>current</b> on the row that is the customer\'s existing contract (or add one) and the Difference column fills in.</div>' : '');
     }
@@ -8260,15 +8340,15 @@
       };
       inp.onblur = done; inp.onkeydown = function (e) { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { inp.onblur = null; sqRender(); } };
     }
-    function sqConfirmAll() { SQ.rows.forEach(function (r) { ['sc', 'unit', 'day', 'night', 'cap', 'term'].forEach(function (k) { r[k + 'Low'] = false; }); }); sqRender(); }
+    function sqConfirmAll() { SQ.rows.forEach(function (r) { ['sc', 'unit', 'day', 'night', 'cap', 'term', 'com'].forEach(function (k) { r[k + 'Low'] = false; }); }); sqRender(); }
     function sqSetCurrent(id, on) { SQ.rows.forEach(function (r) { r.current = on && r.id === id; }); sqRender(); }
     function sqRemove(id) { SQ.rows = SQ.rows.filter(function (r) { return r.id !== id; }); if (!SQ.rows.length) document.getElementById('sqResultCard').style.display = 'none'; else sqRender(); }
     function sqAddRow() {
-      SQ.rows.push({ id: 'q' + Math.random().toString(36).slice(2, 8), source: 'typed', supplier: 'Supplier', product: '', fuel: sqFuel(),
-        term: null, pay: 'DD', sc: null, unit: null, day: null, night: null, cap: null, notes: '', current: !SQ.rows.some(function (r) { return r.current; }) });
+      SQ.rows.push({ id: 'q' + Math.random().toString(36).slice(2, 8), source: 'typed', supplier: sqSupplierHint() || 'Supplier', product: '', fuel: sqFuel(),
+        term: null, pay: 'DD', sc: null, unit: null, day: null, night: null, cap: null, com: null, comIncluded: null, notes: '', current: !SQ.rows.some(function (r) { return r.current; }) });
       document.getElementById('sqResultCard').style.display = ''; sqRender();
     }
-    function sqClear() { SQ.rows = []; SQ.meta = {}; document.getElementById('sqResultCard').style.display = 'none'; document.getElementById('sqPaste').value = ''; sqSay(''); }
+    function sqClear() { SQ.rows = []; SQ.meta = {}; SQ.detected = null; document.getElementById('sqResultCard').style.display = 'none'; document.getElementById('sqPaste').value = ''; sqSay(''); sqPaintConsumption(); }
 
     function brokerNav(view){
       var sales = document.getElementById('brokerSalesView');
