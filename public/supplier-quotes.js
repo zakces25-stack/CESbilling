@@ -32,7 +32,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026-09-14.1';
+  var VERSION = '2026-09-14.2';
   var PDFJS_VER = '3.11.174';
 
   // ── CES's disclosure, WORD FOR WORD as CES supplied it, 14 Sep 2026 ─────────────────────
@@ -840,13 +840,48 @@
     }
 
     // ── the reading ──
+    /**
+     * What actually went wrong, in words.
+     *
+     * supabase-js does NOT put a non-2xx response in `data`. It wraps it in a FunctionsHttpError
+     * whose `.message` is the fixed string "Edge Function returned a non-2xx status code" and
+     * hangs the real Response on `.context`. So the function's own `{error, detail}` — the one
+     * thing that says WHY — was being thrown away, and every failure looked identical on screen
+     * whether the session had expired, the file was too big, or the model had refused. This
+     * reads the body and says what the status means.
+     */
+    async function fnErrorMessage(err) {
+      var res = err && err.context, status = (res && res.status) || 0, body = null, raw = '';
+      if (res && typeof res.text === 'function') {
+        try { raw = await res.text(); } catch (_) { raw = ''; }
+        if (raw) { try { body = JSON.parse(raw); } catch (_) { body = null; } }
+      }
+      var said = body && (body.error || body.message) ? String(body.error || body.message) : '';
+      var detail = body && body.detail ? ' (' + String(body.detail).slice(0, 300) + ')' : '';
+      // The model's own status comes back as "model 429" etc; turn the ones that matter into
+      // something a broker can act on rather than report.
+      var m = said.match(/^model (\d+)$/);
+      if (m) {
+        var ms = Number(m[1]);
+        if (ms === 401 || ms === 403) return 'the reader was refused by the AI service: CES\'s API key was rejected' + detail;
+        if (ms === 429) return 'the AI service is rate limiting us; wait a moment and read again' + detail;
+        if (ms === 400) return 'the AI service rejected the request' + detail;
+        if (ms >= 500) return 'the AI service had an error (' + ms + '); try again' + detail;
+      }
+      if (status === 401) return 'your session has expired: reload the page, sign in again, then read the files again';
+      if (status === 413) return 'this file is too big to send to the reader; paste the rates instead, or split it';
+      if (status === 504 || status === 546) return 'the reader ran out of time on this file; try it on its own, or paste the rates';
+      if (said) return said + detail;
+      if (status) return 'the reader returned HTTP ' + status + (raw ? ': ' + raw.slice(0, 200) : '');
+      return (err && err.message) || String(err);
+    }
     async function extract(text, images, kind, filename, steer) {
       steer = steer || {};
       var fuelWanted = steer.fuel || fuelChosen();
       var hint = steer.supplier != null ? steer.supplier : supplierHint();
       if (!sb || !sb.functions) throw new Error('no Supabase client');
       var r = await sb.functions.invoke('quote-extract', { body: { text: text, images: images, kind: kind, filename: filename, fuel: fuelWanted, supplier_hint: hint } });
-      if (r.error) throw new Error('the reader failed: ' + (r.error.message || r.error));
+      if (r.error) throw new Error('the reader failed: ' + await fnErrorMessage(r.error));
       var d = r.data || {};
       if (!d.ok) throw new Error('the reader failed: ' + (d.error || 'unknown') + (d.detail ? ' (' + d.detail + ')' : ''));
       var fill = function (id, v) { var e = $(id); if (e && !e.value && v) e.value = v; };
@@ -1096,6 +1131,7 @@
       stage: stage, readStaged: readStaged, textOf: textOf, extract: extract, extractPasted: extractPasted,
       hhdDropped: hhdDropped, readStarkHhd: readStarkHhd, commissionInForce: commissionInForce, kwhBoxes: kwhBoxes,
       currentView: currentView, exportExcel: exportExcel, disclosureText: disclosureText,
+      fnErrorMessage: fnErrorMessage,
       render: render, addRow: addRow, clear: clear, confirmAll: confirmAll, setCurrent: setCurrent, remove: remove,
       fuelChanged: paintConsumption, paintConsumption: paintConsumption,
     };
