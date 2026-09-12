@@ -2925,24 +2925,28 @@
       } catch (e) { /* fall through to the page-side copy of the rule */ }
       return derivePortals(profile);
     }
-    // Where a login that does not belong here should go instead. Order matters: a broker
-    // who is also on the pricing team is told about the Sales portal, their day job.
+    // A CES-side login (sales, pricing, COT, the flex desk) that arrives at the billing door is
+    // sent on to the Sales portal WITH its session. The Sales portal is the one front door for
+    // the CES side and already routes a pricing or COT login on to its desk, so the person
+    // ends up where they belong without signing in twice. Telling them to go and sign in
+    // somewhere else was the previous behaviour and it read as broken.
+    var SALES_PORTAL = '/sales.html';
+    function isCesSide(portals) {
+      return ['sales', 'pricing', 'cot', 'flex'].some(function(p) { return portals.indexOf(p) >= 0; });
+    }
+    // Where a login that does not belong here, and is not CES-side, should go instead.
     function wrongDoorMessage(portals) {
       var L = function(href, name) { return '<a href="' + href + '" style="color:var(--navy);font-weight:700;text-decoration:underline;">' + name + '</a>'; };
-      if (portals.indexOf('sales') >= 0)      return 'Sales team — please sign in at the ' + L('/sales', 'Sales portal') + '.';
-      if (portals.indexOf('pricing') >= 0)    return 'This is a pricing team login. Please use the ' + L('/pricing.html', 'Pricing desk') + '.';
-      if (portals.indexOf('cot') >= 0)        return 'This is a COT team login. Please use the ' + L('/cot.html', 'COT desk') + '.';
       if (portals.indexOf('flexclient') >= 0) return 'Your account is set up for the ' + L('/flex', 'Flex portal') + '. Please sign in there.';
-      if (portals.indexOf('flex') >= 0)       return 'This login is for the ' + L('/flex', 'Flex trading desk') + '.';
       return 'This account does not have access to the billing portal. Please contact CES.';
     }
-    // Refuse the door. A fresh sign-in is signed out again (the session was created here a
-    // moment ago and nobody else relies on it). A session restored on page load is NOT
-    // signed out: every CES-side portal shares one login on this origin, so signing out here
-    // would also log the pricing desk or COT desk out of the tab it is actually working in.
-    // The page stays on the login screen with the message, and Sign in with the right
-    // credentials replaces the session anyway.
+    // Refuse the door. CES-side logins are redirected to the Sales portal, session kept, on a
+    // fresh sign-in and on a session found at page load alike. Anyone else: a fresh sign-in is
+    // signed out again (the session was created here a moment ago and nobody else relies on
+    // it); a session restored on page load is NOT signed out, because every CES-side portal
+    // shares one login on this origin and signing out here would log another tab out.
     async function refuseDoor(portals, fromRestore) {
+      if (isCesSide(portals)) { currentUser = null; window.location.replace(SALES_PORTAL); return; }
       if (!fromRestore) await sb.auth.signOut();
       currentUser = null;
       showPage('loginPage');

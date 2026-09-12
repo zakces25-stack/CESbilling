@@ -189,6 +189,7 @@
       <button id="tab-books" onclick="showTab('books')">Pricebooks</button>
       <button id="tab-aq" onclick="showTab('aq')">AQ Opportunities</button>
       <button id="tab-contracts" onclick="showTab('contracts')">Contracts</button>
+      <button id="tab-quotes" onclick="showTab('quotes')">Supplier Quotes</button>
       <button id="tab-ref" onclick="showTab('ref')">Reference</button>
       <button id="tab-admin" onclick="showTab('admin')">Admin</button>
     </nav>
@@ -620,6 +621,18 @@
     </section>
 
     <!-- ══════════════════════════════════════════════════════════════════ ADMIN -->
+    <!-- Supplier Quotes: the same view the sales portal has, from /supplier-quotes.js, mounted on
+         first open. Drop what a supplier sent and get CES's Price Analysis table. -->
+    <section id="pane-quotes" class="hide">
+      <div class="card" style="padding-bottom:6px">
+        <h2>Supplier Quotes</h2>
+        <div class="sub">Drop what the supplier sent (PDF, Excel/CSV, a saved email, or paste the text). The files are listed
+          first so you can pick the supplier for each, then one click reads them into a Price Analysis table.
+          Hidden spreadsheet sheets are not read. CES commission is recorded, never added to a rate.</div>
+      </div>
+      <div id="sqHost"></div>
+    </section>
+
     <section id="pane-admin" class="hide">
       <div class="card">
         <h2>Storage</h2>
@@ -734,8 +747,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="/pricing-parsers.js"></script>
-<script src="/pricing-contracts.js"></script>
+<script src="/pricing-parsers.js?v=2026-09-12.1"></script>
+<script src="/pricing-contracts.js?v=2026-09-13.1"></script>
+<script src="/supplier-quotes.js?v=2026-09-13.1"></script>
 <script>
 // ═══════════════════════════════════════════════════════════════════════════════════════
 // CES Pricing Desk
@@ -948,16 +962,32 @@ function showSignIn(){
   $('whoami').classList.add('hide');
   $('app').classList.add('hide');
 }
-async function signOut(){ localStorage.removeItem('pricing_who'); await sb.auth.signOut(); location.reload(); }
+// Out of the desk and back to the sales login, as the COT desk does, rather than reloading into
+// this page's own sign-in box. The sales portal is the one front door for the CES side.
+async function signOut(){ localStorage.removeItem('pricing_who'); await sb.auth.signOut(); location.href = '/sales.html'; }
 
 function showTab(t) {
-  for (const k of ['books','price','aq','contracts','ref','admin']) {
+  for (const k of ['books','price','aq','contracts','quotes','ref','admin']) {
     $('pane-'+k).classList.toggle('hide', k !== t);
     $('tab-'+k).classList.toggle('on', k === t);
   }
   if (t === 'admin') { loadAdmin(); loadStorage(); }
   if (t === 'aq') aqInit();
   if (t === 'contracts') contractsInit();
+  if (t === 'quotes') quotesInit();
+}
+
+// Supplier Quotes is /supplier-quotes.js, the same module the sales portal mounts, so the two
+// cannot drift. Mounted on the first visit; the api object is kept for the tests.
+let SQ_API = null;
+function quotesInit() {
+  if (SQ_API) return;
+  if (typeof SupplierQuotes === 'undefined') {
+    $('sqHost').innerHTML = '<div class="note bad">The Supplier Quotes module did not load (supplier-quotes.js). Hold Shift and reload.</div>';
+    return;
+  }
+  SQ_API = SupplierQuotes.mount($('sqHost'), { sb, esc });
+  window.SQ_API = SQ_API;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════

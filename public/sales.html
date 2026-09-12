@@ -28,6 +28,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="/supplier-quotes.js?v=2026-09-13.1"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
   <!-- Cloudflare Turnstile — human verification on the login form -->
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
@@ -672,24 +673,7 @@
     .sk-overlay__close:hover { color: #1c1f2a; }
 
     .usage-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    /* Supplier Quotes */
-    .sq-lab { display:block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:4px; }
-    .sq-in { width:100%; padding:8px 10px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; background:#fff; }
-    .sq-drop { border:2px dashed var(--border); border-radius:10px; padding:18px; text-align:center; font-size:13px; color:var(--muted); cursor:pointer; background:#fafbfd; }
-    .sq-drop.over { border-color:var(--navy); background:#eef1fb; }
-    .sq-table { border-collapse:collapse; font-size:13px; width:100%; min-width:900px; }
-    .sq-table th { background:#d9d9d9; border:1px solid #333; padding:8px 8px; font-weight:700; text-align:center; font-size:12px; line-height:1.25; }
-    .sq-table td { border:1px solid #333; padding:5px 8px; text-align:center; white-space:nowrap; }
-    .sq-table td.sup { background:#d9d9d9; text-align:left; font-weight:600; min-width:170px; }
-    .sq-table tr.cur td { font-weight:700; }
-    .sq-table td.low { background:#fde2e2; color:#8a1c1c; font-weight:700; cursor:pointer; }
-    .sq-table td.diff.up { color:#c0392b; font-weight:700; }
-    .sq-table td.diff.down { color:#1a7f37; font-weight:700; }
-    .sq-table td.edit { cursor:pointer; }
-    .sq-table td.edit:hover { outline:2px solid var(--navy); outline-offset:-2px; }
-    .sq-table input.cell { width:90px; padding:3px 6px; font-size:13px; text-align:center; border:1.5px solid var(--navy); border-radius:4px; }
-    .sq-head { display:grid; grid-template-columns:1fr auto; gap:14px; padding:14px 18px 6px; font-size:13px; }
-    .sq-head .k { font-weight:700; }
+    /* Supplier Quotes: styles live in /supplier-quotes.js, shared with the pricing desk */
     .usage-table th, .usage-table td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
     .usage-table th { background: var(--surface-2); font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: 0.45px; color: var(--text-2); }
     .usage-table .num { text-align: right; font-family: 'JetBrains Mono', monospace; }
@@ -2181,63 +2165,10 @@
             <h2>Supplier Quotes</h2>
             <div style="font-size:12.5px;color:var(--muted);">Drop what the supplier sent. A table like the price analysis comes out.</div>
           </div>
-
-          <div class="card" id="sqInputCard">
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px 14px;margin-bottom:12px;">
-              <div><label class="sq-lab">Business name</label><input id="sqBusiness" class="sq-in" placeholder="from the quote, or type it"></div>
-              <div><label class="sq-lab">Site</label><input id="sqSite" class="sq-in" placeholder="supply address"></div>
-              <div><label class="sq-lab">MPAN / MPRN</label><input id="sqMpan" class="sq-in" inputmode="numeric"></div>
-              <div><label class="sq-lab">Contract start</label><input id="sqCsd" class="sq-in" type="date"></div>
-              <!-- Fuel: read from the document unless the broker picks one. When a supplier puts gas
-                   and electricity on one spreadsheet, the fuel picked here is the ONLY one read. -->
-              <div><label class="sq-lab">Fuel</label>
-                <select id="sqFuel" class="sq-in" onchange="sqFuelChanged()"><option value="auto">Detect from the quote</option><option value="electricity">Electricity</option><option value="gas">Gas</option></select></div>
-              <!-- Supplier: a forwarded table or a bare rate card often never says who it is from.
-                   Picked here, the name is used wherever the document is silent, never over a
-                   name the document gives. -->
-              <div><label class="sq-lab">Supplier</label>
-                <select id="sqSupplier" class="sq-in"><option value="">Named in the document</option></select></div>
-            </div>
-            <div id="sqConsumption" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 14px;margin-bottom:12px;"></div>
-            <div id="sqDrop" class="sq-drop"
-                 ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')"
-                 ondrop="event.preventDefault();this.classList.remove('over');sqFiles(event.dataTransfer.files)"
-                 onclick="document.getElementById('sqFile').click()">
-              <b>Drop the supplier's quote here</b> — a PDF, an Excel or CSV, or a saved email — or click to choose.
-              <input id="sqFile" type="file" multiple accept=".pdf,.xlsx,.xls,.csv,.txt,.eml,.msg" style="display:none" onchange="sqFiles(this.files);this.value=''">
-            </div>
-            <div style="margin-top:10px;">
-              <label class="sq-lab">…or paste the email / quote text</label>
-              <textarea id="sqPaste" class="sq-in" rows="4" placeholder="Paste the body of the supplier's email here" style="width:100%;font-family:inherit;"></textarea>
-            </div>
-            <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap;">
-              <button class="btn-primary" style="width:auto;padding:9px 18px;" onclick="sqExtractPasted()">Read the quote</button>
-              <span id="sqMsg" style="font-size:12.5px;color:var(--muted);"></span>
-            </div>
-          </div>
-
-          <div class="card" id="sqResultCard" style="display:none;padding:0;overflow:hidden;">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 18px;border-bottom:1.5px solid var(--border);">
-              <div>
-                <div style="font-weight:800;font-size:15px;" id="sqTitle">Electricity Price Analysis</div>
-                <div style="font-size:12px;color:var(--muted);" id="sqSubtitle"></div>
-              </div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <button class="btn-secondary" style="width:auto;padding:8px 14px;" onclick="sqConfirmAll()">Confirm all figures</button>
-                <button class="btn-secondary" style="width:auto;padding:8px 14px;" onclick="sqAddRow()">+ Add a row</button>
-                <button class="btn-secondary" style="width:auto;padding:8px 14px;" onclick="sqClear()">Start again</button>
-              </div>
-            </div>
-            <div id="sqWarn" style="padding:0 18px;"></div>
-            <div style="overflow-x:auto;padding:0 18px 18px;">
-              <table class="sq-table" id="sqTable"></table>
-            </div>
-            <div style="padding:0 18px 16px;font-size:11.5px;color:var(--muted);">
-              <span style="display:inline-block;width:10px;height:10px;background:#fde2e2;border:1px solid #c0392b;vertical-align:middle;margin-right:5px;"></span>
-              A red figure is one the reader was not sure of, or whose unit it could not see. Click it to correct, or use Confirm all once checked.
-              Capacity is shown in p/kVA/month, standing charge in p/day, rates in p/kWh. Approx. annual expenditure is worked out on the consumption above.
-              Gas is always one unit rate. "Commission included" is what the supplier says is built into their rates, in p/kWh, where the document says so.
-            </div>
+          <!-- The view itself is /supplier-quotes.js, shared with the pricing desk, mounted here on
+               first open by brokerNav('quotes'). One file, so the two portals cannot drift. -->
+          <div id="sqHost"></div>
+        </div>
           </div>
         </div>
 
@@ -8053,302 +7984,14 @@
       _skFlash('leadMsg','Deleted '+escapeHtml(who)+'’s figures for '+_skPeriodLabel(key)+'.');
     }
     // ═══════════════════════════════════════════════════════════════════════════════════
-    // Supplier Quotes — a supplier's quote in any shape becomes a Price Analysis table.
-    //
-    // The browser only extracts TEXT (pdf.js for PDFs, SheetJS for spreadsheets, the file
-    // itself for email). The reading is done by the quote-extract edge function: Sonnet
-    // transcribes every priced option and the server converts the units, so no number is
-    // arithmetic done by a model. Whatever came back low-confidence is RED here until a
-    // broker clicks it and corrects it, or confirms the lot. The annual figures are worked
-    // out in this page from the consumption boxes, the same way for every row, so rows are
-    // comparable whatever the supplier's own document said.
+    // Supplier Quotes lives in /supplier-quotes.js, shared with the pricing desk. Mounted
+    // once, on the first visit to the view; the api object is kept for the tests.
     // ═══════════════════════════════════════════════════════════════════════════════════
-    var SQ = { rows: [], meta: {}, seq: 0, detected: null };
-    var SQ_PDFJS = '3.11.174';
-    // The suppliers CES deal with, for the Supplier box. Alphabetical; "Other" lets a broker
-    // type one the list does not have.
-    var SQ_SUPPLIERS = ['British Gas', 'British Gas Lite', 'Brook Green Supply', 'Corona Energy', 'Crown Gas & Power', 'Drax',
-      'Ecotricity', 'EDF', 'E.ON Next', 'Good Energy', 'Marble Power', 'npower', 'Octopus Energy', 'Opus Energy', 'Pozitive Energy',
-      'Regent Gas', 'Scottish Power', 'SEFE Energy', 'Shell Energy', 'SmartestEnergy', 'SSE', 'TotalEnergies', 'UGP', 'Utilita',
-      'Valda Energy', 'YU Energy'];
     function sqInit() {
-      var sel = document.getElementById('sqSupplier');
-      if (sel && sel.options.length <= 1) {
-        SQ_SUPPLIERS.forEach(function (s) { var o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o); });
-        var other = document.createElement('option'); other.value = '__other'; other.textContent = 'Other (type it)…'; sel.appendChild(other);
-        sel.onchange = function () {
-          if (sel.value !== '__other') return;
-          var typed = window.prompt('Supplier name as it should appear on the table:', '') || '';
-          typed = typed.trim();
-          if (!typed) { sel.value = ''; return; }
-          var o = document.createElement('option'); o.value = typed; o.textContent = typed; sel.insertBefore(o, other); sel.value = typed;
-        };
-      }
-      sqPaintConsumption();
+      if (window.SQ_API) return;
+      if (!window.SupplierQuotes) { var h = document.getElementById('sqHost'); if (h) h.innerHTML = '<div class="card">The Supplier Quotes module did not load (supplier-quotes.js). Hold Shift and reload.</div>'; return; }
+      window.SQ_API = SupplierQuotes.mount(document.getElementById('sqHost'), { sb: sb, esc: escapeHtml });
     }
-    /** The fuel in force: the broker's choice, else what the reader detected, else electricity. */
-    function sqFuel() {
-      var v = document.getElementById('sqFuel').value;
-      return v === 'auto' ? (SQ.detected || 'electricity') : v;
-    }
-    function sqFuelChosen() { var v = document.getElementById('sqFuel').value; return v === 'auto' ? 'auto' : v; }
-    function sqSupplierHint() { var v = document.getElementById('sqSupplier').value; return v === '__other' ? '' : v; }
-    function sqFuelChanged() { sqPaintConsumption(); }
-    function sqPaintConsumption() {
-      var host = document.getElementById('sqConsumption'); if (!host) return;
-      var keep = {}; host.querySelectorAll('input').forEach(function (i) { keep[i.id] = i.value; });
-      var boxes = sqFuel() === 'gas'
-        ? [['sqKwh', 'Annual consumption (kWh)']]
-        : [['sqDay', 'Day kWh'], ['sqNight', 'Night kWh (0 if single rate)'], ['sqKva', 'Capacity (kVA, HH only)']];
-      host.innerHTML = boxes.map(function (b) {
-        return '<div><label class="sq-lab">' + b[1] + '</label><input id="' + b[0] + '" class="sq-in" inputmode="numeric" value="' + escapeHtml(keep[b[0]] || '') + '" oninput="sqRender()"></div>';
-      }).join('');
-      sqRender();
-    }
-    function sqNum(id) { var e = document.getElementById(id); return e ? (Number(String(e.value).replace(/[^0-9.]/g, '')) || 0) : 0; }
-
-    // ── text out of whatever was dropped ──
-    async function sqFiles(files) {
-      for (var i = 0; i < files.length; i++) {
-        var f = files[i];
-        try {
-          var got = await sqTextOf(f);
-          await sqExtract(got.text, got.images, got.kind, f.name);
-        } catch (e) { sqSay('Could not read ' + f.name + ': ' + (e.message || e), true); }
-      }
-    }
-    async function sqTextOf(f) {
-      var name = f.name.toLowerCase();
-      if (/\.pdf$/.test(name)) {
-        await sqLoadPdfJs();
-        var lib = window.pdfjsLib;
-        var doc = await lib.getDocument({ data: new Uint8Array(await f.arrayBuffer()) }).promise;
-        var text = '', images = [];
-        for (var n = 1; n <= Math.min(doc.numPages, 12); n++) {
-          var page = await doc.getPage(n);
-          var tc = await page.getTextContent();
-          var lastY = null, line = [];
-          // Keep the table shape: a new line when the y position changes.
-          tc.items.forEach(function (it) {
-            var y = Math.round(it.transform[5]);
-            if (lastY !== null && Math.abs(y - lastY) > 2) { text += line.join(' ') + '\n'; line = []; }
-            line.push(it.str); lastY = y;
-          });
-          text += line.join(' ') + '\n\n';
-        }
-        // A scanned PDF has no text layer. Send the pages as pictures instead (up to 4).
-        if (text.replace(/\s/g, '').length < 80) {
-          for (var p = 1; p <= Math.min(doc.numPages, 4); p++) {
-            var pg = await doc.getPage(p), vp = pg.getViewport({ scale: 1.6 });
-            var cv = document.createElement('canvas'); cv.width = vp.width; cv.height = vp.height;
-            await pg.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
-            images.push(cv.toDataURL('image/jpeg', 0.85));
-          }
-        }
-        return { text: text, images: images, kind: 'pdf' };
-      }
-      if (/\.(xlsx|xlsm|xls|csv)$/.test(name)) {
-        var wb = XLSX.read(new Uint8Array(await f.arrayBuffer()), { type: 'array' });
-        var out = '';
-        wb.SheetNames.forEach(function (sn) { out += '### Sheet: ' + sn + '\n' + XLSX.utils.sheet_to_csv(wb.Sheets[sn], { blankrows: false }) + '\n\n'; });
-        return { text: out, images: [], kind: 'spreadsheet' };
-      }
-      if (/\.msg$/.test(name)) {
-        // Outlook's binary format. Pull out the readable strings; the body is usually in there
-        // as UTF-16. If it comes out as junk, paste the email body instead.
-        var buf = new Uint8Array(await f.arrayBuffer());
-        var u16 = '', u8 = '';
-        for (var k = 0; k + 1 < buf.length; k += 2) { var c = buf[k] | (buf[k + 1] << 8); u16 += (c >= 32 && c < 0xFFFE) ? String.fromCharCode(c) : '\n'; }
-        for (var j = 0; j < buf.length; j++) u8 += (buf[j] >= 32 && buf[j] < 127) ? String.fromCharCode(buf[j]) : '\n';
-        var pick = (u16.match(/[A-Za-z0-9£$.,:\/()\-% ]{6,}/g) || []).join('\n') + '\n' + (u8.match(/[A-Za-z0-9£$.,:\/()\-% ]{6,}/g) || []).join('\n');
-        return { text: pick.slice(0, 120000), images: [], kind: 'email (.msg, text recovered)' };
-      }
-      var t = await f.text();
-      return { text: t.slice(0, 120000), images: [], kind: /\.eml$/.test(name) ? 'email' : 'text' };
-    }
-    function sqLoadPdfJs() {
-      return new Promise(function (res, rej) {
-        if (window.pdfjsLib) return res();
-        var s = document.createElement('script');
-        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/' + SQ_PDFJS + '/pdf.min.js';
-        s.onload = function () {
-          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/' + SQ_PDFJS + '/pdf.worker.min.js';
-          res();
-        };
-        s.onerror = function () { rej(new Error('pdf.js did not load')); };
-        document.head.appendChild(s);
-      });
-    }
-    function sqExtractPasted() {
-      var t = document.getElementById('sqPaste').value;
-      if (!t.trim()) { sqSay('Nothing to read: drop a file or paste the email first.', true); return; }
-      sqExtract(t, [], 'email', 'pasted text');
-    }
-    function sqSay(m, bad) { var e = document.getElementById('sqMsg'); e.textContent = m; e.style.color = bad ? '#b3261e' : 'var(--muted)'; }
-
-    // ── the reading ──
-    async function sqExtract(text, images, kind, filename) {
-      var seq = ++SQ.seq;
-      sqSay('Reading ' + filename + '…');
-      // The broker's steers travel with the document: the fuel (or 'auto') and the supplier
-      // the document may not name. With a fuel chosen, the server returns ONLY that fuel.
-      var r = await sb.functions.invoke('quote-extract', { body: { text: text, images: images, kind: kind, filename: filename,
-        fuel: sqFuelChosen(), supplier_hint: sqSupplierHint() } });
-      if (r.error) { sqSay('The reader failed: ' + (r.error.message || r.error), true); return; }
-      var d = r.data || {};
-      if (!d.ok) { sqSay('The reader failed: ' + (d.error || 'unknown') + (d.detail ? ' — ' + d.detail : ''), true); return; }
-      var fill = function (id, v) { var e = document.getElementById(id); if (e && !e.value && v) e.value = v; };
-      fill('sqBusiness', d.customer); fill('sqSite', d.site); fill('sqMpan', d.mpan_or_mprn); fill('sqCsd', d.contract_start_date);
-      // Fuel: what the reader saw, unless the broker had already chosen. A document pricing
-      // BOTH fuels with nothing chosen shows the majority fuel and says the other is a
-      // switch of the selector away (its rows are kept, hidden, not thrown away).
-      var fuels = (d.quotes || []).map(function (q) { return q.fuel; }).filter(function (x) { return x !== 'unknown'; });
-      if (sqFuelChosen() === 'auto' && fuels.length && !SQ.rows.length) {
-        var nGas = fuels.filter(function (x) { return x === 'gas'; }).length;
-        SQ.detected = d.document_fuel === 'gas' || d.document_fuel === 'electricity' ? d.document_fuel : (nGas > fuels.length / 2 ? 'gas' : 'electricity');
-        sqPaintConsumption();
-      }
-      if (d.annual_consumption_kwh) {
-        if (sqFuel() === 'gas') fill('sqKwh', String(Math.round(d.annual_consumption_kwh)));
-        else fill('sqDay', String(Math.round(d.annual_consumption_kwh)));
-      }
-      (d.quotes || []).forEach(function (q) {
-        var com = q.commission || { value: null, confidence: 'low' };
-        SQ.rows.push({
-          id: 'q' + Math.random().toString(36).slice(2, 8), source: filename,
-          supplier: q.supplier || '?', supplierFromHint: !!q.supplier_from_hint, product: q.product || '', fuel: q.fuel,
-          term: q.term_months, termLow: q.term_confidence === 'low',
-          start: q.start_date || null,
-          pay: q.payment_method || 'DD',
-          sc: q.standing_charge.value, scLow: q.standing_charge.confidence === 'low',
-          unit: q.unit_rate.value, unitLow: q.unit_rate.confidence === 'low' && q.unit_rate.value != null,
-          day: q.day_rate.value, dayLow: q.day_rate.confidence === 'low' && q.day_rate.value != null,
-          night: q.night_rate.value, nightLow: q.night_rate.confidence === 'low' && q.night_rate.value != null,
-          cap: q.capacity_charge.value, capLow: q.capacity_charge.confidence === 'low' && q.capacity_charge.value != null,
-          com: com.value, comLow: com.confidence === 'low' && com.value != null, comIncluded: q.commission_included,
-          notes: q.notes || '', flags: q.flags || [], current: false,
-        });
-      });
-      SQ.meta.warnings = (SQ.meta.warnings || []).concat(d.warnings || []);
-      SQ.meta.model = d.model; SQ.meta.ms = d.ms; SQ.meta.documentFuel = d.document_fuel;
-      var n = (d.quotes || []).length;
-      sqSay('Read ' + n + ' priced option' + (n === 1 ? '' : 's') + ' from ' + filename + ' in ' + Math.round((d.ms || 0) / 1000) + 's'
-        + (d.fuel_applied && d.fuel_applied !== 'auto' ? ' (' + d.fuel_applied + ' only)' : '') + '.');
-      document.getElementById('sqResultCard').style.display = '';
-      sqRender();
-    }
-
-    // ── the table ──
-    function sqAnnual(r) {
-      var sc = (Number(r.sc) || 0) * 365 / 100;
-      if (sqFuel() === 'gas') {
-        var kwh = sqNum('sqKwh'), rate = r.unit != null ? r.unit : r.day;
-        if (rate == null) return null;
-        return kwh * rate / 100 + sc;
-      }
-      var day = sqNum('sqDay'), night = sqNum('sqNight'), kva = sqNum('sqKva');
-      var energy;
-      if (r.unit != null) energy = (day + night) * r.unit / 100;
-      else if (r.day != null && r.night != null) energy = (day * r.day + night * r.night) / 100;
-      else if (r.day != null) energy = (day + night) * r.day / 100;
-      else return null;
-      var cap = r.cap != null && kva ? kva * r.cap * 12 / 100 : 0;     // p/kVA/month × kVA × 12
-      return energy + sc + cap;
-    }
-    /** The rows for the fuel in force. A row of unknown fuel belongs to whichever fuel is showing. */
-    function sqVisibleRows() {
-      var f = sqFuel();
-      return SQ.rows.filter(function (r) { return !r.fuel || r.fuel === 'unknown' || r.fuel === f; });
-    }
-    function sqRender() {
-      var tbl = document.getElementById('sqTable'); if (!tbl || !SQ.rows.length) return;
-      var gas = sqFuel() === 'gas';
-      var shown = sqVisibleRows();
-      var hidden = SQ.rows.length - shown.length;
-      var twoRate = !gas && shown.some(function (r) { return r.night != null; });
-      var hasCap = !gas && shown.some(function (r) { return r.cap != null; });
-      var hasCom = shown.some(function (r) { return r.com != null || r.comIncluded != null; });
-      document.getElementById('sqTitle').textContent = (gas ? 'Gas' : 'Electricity') + ' Price Analysis';
-      var b = document.getElementById('sqBusiness').value, site = document.getElementById('sqSite').value,
-          mp = document.getElementById('sqMpan').value, csd = document.getElementById('sqCsd').value;
-      document.getElementById('sqSubtitle').textContent = [b, site, mp ? (gas ? 'MPRN ' : 'MPAN ') + mp : '', csd ? 'CSD ' + csd.split('-').reverse().join('/') : '',
-        'Date ' + new Date().toLocaleDateString('en-GB')].filter(Boolean).join(' · ');
-      var rows = shown.map(function (r) { return { r: r, annual: sqAnnual(r) }; });
-      var cur = rows.find(function (x) { return x.r.current; });
-      rows.sort(function (a, b) { if (a.r.current) return -1; if (b.r.current) return 1; return (a.annual == null ? 1e18 : a.annual) - (b.annual == null ? 1e18 : b.annual); });
-      var money = function (v) { return v == null ? '—' : '£' + Math.round(v).toLocaleString(); };
-      var cell = function (r, key, dp, cls) {
-        var v = r[key]; var low = r[key + 'Low'];
-        var txt = v == null ? '' : Number(v).toFixed(dp);
-        return '<td class="edit' + (low ? ' low' : '') + (cls ? ' ' + cls : '') + '" title="' + (low ? 'Not certain — click to check or correct' : 'click to edit') + '" onclick="sqEdit(this,\'' + r.id + '\',\'' + key + '\',' + dp + ')">' + txt + '</td>';
-      };
-      // Commission the supplier says is in the rates: the figure in p/kWh, "included" when
-      // they say so without a figure, "excluded" when they say the rates are bare.
-      var comCell = function (r) {
-        if (r.current) return '<td style="color:var(--muted);">—</td>';
-        var low = r.comLow;
-        var txt = r.com != null ? Number(r.com).toFixed(2) + ' p/kWh' : (r.comIncluded === true ? 'included' : (r.comIncluded === false ? 'excluded' : ''));
-        return '<td class="edit' + (low ? ' low' : '') + '" title="' + (low ? 'Not certain — click to check or correct' : 'Commission the supplier says is built into these rates, p/kWh. Click to edit.') + '" onclick="sqEdit(this,\'' + r.id + '\',\'com\',2)">' + txt + '</td>';
-      };
-      var head = '<tr><th>Supplier</th><th>Standing Charge<br>p/day</th>'
-        + (gas ? '<th>Unit Rate<br>p/kWh</th>' : (twoRate ? '<th>Day Units<br>p/kWh</th><th>Night Units<br>p/kWh</th>' : '<th>Unit Rate<br>p/kWh</th>'))
-        + (hasCap ? '<th>Capacity charge<br>p/kVA/month</th>' : '')
-        + '<th>Contract Period<br>(months)</th><th>Payment<br>Method</th>'
-        + (hasCom ? '<th>Commission<br>included</th>' : '')
-        + '<th>Approx. Annual<br>Expenditure</th><th>Difference</th><th></th></tr>';
-      var body = rows.map(function (x) {
-        var r = x.r;
-        var diff = (cur && !r.current && x.annual != null && cur.annual != null) ? x.annual - cur.annual : null;
-        var rate = gas ? cell(r, r.unit != null ? 'unit' : 'day', 3)
-          : twoRate ? (cell(r, r.unit != null ? 'unit' : 'day', 3) + cell(r, 'night', 3))
-          : cell(r, r.unit != null ? 'unit' : 'day', 3);
-        return '<tr class="' + (r.current ? 'cur' : '') + '">'
-          + '<td class="sup edit" onclick="sqEdit(this,\'' + r.id + '\',\'supplier\',null)"' + (r.supplierFromHint ? ' title="The document did not name the supplier; this is the one picked above"' : '') + '>' + escapeHtml(r.supplier)
-          + (r.supplierFromHint ? ' <span style="font-weight:400;color:#8a6d1c;font-size:10.5px;">(picked)</span>' : '')
-          + (r.product ? ' <span style="font-weight:400;color:#555;">' + escapeHtml(r.product) + '</span>' : '') + '</td>'
-          + cell(r, 'sc', 2)
-          + rate
-          + (hasCap ? cell(r, 'cap', 2) : '')
-          + (r.current ? '<td>Current</td>' : '<td class="edit' + (r.termLow ? ' low' : '') + '" onclick="sqEdit(this,\'' + r.id + '\',\'term\',0)">' + (r.term == null ? '' : r.term) + '</td>')
-          + '<td class="edit" onclick="sqEdit(this,\'' + r.id + '\',\'pay\',null)">' + escapeHtml(r.pay || '') + '</td>'
-          + (hasCom ? comCell(r) : '')
-          + '<td style="font-weight:600;">' + money(x.annual) + '</td>'
-          + (r.current ? '<td class="diff up">n/a</td>' : '<td class="diff ' + (diff != null && diff < 0 ? 'down' : 'up') + '">' + (diff == null ? '' : (diff < 0 ? '-' : '') + '£' + Math.abs(Math.round(diff)).toLocaleString()) + '</td>')
-          + '<td style="font-size:11px;"><label title="Mark this as the customer\'s current contract"><input type="checkbox" ' + (r.current ? 'checked' : '') + ' onchange="sqSetCurrent(\'' + r.id + '\',this.checked)"> current</label>'
-          + ' <button class="btn-secondary" style="width:auto;padding:2px 7px;font-size:11px;margin-left:6px;" onclick="sqRemove(\'' + r.id + '\')" title="Remove this row">×</button></td>'
-          + '</tr>';
-      }).join('');
-      tbl.innerHTML = head + body;
-      var w = document.getElementById('sqWarn');
-      var lows = shown.filter(function (r) { return r.scLow || r.unitLow || r.dayLow || r.nightLow || r.capLow || r.termLow || r.comLow; }).length;
-      w.innerHTML = (lows ? '<div style="margin:10px 0;padding:8px 12px;border-radius:8px;background:#fde2e2;color:#8a1c1c;font-size:12.5px;"><b>' + lows + ' row' + (lows === 1 ? ' has' : 's have') + ' a figure the reader was not sure of.</b> Check the red cells against the supplier\'s document, click to correct, then Confirm all.</div>' : '')
-        + (hidden ? '<div style="margin:10px 0;padding:8px 12px;border-radius:8px;background:#fff4d6;color:#6b4e00;font-size:12.5px;"><b>' + hidden + ' ' + (gas ? 'electricity' : 'gas') + ' option' + (hidden === 1 ? '' : 's') + ' in this document ' + (hidden === 1 ? 'is' : 'are') + ' not shown.</b> This table is ' + (gas ? 'gas' : 'electricity') + '; switch the Fuel box above to see the other.</div>' : '')
-        + ((SQ.meta.warnings || []).length ? '<div style="margin:10px 0;font-size:12px;color:var(--muted);">Reader notes: ' + escapeHtml(SQ.meta.warnings.slice(0, 4).join(' · ')) + '</div>' : '')
-        + (!cur ? '<div style="margin:10px 0;font-size:12px;color:var(--muted);">Tick <b>current</b> on the row that is the customer\'s existing contract (or add one) and the Difference column fills in.</div>' : '');
-    }
-    function sqEdit(td, id, key, dp) {
-      var r = SQ.rows.find(function (x) { return x.id === id; }); if (!r || td.querySelector('input')) return;
-      var isText = dp === null;
-      var inp = document.createElement('input'); inp.className = 'cell'; inp.value = r[key] == null ? '' : r[key];
-      if (isText) inp.style.width = '160px';
-      td.innerHTML = ''; td.appendChild(inp); inp.focus(); inp.select();
-      var done = function () {
-        var v = inp.value.trim();
-        r[key] = isText ? v : (v === '' ? null : Number(v.replace(/[^0-9.\-]/g, '')));
-        r[key + 'Low'] = false;                     // a broker has looked at it
-        sqRender();
-      };
-      inp.onblur = done; inp.onkeydown = function (e) { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { inp.onblur = null; sqRender(); } };
-    }
-    function sqConfirmAll() { SQ.rows.forEach(function (r) { ['sc', 'unit', 'day', 'night', 'cap', 'term', 'com'].forEach(function (k) { r[k + 'Low'] = false; }); }); sqRender(); }
-    function sqSetCurrent(id, on) { SQ.rows.forEach(function (r) { r.current = on && r.id === id; }); sqRender(); }
-    function sqRemove(id) { SQ.rows = SQ.rows.filter(function (r) { return r.id !== id; }); if (!SQ.rows.length) document.getElementById('sqResultCard').style.display = 'none'; else sqRender(); }
-    function sqAddRow() {
-      SQ.rows.push({ id: 'q' + Math.random().toString(36).slice(2, 8), source: 'typed', supplier: sqSupplierHint() || 'Supplier', product: '', fuel: sqFuel(),
-        term: null, pay: 'DD', sc: null, unit: null, day: null, night: null, cap: null, com: null, comIncluded: null, notes: '', current: !SQ.rows.some(function (r) { return r.current; }) });
-      document.getElementById('sqResultCard').style.display = ''; sqRender();
-    }
-    function sqClear() { SQ.rows = []; SQ.meta = {}; SQ.detected = null; document.getElementById('sqResultCard').style.display = 'none'; document.getElementById('sqPaste').value = ''; sqSay(''); sqPaintConsumption(); }
 
     function brokerNav(view){
       var sales = document.getElementById('brokerSalesView');
