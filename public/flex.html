@@ -3641,7 +3641,8 @@ renderPositionsTable = function(rows, basket){
   const tbody = document.querySelector('#pos-table-container tbody'); if(!tbody) return;
   [...tbody.rows].forEach((tr,i)=>{
     const m = rows[i]; if(!m) return;
-    const mktCell = tr.cells[8];
+    // By key, not by position — four columns moved in round 17 and this was cells[8].
+    const mktCell = tr.querySelector('[data-k="mkt"]');
     const dm = fxDisplayMkt(basket, m);
     if (mktCell && dm.te){
       // Showing TotalEnergies. The Marex source annotation would be wrong here, and so
@@ -3664,7 +3665,10 @@ renderPositionsTable = function(rows, basket){
       mktCell.title = (FX_MKT_SRC === 'te' ? 'No TotalEnergies price for this month — showing Marex. ' : '') + _srcTxt;
       if (_srcSup) mktCell.innerHTML += `<sup style="font-size:8px;color:#8a92a6;margin-left:2px">${_srcSup}</sup>`;
     }
-    if (EDIT) fxMakeCellEditable(tr.cells[2], m.baseload_vol, v=>fxUpdMonth(basket, m, 'baseload_vol', v));
+    // Likewise: this was cells[2], and Baseload (kWh) now sits immediately after it.
+    // Editing the wrong cell here would write a kWh figure into baseload_vol.
+    const baseCell = EDIT ? tr.querySelector('[data-k="base"]') : null;
+    if (baseCell) fxMakeCellEditable(baseCell, m.baseload_vol, v=>fxUpdMonth(basket, m, 'baseload_vol', v));
   });
 };
 const _renderPositions = renderPositions;
@@ -5367,25 +5371,43 @@ async function fxExportBasket(){
   if(typeof ExcelJS==='undefined') return fxToast('Excel engine not loaded — reload the page', false);
   const isPower=b.commodity==='power';
   const vu=b.unit_vol, pu=b.unit_price;
-  const wb=new ExcelJS.Workbook();
-  const ws=wb.addWorksheet('Positions',{views:[{state:'frozen',ySplit:1}]});
-  ws.columns=[
-    {header:'Month',width:10},{header:'Season',width:11},{header:`Baseload (${vu})`,width:14},
-    {header:`Secured (${vu})`,width:13},{header:`WAP (${pu})`,width:12},{header:'Secured %',width:10},
-    {header:'Locked cost (£)',width:14},{header:`Open (${vu})`,width:12},{header:`Mkt price (${pu})`,width:14},
-    {header:'MTM cost (£)',width:14}
+  const nec=fxNecFor(b);
+  const volFmt=isPower?'0.0000':'#,##0';
+  const n2=(v,dp)=>v!=null&&!isNaN(v)?+(+v).toFixed(dp):null;
+  // ONE spec, in the on-screen column order, so the sheet and the table cannot drift —
+  // the old list had drifted already: it never carried Delivered rate. Every cell is
+  // written as a NUMBER with a format, never a pre-formatted string, so the sheet stays
+  // arithmetic. Next Target and Upper Alert are deliberately absent: they are target
+  // data, and the Targets tab's own export carries them properly, with Auth/Adv and
+  // per-tier detail that a single column here would flatten away.
+  const spec=[
+    {h:'Month',                 w:10, f:null,       align:'left', v:m=>fmtMonth(m.month)},
+    {h:'Season',                w:11, f:null,       v:m=>m.season||''},
+    {h:`Baseload (${vu})`,      w:14, f:volFmt,     v:m=>m.baseload_vol},
+    {h:'Baseload (kWh)',        w:15, f:'#,##0',    v:m=>n2(FlexCore.energyKwh(b,m),0)},
+    {h:`Secured (${vu})`,       w:13, f:volFmt,     v:m=>m.secured_vol},
+    {h:'Secured (kWh)',         w:15, f:'#,##0',    v:m=>n2(FlexCore.securedKwh(b,m),0)},
+    {h:`WAP (${pu})`,           w:12, f:'0.00',     v:m=>n2(m.secured_wap,4)},
+    {h:'Secured %',             w:10, f:'0%',       v:m=>m.secured_pct!=null?+m.secured_pct:null},
+    {h:'Sec. cost (£)',         w:14, f:'#,##0.00', v:m=>n2(m.secured_cost,2)},
+    {h:`Open (${vu})`,          w:12, f:volFmt,     v:m=>n2(m.open_vol,isPower?4:0)},
+    {h:`Mkt price (${pu})`,     w:14, f:'0.00',     v:m=>n2(m.market_price,2)},
+    {h:`MtM price (${pu})`,     w:14, f:'0.00',     v:m=>n2(m.mtm_price,2)},
+    {h:'MtM cost (£)',          w:14, f:'#,##0.00', v:m=>n2(m.mtm_cost,2)},
+    {h:'Delivered rate (p/kWh)',w:18, f:'0.000',    v:m=>n2(FlexCore.deliveredRate(b,m,nec),3)},
+    {h:'Delivered cost (£)',    w:17, f:'#,##0.00', v:m=>n2(FlexCore.deliveredCost(b,m,nec),2)}
   ];
+  const wb=new ExcelJS.Workbook();
+  const ws=wb.addWorksheet('Positions',{views:[{state:'frozen',xSplit:1,ySplit:1}]});
+  ws.columns=spec.map(c=>({header:c.h,width:c.w}));
   const nowM=fxNowMonth();
   const GREEN='FFE3F2DF', YELLOW='FFFDF3CF', NAVY='FF1F2D4D';
   const hdr=ws.getRow(1);
   hdr.eachCell(c=>{ c.fill={type:'pattern',pattern:'solid',fgColor:{argb:NAVY}};
-    c.font={color:{argb:'FFFFFFFF'},bold:true,size:10}; c.alignment={horizontal:'center'};
+    c.font={color:{argb:'FFFFFFFF'},bold:true,size:10}; c.alignment={horizontal:'center',wrapText:true};
     c.border={bottom:{style:'thin',color:{argb:'FFB9C0D4'}}}; });
   for(const m of b.months){
-    const row=ws.addRow([ fmtMonth(m.month), m.season||'', m.baseload_vol, m.secured_vol,
-      m.secured_wap!=null?+m.secured_wap.toFixed(4):null, m.secured_pct!=null?+(m.secured_pct):null,
-      m.secured_cost!=null?+m.secured_cost.toFixed(2):null, m.open_vol!=null?+m.open_vol.toFixed(isPower?4:0):null,
-      m.market_price!=null?+m.market_price.toFixed(2):null, m.mtm_cost!=null?+m.mtm_cost.toFixed(2):null ]);
+    const row=ws.addRow(spec.map(c=>c.v(m)));
     let fill=null;
     if(m.month===nowM) fill=YELLOW;
     else if((m.secured_pct||0)>=0.995) fill=GREEN;
@@ -5394,13 +5416,11 @@ async function fxExportBasket(){
       c.border={bottom:{style:'hair',color:{argb:'FFE0E3EC'}}};
       c.font={size:10};
     });
-    row.getCell(3).numFmt=isPower?'0.0000':'#,##0';
-    row.getCell(4).numFmt=isPower?'0.0000':'#,##0';
-    row.getCell(8).numFmt=isPower?'0.0000':'#,##0';
-    row.getCell(5).numFmt='0.00'; row.getCell(9).numFmt='0.00';
-    row.getCell(6).numFmt='0%';
-    row.getCell(7).numFmt='#,##0.00'; row.getCell(10).numFmt='#,##0.00';
-    row.getCell(1).alignment={horizontal:'left'};
+    spec.forEach((c,i)=>{
+      const cell=row.getCell(i+1);
+      if(c.f) cell.numFmt=c.f;
+      if(c.align) cell.alignment={horizontal:c.align};
+    });
   }
   const buf=await wb.xlsx.writeBuffer();
   fxDownloadBlob(buf, `${b.name} — Positions ${new Date().toISOString().slice(0,10)}.xlsx`);
