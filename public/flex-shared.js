@@ -41,11 +41,26 @@
   // (which is already in the basket's own price unit), scale by this so the two agree.
   function costToPrice(basket) { return isPower(basket) ? 1 : 100; }
 
+  // Gross calorific value of a therm. One number, used by both the price conversion and
+  // the volume conversion below, so a p/kWh rate and a kWh volume can never be derived
+  // from two different therms.
+  var THERM_KWH = 29.3071;
+
   // Wholesale price to p/kWh: power £/MWh ÷ 10; gas p/therm ÷ 29.3071.
   function convPkwh(basket, mkt) {
     if (mkt == null) return null;
-    return isPower(basket) ? mkt / 10 : mkt / 29.3071;
+    return isPower(basket) ? mkt / 10 : mkt / THERM_KWH;
   }
+
+  // An energy total in the basket's own unit — MWh for power (MW × 24 × days), therms for
+  // gas (th/d × days) — converted to kWh. Takes the TOTAL, not the row, so every volume
+  // on the table goes through one conversion and the kWh columns cannot disagree.
+  function toKwh(basket, total) {
+    if (total == null) return null;
+    return isPower(basket) ? +total * 1000 : +total * THERM_KWH;
+  }
+  function energyKwh(basket, m)  { return toKwh(basket, m && m.baseload_vol_total); }
+  function securedKwh(basket, m) { return toKwh(basket, m && m.secured_vol_total); }
 
   // Commodity-aware volume rounding. Power -> 4 dp, gas -> whole, half away from zero.
   function volDisp(n, power) {
@@ -155,6 +170,17 @@
     var mtm = m.mtm_price;
     if (nec == null || !mtm) return null;
     return convPkwh(basket, mtm) + nec;
+  }
+
+  // The same rate against the month's own energy: p/kWh × kWh ÷ 100 = pounds. This ties
+  // back to MtM Cost by construction — delivered rate is the MtM price converted plus the
+  // season's NEC, so delivered cost is MtM cost plus that NEC over the same kWh. Blank
+  // wherever the rate is blank, for the same reason: a cost missing its non-energy half
+  // would be read as the whole thing.
+  function deliveredCost(basket, m, nm) {
+    var dr = deliveredRate(basket, m, nm), kwh = energyKwh(basket, m);
+    if (dr == null || kwh == null) return null;
+    return dr * kwh / 100;
   }
 
   /* ── TARGETS ──────────────────────────────────────────────────────────────────────
@@ -395,6 +421,15 @@
       if (dr != null && w > 0) { drSum += dr * w; drW += w; }
     });
 
+    // MtM price is weighted the same way and over the same weight, so the two rate
+    // columns in the totals row are answering the same question about the same book.
+    // Months with no MtM price are left out of both halves rather than counted as zero.
+    var mpSum = 0, mpW = 0;
+    rows.forEach(function (m) {
+      var w = m.baseload_vol_total || 0;
+      if (m.mtm_price != null && w > 0) { mpSum += +m.mtm_price * w; mpW += w; }
+    });
+
     return {
       base: sum(function (m) { return m.baseload_vol; }),
       sec:  sum(function (m) { return m.secured_vol; }),
@@ -405,6 +440,12 @@
       wap:  secEnergy > 0 ? (cost / secEnergy) * costToPrice(basket) : 0,
       pct:  baseEnergy > 0 ? secEnergy / baseEnergy : 0,
       dr:   drW > 0 ? drSum / drW : null,
+      mtmPx: mpW > 0 ? mpSum / mpW : null,
+      kwh:  sum(function (m) { return energyKwh(basket, m); }),
+      seckwh: sum(function (m) { return securedKwh(basket, m); }),
+      dcost: rows.reduce(function (a, m) {
+        var c = deliveredCost(basket, m, nm); return a + (c || 0);
+      }, 0),
       power: power
     };
   }
@@ -428,9 +469,20 @@
         value: function (m) { return fmtVolC(m.baseload_vol, power); },
         total: function (t) { return fmtVolC(t.base, power); } },
 
+      // The same volume as energy. Whole kWh on both portals — a fraction of a kilowatt
+      // hour is noise on a monthly baseload and would only cost the column its alignment.
+      { key: 'basekwh', head: 'Baseload (kWh)', align: 'right',
+        value: function (m) { var k = energyKwh(basket, m); return k != null ? fmtNum(Math.round(k), 0) : '-'; },
+        total: function (t) { return t.kwh != null ? fmtNum(Math.round(t.kwh), 0) : '-'; } },
+
       { key: 'sec',    head: 'Secured (' + vu + ')', align: 'right',
         value: function (m) { return fmtVolC(m.secured_vol, power); },
         total: function (t) { return fmtVolC(t.sec, power); } },
+
+      // Secured as energy, beside its rate — the same pairing as Baseload above.
+      { key: 'seckwh', head: 'Secured (kWh)', align: 'right',
+        value: function (m) { var k = securedKwh(basket, m); return k != null ? fmtNum(Math.round(k), 0) : '-'; },
+        total: function (t) { return t.seckwh != null ? fmtNum(Math.round(t.seckwh), 0) : '-'; } },
 
       { key: 'wap',    head: 'WAP (' + pu + ')', align: 'right',
         value: function (m) { return m.secured_wap ? m.secured_wap.toFixed(2) : '-'; },
@@ -459,6 +511,21 @@
         },
         total: function () { return ''; } },
 
+      // The blended price behind MtM Cost: secured volume at its WAP, open volume at the
+      // Mkt price beside it. Sits between the two so the row reads price, price, cost.
+      { key: 'mtmpx',  head: 'MtM Price (' + priceUnit + ')', align: 'right',
+        value: function (m) { return m.mtm_price != null ? (+m.mtm_price).toFixed(2) : '-'; },
+        total: function (t) { return t.mtmPx != null ? t.mtmPx.toFixed(2) : ''; } },
+
+      { key: 'mtm',    head: 'MtM Cost', align: 'right',
+        value: function (m) { return m.mtm_cost != null ? fmtFull(m.mtm_cost) : '-'; },
+        total: function (t) { return fmtFull(t.mtm); },
+        sign:  function (m) { return signOf(m.mtm_cost); },
+        totalSign: function (t) { return signOf(t.mtm); } },
+
+      // Delivered rate and the cost it produces, side by side and to the right of the
+      // wholesale pair — so the table runs wholesale price, wholesale cost, delivered
+      // rate, delivered cost, and each cost sits beside the rate that made it.
       { key: 'dr',     head: 'Delivered rate (p/kWh)', align: 'right',
         value: function (m, ctx) {
           var dr = deliveredRate(basket, m, ctx && ctx.nec);
@@ -466,11 +533,12 @@
         },
         total: function (t) { return t.dr != null ? t.dr.toFixed(3) : ''; } },
 
-      { key: 'mtm',    head: 'MtM Cost', align: 'right',
-        value: function (m) { return m.mtm_cost != null ? fmtFull(m.mtm_cost) : '-'; },
-        total: function (t) { return fmtFull(t.mtm); },
-        sign:  function (m) { return signOf(m.mtm_cost); },
-        totalSign: function (t) { return signOf(t.mtm); } },
+      { key: 'dcost',  head: 'Delivered Cost', align: 'right',
+        value: function (m, ctx) {
+          var c = deliveredCost(basket, m, ctx && ctx.nec);
+          return c != null ? fmtFull(c) : '<span class="fx-dash">—</span>';
+        },
+        total: function (t) { return t.dcost ? fmtFull(t.dcost) : ''; } },
 
       { key: 'nt',     head: 'Next Target', align: 'center',
         value: function (m) {
@@ -709,7 +777,10 @@
         var html = (opts.cellHtml && opts.cellHtml(c, r, ctx));
         if (html == null) html = c.value(r, ctx);
         var attr = (opts.cellAttr && opts.cellAttr(c, r, ctx)) || '';
-        return '<td class="' + cls.join(' ').trim() + '"' + attr + '>' + html + '</td>';
+        // data-k is how a page finds a cell. The desk used to reach for tr.cells[8] and
+        // tr.cells[2] by position, so inserting a column silently moved its Mkt tooltip
+        // onto another column and made the wrong cell editable. Address cells by name.
+        return '<td class="' + cls.join(' ').trim() + '" data-k="' + esc(c.key) + '"' + attr + '>' + html + '</td>';
       }).join('');
       var rc = opts.rowClass ? (opts.rowClass(r, ctx) || '') : '';
       var ra = opts.rowAttr  ? (opts.rowAttr(r, ctx)  || '') : '';
@@ -746,6 +817,8 @@
     seasonKey: seasonKey, fmtMonth: fmtMonth,
     // derived
     necMap: necMap, deliveredRate: deliveredRate,
+    energyKwh: energyKwh, securedKwh: securedKwh, toKwh: toKwh,
+    deliveredCost: deliveredCost, THERM_KWH: THERM_KWH,
     stats: stats, positionsTotals: positionsTotals, seasonGroups: seasonGroups,
     // targets
     tierCount: tierCount, targetRule: targetRule, requiredRaw: requiredRaw,
