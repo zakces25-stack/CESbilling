@@ -3651,9 +3651,18 @@ renderPositionsTable = function(rows, basket){
         + (m.market_price != null ? m.market_price.toFixed(2) : 'n/a') + '.';
       mktCell.innerHTML += '<sup style="font-size:8px;color:#c26a1f;margin-left:2px" aria-hidden="true">TE</sup>';
     } else if (mktCell && m.mkt_source){
-      mktCell.title = (FX_MKT_SRC === 'te' ? 'No TotalEnergies price for this month — showing Marex. ' : '')
-        + 'Live from market curves — ' + m.mkt_source + (m.mkt_source==='stated'?' (no curve period covers this month yet)':' price');
-      if (m.mkt_source !== 'month') mktCell.innerHTML += `<sup style="font-size:8px;color:#8a92a6;margin-left:2px">${m.mkt_source==='season'?'S':'·'}</sup>`;
+      // The view returns four sources, not three: 'manual' means the figure came from Full
+      // curve data rather than the live curve, and calling that "live from market curves"
+      // is how a stale monthly row can sit unnoticed for weeks. Each one says what it is.
+      const _srcTxt = {
+        month:  'Live from the market curve — monthly price for this month',
+        season: 'Live from the market curve — season price; no monthly figure for this month',
+        manual: 'From Full curve data — hand-entered for this month, pushed to the baskets',
+        stated: 'Stored on the basket — no curve period covers this month'
+      }[m.mkt_source] || ('Market price source: ' + m.mkt_source);
+      const _srcSup = { season:'S', manual:'M', stated:'·' }[m.mkt_source] || '';
+      mktCell.title = (FX_MKT_SRC === 'te' ? 'No TotalEnergies price for this month — showing Marex. ' : '') + _srcTxt;
+      if (_srcSup) mktCell.innerHTML += `<sup style="font-size:8px;color:#8a92a6;margin-left:2px">${_srcSup}</sup>`;
     }
     if (EDIT) fxMakeCellEditable(tr.cells[2], m.baseload_vol, v=>fxUpdMonth(basket, m, 'baseload_vol', v));
   });
@@ -5795,7 +5804,7 @@ async function fxRenderFullCurve(){
   const _selS = (_fxSeasonPick && manSeasons.indexOf(_fxSeasonPick) !== -1) ? _fxSeasonPick : manSeasons[0];
   const seasonTool = manSeasons.length ? `<span style="display:inline-flex;align-items:center;gap:6px;margin-left:6px;padding-left:10px;border-left:1px solid #e0dccf"><b style="font-size:11px;color:#4b5563">Set whole season:</b><select id="fxCurveSeasonSel" style="font-size:11px;padding:2px 4px">${manSeasons.map(s=>`<option value="${escape(s)}"${s===_selS?' selected':''}>${escape(s)}</option>`).join('')}</select><select id="fxCurveSeasonComm" style="font-size:11px;padding:2px 4px"><option value="gas"${_fxSeasonComm==='gas'?' selected':''}>Gas p/th</option><option value="power"${_fxSeasonComm==='power'?' selected':''}>Power &pound;/MWh</option></select><input id="fxCurveSeasonVal" type="number" step="0.01" placeholder="value" style="width:78px;font-size:11px;padding:2px 4px"><button class="fx-btn" onclick="fxCurveSetSeason()">Apply</button></span>` : '';
   const tools = EDIT
-    ? `<div class="fx-toolbar" style="margin:0 0 10px;flex-wrap:wrap"><button class="fx-btn" onclick="fxFullCurveExport()">&#8623; Export to Excel</button><label class="fx-btn" style="cursor:pointer;display:inline-flex;align-items:center">&#8624; Import from Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])fxFullCurveImport(this.files[0]);this.value=''"></label>${seasonTool}<span style="font-size:11px;color:#6b7280;flex-basis:100%;margin-top:4px">Click a Power/Gas figure to edit, or set a whole season at once above. Imported months refresh from the twice-daily Marex curve (always the priority); the manual tail beyond the imported seasons is yours to maintain.</span></div>`
+    ? `<div class="fx-toolbar" style="margin:0 0 10px;flex-wrap:wrap"><button class="fx-btn" onclick="fxFullCurveExport()">&#8623; Export to Excel</button><label class="fx-btn" style="cursor:pointer;display:inline-flex;align-items:center">&#8624; Import from Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])fxFullCurveImport(this.files[0]);this.value=''"></label><button class="fx-btn" onclick="fxCurvePushModal()" title="Apply these figures to the market price on every basket — shows what would change first">&#8679; Push to baskets</button>${seasonTool}<span style="font-size:11px;color:#6b7280;flex-basis:100%;margin-top:4px">Click a Power/Gas figure to edit, or set a whole season at once above. Imported months refresh from the twice-daily Marex curve (always the priority); the manual tail beyond the imported seasons is yours to maintain. <b>Editing here does not move the Positions tab on its own</b> &mdash; use Push to baskets, which lists every month that disagrees before writing.</span></div>`
     : '';
   body.innerHTML = tools
     + `<div style="font-size:11px;color:#6b7280;margin:2px 0 8px;">${months.length} months · oldest first · Gas p/th, Power £/MWh</div>`
@@ -5814,12 +5823,115 @@ async function fxRenderFullCurve(){
         const r=(_fxFullCurve||[]).find(x=>x.commodity===c && String(x.month).slice(0,10)===mo)||{};
         const {error}=await FLEX.sb.from('flex_curve_history').upsert({commodity:c,month:mo,quarter:r.quarter||null,season:r.season||null,mid:v},{onConflict:'commodity,month'});
         if(error){ fxToast(error.message||'Save failed', false); return; }
-        fxToast('Curve updated'); _fxFullCurve=null; fxRenderFullCurve();
+        fxToast('Curve updated — use “Push to baskets” to apply it to Positions');
+        _fxFullCurve=null; fxRenderFullCurve();
       });
     };
   });
 }
 async function fxRenderPrevCurve(){ return fxRenderFullCurve(); }  // back-compat alias
+
+// ── FULL CURVE → BASKETS ─────────────────────────────────────────
+// Editing a figure on Full curve data writes flex_curve_history and nothing else. That
+// table is only the THIRD choice in the flex_positions price resolution —
+//     COALESCE(flex_curves month, flex_curves season, flex_curve_history, basket_months.market_price)
+// — so while a flex_curves monthly row exists for that month it wins, and the hand-entered
+// figure is never reached. Those monthly rows are written by flex_apply_curve, which only
+// ever upserts: when a month rolls off the forward Marex curve its row stops being
+// refreshed but keeps winning, frozen at the last price Marex quoted before delivery.
+//
+// So the push goes through flex_apply_curve, which writes the flex_curves monthly row AND
+// flex_basket_months.market_price together — the two places that actually decide what the
+// Positions tab shows. Writing only market_price would change nothing, because 'stated' is
+// last in the same COALESCE.
+//
+// Deliberate and previewed, not automatic: one figure here rewrites the market price on
+// every basket carrying that month, and flows straight into MtM, residual cost, Targeted
+// WAPs and the client reports.
+const FX_PUSH_EPS = 5e-4;                 // agreement at the precision the tab prints
+
+// What Positions currently shows for a month, per basket, against what Full curve data
+// says. Read from the loaded basket months — that is the resolved view output, i.e.
+// literally the number on screen — rather than re-deriving the COALESCE here.
+function fxCurvePushDiffs(curve){
+  const want = {};
+  (curve || []).forEach(r => {
+    if (r.mid == null) return;
+    const k = String(r.month).slice(0, 10);
+    (want[r.commodity] = want[r.commodity] || {})[k] = +r.mid;
+  });
+  const nowM = fxNowMonth();
+  const out = [];
+  for (const comm in want){
+    const baskets = (BASKETS || []).filter(b => b.commodity === comm && !b.archived);
+    for (const mo in want[comm]){
+      const v = want[comm][mo];
+      const rows = baskets.map(b => (b.months || []).find(m => m.month === mo)).filter(Boolean);
+      if (!rows.length) continue;                       // no basket carries this month
+      const off = rows.filter(m => m.market_price == null || Math.abs(m.market_price - v) >= FX_PUSH_EPS);
+      if (!off.length) continue;                        // already agrees everywhere
+      out.push({ commodity: comm, month: mo, to: v,
+                 from: off[0].market_price, src: off[0].mkt_source || null,
+                 baskets: off.length, total: rows.length,
+                 // A month the live curve still quotes will be overwritten at the next
+                 // import — that is correct for a forward month, but say so first.
+                 live: mo > nowM });
+    }
+  }
+  return out.sort((a, b) => a.commodity < b.commodity ? -1 : a.commodity > b.commodity ? 1
+                          : (a.month < b.month ? -1 : a.month > b.month ? 1 : 0));
+}
+
+const FX_SRC_WORD = { month:'live monthly curve', season:'live season curve',
+                      manual:'Full curve data', stated:'stored on the basket' };
+
+async function fxCurvePushModal(){
+  const curve = await fxLoadFullCurve(true);
+  if (curve == null) return fxToast('Could not load the curve', false);
+  const diffs = fxCurvePushDiffs(curve);
+  if (!diffs.length) return fxToast('Every basket already matches Full curve data', false);
+  window._fxCurvePush = diffs;
+  const unit = c => c === 'power' ? '£/MWh' : 'p/th';
+  const num  = (v, c) => v == null ? '<span style="color:#c8cdd8">&mdash;</span>' : (+v).toFixed(c === 'power' ? 2 : 3);
+  const nLive = diffs.filter(d => d.live).length;
+  const rows = diffs.map((d, i) => `<tr>
+      <td><input type="checkbox" class="fx-push-ck" data-i="${i}"${d.live ? '' : ' checked'}></td>
+      <td>${d.commodity === 'power' ? 'Power' : 'Gas'}</td>
+      <td>${fmtMonth(d.month)}${d.live ? ' <span class="fx-cap-tag" title="The twice-daily Marex import still quotes this month and will overwrite a pushed value">live</span>' : ''}</td>
+      <td class="td-right">${num(d.from, d.commodity)}</td>
+      <td style="font-size:11px;color:#6b7280">${escape(FX_SRC_WORD[d.src] || d.src || '—')}</td>
+      <td class="td-right"><b>${num(d.to, d.commodity)}</b></td>
+      <td class="td-right">${d.baskets}${d.baskets !== d.total ? ' of ' + d.total : ''}</td>
+      <td style="font-size:11px;color:#6b7280">${unit(d.commodity)}</td></tr>`).join('');
+  fxModal(`<h3>Push Full curve data to baskets</h3>
+  <p style="font-size:12.5px;color:#4b5563">${diffs.length} month${diffs.length === 1 ? '' : 's'} where the baskets disagree with Full curve data. Pushing sets the market price on every basket carrying that month, and it flows into MtM, residual cost, Targeted WAPs and client reports.</p>
+  ${nLive ? `<div class="fx-err" style="display:block">${nLive} month${nLive === 1 ? ' is' : 's are'} still quoted by the live Marex curve and marked <b>live</b>. The twice-daily import will overwrite a pushed value on those, so they start unticked — the live curve is the priority for months still trading.</div>` : ''}
+  <div class="fx-preview" style="max-height:320px"><table class="fx-tt-table">
+    <thead><tr><th></th><th>Fuel</th><th>Month</th><th class="td-right">Baskets show</th><th>from</th><th class="td-right">Curve says</th><th class="td-right">Baskets</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div>
+  <div class="fx-err" id="fxMErr"></div>
+  <div class="fx-modal-foot"><button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
+  <button class="fx-btn green" onclick="fxCurvePushApply()">Push ticked months</button></div>`);
+}
+
+async function fxCurvePushApply(){
+  const all = window._fxCurvePush; if (!all) return;
+  const picked = [...document.querySelectorAll('.fx-push-ck')]
+    .filter(c => c.checked).map(c => all[+c.dataset.i]).filter(Boolean);
+  if (!picked.length) return fxMErr('Nothing ticked.');
+  const btns = document.querySelectorAll('#fxModal .fx-btn'); btns.forEach(b => b.disabled = true);
+  // One call per commodity, months batched — flex_apply_curve writes its own audit row per
+  // call, so a push reads as one entry in the log rather than one per month.
+  const byComm = {};
+  picked.forEach(d => (byComm[d.commodity] = byComm[d.commodity] || []).push({ month: d.month, mid: d.to }));
+  for (const comm in byComm){
+    const { error } = await FLEX.sb.rpc('flex_apply_curve',
+      { p_commodity: comm, p_entries: byComm[comm], p_extra: [] });
+    if (error){ btns.forEach(b => b.disabled = false); return fxMErr(comm + ': ' + error.message); }
+  }
+  fxToast('Pushed ' + picked.length + ' month' + (picked.length === 1 ? '' : 's') + ' to baskets');
+  window._fxCurvePush = null; fxCloseModal(); _fxFullCurve = null; fxScheduleReload();
+}
 async function fxFullCurveExport(){
   if(typeof ExcelJS==='undefined') return fxToast('Excel engine not loaded — reload the page', false);
   const data=await fxLoadFullCurve(true); if(data==null) return fxToast('Could not load the curve', false);
