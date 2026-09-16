@@ -61,6 +61,7 @@
   }
   function energyKwh(basket, m)  { return toKwh(basket, m && m.baseload_vol_total); }
   function securedKwh(basket, m) { return toKwh(basket, m && m.secured_vol_total); }
+  function openKwh(basket, m)    { return toKwh(basket, m && m.open_vol_total); }
 
   // Commodity-aware volume rounding. Power -> 4 dp, gas -> whole, half away from zero.
   function volDisp(n, power) {
@@ -443,6 +444,10 @@
       mtmPx: mpW > 0 ? mpSum / mpW : null,
       kwh:  sum(function (m) { return energyKwh(basket, m); }),
       seckwh: sum(function (m) { return securedKwh(basket, m); }),
+      openkwh: sum(function (m) { return openKwh(basket, m); }),
+      // Open cost is residual_cost straight from the view — open volume at the market
+      // price, already in pounds and already commodity-scaled.
+      opencost: sum(function (m) { return m.residual_cost; }),
       dcost: rows.reduce(function (a, m) {
         var c = deliveredCost(basket, m, nm); return a + (c || 0);
       }, 0),
@@ -484,7 +489,7 @@
         value: function (m) { var k = securedKwh(basket, m); return k != null ? fmtNum(Math.round(k), 0) : '-'; },
         total: function (t) { return t.seckwh != null ? fmtNum(Math.round(t.seckwh), 0) : '-'; } },
 
-      { key: 'wap',    head: 'WAP (' + pu + ')', align: 'right',
+      { key: 'wap',    head: 'Weighted Average Price (' + pu + ')', align: 'right',
         value: function (m) { return m.secured_wap ? m.secured_wap.toFixed(2) : '-'; },
         total: function (t) { return t.wap > 0 ? t.wap.toFixed(2) : '-'; } },
 
@@ -494,7 +499,7 @@
         value: function (m) { return pctCell(m.secured_pct || 0); },
         total: function (t) { return pctCell(t.pct); } },
 
-      { key: 'cost',   head: 'Sec. Cost', align: 'right',
+      { key: 'cost',   head: 'Secured Cost', align: 'right',
         value: function (m) { return fmtFull(m.secured_cost); },
         total: function (t) { return fmtFull(t.cost); } },
 
@@ -502,14 +507,26 @@
         value: function (m) { return fmtVolC(m.open_vol, power); },
         total: function (t) { return fmtVolC(t.open, power); } },
 
+      // Open as energy, beside its rate — the third of the same pairing.
+      { key: 'openkwh', head: 'Open (kWh)', align: 'right',
+        value: function (m) { var k = openKwh(basket, m); return k != null ? fmtNum(Math.round(k), 0) : '-'; },
+        total: function (t) { return t.openkwh != null ? fmtNum(Math.round(t.openkwh), 0) : '-'; } },
+
       // The one injected value on the page: the desk prints whichever curve its toggle
       // selects, the client always prints the supplier's. Heading and dp are shared.
-      { key: 'mkt',    head: 'Mkt Price (' + priceUnit + ')', align: 'right',
+      { key: 'mkt',    head: 'Market Price (' + priceUnit + ')', align: 'right',
         value: function (m, ctx) {
           var v = ctx && ctx.mktPrice ? ctx.mktPrice(m) : m.market_price;
           return v ? (+v).toFixed(2) : '-';
         },
         total: function () { return ''; } },
+
+      // What the open volume would cost at that market price — the view's residual_cost.
+      // Sits beside the price that produced it, as MtM Cost sits beside MtM Price and
+      // Delivered Cost beside Delivered Rate.
+      { key: 'opencost', head: 'Open Cost', align: 'right',
+        value: function (m) { return m.residual_cost != null ? fmtFull(m.residual_cost) : '-'; },
+        total: function (t) { return fmtFull(t.opencost); } },
 
       // The blended price behind MtM Cost: secured volume at its WAP, open volume at the
       // Mkt price beside it. Sits between the two so the row reads price, price, cost.
@@ -526,7 +543,7 @@
       // Delivered rate and the cost it produces, side by side and to the right of the
       // wholesale pair — so the table runs wholesale price, wholesale cost, delivered
       // rate, delivered cost, and each cost sits beside the rate that made it.
-      { key: 'dr',     head: 'Delivered rate (p/kWh)', align: 'right',
+      { key: 'dr',     head: 'Delivered Rate (p/kWh)', align: 'right',
         value: function (m, ctx) {
           var dr = deliveredRate(basket, m, ctx && ctx.nec);
           return dr != null ? dr.toFixed(3) : '<span class="fx-dash">—</span>';
@@ -614,11 +631,19 @@
         value: function (g) { return fmtNum(g.base, power ? 4 : 0); } },
       { key: 'sec',    head: 'Secured (' + vu + ')', align: 'right',
         value: function (g) { return fmtNum(g.sec, power ? 4 : 0); } },
-      { key: 'wap',    head: 'WAP (' + pu + ')', align: 'right',
+      { key: 'wap',    head: 'Weighted Average Price (' + pu + ')', align: 'right',
         value: function (g) { return g.wap > 0 ? g.wap.toFixed(2) : '-'; } },
+
+      // The same WAP in p/kWh, through the same conversion the delivered rate uses, so a
+      // season's wholesale rate can be read against a delivered rate without arithmetic.
+      { key: 'wapkwh', head: 'Weighted Average Price (p/kWh)', align: 'right',
+        value: function (g) {
+          var v = g.wap > 0 ? convPkwh(basket, g.wap) : null;
+          return v != null ? v.toFixed(3) : '-';
+        } },
       { key: 'pct',    head: 'Secured %', align: 'left', bar: true,
         value: function (g) { return pctCell(g.pct); } },
-      { key: 'cost',   head: 'Sec. Cost', align: 'right',
+      { key: 'cost',   head: 'Secured Cost', align: 'right',
         value: function (g) { return fmtFull(g.cost); } },
       { key: 'mtm',    head: 'MtM Cost', align: 'right',
         value: function (g) { return fmtFull(g.mtm); },
@@ -639,7 +664,7 @@
         value: function (t) { return fmtMonth(t.month); } },
       // Unit in the heading, matching POSITIONS above — the two tabs print the same figure
       // and used to label it differently, which is the drift this file exists to stop.
-      { key: 'mkt',   head: 'Mkt Price (' + (isPower(basket) ? '£/MWh' : 'p/th') + ')', align: 'right',
+      { key: 'mkt',   head: 'Market Price (' + (isPower(basket) ? '£/MWh' : 'p/th') + ')', align: 'right',
         value: function (t, ctx) {
           var m = (basket.months || []).find(function (x) { return x.month === t.month; });
           var v = m && m.market_price != null ? m.market_price : null;
@@ -817,7 +842,7 @@
     seasonKey: seasonKey, fmtMonth: fmtMonth,
     // derived
     necMap: necMap, deliveredRate: deliveredRate,
-    energyKwh: energyKwh, securedKwh: securedKwh, toKwh: toKwh,
+    energyKwh: energyKwh, securedKwh: securedKwh, openKwh: openKwh, toKwh: toKwh,
     deliveredCost: deliveredCost, THERM_KWH: THERM_KWH,
     stats: stats, positionsTotals: positionsTotals, seasonGroups: seasonGroups,
     // targets

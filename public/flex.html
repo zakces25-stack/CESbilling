@@ -3700,7 +3700,7 @@ function fxCoreHas(){
   return true;
 }
 // Everything flex.html has come to rely on since the 9 Sep shared build.
-function fxCoreCurrent(){ return fxCoreHas('energyKwh', 'securedKwh', 'deliveredCost', 'toKwh'); }
+function fxCoreCurrent(){ return fxCoreHas('energyKwh', 'securedKwh', 'openKwh', 'deliveredCost', 'toKwh'); }
 function fxCoreVersion(){
   try { return (FlexCore && FlexCore.VERSION) ? String(FlexCore.VERSION) : 'unknown'; }
   catch (e) { return 'not loaded'; }
@@ -5441,11 +5441,13 @@ async function fxExportBasket(){
     {h:'Baseload (kWh)',        w:15, f:'#,##0',    need:1, v:m=>n2(FlexCore.energyKwh(b,m),0)},
     {h:`Secured (${vu})`,       w:13, f:volFmt,     v:m=>m.secured_vol},
     {h:'Secured (kWh)',         w:15, f:'#,##0',    need:1, v:m=>n2(FlexCore.securedKwh(b,m),0)},
-    {h:`WAP (${pu})`,           w:12, f:'0.00',     v:m=>n2(m.secured_wap,4)},
+    {h:`Weighted average price (${pu})`, w:22, f:'0.00', v:m=>n2(m.secured_wap,4)},
     {h:'Secured %',             w:10, f:'0%',       v:m=>m.secured_pct!=null?+m.secured_pct:null},
-    {h:'Sec. cost (£)',         w:14, f:'#,##0.00', v:m=>n2(m.secured_cost,2)},
+    {h:'Secured cost (£)',      w:15, f:'#,##0.00', v:m=>n2(m.secured_cost,2)},
     {h:`Open (${vu})`,          w:12, f:volFmt,     v:m=>n2(m.open_vol,isPower?4:0)},
-    {h:`Mkt price (${pu})`,     w:14, f:'0.00',     v:m=>n2(m.market_price,2)},
+    {h:'Open (kWh)',            w:15, f:'#,##0',    need:1, v:m=>n2(FlexCore.openKwh(b,m),0)},
+    {h:`Market price (${pu})`,  w:15, f:'0.00',     v:m=>n2(m.market_price,2)},
+    {h:'Open cost (£)',         w:15, f:'#,##0.00', v:m=>n2(m.residual_cost,2)},
     {h:`MtM price (${pu})`,     w:14, f:'0.00',     v:m=>n2(m.mtm_price,2)},
     {h:'MtM cost (£)',          w:14, f:'#,##0.00', v:m=>n2(m.mtm_cost,2)},
     {h:'Delivered rate (p/kWh)',w:18, f:'0.000',    v:m=>n2(FlexCore.deliveredRate(b,m,nec),3)},
