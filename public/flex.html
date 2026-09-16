@@ -3571,6 +3571,8 @@ function _fxRerenderBody(){
   });
   fxDecorateHeader();
   fxCoreBanner();
+  const _cv = document.getElementById('fxCoreVer');
+  if (_cv) _cv.textContent = 'core ' + fxCoreVersion();
 }
 
 // ── EDIT MODE toggle + header decoration ─────────────────────────
@@ -3597,7 +3599,8 @@ function fxDecorateHeader(){
       <button class="fx-btn" onclick="fxTemplateBasket()" title="Baseload + targets template for this basket — months prefilled. Same Targets sheet as the Targets tab.">&#10515; Template</button>
       <button class="fx-btn" onclick="fxImportBasket()" title="Import a filled baseload + targets template">&#10514; Import</button>
       <button class="fx-btn fx-edit-only" onclick="fxRenameModal()" title="Rename this basket everywhere">&#9998; Rename</button>
-      <button class="fx-btn danger fx-edit-only" onclick="fxArchiveBasket()" title="Move to the Archive tab">&#128451; Archive</button>`;
+      <button class="fx-btn danger fx-edit-only" onclick="fxArchiveBasket()" title="Move to the Archive tab">&#128451; Archive</button>
+      <span id="fxCoreVer" style="font-size:10px;color:#9aa1ad;margin-left:8px" title="Build of flex-shared.js this browser has loaded. If it disagrees with what was deployed, hard-refresh."></span>`;
     dh.parentNode.insertBefore(sp, dh);
   }
   // global edit toggle on the main tab bar (usable from Curves/Admin/Contacts/etc.)
@@ -3698,6 +3701,10 @@ function fxCoreHas(){
 }
 // Everything flex.html has come to rely on since the 9 Sep shared build.
 function fxCoreCurrent(){ return fxCoreHas('energyKwh', 'securedKwh', 'deliveredCost', 'toKwh'); }
+function fxCoreVersion(){
+  try { return (FlexCore && FlexCore.VERSION) ? String(FlexCore.VERSION) : 'unknown'; }
+  catch (e) { return 'not loaded'; }
+}
 
 // Say it once, at the top of the page, rather than letting it surface as a dead button.
 function fxCoreBanner(){
@@ -3707,8 +3714,9 @@ function fxCoreBanner(){
   d.id = 'fxCoreWarn';
   d.style.cssText = 'background:#fdf3cf;border-bottom:1px solid #e3d9a8;color:#6b5a18;'
     + 'font-size:12px;padding:7px 14px;text-align:center;font-weight:600';
-  d.innerHTML = 'The shared calculation file is out of date, so the newest Positions columns '
-    + 'and parts of the Excel export are unavailable. Everything else is working normally. '
+  d.innerHTML = 'The shared calculation file is out of date (this browser has build <b>'
+    + fxCoreVersion() + '</b>), so the newest Positions columns and parts of the Excel export '
+    + 'are unavailable. Everything else is working normally. '
     + 'Try <b>Ctrl+F5</b> — if that does not fix it, flex-shared.js has not deployed.';
   document.body.insertBefore(d, document.body.firstChild);
 }
