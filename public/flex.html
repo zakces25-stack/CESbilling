@@ -1263,6 +1263,31 @@ td.fx-te-cell{ color:#a4560f; }
   box-shadow: 0 1px 0 var(--grey-200);
 }
 
+/* Sticky Month column on Positions. The table is 19 columns wide and scrolls sideways;
+   losing sight of which month a row is costs more than the width the column takes.
+   Two things to know about the rules below:
+   - border-collapse means a border on a stuck cell is not painted, so the divider down
+     the right-hand edge is a box-shadow. The header corner keeps its bottom edge too.
+   - the row-colour rules (alerts, hedged, current, future) all target td with !important,
+     so a stuck cell keeps its row's colour. The white background here is only the base
+     for an ordinary row, which would otherwise be transparent and let the columns
+     underneath scroll through it. The totals row sets its own grey WITHOUT !important,
+     and an id selector would outrank it, so it is restated. */
+#pos-table-container thead th:first-child {
+  left: 0;
+  z-index: 3;
+  box-shadow: 1px 0 0 var(--grey-200), 0 1px 0 var(--grey-200);
+}
+#pos-table-container tbody td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--white);
+  box-shadow: 1px 0 0 var(--grey-200);
+}
+#pos-table-container tbody tr.totals-row td:first-child { background: var(--grey-100); }
+#pos-table-container tbody tr:hover td:first-child { background: #f5f8fc; }
+
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
 
 thead th {
@@ -2267,6 +2292,16 @@ document.addEventListener('click', function(e) {
   });
 });
 
+// Same for the columns dropdown.
+document.addEventListener('click', function(e) {
+  const dd = document.getElementById('fx-col-dropdown');
+  if (dd && !dd.contains(e.target)) {
+    fxColDropOpen = false;
+    const menu = document.getElementById('fx-col-dropdown-menu');
+    if (menu) menu.style.display = 'none';
+  }
+});
+
 function buildFilterBarHtml(basket, scope) {
   const allMonths = basket.months.slice().sort((a,b) => a.month.localeCompare(b.month));
   if (allMonths.length === 0) return '';
@@ -2307,6 +2342,7 @@ function buildFilterBarHtml(basket, scope) {
         ${allMonths.map(m => `<option value="${m.month}"${m.month===toVal?' selected':''}>${fmtMonth(m.month)}</option>`).join('')}
       </select>
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" ${posHideHistoric?'checked':''} onchange="onHideHistoricChange(this.checked)"> Hide historic months</label>
+      ${scope === 'pos' ? fxColDropHtml(basket) : ''}
       ${scope === 'pos' ? `<span class="fx-mkt-wrap">
         <label style="margin:0" title="Which price is printed in the Mkt price column. Display only — costs, MtM, delivered rate, targets and alerts always calculate from Marex.">Mkt price</label>
         <span class="fx-mkt-src" role="group" aria-label="Which market price is shown in the Mkt price column">
@@ -2632,16 +2668,119 @@ function fxDisplayMkt(basket, m){
   return (v != null) ? { v: v, te: true } : { v: m.market_price, te: false };
 }
 
+// ── POSITIONS COLUMN PICKER (desk only) ──────────────────────────
+// Positions is 19 columns and scrolls sideways. This hides blocks of it on the desk.
+// It lives here rather than in flex-shared.js on purpose: the client portal goes on
+// rendering the full POSITIONS spec exactly as it does today, and nothing in here can
+// change a number or a heading — a hidden column is simply not drawn. The Excel export
+// builds its own spec and ignores all of this, so it always contains every column.
+const FX_COL_GROUPS = [
+  { key: 'vol',       label: 'Volume',    cols: ['base', 'sec', 'pct', 'open'] },
+  { key: 'secured',   label: 'Secured',   cols: ['wap', 'cost'] },
+  { key: 'mark',      label: 'Mark',      cols: ['mkt', 'opencost', 'mtmpx', 'mtm'] },
+  { key: 'delivered', label: 'Delivered', cols: ['dr', 'dcost'] },
+  { key: 'targets',   label: 'Targets',   cols: ['nt', 'ua'] }
+];
+// The three kWh columns are the same three volumes in another unit, so they are one
+// decision rather than three checkboxes. They sit inside Volume: turning Volume off
+// takes them with it, because a kWh figure with no MW figure beside it reads as noise.
+const FX_KWH_COLS = ['basekwh', 'seckwh', 'openkwh'];
+const FX_COLS_KEY = 'fx-pos-cols';
+// Everything on by default — the table as it was before this existed, so nobody opens
+// the portal after a deploy and thinks a column has gone missing.
+let FX_COLS = { kwh: true, vol: true, secured: true, mark: true, delivered: true, targets: true };
+try {
+  const _cs = JSON.parse(localStorage.getItem(FX_COLS_KEY) || 'null');
+  if (_cs && typeof _cs === 'object')
+    Object.keys(FX_COLS).forEach(k => { if (typeof _cs[k] === 'boolean') FX_COLS[k] = _cs[k]; });
+} catch (e) { /* blocked or corrupt — keep the defaults */ }
+let fxColDropOpen = false;
+
+function fxColSave(){ try { localStorage.setItem(FX_COLS_KEY, JSON.stringify(FX_COLS)); } catch(e){} }
+
+// The keys hidden right now. A key this page does not know about is never hidden: if
+// flex-shared.js gains a column we have not mapped, it appears rather than vanishes.
+// Same reasoning as the version guard — an out-of-step shared file should cost a tidy
+// toolbar, not a missing number.
+function fxColHidden(){
+  const out = new Set();
+  FX_COL_GROUPS.forEach(g => { if (!FX_COLS[g.key]) g.cols.forEach(k => out.add(k)); });
+  if (!FX_COLS.kwh || !FX_COLS.vol) FX_KWH_COLS.forEach(k => out.add(k));
+  return out;
+}
+
+// The ONE place the Positions spec is filtered. renderPositionsTable draws from this and
+// fxPosCell resolves against it, so the table and the cell lookup cannot disagree about
+// where a column sits — which is precisely the bug that made Baseload uneditable when
+// the two got out of step in round 18.
+function fxPosCols(basket){
+  const all = FlexCore.POSITIONS(basket);
+  const hide = fxColHidden();
+  const keep = all.filter(c => !hide.has(c.key));
+  return keep.length ? keep : all;
+}
+
+function fxColDropHtml(basket){
+  let total = 0, shown = 0;
+  try { total = FlexCore.POSITIONS(basket).length; shown = fxPosCols(basket).length; } catch (e) { }
+  const row = (k, label, note) =>
+    `<label><input type="checkbox" ${FX_COLS[k] ? 'checked' : ''} onchange="fxColSet('${k}', this.checked)"> ${label}`
+    + (note ? `<span style="color:#8a92a6;font-size:10px;margin-left:4px">${note}</span>` : '')
+    + `</label>`;
+  // The count on the button is the point: a hidden column with nothing saying so is how
+  // someone spends ten minutes looking for MtM cost.
+  return `<span class="fx-mkt-wrap">
+      <label style="margin:0" title="Hide blocks of columns on this table. Display only — no figure changes, the client portal is unaffected, and the Excel export always contains every column.">Columns</label>
+      <div class="season-dropdown" id="fx-col-dropdown">
+        <button class="season-dropdown-btn" onclick="fxColDropToggle()">${shown} of ${total} &#9660;</button>
+        <div class="season-dropdown-menu" id="fx-col-dropdown-menu" style="display:${fxColDropOpen ? 'block' : 'none'};min-width:200px">
+          <div style="display:flex;gap:8px;padding:4px 6px 6px;border-bottom:1px solid #e0e0e0;margin-bottom:4px;">
+            <a href="#" style="font-size:11px;color:#424378;text-decoration:none;" onclick="event.preventDefault();fxColAll(true)">Show All</a>
+            <span style="color:#ccc;">|</span>
+            <a href="#" style="font-size:11px;color:#424378;text-decoration:none;" onclick="event.preventDefault();fxColAll(false)">Hide All</a>
+          </div>
+          ${FX_COL_GROUPS.map(g => row(g.key, g.label)).join('')}
+          <div style="border-top:1px solid #e0e0e0;margin-top:4px;padding-top:4px">
+            ${row('kwh', 'kWh columns', 'within Volume')}
+          </div>
+        </div>
+      </div>
+    </span>`;
+}
+
+function fxColDropToggle(){
+  fxColDropOpen = !fxColDropOpen;
+  const m = document.getElementById('fx-col-dropdown-menu');
+  if (m) m.style.display = fxColDropOpen ? 'block' : 'none';
+}
+
+// applyFilters redraws the bar as well as the table, and fxColDropOpen survives that, so
+// the menu stays open while you tick through it — the season checkboxes behave the same
+// way and it would be jarring if this one shut on every click.
+function fxColSet(key, on){
+  if (!Object.prototype.hasOwnProperty.call(FX_COLS, key)) return;
+  FX_COLS[key] = !!on;
+  fxColSave();
+  applyFilters();
+}
+
+function fxColAll(on){
+  Object.keys(FX_COLS).forEach(k => { FX_COLS[k] = !!on; });
+  fxColSave();
+  applyFilters();
+}
+
 /* Positions. Columns, headings, cell text and the totals row all come from
    FlexCore.POSITIONS / positionsTotals, shared with the client portal. Everything this
    page adds on top — the alert colouring, the hedged/future shading, the current-month
    marker, the TE-vs-Marex source tint — arrives through buildTable's hooks and can
    therefore never change a number or a heading. */
-// The cell for a column key, resolved against the POSITIONS spec the loaded FlexCore
-// actually returns. Falls back to data-k if the index cannot be worked out.
+// The cell for a column key, resolved against the spec the table was ACTUALLY drawn
+// from — fxPosCols, not POSITIONS — so hiding a column cannot move the Mkt tooltip or
+// the editable Baseload cell onto its neighbour. Falls back to data-k either way.
 function fxPosCell(tr, basket, key){
   try {
-    const i = FlexCore.POSITIONS(basket).findIndex(c => c.key === key);
+    const i = fxPosCols(basket).findIndex(c => c.key === key);
     if (i >= 0 && tr.cells[i]) return tr.cells[i];
   } catch (e) { /* fall through */ }
   return tr.querySelector('[data-k="' + key + '"]');
@@ -2658,7 +2797,7 @@ function renderPositionsTable(rows, basket) {
   // The desk's Mkt price column follows the Marex/TE toggle; the client always sees the
   // supplier price. This is the one value either portal is allowed to resolve itself.
   const ctx  = { nec: nec, mktPrice: (m) => fxDisplayMkt(basket, m).v };
-  const cols = FlexCore.POSITIONS(basket);
+  const cols = fxPosCols(basket);
   const totals = FlexCore.positionsTotals(rows, basket, nec);
 
   document.getElementById('pos-table-container').innerHTML = FlexCore.buildTable(cols, rows, ctx, {
