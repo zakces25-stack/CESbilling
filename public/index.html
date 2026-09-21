@@ -3666,11 +3666,12 @@
       reports.forEach(rr => { const t = parseTotal(rr.total_net); if (t != null && rr.year != null && rr.month_num != null) _byYM[rr.year + '-' + rr.month_num] = t; });
       grid.innerHTML = reports.map((r, i) => {
         const badges = [];
-        const _ic = (window._issueCountsByReport || {})[r.id] || { ongoing: (r.fail_count || 0), resolved: 0 };
-        const _ong = _ic.ongoing, _res = _ic.resolved;
-        if (_ong > 0) badges.push(`<span class="badge badge-fail err-badge" data-error-badge title="View the issues log"><span class="bdot"></span>${escapeHtml(_ong)} error${_ong === 1 ? '' : 's'}</span>`);
+        const _ic = (window._issueCountsByReport || {})[r.id] || { ongoing: (r.fail_count || 0), in_progress: 0, resolved: 0 };
+        const _ong = _ic.ongoing || 0, _prog = _ic.in_progress || 0, _res = _ic.resolved || 0;
+        if (_ong > 0) badges.push(`<span class="badge badge-fail err-badge" data-error-badge title="View the error log"><span class="bdot"></span>${escapeHtml(_ong)} error${_ong === 1 ? '' : 's'}</span>`);
+        if (_prog > 0) badges.push(`<span class="badge badge-warn err-badge" data-error-badge title="View the error log"><span class="bdot"></span>${escapeHtml(_prog)} in progress</span>`);
         if (_res > 0) badges.push(`<span class="badge badge-ok"><span class="bdot"></span>${escapeHtml(_res)} resolved</span>`);
-        if (_ong === 0 && _res === 0) badges.push(`<span class="badge badge-ok"><span class="bdot"></span>No errors</span>`);
+        if (_ong === 0 && _prog === 0 && _res === 0) badges.push(`<span class="badge badge-ok"><span class="bdot"></span>No errors</span>`);
 
         // Compute "vs last month". Preferred source: r.prev_total_net (embedded
         // in the validation HTML at upload time — works even when only one
@@ -3718,7 +3719,7 @@
       }).join('');
       grid.querySelectorAll('.report-card[data-source="dash"]').forEach(card => {
         const _find = () => dashReports.find(x => x.id === card.dataset.reportId);
-        card.addEventListener('click', () => { const r = _find(); if (!r) return; const _ic2 = (window._issueCountsByReport || {})[r.id]; const _hasErr = _ic2 ? (_ic2.ongoing > 0) : ((r.fail_count || 0) > 0); openViewer(r, _hasErr ? { jumpToIssues: true } : undefined); });
+        card.addEventListener('click', () => { const r = _find(); if (!r) return; const _ic2 = (window._issueCountsByReport || {})[r.id]; const _hasErr = _ic2 ? (((_ic2.ongoing || 0) + (_ic2.in_progress || 0)) > 0) : ((r.fail_count || 0) > 0); openViewer(r, _hasErr ? { jumpToIssues: true } : undefined); });
         const _eb = card.querySelector('[data-error-badge]');
         if (_eb) _eb.addEventListener('click', (ev) => { ev.stopPropagation(); const r = _find(); if (r) openViewer(r, { jumpToIssues: true }); });
         card.addEventListener('mouseenter', () => { const r = _find(); if (r) prefetchReport(r); }, { once: true });
@@ -3975,14 +3976,23 @@
       };
       frame.addEventListener('load', () => setTimeout(reveal, 300), { once: true });
       setTimeout(reveal, 4000);
-      var _resolved = [];
+      // Three stages. Pull every issue that is NOT a plain open error, so the report
+      // can render resolved (green) and in-progress (amber) natively, with CES's note.
+      // An unrecognised status simply isn't in the list and reads as an open error.
+      var _statuses = [];
       if (!isOccupancy && !isContract) {
         try {
-          const _rr = await sb.from('issues').select('type, mpan_spid').eq('report_id', r.id).eq('status', 'resolved');
-          _resolved = (_rr.data || []).map(function(x){ return { type: x.type, mpan: x.mpan_spid }; });
-        } catch (e) { /* resolved overlay is non-fatal */ }
+          const _rr = await sb.from('issues')
+            .select('type, mpan_spid, status, status_note, resolved_note, status_changed_at, resolved_at')
+            .eq('report_id', r.id).in('status', ['resolved', 'in_progress']);
+          _statuses = (_rr.data || []).map(function(x){
+            return { type: x.type, mpan: x.mpan_spid, status: x.status,
+                     note: x.status_note || x.resolved_note || '',
+                     when: x.status_changed_at || x.resolved_at || null };
+          });
+        } catch (e) { /* the status overlay is non-fatal - the report still renders */ }
       }
-      var rendered = injectResolved(relabelIssues(html), _resolved);
+      var rendered = injectIssueStatus(relabelIssues(html), _statuses);
       frame.srcdoc = opts.jumpToIssues ? injectIssuesJump(rendered) : rendered;
       logAction('view_report', r.id, { type: r.report_type || 'bill_validation', period: r.period, jump: opts.jumpToIssues ? 'issues' : 'summary' });
       // Excel + Invoices only show for bill validation reports
@@ -4034,14 +4044,24 @@
     // tab count drops (to 0 / not-red when all clear), and the resolved error renders green with
     // a "(resolved)" tag. `list` = [{type, mpan}] of resolved errors for this report. Done as a
     // string transform so the report renders it natively (survives React re-renders).
-    function injectResolved(html, list) {
+    // When CES has moved an error on, reflect it INSIDE the report. Three stages,
+    // settled with Lola 21/09/2026:
+    //   ongoing      red rail, "Error" badge. Counts.
+    //   in_progress  amber rail, amber badge, "(in progress)" tag. STILL COUNTS - it
+    //                has not been corrected yet, it is only being chased.
+    //   resolved     green rail, green badge, "(resolved)" tag. Leaves the count.
+    // `list` = [{type, mpan, status, note, when}] for this report's non-ongoing issues.
+    // Done as a string transform so the report renders it natively (survives React
+    // re-renders). EVERY injected expression is self-guarded: a report generation that
+    // doesn't match an anchor loses the highlight, never the page.
+    function injectIssueStatus(html, list) {
       if (!list || !list.length) return html;
       // 0) Work out what THIS report calls the issue object inside its issue-card renderer.
       // Report generations differ: newer ones use `iss` (function IssueCard({iss, idx})),
       // older / Cheshire-style ones use `it` (function card(it, n)). Hard-coding `iss` injects
-      // an undefined variable into the older reports — which throws on the very first React
+      // an undefined variable into the older reports - which throws on the very first React
       // render (every sheet renders at mount), unmounts the tree, and leaves the customer
-      // looking at a blank page the moment an error is marked resolved.
+      // looking at a blank page the moment an error's status is changed.
       var _railSrc = "'issue-card__rail' + (isFail ? ' issue-card__rail--fail' : '')";
       var _railAt = html.indexOf(_railSrc);
       var _decls = (_railAt > -1 ? html.slice(0, _railAt) : '')
@@ -4051,19 +4071,83 @@
         : 'iss';
       // typeof guard = second line of defence: if the name is ever wrong, the card just renders
       // un-highlighted instead of taking the whole report down.
-      var RES = "(window._CES_isRes && typeof " + IT + " !== 'undefined' && window._CES_isRes(" + IT + "))";
-      // 1) exclude resolved errors from every FAIL count (tab badge + summary banner + error-log header)
+      var ST   = "(window._CES_stat && typeof " + IT + " !== 'undefined' ? window._CES_stat(" + IT + ") : null)";
+      var NOTE = "(window._CES_note && typeof " + IT + " !== 'undefined' ? window._CES_note(" + IT + ") : '')";
+      // 1) Exclude ONLY resolved from every FAIL count (tab badge, summary banner,
+      //    Error Log sub-header). An in-progress error stays in the total on purpose.
       html = html.split("i.sev === 'FAIL'").join("(i.sev === 'FAIL' && !(window._CES_isRes && window._CES_isRes(i)))");
-      // 2) IssueCard: detect resolved → green rail, green badge, a "(resolved)" tag.
-      // Self-contained checks (window._CES_isRes), so a partial match can never reference an undefined var.
+      // 2) Issue card: rail colour, badge colour, status tag.
       html = html.replace(_railSrc,
-        "'issue-card__rail' + (" + RES + " ? ' issue-card__rail--res' : (isFail ? ' issue-card__rail--fail' : ''))");
+        "'issue-card__rail' + (" + ST + " === 'resolved' ? ' issue-card__rail--res' : ("
+          + ST + " === 'in_progress' ? ' issue-card__rail--prog' : (isFail ? ' issue-card__rail--fail' : '')))");
       html = html.replace("{kind: isFail ? 'fail' : 'info'}, isFail ? 'Error' : 'Comment')",
-        "{kind: " + RES + " ? 'ok' : (isFail ? 'fail' : 'info')}, isFail ? 'Error' : 'Comment'), " + RES + " ? React.createElement('div', {className:'ces-res-tag'}, '(resolved)') : null");
-      // 3) matcher (a plain script — runs at parse, before the Babel components) + green styling
+        "{kind: " + ST + " === 'resolved' ? 'ok' : (" + ST + " === 'in_progress' ? 'warn' : (isFail ? 'fail' : 'info'))}, isFail ? 'Error' : 'Comment'), "
+        + ST + " ? React.createElement('div', {className:'ces-st-tag ces-st-tag--' + " + ST + "}, "
+        + ST + " === 'resolved' ? '(resolved)' : '(in progress)') : null");
+      // 3) CES's note, as the first line of the card's detail block - where the customer
+      //    is already reading. Injected straight after the props object so it becomes the
+      //    detail div's first child. A generation that words the anchor differently just
+      //    loses the note.
+      html = html.replace(/\{\s*className\s*:\s*['"]issue-card__detail['"]\s*\}\s*,\s*/,
+        function(m){ return m + "(" + NOTE + " ? React.createElement('div', {className:'ces-st-note ces-st-note--' + " + ST + "}, " + NOTE + ") : null), "; });
+      // 4) Error Log sheet: a line under the heading saying how many are in progress.
+      html = html.replace("React.createElement('h1', {}, 'Error Log')",
+        function(m){ return m + ", (window._CES_progCount && window._CES_progCount() > 0 ? React.createElement('div', {className:'ces-st-subline'}, window._CES_progCount() + (window._CES_progCount() === 1 ? ' error is' : ' errors are') + ' in progress with the supplier') : null)"; });
+      // 5) Headline pill and Error Log tab count go AMBER when EVERY outstanding error is
+      //    in progress - never green, because nothing has been corrected yet. One
+      //    untouched error keeps both red.
+      html = html.replace("React.createElement(window.Badge, {kind:'fail'}, failCount + (failCount === 1 ? ' error' : ' errors') + ' flagged')",
+        "React.createElement(window.Badge, {kind: (window._CES_allProg && window._CES_allProg()) ? 'warn' : 'fail'}, failCount + (failCount === 1 ? ' error' : ' errors') + ((window._CES_allProg && window._CES_allProg()) ? ' in progress' : ' flagged'))");
+      html = html.replace("'tab__count' + (t.failCount > 0 ? ' fail' : '')",
+        "'tab__count' + (t.failCount > 0 ? ((window._CES_allProg && window._CES_allProg()) ? ' prog' : ' fail') : '')");
+      // 6) The matcher - a PLAIN script, so it runs at parse time, before Babel compiles
+      //    the components that call it.
       var data = JSON.stringify(list);
-      var matcher = "<scr" + "ipt>window._CES_RES=" + data + ";window._CES_isRes=function(iss){if(!iss||iss.sev!=='FAIL')return false;var t=(iss.type||'').toLowerCase(),m=(iss.mpan_spid||'').toLowerCase();return (window._CES_RES||[]).some(function(r){var rt=(r.type||'').toLowerCase(),rm=(r.mpan||'').toLowerCase();return (!rt||t.indexOf(rt)>-1||rt.indexOf(t)>-1)&&(!rm||m.indexOf(rm)>-1);});};<\/scr" + "ipt>";
-      var css = "<style>.issue-card__rail--res{background:oklch(0.95 0.05 152)!important;}.ces-res-tag{color:var(--pos);font-weight:700;font-size:11px;margin-top:2px;text-align:center;}</style>";
+      var matcher = "<scr" + "ipt>window._CES_ST=" + data + ";"
+        + "window._CES_find=function(iss){if(!iss||iss.sev!=='FAIL')return null;"
+        + "var t=(iss.type||'').toLowerCase(),m=(iss.mpan_spid||'').toLowerCase();"
+        + "var h=(window._CES_ST||[]).filter(function(r){var rt=(r.type||'').toLowerCase(),rm=(r.mpan||'').toLowerCase();"
+        + "return (!rt||t.indexOf(rt)>-1||rt.indexOf(t)>-1)&&(!rm||m.indexOf(rm)>-1);});"
+        + "if(!h.length)return null;"
+        // If a fuzzy match hits both an in-progress and a resolved row, the LESS advanced
+        // one wins: never show an error as corrected on the strength of a loose match.
+        + "for(var i=0;i<h.length;i++){if(h[i].status==='in_progress')return h[i];}return h[0];};"
+        + "window._CES_stat=function(iss){var h=window._CES_find(iss);return h?h.status:null;};"
+        + "window._CES_note=function(iss){var h=window._CES_find(iss);return (h&&h.note)?h.note:'';};"
+        + "window._CES_isRes=function(iss){return window._CES_stat(iss)==='resolved';};"
+        + "window._CES_counts=function(){var a=(window.BV&&window.BV.issues)||[],o=0,p=0;"
+        + "for(var i=0;i<a.length;i++){if(a[i].sev!=='FAIL')continue;var s=window._CES_stat(a[i]);"
+        + "if(s==='resolved')continue;if(s==='in_progress')p++;else o++;}return {open:o,prog:p};};"
+        + "window._CES_progCount=function(){try{return window._CES_counts().prog;}catch(e){return 0;}};"
+        + "window._CES_allProg=function(){try{var c=window._CES_counts();return c.prog>0&&c.open===0;}catch(e){return false;}};"
+        + "<\/scr" + "ipt>";
+      // Colours chosen by measurement (tests/ + outputs/contrast.js), not by eye:
+      // the report's own --warn is oklch(0.65 0.14 75), which is only 2.98:1 on the
+      // note background and 2.86:1 on the rail - both below WCAG AA for body text.
+      // --ces-amber at L=0.50 gives 5.51:1 and 5.29:1, in line with the green's 4.82:1.
+      // The pill needs white on L=0.55 (4.95:1); L=0.50 would read almost brown.
+      var css = "<style>"
+        + ":root{--ces-amber:oklch(0.50 0.13 75);--ces-amber-pill:oklch(0.55 0.13 75);}"
+        + ".issue-card__rail--res{background:oklch(0.95 0.05 152)!important;}"
+        + ".issue-card__rail--prog{background:oklch(0.96 0.06 75)!important;}"
+        + ".ces-st-tag{font-weight:700;font-size:11px;line-height:1.25;margin-top:2px;text-align:center;}"
+        + ".ces-st-tag--resolved{color:var(--pos);}"
+        + ".ces-st-tag--in_progress{color:var(--ces-amber);}"
+        + ".ces-st-note{font-size:12.5px;font-weight:600;margin-bottom:8px;padding:7px 10px;"
+        + "border-radius:6px;border-left:3px solid;}"
+        + ".ces-st-note--resolved{background:oklch(0.97 0.03 152);border-left-color:var(--pos);color:var(--pos);}"
+        + ".ces-st-note--in_progress{background:oklch(0.97 0.04 75);border-left-color:var(--ces-amber);color:var(--ces-amber);}"
+        // Scoped to the issue card only: the same low-contrast --warn is used by the
+        // HHD-query badges elsewhere in the report and that is not ours to restyle here.
+        + ".issue-card .badge--warn{color:var(--ces-amber);}"
+        + ".ces-st-subline{font-size:12.5px;font-weight:700;color:var(--ces-amber);margin-top:3px;}"
+        // The sub-line is injected straight after the <h1>, which puts it above the
+        // "N errors" line it qualifies. Order it last instead. Browsers without :has()
+        // just get it above, where the self-contained wording still reads correctly.
+        + ".sheet-header > div:has(> h1){display:flex;flex-direction:column;}"
+        + ".ces-st-subline{order:9;}"
+        + ".tab__count.prog{background:var(--ces-amber-pill);color:#fff;}"
+        + "</style>";
       html = /<body[^>]*>/i.test(html) ? html.replace(/<body[^>]*>/i, function(m){ return m + matcher; }) : matcher + html;
       html = /<\/head>/i.test(html) ? html.replace(/<\/head>/i, css + "</head>") : css + html;
       return html;
@@ -4171,15 +4255,19 @@
     // per-report {ongoing,resolved} map the report cards read for their badges.
     async function loadErrorData(cid) {
       window._issueCountsByReport = {};
-      let ongoingTotal = 0;
+      let outstandingTotal = 0;
       try {
         const { data } = await sb.from('issues').select('report_id, status').eq('customer_id', cid);
         (data || []).forEach(function(r){
-          const m = window._issueCountsByReport[r.report_id] || (window._issueCountsByReport[r.report_id] = { ongoing: 0, resolved: 0 });
-          if (r.status === 'resolved') m.resolved++; else { m.ongoing++; ongoingTotal++; }
+          const m = window._issueCountsByReport[r.report_id] || (window._issueCountsByReport[r.report_id] = { ongoing: 0, in_progress: 0, resolved: 0 });
+          // Three stages. RESOLVED is the only one that leaves the outstanding total -
+          // an error being chased with the supplier has not been corrected yet.
+          if (r.status === 'resolved') { m.resolved++; }
+          else if (r.status === 'in_progress') { m.in_progress++; outstandingTotal++; }
+          else { m.ongoing++; outstandingTotal++; }
         });
       } catch (e) { console.error('loadErrorData:', e); }
-      const e2 = document.getElementById('ds2'); if (e2) e2.textContent = ongoingTotal;
+      const e2 = document.getElementById('ds2'); if (e2) e2.textContent = outstandingTotal;
     }
     // ───── SITE LIST (customer page) ─────
     // Single source for both the on-screen Site List and the Excel download: the LATEST
@@ -8767,6 +8855,20 @@
       await renderErrorsModal(report.id);
     }
     function closeErrorsModal(){ const m = document.getElementById('errorsModal'); if (m) m.style.display = 'none'; }
+    // Lola's three stages, 21/09/2026: Error -> In progress -> Resolved.
+    // An IN PROGRESS error is still OUTSTANDING - it stays inside the error total
+    // everywhere (card badge, tab count, headline pill); only its colour and label
+    // change. Resolved is the only state that leaves the count.
+    const ISSUE_STATUS = {
+      ongoing:     { label:'Error',       badge:'badge-fail', tone:'#B91C1C', mark:'!'  },
+      in_progress: { label:'In progress', badge:'badge-warn', tone:'#B45309', mark:'◐' },
+      resolved:    { label:'Resolved',    badge:'badge-ok',   tone:'#157347', mark:'✓' }
+    };
+    const ISSUE_ORDER = ['ongoing','in_progress','resolved'];
+    // Anything unrecognised reads as an open error - never as cleared.
+    function issueStatusOf(it){ return (it && ISSUE_STATUS[it.status]) ? it.status : 'ongoing'; }
+    // Rows written before the three-state change put the note in resolved_note only.
+    function issueNoteOf(it){ return (it && (it.status_note || it.resolved_note)) || ''; }
     async function renderErrorsModal(reportId) {
       const body = document.getElementById('emBody');
       const { data, error } = await sb.from('issues').select('*').eq('report_id', reportId).order('seq');
@@ -8774,29 +8876,58 @@
       const issues = data || [];
       if (!issues.length) { body.innerHTML = '<p style="color:var(--muted);">No errors were flagged for this report.</p>'; return; }
       body.innerHTML = issues.map(function(it){
-        const resolved = it.status === 'resolved';
+        const st = issueStatusOf(it), meta = ISSUE_STATUS[st], note = issueNoteOf(it);
+        const when = it.status_changed_at || it.resolved_at;
+        const stamp = (st === 'ongoing') ? '' :
+          '<div style="font-size:12px;color:' + meta.tone + ';margin-bottom:8px;">' + meta.mark + ' ' + meta.label +
+            (note ? (' — ' + escapeHtml(note)) : '') +
+            (when ? (' (' + new Date(when).toLocaleDateString('en-GB') + ')') : '') + '</div>';
+        const btns = ISSUE_ORDER.map(function(s){
+          const m = ISSUE_STATUS[s], on = (s === st);
+          return '<button type="button" data-issue-set="' + it.id + '" data-issue-status="' + s + '"' + (on ? ' disabled' : '') +
+            ' style="padding:6px 13px;font-size:12px;width:auto;border-radius:6px;font-family:inherit;' +
+            'cursor:' + (on ? 'default' : 'pointer') + ';border:1.5px solid ' + (on ? m.tone : 'var(--border)') +
+            ';background:' + (on ? m.tone : '#fff') + ';color:' + (on ? '#fff' : 'var(--text-2)') +
+            ';font-weight:' + (on ? '700' : '600') + ';">' + m.label + '</button>';
+        }).join('');
         return '<div style="border:1px solid var(--border);border-radius:9px;padding:13px 15px;margin-bottom:12px;">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
             '<strong style="font-size:13.5px;">' + escapeHtml(it.type || 'Error') + '</strong>' +
-            '<span class="badge ' + (resolved ? 'badge-ok' : 'badge-fail') + '"><span class="bdot"></span>' + (resolved ? 'Resolved' : 'Ongoing') + '</span>' +
+            '<span class="badge ' + meta.badge + '"><span class="bdot"></span>' + meta.label + '</span>' +
           '</div>' +
           '<div style="font-size:12px;color:var(--muted);margin:5px 0;">' + escapeHtml((it.mpan_spid ? (it.mpan_spid + ' · ') : '') + (it.supplier || '')) + '</div>' +
           '<div style="font-size:12.5px;color:var(--text-2);margin-bottom:10px;">' + escapeHtml(it.detail || '') + '</div>' +
-          (resolved
-            ? '<div style="font-size:12px;color:#157347;margin-bottom:8px;">✓ Resolved' + (it.resolved_note ? (' — ' + escapeHtml(it.resolved_note)) : '') + (it.resolved_at ? (' (' + new Date(it.resolved_at).toLocaleDateString('en-GB') + ')') : '') + '</div><button class="btn-secondary" data-issue-reopen="' + it.id + '" style="padding:6px 12px;font-size:12px;">Reopen</button>'
-            : '<input type="text" data-issue-note="' + it.id + '" placeholder="Resolution note (optional)" style="width:100%;margin-bottom:8px;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:12.5px;font-family:inherit;" /><button class="btn-primary" data-issue-resolve="' + it.id + '" style="padding:7px 14px;font-size:12px;width:auto;">Mark resolved</button>') +
+          stamp +
+          '<input type="text" data-issue-note="' + it.id + '" value="' + escapeHtml(note) + '" placeholder="Note — the customer sees this, e.g. Rebill requested from EDF 12/09 (optional)" style="width:100%;margin-bottom:8px;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:12.5px;font-family:inherit;" />' +
+          '<div style="display:flex;gap:7px;flex-wrap:wrap;">' + btns + '</div>' +
         '</div>';
       }).join('');
-      body.querySelectorAll('[data-issue-resolve]').forEach(function(b){ b.onclick = function(){ const id = b.getAttribute('data-issue-resolve'); const n = body.querySelector('[data-issue-note="' + id + '"]'); resolveIssue(id, true, n ? n.value.trim() : ''); }; });
-      body.querySelectorAll('[data-issue-reopen]').forEach(function(b){ b.onclick = function(){ resolveIssue(b.getAttribute('data-issue-reopen'), false, ''); }; });
+      body.querySelectorAll('[data-issue-set]').forEach(function(b){
+        b.onclick = function(){
+          const id = b.getAttribute('data-issue-set');
+          const n  = body.querySelector('[data-issue-note="' + id + '"]');
+          setIssueStatus(id, b.getAttribute('data-issue-status'), n ? n.value.trim() : '');
+        };
+      });
     }
-    async function resolveIssue(id, resolve, note) {
-      const patch = resolve
-        ? { status:'resolved', resolved_at:new Date().toISOString(), resolved_by: currentUser.userId, resolved_note: note || null, updated_at:new Date().toISOString() }
-        : { status:'ongoing', resolved_at:null, resolved_by:null, resolved_note:null, updated_at:new Date().toISOString() };
+    // One writer for all three states. Moving BACK to Error clears the note and the
+    // resolution stamp, so a reopened error carries no stale "resolved" trace.
+    async function setIssueStatus(id, status, note) {
+      if (!ISSUE_STATUS[status]) return;
+      const now = new Date().toISOString();
+      const patch = {
+        status: status,
+        status_note:       (status === 'ongoing') ? null : (note || null),
+        status_changed_at: now,
+        status_changed_by: currentUser.userId,
+        resolved_at:   (status === 'resolved') ? now : null,
+        resolved_by:   (status === 'resolved') ? currentUser.userId : null,
+        resolved_note: (status === 'resolved') ? (note || null) : null,
+        updated_at: now
+      };
       const { error } = await sb.from('issues').update(patch).eq('id', id);
       if (error) { safeAlert('Could not update the error. Please try again.', error); return; }
-      logAction(resolve ? 'resolve_issue' : 'reopen_issue', id, {});
+      logAction('set_issue_status', id, { status: status });
       const modal = document.getElementById('errorsModal');
       if (modal && modal.dataset.reportId) await renderErrorsModal(modal.dataset.reportId);
     }
@@ -11831,6 +11962,20 @@
         if (dbErr) throw new Error('Report record: ' + dbErr.message);
 
         if (_eIssues.length) {
+          // Carry the admin's work across the rebuild. This path used to DELETE the whole
+          // error list and re-insert it, which silently threw away every Resolved / In
+          // progress mark on the report — the normal upload path omits the status fields
+          // precisely to avoid that, this one didn't. seq can shift between generations,
+          // so rows are matched on what actually identifies an error: type + MPAN/SPID.
+          const _key = function(x){ return String(x.type || '').trim().toLowerCase() + '|' + String(x.mpan_spid || '').trim().toLowerCase(); };
+          const _carry = {};
+          try {
+            const { data: _old } = await sb.from('issues')
+              .select('type, mpan_spid, status, status_note, status_changed_at, status_changed_by, resolved_at, resolved_by, resolved_note')
+              .eq('report_id', r.id).in('status', ['resolved', 'in_progress']);
+            (_old || []).forEach(function(x){ const k = _key(x); (_carry[k] || (_carry[k] = [])).push(x); });
+          } catch (e) { console.warn('Replace: could not read the existing error statuses — they may be lost.', e); }
+
           // Clear the previous issues log first: a report that shed an error on
           // re-generation would otherwise keep the stale row for ever.
           const { error: dErr } = await sb.from('issues').delete().eq('report_id', r.id);
@@ -11838,6 +11983,32 @@
           const { error: iErr } = await sb.from('issues').upsert(_eIssues, { onConflict: 'report_id,seq' });
           if (iErr) throw new Error('Issues log (' + _eIssues.length + ' rows): ' + iErr.message
             + ' — the report is replaced but its error list is missing. Press Replace again.');
+
+          // Re-apply the carried statuses. An error the regenerated report no longer
+          // raises keeps no row — correct, it is gone. One that reappears keeps its
+          // status, its note and who set it.
+          if (Object.keys(_carry).length) {
+            try {
+              const { data: _new } = await sb.from('issues').select('id, type, mpan_spid').eq('report_id', r.id);
+              let _hit = 0;
+              for (const nr of (_new || [])) {
+                const bucket = _carry[_key(nr)];
+                if (!bucket || !bucket.length) continue;
+                const o = bucket.shift();
+                const { error: uErr } = await sb.from('issues').update({
+                  status: o.status, status_note: o.status_note,
+                  status_changed_at: o.status_changed_at, status_changed_by: o.status_changed_by,
+                  resolved_at: o.resolved_at, resolved_by: o.resolved_by, resolved_note: o.resolved_note,
+                  updated_at: new Date().toISOString()
+                }).eq('id', nr.id);
+                if (uErr) console.warn('Replace: could not restore the status on', nr.id, uErr);
+                else _hit++;
+              }
+              const _lost = Object.keys(_carry).reduce(function(a, k){ return a + _carry[k].length; }, 0);
+              console.log('Replace: ' + _hit + ' error status(es) carried over'
+                + (_lost ? (', ' + _lost + ' had no matching error in the new report') : ''));
+            } catch (e) { console.warn('Replace: could not carry the error statuses across.', e); }
+          }
         }
         if (_eUsage.length) {
           const { error: uErr } = await sb.from('usage_data')
