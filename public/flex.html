@@ -6148,28 +6148,51 @@ async function fxSimTemplate(){ return fxTeTemplate(); }
 // seventy-two. Each row shows the Marex price it would otherwise use, so it is always
 // clear what a simulated figure is being measured against — and clearing a box puts that
 // month straight back on Marex.
-function fxSimModal(fuel){
+async function fxSimModal(fuel){
   const unit = fuel==='power' ? '£/MWh' : 'p/th';
   const sim  = (DATA.sim && DATA.sim[fuel]) || {};
-  // Marex monthly curve, as the reference column.
-  const mx = {};
-  for (const r of ((DATA.curves && DATA.curves[fuel] && DATA.curves[fuel].months) || []))
-    if (r.month) mx[String(r.month).slice(0,10)] = r.mid;
-  // Every month either curve knows about, from next month out, plus anything already simulated.
+  // Every month from next month out, plus anything already simulated beyond that.
   const start = fxNextMonth(), sy = +start.slice(0,4), sm = +start.slice(5,7);
   const keys = [];
   for (let i=0;i<72;i++) keys.push(fxMonthKey(sy, sm + i));
   Object.keys(sim).forEach(k=>{ if(keys.indexOf(k)<0) keys.push(k); });
   keys.sort();
-  const rows = keys.map(k=>`<tr><td>${escape(fmtMonth(k))}</td>
+  // The reference column is now the figure Full curve data shows and Positions marks at —
+  // cheaper of monthly and season inside the imported window, stored history beyond it —
+  // not the raw monthly strip. Seeding therefore starts from the book's own price.
+  const mx = await fxMarexRef(fuel, keys);
+  // A season box appears only against an April or an October, and fills its six months.
+  const seasonAt = k => (k.slice(5,7) === '04' || k.slice(5,7) === '10') ? FlexCore.seasonKey(k) : null;
+  const rows = keys.map((k, i) => {
+    const lbl = seasonAt(k);
+    const six = lbl ? keys.slice(i, i + 6) : null;
+    // Only offer the control when the whole season is on screen; a half season would
+    // silently set fewer months than the label claims.
+    const whole = six && six.length === 6;
+    // The season STRIP price, not fxMarexMid for the October — that would hint the
+    // cheaper-of for one month, and this box sets six. What you are moving away from
+    // when you overwrite a whole season is the strip.
+    const sRow = lbl ? (((DATA.curves && DATA.curves[fuel] && DATA.curves[fuel].seasons) || [])
+                        .find(x => x.period === lbl)) : null;
+    const sMid = (sRow && sRow.mid != null) ? +sRow.mid : null;
+    const seasonCell = whole
+      ? `<td style="white-space:nowrap"><input class="fx-sim-season" style="width:78px" data-label="${escape(lbl)}"
+           data-months="${six.join(',')}" placeholder="${sMid!=null?(+sMid).toFixed(2):''}"
+           title="Set all six months of ${escape(lbl)} at once"> <span style="font-size:10.5px;color:#6b7280">${escape(lbl)}</span></td>`
+      : '<td></td>';
+    return `<tr><td>${escape(fmtMonth(k))}</td>
       <td style="text-align:right;color:#6b7280;font-variant-numeric:tabular-nums">${mx[k]!=null?(+mx[k]).toFixed(2):'—'}</td>
-      <td><input class="fx-sim-cell" style="width:95px" data-month="${k}" value="${sim[k]!=null?sim[k]:''}" placeholder="${mx[k]!=null?(+mx[k]).toFixed(2):''}"></td></tr>`).join('');
+      ${seasonCell}
+      <td><input class="fx-sim-cell" style="width:95px" data-month="${k}" value="${sim[k]!=null?sim[k]:''}" placeholder="${mx[k]!=null?(+mx[k]).toFixed(2):''}"></td></tr>`;
+  }).join('');
   fxModal(`<h3>Simulation &mdash; ${fuel} (${unit})</h3>
   <p style="font-size:12px;color:#4b5563;margin:0 0 6px">Type any price you want to test. <b>Leave a month blank and it uses Marex.</b>
   Desk only: this changes what the toggle marks against, never a secured trade, a target, an alert, the Excel export or anything a customer sees.</p>
+  <p style="font-size:11.5px;color:#6b7280;margin:0 0 6px"><b>Marex</b> is the price the book marks at &mdash; the cheaper of the monthly and season strip, the same figure Full curve data shows.
+  <b>Season</b> fills the six months of that season in one go; it is a shortcut, not a stored value, so edit any month afterwards and the month wins.</p>
   <textarea id="fS_paste" style="min-height:48px" placeholder="Paste Month&#9;Price rows, e.g.&#10;Nov-26&#9;180.00"></textarea>
   <div class="fx-preview" style="max-height:340px;overflow:auto"><table>
-    <thead><tr><th>Month</th><th style="text-align:right">Marex</th><th>Simulated (${unit})</th></tr></thead>
+    <thead><tr><th>Month</th><th style="text-align:right">Marex</th><th>Season</th><th>Simulated (${unit})</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
   <div class="fx-err" id="fxMErr"></div>
   <div class="fx-modal-foot">
@@ -6177,6 +6200,23 @@ function fxSimModal(fuel){
     <button class="fx-btn" onclick="fxSimSeed('${fuel}')" title="Copy the Marex price into every empty month, as a starting point to edit">&#8659; Seed from Marex</button>
     <button class="fx-btn green" onclick="fxSimSave('${fuel}')">Save simulation</button>
   </div>`);
+  // Typing a season price fills its six months. Typed on input rather than on blur so it
+  // is obvious immediately that the six boxes moved; clearing the box leaves them alone,
+  // because wiping six months by backspacing one is not what anyone means.
+  document.querySelectorAll('#fxModal input.fx-sim-season').forEach(si=>{
+    si.addEventListener('input', ()=>{
+      const raw = String(si.value).trim();
+      if (raw === '') return;
+      const v = fxNum(raw);
+      if (v == null) return;
+      const want = (si.dataset.months || '').split(',').filter(Boolean);
+      let n = 0;
+      document.querySelectorAll('#fxModal input.fx-sim-cell').forEach(ci=>{
+        if (want.indexOf(ci.dataset.month) >= 0) { ci.value = v; n++; }
+      });
+      if (n) fxToast(si.dataset.label + ' set to ' + v + ' across ' + n + ' month' + (n===1?'':'s'));
+    });
+  });
   const pa = document.getElementById('fS_paste');
   if (pa) pa.addEventListener('input', ()=>{
     const by = {};
@@ -6199,6 +6239,8 @@ function fxSimSeed(fuel){
 }
 async function fxSimSave(fuel){
   const entries = [];
+  // Deliberately .fx-sim-cell only. The season boxes have already done their work by
+  // filling those months; the stored curve is monthly, exactly like TotalEnergies.
   document.querySelectorAll('#fxModal input.fx-sim-cell').forEach(i=>{
     // A blank box is sent as an explicit null, which is how a month is put BACK on Marex.
     // Skipping it would leave a stale simulated price behind with no way to clear it.
@@ -6269,6 +6311,54 @@ async function fxLoadFullCurve(force){
   _fxFullCurve = error ? null : (data||[]);
   return _fxFullCurve;
 }
+/* The Marex price for ONE month, resolved the way the book resolves it: the CHEAPER of the
+   monthly and the season mid wherever both exist, because a month can always be covered by
+   buying the season strip instead. flex_positions and flex_curve_history were moved onto
+   that rule in round 21; this display helper was left on month-first, so Full curve data
+   was showing a dearer figure than the Positions tab for every month where the season is
+   the cheaper cover. Gas Nov-26 read 181.05 on one screen and 179.30 on the other. One
+   function now, so the two cannot drift again. */
+function fxMarexMid(commodity, monthKey, seasonLabel){
+  const cur = (DATA.curves && DATA.curves[commodity]) || {};
+  const mm = (cur.months  || []).find(x => x.month && String(x.month).slice(0,10) === monthKey);
+  const ss = (cur.seasons || []).find(x => x.period === seasonLabel);
+  const a = (mm && mm.mid != null) ? +mm.mid : null;
+  const b = (ss && ss.mid != null) ? +ss.mid : null;
+  if (a == null) return b;
+  if (b == null) return a;
+  return Math.min(a, b);
+}
+// What Full curve data prints for a month: the live Marex curve inside the imported
+// window, the stored flex_curve_history figure outside it (the settled past, and the
+// hand-maintained tail beyond the furthest imported season).
+function fxFullCurveMid(commodity, monthKey, seasonLabel, stored, nowKey, manualFrom){
+  const imported = (monthKey > nowKey && monthKey < manualFrom);
+  const live = imported ? fxMarexMid(commodity, monthKey, seasonLabel) : null;
+  return (live != null) ? live : stored;
+}
+// Every month the Simulation editor offers, priced as Full curve data prices it. Async
+// because the stored curve and the imported/manual boundary both come from the database.
+async function fxMarexRef(commodity, keys){
+  const out = {};
+  let hist = null, manualFrom = null, nowKey = fxNowMonth();
+  try {
+    hist = await fxLoadFullCurve(false);
+    manualFrom = await fxManualFromMonth(false);
+  } catch (e) { hist = null; }
+  const stored = {};
+  for (const r of (hist || []))
+    if (r.commodity === commodity && r.month) stored[String(r.month).slice(0,10)] = r.mid;
+  for (const k of keys) {
+    const lbl = FlexCore.seasonKey(k);
+    out[k] = (manualFrom == null)
+      // No boundary available — fall back to the live curve alone rather than showing
+      // nothing. Still the cheaper-of rule, so it never disagrees with Positions.
+      ? fxMarexMid(commodity, k, lbl)
+      : fxFullCurveMid(commodity, k, lbl, stored[k] != null ? +stored[k] : null, nowKey, manualFrom);
+  }
+  return out;
+}
+
 async function fxRenderFullCurve(){
   const body=document.getElementById('fxPrevCurveBody'); if(!body) return;
   body.innerHTML='<div style="padding:10px 2px;color:#6b7280;font-size:12px;">Loading…</div>';
@@ -6280,14 +6370,9 @@ async function fxRenderFullCurve(){
   if(!months.length){ body.innerHTML='<div style="padding:10px 2px;color:#6b7280;font-size:12px;">No curve data yet.</div>'; return; }
   const nowKey=fxNowMonth();   // same month clock the forward curve uses, so the two always agree on the roll
   const manualFrom=await fxManualFromMonth(true);   // self-advancing boundary (start of furthest imported season)
-  // Live Marex value for a month: month mid where available, else the season mid — mirrors how positions resolve market price.
-  const marexMid=(commodity,monthKey,seasonLabel)=>{
-    const cur=(DATA.curves&&DATA.curves[commodity])||{};
-    const mm=(cur.months||[]).find(x=>x.month&&String(x.month).slice(0,10)===monthKey);
-    if(mm&&mm.mid!=null) return mm.mid;
-    const ss=(cur.seasons||[]).find(x=>x.period===seasonLabel);
-    return (ss&&ss.mid!=null)?ss.mid:null;
-  };
+  // Was month-first, which disagreed with the Positions tab wherever the season strip is
+  // the cheaper cover. Now the shared resolver, on the book's own rule.
+  const marexMid=fxMarexMid;
   const cell=(c,k,v,editable)=> (EDIT&&editable)
     ? `<td class="td-right fx-fc-edit" data-c="${c}" data-m="${k}" title="Click to edit">${v!=null?(+v).toFixed(2):'—'}</td>`
     : `<td class="td-right"${!editable?' style="color:#5b6472" title="From the live Marex curve (read-only)"':''}>${v!=null?(+v).toFixed(2):'—'}</td>`;
