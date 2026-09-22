@@ -1930,7 +1930,18 @@ async function _fetchAll(table, cols, orderCols) {
   if (window._fxTick) window._fxTick(table, out.length);
   return out;
 }
-// Table registry — key → [tableName, columns, orderCols]. Lets us refetch a subset (scoped reload) instead of everything.
+// An optional table that is missing yields an empty list and a console note, instead of
+// an exception that Promise.all turns into a blank portal.
+async function _fetchMaybe(k) {
+  const t = FX_TABLES[k];
+  try { return await _fetchAll(t[0], t[1], t[2]); }
+  catch (e) {
+    if (!t[3]) throw e;
+    console.warn('[flex] optional table ' + t[0] + ' unavailable — continuing without it:', e.message);
+    return [];
+  }
+}
+// Table registry — key → [tableName, columns, orderCols, optional]. Lets us refetch a subset (scoped reload) instead of everything.
 const FX_TABLES = {
   baskets:    ['flex_baskets','id,name,commodity,unit_vol,unit_price,is_ces,sort_order,archived,target_labels,epsp,target_kinds,target_count,target_rules',['sort_order']],
   positions:  ['flex_positions','basket_id,month,days,season,baseload_vol,secured_vol,secured_wap,baseload_vol_total,secured_vol_total,secured_pct,secured_cost,open_vol,open_vol_total,open_pct,market_price,mkt_source,residual_cost,mtm_cost,mtm_price',['basket_id','month']],
@@ -1940,6 +1951,10 @@ const FX_TABLES = {
   // TotalEnergies indicative curve. DISPLAY ONLY — it is never joined into flex_positions
   // and never feeds a cost, MtM, delivered rate, target or alert on any portal.
   teCurves:   ['flex_te_curves','commodity,month,mid,updated_at',['commodity','month']],
+  // 4th element = optional: if the table is not there yet, load empty rather than taking
+  // the whole page down. flex.html and the SQL are two deploys, and they have gone live
+  // out of order before.
+  simCurves:  ['flex_sim_curves','commodity,month,mid,updated_at',['commodity','month'], true],
   orders:     ['flex_firm_orders','id,commodity,basket_name,period,volume,price',['id']],
   contacts:   ['flex_contacts','id,supplier,note,details',['id']],
   deadlines:  ['flex_sefe_deadlines','id,period,last_trading,deadline',['id']],
@@ -1956,7 +1971,7 @@ const FX_TABLES = {
 let RAW = {};
 async function loadFlexData() {
   const keys = Object.keys(FX_TABLES);
-  const res = await Promise.all(keys.map(k => _fetchAll(FX_TABLES[k][0], FX_TABLES[k][1], FX_TABLES[k][2])));
+  const res = await Promise.all(keys.map(_fetchMaybe));
   keys.forEach((k,i)=> RAW[k]=res[i]);
   fxBuildData();
 }
@@ -1965,7 +1980,7 @@ async function fxReloadTables(tableNames){
   const want = new Set(tableNames||[]);
   const keys = Object.keys(FX_TABLES).filter(k => want.has(FX_TABLES[k][0]));
   if(keys.length){
-    const res = await Promise.all(keys.map(k => _fetchAll(FX_TABLES[k][0], FX_TABLES[k][1], FX_TABLES[k][2])));
+    const res = await Promise.all(keys.map(_fetchMaybe));
     keys.forEach((k,i)=> RAW[k]=res[i]);
   }
   fxBuildData();
@@ -1975,7 +1990,8 @@ function fxBuildData(){
         curves=RAW.curves||[], orders=RAW.orders||[], contacts=RAW.contacts||[], deadlines=RAW.deadlines||[],
         admin=RAW.admin||[], meta=RAW.meta||[], notes=RAW.notes||[], adminCells=RAW.adminCells||[],
         adminCols=RAW.adminCols||[], adminMonths=RAW.adminMonths||[], sites=RAW.sites||[], necs=RAW.necs||[],
-        targetTrades=RAW.targetTrades||[], teCurves=RAW.teCurves||[];
+        targetTrades=RAW.targetTrades||[], teCurves=RAW.teCurves||[],
+        simCurves=RAW.simCurves||[];
   const byM = {}, byT = {}, byG = {}, byTT = {};
   for (const t of targetTrades) (byTT[t.basket_id] ??= []).push({
     id: t.id, label: t.label || null,
@@ -2022,6 +2038,12 @@ function fxBuildData(){
   const teOf = f => { const o = {}; for (const r of teCurves) if (r.commodity === f && r.month) o[String(r.month).slice(0,10)] = _num(r.mid); return o; };
   const _teu = teCurves.map(c => c.updated_at).filter(Boolean).sort().pop();
   const _teuTxt = _teu ? new Date(_teu).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : null;
+  // The Simulation curve. Same shape as TotalEnergies and read the same way, but it is
+  // hand-entered "what if" pricing that exists only on the desk: flex_client_positions
+  // never looks at it, so nothing here can reach a customer.
+  const simOf = f => { const o = {}; for (const r of simCurves) if (r.commodity === f && r.month) o[String(r.month).slice(0,10)] = _num(r.mid); return o; };
+  const _simu = simCurves.map(c => c.updated_at).filter(Boolean).sort().pop();
+  const _simuTxt = _simu ? new Date(_simu).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : null;
   // `id` must be carried through: the Orders tab renders Edit and Delete buttons straight
   // from these rows, so dropping it put the literal string "undefined" into both handlers.
   // Delete failed loudly (Postgres rejects "undefined" as a bigint); Edit failed SILENTLY,
@@ -2046,6 +2068,7 @@ function fxBuildData(){
     adminCells: adminCells.map(c => ({ id: c.id, row_id: c.row_id, month: c.month, vals: c.vals || {} })),
     curves: { gas: curveOf('gas'), power: curveOf('power'), last_updated: _cuTxt },
     te:     { gas: teOf('gas'),    power: teOf('power'),    last_updated: _teuTxt },
+    sim:    { gas: simOf('gas'),   power: simOf('power'),   last_updated: _simuTxt },
     admin: { month_labels: seedMeta.admin_month_labels || [],
       months_list: (adminMonths||[]).map(r => String(r.month).slice(0,10)).sort(),
       month_label_map: Object.fromEntries((adminMonths||[]).map(r => [String(r.month).slice(0,10), r.label || null])),
@@ -2343,13 +2366,7 @@ function buildFilterBarHtml(basket, scope) {
       </select>
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" ${posHideHistoric?'checked':''} onchange="onHideHistoricChange(this.checked)"> Hide historic months</label>
       ${scope === 'pos' ? fxColDropHtml(basket) : ''}
-      ${scope === 'pos' ? `<span class="fx-mkt-wrap">
-        <label style="margin:0" title="Which price is printed in the Mkt price column. Display only — costs, MtM, delivered rate, targets and alerts always calculate from Marex.">Mkt price</label>
-        <span class="fx-mkt-src" role="group" aria-label="Which market price is shown in the Mkt price column">
-          <button type="button" aria-pressed="${FX_MKT_SRC === 'te' ? 'false' : 'true'}" onclick="fxSetMktSrc('marex')">Marex</button>
-          <button type="button" aria-pressed="${FX_MKT_SRC === 'te' ? 'true' : 'false'}" onclick="fxSetMktSrc('te')">TotalEnergies</button>
-        </span>
-      </span>` : ''}
+      ${(scope === 'pos' || scope === 'graphs') ? fxSrcToggleHtml() : ''}
     </div>`;
 }
 
@@ -2374,7 +2391,9 @@ function getFilteredMonths(basket) {
 
 function applyFilters() {
   if (!currentBasket) return;
-  const filtered = getFilteredMonths(currentBasket);
+  // One row source for the cards, the table and the charts, so they cannot disagree
+  // about which curve is on screen.
+  const filtered = fxRows(currentBasket);
   renderDetailStatsFromRows(filtered, currentBasket);
   renderPositionsTable(filtered, currentBasket);
   renderGraphs(currentBasket);
@@ -2439,7 +2458,7 @@ function renderDetailStatsFromRows(rows, basket) {
 function renderDetailStats(basket) {
   // (per-basket Authorised/Advisory toggle removed \u2014 designations are now per target tier)
   // Show stats for ALL months (unfiltered) on initial load
-  renderDetailStatsFromRows(basket.months, basket);
+  renderDetailStatsFromRows(fxRemark(basket.months, basket), basket);
 }
 
 // ── POSITIONS TABLE RENDERER ─────────────────────────────────────
@@ -2637,36 +2656,134 @@ function fxTargetScenario(basket, m, necMap, trades){
 // export all read m.market_price, which is Marex-resolved and untouched by this
 // switch. The only thing FX_MKT_SRC changes is which number is printed on screen.
 let FX_MKT_SRC = 'marex';
+// Marex and TotalEnergies persist. Simulation deliberately does NOT: it is the one source
+// that can put invented prices behind a real-looking MtM, and coming in on Monday still
+// reading a Friday scenario is exactly the mistake worth engineering out. Anything other
+// than 'te' in storage restores as Marex, so an old 'sim' value cannot come back either.
 try { if (localStorage.getItem('fx-mkt-src') === 'te') FX_MKT_SRC = 'te'; } catch(e) {}
+const FX_SRC = {
+  marex: { key: 'marex', label: 'Marex',          short: 'Marex',      tint: '#2f3d7e' },
+  te:    { key: 'te',    label: 'TotalEnergies',  short: 'TE',         tint: '#c26a1f' },
+  sim:   { key: 'sim',   label: 'Simulation',     short: 'SIM',        tint: '#7c3aed' }
+};
+function fxSrc(){ return FX_SRC[FX_MKT_SRC] || FX_SRC.marex; }
+// How many months the named overlay actually prices. A source with nothing imported
+// silently falls back to Marex on every row, which reads as a broken button.
+function fxSrcCount(src){
+  const bag = (DATA && DATA[src]) || {};   // absent entirely if the table has not been created yet
+  return ['gas','power'].reduce(function (n, f) {
+    return n + Object.values(bag[f] || {}).filter(function (v) { return v != null; }).length;
+  }, 0);
+}
 function fxSetMktSrc(v){
-  const next = (v === 'te') ? 'te' : 'marex';
+  const next = FX_SRC[v] ? v : 'marex';
   if (next === FX_MKT_SRC) return;
   FX_MKT_SRC = next;
-  try { localStorage.setItem('fx-mkt-src', FX_MKT_SRC); } catch(e) {}
+  // 'sim' is never written: a reload comes back on Marex. See the note above.
+  try { localStorage.setItem('fx-mkt-src', next === 'te' ? 'te' : 'marex'); } catch(e) {}
   rerenderCurrent();
-  // Switching to TE with nothing imported looks like a broken button, so say so
-  // rather than letting every month quietly fall back and read as "nothing happened".
-  const _teCount = ['gas','power'].reduce((n,f) =>
-    n + Object.values((DATA && DATA.te && DATA.te[f]) || {}).filter(v => v != null).length, 0);
-  if (FX_MKT_SRC === 'te' && !_teCount)
-    return fxToast('No TotalEnergies curve imported yet — every month is still showing Marex. Import one on the Mkt prices tab.', false);
-  fxToast(FX_MKT_SRC === 'te'
-    ? 'Showing TotalEnergies prices — display only, no figure below them has changed'
-    : 'Showing Marex prices');
+  if (next !== 'marex' && !fxSrcCount(next))
+    return fxToast('No ' + fxSrc().label + ' curve imported yet — every month is still showing Marex. '
+                 + 'Import one on the Mkt prices tab.', false);
+  if (next === 'marex') return fxToast('Showing Marex — the book position');
+  fxToast('Showing ' + fxSrc().label + ' — market price, open cost, MtM and delivered figures are '
+        + 'marked at this curve. Targets, alerts and the Excel export stay on Marex.', next !== 'sim');
 }
-// TE price for one exact month, or null when TE left it blank / never sent it.
-function fxTePrice(commodity, monthIso){
-  const t = (DATA && DATA.te && DATA.te[commodity]) || {};
+// The overlay price for one exact month, or null where that source left it blank or
+// never sent it. Marex is not an overlay — it is what every row already carries.
+function fxSrcPrice(src, commodity, monthIso){
+  if (src === 'marex') return null;
+  const t = (DATA && DATA[src] && DATA[src][commodity]) || {};
   const v = t[String(monthIso).slice(0,10)];
   return (v == null) ? null : v;
 }
-// What the Mkt price column prints. Falls back to Marex per missing month, never
-// per missing file — a gap in the TE curve only affects the months it actually covers.
+function fxTePrice(commodity, monthIso){ return fxSrcPrice('te', commodity, monthIso); }
+// What the Market Price column prints. Falls back to Marex per missing MONTH, never per
+// missing file — a gap in an overlay affects only the months it actually leaves blank.
 function fxDisplayMkt(basket, m){
-  if (FX_MKT_SRC !== 'te') return { v: m.market_price, te: false };
-  const v = fxTePrice(basket.commodity, m.month);
-  return (v != null) ? { v: v, te: true } : { v: m.market_price, te: false };
+  const v = fxSrcPrice(FX_MKT_SRC, basket.commodity, m.month);
+  if (v == null) return { v: m.market_price, te: false, src: 'marex' };
+  // .te is kept for the existing Mkt-cell tint and tooltip, which predate the third source.
+  return { v: v, te: FX_MKT_SRC === 'te', src: FX_MKT_SRC };
 }
+
+// The Market Price Source control. One builder for the Positions bar, the Graphs bar and
+// the Curves tab, so the three can never offer different sources or disagree about which
+// is selected — you can change it from whichever tab you are already on.
+function fxSrcToggleHtml(){
+  const btn = k => `<button type="button" aria-pressed="${FX_MKT_SRC === k ? 'true' : 'false'}"`
+    + ` onclick="fxSetMktSrc('${k}')">${FX_SRC[k].label}</button>`;
+  return `<span class="fx-mkt-wrap">
+      <label style="margin:0" title="Which curve the desk marks against. Market price, open cost, MtM and delivered figures all follow it. Targets, alerts and the Excel export always use Marex, and the client portal never sees Simulation.">Market Price Source</label>
+      <span class="fx-mkt-src" role="group" aria-label="Market price source">
+        ${btn('marex')}${btn('te')}${btn('sim')}
+      </span>
+    </span>`;
+}
+
+// A standing reminder whenever the desk is NOT marking at Marex. Until this round the
+// toggle was display-only and could not mislead anyone; now it moves MtM, open cost,
+// delivered rate and the stat cards, so a screenshot taken off Marex would look exactly
+// like the book. This is the thing that says otherwise, and it is deliberately hard to
+// miss and impossible to dismiss.
+function fxSrcBanner(){
+  const host = document.getElementById('detail');
+  const old = document.getElementById('fxSrcWarn');
+  if (old) old.remove();
+  if (!host || FX_MKT_SRC === 'marex') return;
+  const s = fxSrc(), sim = FX_MKT_SRC === 'sim';
+  const div = document.createElement('div');
+  div.id = 'fxSrcWarn';
+  div.style.cssText = 'margin:0 0 12px;padding:9px 14px;border-radius:9px;font-size:12.5px;line-height:1.45'
+    + ';border:1.5px solid ' + s.tint + ';background:' + (sim ? '#f6f1ff' : '#fff7ec') + ';color:#3b3b46';
+  div.innerHTML = '<b style="color:' + s.tint + '">Marked at ' + s.label + '</b> — market price, open cost, '
+    + 'MtM and delivered figures on this basket are valued at that curve'
+    + (sim ? ', which is hand-entered and not a real market. ' : '. ')
+    + 'Secured volume, its WAP and its cost are unchanged. Targets, alerts and the Excel export stay on Marex'
+    + (sim ? ', and the client portal never sees this curve.' : '.')
+    + ' <a href="#" onclick="event.preventDefault();fxSetMktSrc(\'marex\')" style="color:' + s.tint + ';font-weight:700">Back to Marex</a>';
+  host.insertBefore(div, host.firstChild);
+}
+
+/* ── RE-MARKING AT THE SELECTED CURVE ─────────────────────────────────────────────
+   flex_positions marks every month at Marex. When another curve is selected the desk
+   re-marks the rows here, in the browser, and hands the result to the same renderers.
+   The three derived figures are exact linear functions of the market price, so this is
+   the view's own arithmetic rather than an approximation of it:
+
+     residual_cost = open_vol_total x mkt / (100 for gas, 1 for power)
+     mtm_cost      = secured_cost + residual_cost          <- secured_cost never moves
+     mtm_price     = (secured_vol x wap + open_vol x mkt) / baseload_vol
+
+   Each input is taken from the row the view produced, so no day-count or unit factor is
+   recreated here and none can drift from it.
+
+   market_price is deliberately LEFT ON MAREX. Targets, the at-market target price mode,
+   the alert colouring and the Excel export all read it, and every one of those stays on
+   the book curve whatever is on screen. What changes is what is MARKED, not what is real:
+   secured volume, its WAP and its cost are trades that happened and are never touched. */
+function fxRemarkRow(basket, m){
+  const px = fxSrcPrice(FX_MKT_SRC, basket.commodity, m.month);
+  if (px == null || m.market_price == null || px === m.market_price) return m;
+  const g    = (basket.commodity === 'gas') ? 100 : 1;
+  const base = m.baseload_vol, sec = m.secured_vol || 0, wap = m.secured_wap;
+  const r = Object.assign({}, m);
+  r.residual_cost = (m.open_vol_total != null) ? m.open_vol_total * px / g : m.residual_cost;
+  r.mtm_cost = (r.residual_cost != null) ? (m.secured_cost || 0) + r.residual_cost : m.mtm_cost;
+  r.mtm_price = (base > 0)
+    ? ((sec && wap != null ? sec * wap : 0) + (base - sec) * px) / base
+    : null;
+  r.fx_remarked = FX_MKT_SRC;   // so a renderer can tell, and the tests can assert it
+  return r;
+}
+// Re-mark a list. Marex is returned untouched — same array, same objects — so nothing
+// pays for a copy on the normal path.
+function fxRemark(rows, basket){
+  if (FX_MKT_SRC === 'marex' || !basket || !rows) return rows;
+  return rows.map(function (m) { return fxRemarkRow(basket, m); });
+}
+// The rows every display path draws from: filtered, then marked at the selected curve.
+function fxRows(basket){ return fxRemark(getFilteredMonths(basket), basket); }
 
 // ── POSITIONS COLUMN PICKER (desk only) ──────────────────────────
 // Positions is 19 columns and scrolls sideways. This hides blocks of it on the desk.
@@ -2833,7 +2950,7 @@ function renderPositions(basket) {
     <div id="pos-table-container"></div>
   `;
 
-  renderPositionsTable(getFilteredMonths(basket), basket);
+  renderPositionsTable(fxRows(basket), basket);
 }
 
 // ── TRADES ───────────────────────────────────────────────────────
@@ -2904,7 +3021,9 @@ function renderTrades(basket) {
    applies the gas cost-to-price scaling — the client portal's own copy of this table
    divided pounds by therms and printed a gas WAP 100x too small under a p/th heading. */
 function renderSeasons(basket) {
-  const groups = FlexCore.seasonGroups(basket.months, basket);
+  // Seasons carries an MtM column, so it follows the toggle too. seasonGroups only reads
+  // the rows it is given, so re-marking them is the whole change.
+  const groups = FlexCore.seasonGroups(fxRemark(basket.months, basket), basket);
   if (!groups.length) {
     document.getElementById('tab-seasons').innerHTML =
       '<div class="no-targets">No future season data available.</div>';
@@ -3027,7 +3146,7 @@ function destroyCharts() {
 
 function renderGraphs(basket) {
   destroyCharts();
-  const months = getFilteredMonths(basket);
+  const months = fxRows(basket);
   const labels = months.map(m => fmtMonth(m.month));
   const isPower = basket.commodity === 'power';
   // Match the Positions table: plot the RATE (MW / th per day), not the month's
@@ -3248,7 +3367,10 @@ function renderGraphs(basket) {
 
   // ── CHART 4: Price Performance — WAP (purple), Market Price (amber), MtM Price (lime) ──
   const securedWap  = months.map(m => (m.secured_wap  != null && m.secured_wap  > 0) ? m.secured_wap  : null);
-  const marketPrice = months.map(m => (m.market_price != null && m.market_price > 0) ? m.market_price : null);
+  // Was m.market_price, which is always Marex — so the Market line contradicted the Mkt
+  // column beside it whenever an overlay was selected. Same resolver as the table uses.
+  const marketPrice = months.map(m => { const v = fxDisplayMkt(basket, m).v;
+                                        return (v != null && v > 0) ? v : null; });
   const mtmPrice    = months.map(m => (m.mtm_price    != null && m.mtm_price    > 0) ? m.mtm_price    : null);
 
   activeCharts['price'] = new Chart(document.getElementById('chart-price'), {
@@ -3710,8 +3832,7 @@ function _fxRerenderBody(){
   });
   fxDecorateHeader();
   fxCoreBanner();
-  const _cv = document.getElementById('fxCoreVer');
-  if (_cv) _cv.textContent = 'core ' + fxCoreVersion();
+  fxSrcBanner();
 }
 
 // ── EDIT MODE toggle + header decoration ─────────────────────────
@@ -3738,8 +3859,7 @@ function fxDecorateHeader(){
       <button class="fx-btn" onclick="fxTemplateBasket()" title="Baseload + targets template for this basket — months prefilled. Same Targets sheet as the Targets tab.">&#10515; Template</button>
       <button class="fx-btn" onclick="fxImportBasket()" title="Import a filled baseload + targets template">&#10514; Import</button>
       <button class="fx-btn fx-edit-only" onclick="fxRenameModal()" title="Rename this basket everywhere">&#9998; Rename</button>
-      <button class="fx-btn danger fx-edit-only" onclick="fxArchiveBasket()" title="Move to the Archive tab">&#128451; Archive</button>
-      <span id="fxCoreVer" style="font-size:10px;color:#9aa1ad;margin-left:8px" title="Build of flex-shared.js this browser has loaded. If it disagrees with what was deployed, hard-refresh."></span>`;
+      <button class="fx-btn danger fx-edit-only" onclick="fxArchiveBasket()" title="Move to the Archive tab">&#128451; Archive</button>`;
     dh.parentNode.insertBefore(sp, dh);
   }
   // global edit toggle on the main tab bar (usable from Curves/Admin/Contacts/etc.)
@@ -4460,7 +4580,7 @@ function fxLogRowHtml(r, fresh){
 // Collapse a burst (bulk import / many small edits) into one general line instead of every value.
 function fxLogFriendlyScope(r){
   if(r.basket_id){ const b=(BASKETS||[]).concat((DATA&&DATA.archived)||[]).find(x=>x.id===r.basket_id); if(b) return b.name; }
-  const map={flex_curve_history:'the market curve',flex_curves:'the market curve',flex_te_curves:'the TotalEnergies curve',flex_targets:'targets',flex_basket_months:'baseload volumes',flex_trades:'trades',flex_sites:'sites',flex_necs:'NECs',flex_admin_cells:'the admin schedule',flex_admin_schedule:'the admin schedule',flex_baskets:'baskets',flex_notes:'notes',flex_contacts:'contacts',flex_firm_orders:'firm orders'};
+  const map={flex_curve_history:'the market curve',flex_curves:'the market curve',flex_te_curves:'the TotalEnergies curve',flex_sim_curves:'the Simulation curve',flex_targets:'targets',flex_basket_months:'baseload volumes',flex_trades:'trades',flex_sites:'sites',flex_necs:'NECs',flex_admin_cells:'the admin schedule',flex_admin_schedule:'the admin schedule',flex_baskets:'baskets',flex_notes:'notes',flex_contacts:'contacts',flex_firm_orders:'firm orders'};
   return map[r.table_name]||(r.table_name||'the portal');
 }
 function fxLogGroupRowHtml(r,n){
@@ -4567,7 +4687,7 @@ function fxScopeFor(t){
 function fxStartRealtime(){
   const ch = FLEX.sb.channel('flex-data');
   ['flex_trades','flex_basket_months','flex_targets','flex_curves','flex_firm_orders','flex_baskets','flex_notes','flex_admin_cells','flex_contacts','flex_admin_schedule',
-   'flex_admin_months','flex_admin_columns','flex_target_trades','flex_te_curves']
+   'flex_admin_months','flex_admin_columns','flex_target_trades','flex_te_curves','flex_sim_curves']
     .forEach(t=> ch.on('postgres_changes',{event:'*',schema:'public',table:t}, ()=> fxScheduleReload(fxScopeFor(t))));
   ch.on('postgres_changes',{event:'INSERT',schema:'public',table:'flex_audit'}, p=> fxLogPush(p.new));
   ch.subscribe();
@@ -5741,12 +5861,34 @@ renderCurves = function(){
   };
   const _fxMoOpts=[['01','Jan'],['02','Feb'],['03','Mar'],['04','Apr'],['05','May'],['06','Jun'],['07','Jul'],['08','Aug'],['09','Sep'],['10','Oct'],['11','Nov'],['12','Dec']].map(function(m){return '<option value="'+m[0]+'">'+m[1]+'</option>';}).join('');
   let _fxYrOpts=''; for(let _y=2021;_y<=2032;_y++) _fxYrOpts+='<option value="'+_y+'">'+_y+'</option>';
-  const _te = (FX_MKT_SRC === 'te');
+  // The Simulation section. Same list shape as TotalEnergies, different warning: a blank
+  // month falls back to Marex here too, but the priced ones are invented, not quoted.
+  const simSection=(title,unit,f)=>{
+    const t=(DATA.sim&&DATA.sim[f])||{};
+    const keys=Object.keys(t).sort();
+    const blanks=keys.filter(k=>t[k]==null).length;
+    const body = keys.length
+      ? `<div style="margin-top:14px;max-height:280px;overflow:auto;border:1px solid var(--border,#e6e1d6);border-radius:8px">
+          <table class="fx-htable fx-fctable" style="width:100%">
+          <thead><tr><th style="text-align:left">Month</th><th class="td-right">Mid</th></tr></thead>
+          <tbody>${keys.map(k=>`<tr><td>${escape(fmtMonth(k))}</td>${t[k]!=null
+            ? `<td class="td-right">${t[k].toFixed(2)}</td>`
+            : `<td class="td-right" style="color:#b91c1c;font-weight:700" title="No simulated price for this month — it falls back to Marex">&mdash;</td>`}</tr>`).join('')}</tbody></table></div>`
+          + `<div style="font-size:11px;color:#6b7280;margin-top:6px">${keys.length} month${keys.length>1?'s':''} &middot; earliest first</div>`
+          + (blanks ? `<div style="font-size:11.5px;color:#b91c1c;margin-top:6px">${blanks} month${blanks>1?'s':''} with no simulated price &mdash; ${blanks>1?'those fall':'that one falls'} back to Marex.</div>` : '')
+      : `<div style="margin-top:12px;font-size:12.5px;color:#6b7280">Nothing simulated for this commodity yet &mdash; use <b>Edit</b> or <b>Import</b> above. Every month with no price falls back to Marex.</div>`;
+    return `<div class="extra-section" style="margin-bottom:16px"><div class="extra-section-title">${title} (${unit})</div>${body}</div>`;
+  };
+  const _te = (FX_MKT_SRC === 'te'), _sim = (FX_MKT_SRC === 'sim');
   el.innerHTML=`<div class="extra-tab-inner" id="fxCurvesInner">
-    ${_te
+    ${_sim
+      ? simSection('NBP Gas &mdash; Simulation','p/th','gas')
+        + simSection('UK Power &mdash; Simulation','£/MWh','power')
+        + `<p style="font-size:11px;color:#6d28d9;text-align:right;margin:0;">Simulation curve — last edited ${(DATA.sim && DATA.sim.last_updated) || '—'}. <b>Hand-entered, not a market.</b> While this is selected the desk marks market price, open cost, MtM and delivered figures against it. Secured trades, targets, alerts and the Excel export stay on Marex, and no customer ever sees this curve.</p>`
+      : _te
       ? teSection('NBP Gas &mdash; TotalEnergies indicative','p/th','gas')
         + teSection('UK Power &mdash; TotalEnergies indicative','£/MWh','power')
-        + `<p style="font-size:11px;color:var(--grey-400);text-align:right;margin:0;">TotalEnergies indicative curve — last imported ${(DATA.te && DATA.te.last_updated) || '—'}. <b>Display only.</b> Every basket cost, mark-to-market, delivered rate, target and alert on this portal is still calculated from Marex; switch back above to see the Marex figures.</p>`
+        + `<p style="font-size:11px;color:var(--grey-400);text-align:right;margin:0;">TotalEnergies indicative curve — last imported ${(DATA.te && DATA.te.last_updated) || '—'}. This is the curve customers see on the client portal. While it is selected the desk marks against it too; targets, alerts and the Excel export stay on Marex.</p>`
       : section('NBP Gas Forward Curve','p/th',C.gas)
         + section('UK Power Forward Curve','£/MWh',C.power)
         + `<p style="font-size:11px;color:var(--grey-400);text-align:right;margin:0;">Marex indicative forward curve — last updated ${C.last_updated || '—'}. Upcoming months only, from ${fmtMonth(fxNextMonth())} — ${fmtMonth(fxNowMonth())} is the current delivery month and has rolled into <b>Full market curve data</b> below. Basket market prices pull live: month first, then season.</p>`}
@@ -5763,36 +5905,47 @@ renderCurves = function(){
   // Source toggle + Marex dropzone + TotalEnergies dropzone + manual edit buttons
   const bar=document.createElement('div'); bar.id='fxCurveBar'; bar.style.cssText='padding:0 0 12px';
   bar.innerHTML=`
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 12px">
-      <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#4b5563">Market prices shown</span>
-      <div id="fxMktSrc" class="fx-mkt-src" role="group" aria-label="Which market price is displayed on screen">
-        <button type="button" aria-pressed="${_te?'false':'true'}" onclick="fxSetMktSrc('marex')">Marex</button>
-        <button type="button" aria-pressed="${_te?'true':'false'}" onclick="fxSetMktSrc('te')">TotalEnergies</button>
-      </div>
-      <span style="font-size:11.5px;color:#6b7280;flex:1;min-width:280px">Changes the printed figure on this tab and the <b>Mkt price</b> column only. Costs, mark-to-market, delivered rate, targets and alerts always calculate from Marex, whichever is selected.</span>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 10px">
+      ${fxSrcToggleHtml()}
+      <span style="font-size:11.5px;color:#6b7280;flex:1;min-width:280px">Sets which curve this tab shows <b>and</b> which the desk marks against — market price, open cost, MtM and delivered figures follow it. Targets, alerts and the Excel export always use Marex.</span>
     </div>
-    <div id="fxDrop" style="border:2px dashed #aac91f;border-radius:13px;background:#fbfdf3;padding:16px 18px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:all .15s">
-      <div style="font-size:26px">&#128229;</div>
-      <div style="flex:1">
-        <div style="font-weight:800;font-size:13.5px;color:#141a3c">Drop the Marex &ldquo;UK Forward Curve&rdquo; file here</div>
-        <div style="font-size:11.5px;color:#6b7280">10:30 / 14:30 email attachment (.xlsx) &mdash; all periods read automatically and market prices update on every basket instantly. Or click to browse.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:stretch">
+      <div id="fxDrop" style="flex:1 1 290px;border:2px dashed #aac91f;border-radius:11px;background:#fbfdf3;padding:10px 12px;cursor:pointer;transition:all .15s">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="font-size:18px;line-height:1">&#128229;</div>
+          <div style="font-weight:800;font-size:12.5px;color:#141a3c">Marex &mdash; drop the UK Forward Curve</div>
+        </div>
+        <div style="font-size:10.5px;color:#6b7280;margin:3px 0 6px">The 10:30 / 14:30 .xlsx. Every period read automatically; basket market prices update instantly. This is the book curve.</div>
+        <div class="fx-toolbar" style="margin:0;gap:5px">
+          <button class="fx-btn" style="padding:3px 8px;font-size:11px" onclick="event.stopPropagation();fxCurveModal('power')">&#9998; Power</button>
+          <button class="fx-btn" style="padding:3px 8px;font-size:11px" onclick="event.stopPropagation();fxCurveModal('gas')">&#9998; Gas</button>
+        </div>
+        <input type="file" id="fxDropInput" accept=".xlsx,.xls" style="display:none">
       </div>
-      <div class="fx-toolbar" style="margin:0">
-        <button class="fx-btn" onclick="event.stopPropagation();fxCurveModal('power')">&#9998; Power (manual)</button>
-        <button class="fx-btn" onclick="event.stopPropagation();fxCurveModal('gas')">&#9998; Gas (manual)</button>
+      <div id="fxTeDrop" style="flex:1 1 290px;border:2px dashed #e0a44a;border-radius:11px;background:#fffaf1;padding:10px 12px;cursor:pointer;transition:all .15s">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="font-size:11px;font-weight:900;color:#a4560f;border:2px solid #e0a44a;border-radius:6px;padding:2px 5px;line-height:1">TE</div>
+          <div style="font-weight:800;font-size:12.5px;color:#141a3c">TotalEnergies &mdash; drop or browse</div>
+        </div>
+        <div style="font-size:10.5px;color:#6b7280;margin:3px 0 6px">The supplier&rsquo;s indicative prices, and the only overlay customers see. A blank month falls back to Marex.</div>
+        <div class="fx-toolbar" style="margin:0;gap:5px">
+          <button class="fx-btn" style="padding:3px 8px;font-size:11px" onclick="event.stopPropagation();fxTeTemplate()">&#8623; Template</button>
+        </div>
+        <input type="file" id="fxTeDropInput" accept=".xlsx,.xls" style="display:none">
       </div>
-      <input type="file" id="fxDropInput" accept=".xlsx,.xls" style="display:none">
-    </div>
-    <div id="fxTeDrop" style="border:2px dashed #e0a44a;border-radius:13px;background:#fffaf1;padding:16px 18px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:all .15s;margin-top:10px">
-      <div style="font-size:14px;font-weight:900;color:#a4560f;border:2px solid #e0a44a;border-radius:8px;padding:5px 8px;line-height:1">TE</div>
-      <div style="flex:1">
-        <div style="font-weight:800;font-size:13.5px;color:#141a3c">Import TotalEnergies curve</div>
-        <div style="font-size:11.5px;color:#6b7280">The supplier&rsquo;s own indicative prices &mdash; this is what customers see on the client portal. <b>Display only:</b> it changes no cost, mark-to-market, delivered rate, target or alert anywhere. Leave a month blank and that month alone falls back to Marex.</div>
+      <div id="fxSimDrop" style="flex:1 1 290px;border:2px dashed #a78bfa;border-radius:11px;background:#f8f5ff;padding:10px 12px;cursor:pointer;transition:all .15s">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="font-size:11px;font-weight:900;color:#6d28d9;border:2px solid #a78bfa;border-radius:6px;padding:2px 5px;line-height:1">SIM</div>
+          <div style="font-weight:800;font-size:12.5px;color:#141a3c">Simulation &mdash; drop or browse</div>
+        </div>
+        <div style="font-size:10.5px;color:#6b7280;margin:3px 0 6px">Your own &ldquo;what if&rdquo; prices. Desk only &mdash; never reaches a customer. Takes the same template as TE; blanks fall back to Marex.</div>
+        <div class="fx-toolbar" style="margin:0;gap:5px">
+          <button class="fx-btn" style="padding:3px 8px;font-size:11px" onclick="event.stopPropagation();fxSimModal('power')">&#9998; Power</button>
+          <button class="fx-btn" style="padding:3px 8px;font-size:11px" onclick="event.stopPropagation();fxSimModal('gas')">&#9998; Gas</button>
+          <button class="fx-btn" style="padding:3px 8px;font-size:11px" onclick="event.stopPropagation();fxSimTemplate()">&#8623; Template</button>
+        </div>
+        <input type="file" id="fxSimDropInput" accept=".xlsx,.xls" style="display:none">
       </div>
-      <div class="fx-toolbar" style="margin:0">
-        <button class="fx-btn" onclick="event.stopPropagation();fxTeTemplate()">&#8623; Blank template (6 years)</button>
-      </div>
-      <input type="file" id="fxTeDropInput" accept=".xlsx,.xls" style="display:none">
     </div>`;
   const inner=document.getElementById('fxCurvesInner');
   inner.insertBefore(bar, inner.firstChild);
@@ -5809,6 +5962,12 @@ renderCurves = function(){
   ;['dragover','dragenter'].forEach(ev=>tz.addEventListener(ev, e=>{e.preventDefault();tz.style.background='#fdf1dd';}));
   ;['dragleave','drop'].forEach(ev=>tz.addEventListener(ev, e=>{e.preventDefault();tz.style.background='#fffaf1';}));
   tz.addEventListener('drop', e=>{ const f=e.dataTransfer.files && e.dataTransfer.files[0]; if(f) fxParseTe(f); });
+  const sz=document.getElementById('fxSimDrop'), sin=document.getElementById('fxSimDropInput');
+  sz.addEventListener('click', ()=>sin.click());
+  sin.addEventListener('change', ()=>{ if(sin.files[0]) fxParseSim(sin.files[0]); sin.value=''; });
+  ;['dragover','dragenter'].forEach(ev=>sz.addEventListener(ev, e=>{e.preventDefault();sz.style.background='#efe9ff';}));
+  ;['dragleave','drop'].forEach(ev=>sz.addEventListener(ev, e=>{e.preventDefault();sz.style.background='#f8f5ff';}));
+  sz.addEventListener('drop', e=>{ const f=e.dataTransfer.files && e.dataTransfer.files[0]; if(f) fxParseSim(f); });
 };
 
 // ── TOTALENERGIES CURVE: template, parse, preview, apply ─────────
@@ -5925,6 +6084,134 @@ async function fxTeApply(){
   fxToast(n + ' TotalEnergies month(s) imported — display only, no calculations changed');
   fxTe=null; fxCloseModal(); fxScheduleReload(['flex_te_curves']);
 }
+/* ── SIMULATION CURVE ─────────────────────────────────────────────────────────────
+   A desk-only scratch curve for "what would this book look like at these prices".
+   Everything below writes to flex_sim_curves and nowhere else. It shares the
+   TotalEnergies extractor and template deliberately, so one filled spreadsheet can be
+   imported as either without being re-laid-out.
+
+   It reaches no customer: flex_client_positions_rows() reads flex_positions, which knows
+   only about flex_curves. The client portal cannot see this table even if it wanted to. */
+let fxSim = null;
+async function fxParseSim(file){
+  if(!/\.xlsx?$/i.test(file.name)) return fxToast('Not an Excel file', false);
+  if(typeof XLSX === 'undefined') return fxToast('Spreadsheet reader not loaded — check connection and reload', false);
+  let res;
+  try { res = fxTeExtract(new Uint8Array(await file.arrayBuffer())); }
+  catch(e){ console.error(e); return fxToast('Could not read that file', false); }
+  if(!res) return fxToast('No month column found in that file — use the blank template, or check the sheet layout', false);
+  fxSim = { gas: res.gas, power: res.power, fname: file.name };
+  const blk = (title, unit, rows) => {
+    const priced = rows.filter(r => r.mid != null).length, blank = rows.length - priced;
+    if(!rows.length) return `<div style="flex:1;min-width:260px"><div style="font-weight:800;font-size:13px;color:#141a3c">${title}</div>
+      <div style="font-size:12px;color:#6b7280;margin-top:6px">Nothing found for this commodity — it will be left exactly as it is.</div></div>`;
+    return `<div style="flex:1;min-width:260px">
+      <div style="font-weight:800;font-size:13px;color:#141a3c;margin-bottom:2px">${title}</div>
+      <div style="font-size:11.5px;color:#4b5563;margin-bottom:4px">${fmtMonth(rows[0].month)} → ${fmtMonth(rows[rows.length-1].month)} ·
+        <b>${priced}</b> priced${blank ? ` · <b style="color:#b91c1c">${blank} blank</b> → falls back to Marex` : ''}</div>
+      <div class="fx-preview"><table><thead><tr><th>Month</th><th>Mid (${unit})</th></tr></thead><tbody>
+        ${rows.slice(0,40).map(r=>`<tr><td>${escape(fmtMonth(r.month))}</td><td style="text-align:right">${r.mid!=null?r.mid.toFixed(2):'—'}</td></tr>`).join('')}
+      </tbody></table></div></div>`;
+  };
+  fxModal('Import Simulation curve', `
+    <div style="font-size:12.5px;color:#4b5563;margin-bottom:10px">
+      <b>${escape(file.name)}</b> — a hand-built scenario, not a market curve. Importing it changes what the
+      desk marks against while Simulation is selected: market price, open cost, MtM and delivered figures.
+      Secured trades, targets, alerts and the Excel export are untouched, and no customer ever sees it.
+    </div>
+    <div style="display:flex;gap:18px;flex-wrap:wrap">${blk('NBP Gas','p/th',res.gas)}${blk('UK Power','£/MWh',res.power)}</div>
+  `, `<div class="fx-modal-actions">
+    <button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
+    <button class="fx-btn green" onclick="fxSimApply()">Import Simulation curve</button>
+  </div>`);
+}
+async function fxSimApply(){
+  if(!fxSim) return;
+  const btns=document.querySelectorAll('#fxModal .fx-btn'); btns.forEach(b=>b.disabled=true);
+  let n=0;
+  for(const fuel of ['gas','power']){
+    const rows = fxSim[fuel] || [];
+    if(!rows.length) continue;
+    const {error} = await FLEX.sb.rpc('flex_apply_sim_curve',
+      { p_commodity: fuel, p_entries: rows.map(r => ({ month: r.month, mid: r.mid })) });
+    if(error){ btns.forEach(b=>b.disabled=false); return fxMErr(fuel+': '+error.message); }
+    n += rows.length;
+  }
+  fxToast(n + ' Simulation month(s) imported — desk only, and never shown to a customer');
+  fxSim=null; fxCloseModal(); fxScheduleReload(['flex_sim_curves']);
+}
+// Same 72-month layout as the TotalEnergies template, so either file imports as either
+// curve. Blank months fall back to Marex exactly as they do there.
+async function fxSimTemplate(){ return fxTeTemplate(); }
+
+// Month-by-month editing, for the times you want to move three months rather than import
+// seventy-two. Each row shows the Marex price it would otherwise use, so it is always
+// clear what a simulated figure is being measured against — and clearing a box puts that
+// month straight back on Marex.
+function fxSimModal(fuel){
+  const unit = fuel==='power' ? '£/MWh' : 'p/th';
+  const sim  = (DATA.sim && DATA.sim[fuel]) || {};
+  // Marex monthly curve, as the reference column.
+  const mx = {};
+  for (const r of ((DATA.curves && DATA.curves[fuel] && DATA.curves[fuel].months) || []))
+    if (r.month) mx[String(r.month).slice(0,10)] = r.mid;
+  // Every month either curve knows about, from next month out, plus anything already simulated.
+  const start = fxNextMonth(), sy = +start.slice(0,4), sm = +start.slice(5,7);
+  const keys = [];
+  for (let i=0;i<72;i++) keys.push(fxMonthKey(sy, sm + i));
+  Object.keys(sim).forEach(k=>{ if(keys.indexOf(k)<0) keys.push(k); });
+  keys.sort();
+  const rows = keys.map(k=>`<tr><td>${escape(fmtMonth(k))}</td>
+      <td style="text-align:right;color:#6b7280;font-variant-numeric:tabular-nums">${mx[k]!=null?(+mx[k]).toFixed(2):'—'}</td>
+      <td><input class="fx-sim-cell" style="width:95px" data-month="${k}" value="${sim[k]!=null?sim[k]:''}" placeholder="${mx[k]!=null?(+mx[k]).toFixed(2):''}"></td></tr>`).join('');
+  fxModal(`<h3>Simulation &mdash; ${fuel} (${unit})</h3>
+  <p style="font-size:12px;color:#4b5563;margin:0 0 6px">Type any price you want to test. <b>Leave a month blank and it uses Marex.</b>
+  Desk only: this changes what the toggle marks against, never a secured trade, a target, an alert, the Excel export or anything a customer sees.</p>
+  <textarea id="fS_paste" style="min-height:48px" placeholder="Paste Month&#9;Price rows, e.g.&#10;Nov-26&#9;180.00"></textarea>
+  <div class="fx-preview" style="max-height:340px;overflow:auto"><table>
+    <thead><tr><th>Month</th><th style="text-align:right">Marex</th><th>Simulated (${unit})</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>
+  <div class="fx-err" id="fxMErr"></div>
+  <div class="fx-modal-foot">
+    <button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
+    <button class="fx-btn" onclick="fxSimSeed('${fuel}')" title="Copy the Marex price into every empty month, as a starting point to edit">&#8659; Seed from Marex</button>
+    <button class="fx-btn green" onclick="fxSimSave('${fuel}')">Save simulation</button>
+  </div>`);
+  const pa = document.getElementById('fS_paste');
+  if (pa) pa.addEventListener('input', ()=>{
+    const by = {};
+    for (const l of pa.value.split(/\r?\n/)){
+      const c = l.split(/\t|,| {2,}/).map(x=>x.trim()).filter(x=>x!=='');
+      if (c.length < 2) continue;
+      const iso = fxParseDate(c[0]), v = fxNum(c[1]);
+      if (iso && v != null) by[iso] = v;
+    }
+    if (!Object.keys(by).length) return;
+    document.querySelectorAll('#fxModal input.fx-sim-cell').forEach(i=>{
+      if (by[i.dataset.month] != null) i.value = by[i.dataset.month];
+    });
+  });
+}
+function fxSimSeed(fuel){
+  document.querySelectorAll('#fxModal input.fx-sim-cell').forEach(i=>{
+    if (!String(i.value).trim() && i.placeholder) i.value = i.placeholder;
+  });
+}
+async function fxSimSave(fuel){
+  const entries = [];
+  document.querySelectorAll('#fxModal input.fx-sim-cell').forEach(i=>{
+    // A blank box is sent as an explicit null, which is how a month is put BACK on Marex.
+    // Skipping it would leave a stale simulated price behind with no way to clear it.
+    entries.push({ month: i.dataset.month, mid: String(i.value).trim() === '' ? null : fxNum(i.value) });
+  });
+  const btns = document.querySelectorAll('#fxModal .fx-btn'); btns.forEach(b=>b.disabled=true);
+  const { error } = await FLEX.sb.rpc('flex_apply_sim_curve', { p_commodity: fuel, p_entries: entries });
+  if (error){ btns.forEach(b=>b.disabled=false); return fxMErr(error.message); }
+  const priced = entries.filter(e=>e.mid!=null).length;
+  fxToast(priced + ' simulated ' + fuel + ' month(s) saved — desk only');
+  fxCloseModal(); fxScheduleReload(['flex_sim_curves']);
+}
+
 // Blank template: 72 months (6 years) from next month, rolling — same layout
 // TotalEnergies send, so their own file imports without editing.
 async function fxTeTemplate(){
