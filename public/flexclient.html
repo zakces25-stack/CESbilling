@@ -354,6 +354,9 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
 table{border-collapse:separate;border-spacing:0;width:100%}
 caption{text-align:left;padding:14px 16px 0;font-size:var(--t-sm);color:var(--ink-3);font-weight:600;
   max-width:80ch;white-space:normal;line-height:1.5}
+/* On a phone the table is far wider than the screen and a caption is laid out at the table's
+   width, so the Mkt Price note ran off the right edge. Capped to the visible box, it wraps there. */
+@media (max-width:640px){ caption{max-width:calc(100vw - 42px)} }
 th,td{padding:11px 14px;font-size:var(--t-base);border-bottom:1px solid var(--line);
   text-align:left;white-space:nowrap}
 thead th{position:sticky;top:0;background:var(--surface-2);font-size:11px;font-weight:700;
@@ -389,7 +392,19 @@ th:first-child::after,td:first-child::after{content:'';position:absolute;top:0;r
 .mtm-positive{color:var(--negative-500);font-weight:700}
 .mtm-negative{color:var(--positive-700);font-weight:700}
 .mtm-zero{color:var(--ink-3)}
-.achieved-cell{background:var(--positive-700);color:var(--surface);font-weight:700}
+/* An achieved target tile keeps its green on every row and under the row hover. As a bare
+   `.achieved-cell` it lost to the zebra stripe and to the row hover above (a pseudo-class plus
+   three elements outranks one class), so it was painted dark navy text on dark navy: 1.07:1 on
+   every even row, 1.15:1 on whichever row the cursor was over. `table tbody tr td.x` outranks
+   both whatever order the rules sit in. Hover lightens it, as it lightens the rest of the row,
+   so the highlight still reads. The text is a fixed navy rather than var(--surface), which
+   print turns white: printed without backgrounds, the old tile was white text on white paper. */
+table tbody tr td.achieved-cell{background:var(--positive-700);color:var(--navy-900);font-weight:700;
+  box-shadow:inset 0 0 0 2px var(--surface)}   /* a gap, so two reached tiles side by side stay two tiles */
+table tbody tr:hover td.achieved-cell{background:#8fe3a6;color:var(--navy-900)}
+/* Not yet reached. The ring is a marker, not the figure, so it sits back in the muted ink with
+   a gap before the price instead of running into it ("◯66"). */
+.target-pending{color:var(--ink-3);font-size:12px;margin-right:5px}
 .fx-allhit{color:var(--positive-700);font-weight:700}
 .fx-dash{color:var(--ink-3)}
 .totals-row td{border-top:2px solid var(--line-strong,var(--line));font-weight:800;
@@ -406,6 +421,12 @@ th:first-child::after,td:first-child::after{content:'';position:absolute;top:0;r
    left the reader scrolling sideways to reach Upper Alert. */
 .fx-targets-table thead th{white-space:normal!important;overflow-wrap:anywhere;
   word-break:break-word;max-width:120px;vertical-align:bottom;line-height:1.2}
+/* Every basket table's headings stack the same way, so the FIGURES set each column's width
+   rather than the heading. On one line, "Weighted Average Price (£/MWh)" held a five-character
+   price in a 256px column and the Positions table ran to 2,507px in a 1,240px box. Headings
+   break at spaces only, never inside a word, and the figures themselves stay on one line.
+   Targets keeps its own rule above (tier names may break mid-word, at the desk's 120px cap). */
+.table-wrap table:not(.fx-targets-table) thead th{white-space:normal;vertical-align:bottom;line-height:1.3}
 .pos{color:var(--positive-700)}
 .neg{color:var(--negative-500)}
 .cur{background:rgba(159,190,28,.14)}
@@ -469,7 +490,9 @@ th:first-child::after,td:first-child::after{content:'';position:absolute;top:0;r
 
 .empty{padding:40px 20px;text-align:center;color:var(--ink-3);font-size:var(--t-md);
   background:var(--surface);border:1px dashed var(--line-strong);border-radius:var(--r-md)}
-#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(140%);
+/* Parked fully below the screen. translateY(140%) of its own height left the empty pill's top
+   8px showing at the bottom centre of every page, over whatever row was there. */
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(calc(100% + 40px));
   background:var(--navy-800);color:#fff;padding:12px 20px;border-radius:999px;font-size:var(--t-base);
   font-weight:600;box-shadow:var(--shadow-float);transition:transform .22s;z-index:200;max-width:90vw}
 #toast.on{transform:translateX(-50%) translateY(0)}
