@@ -25,7 +25,9 @@
 <!-- cdnjs is here for pdf.js (the in-portal report viewer), loaded on demand.
      worker-src blob: is required because pdf.js wraps a cross-origin worker
      script in a blob to spawn it. frame-src and object-src stay 'none': the
-     PDF is drawn onto a canvas, never embedded, so no framing is needed. -->
+     PDF is drawn onto a canvas, never embedded, so no framing is needed.
+     cdn.jsdelivr.net also serves ExcelJS for the positions-and-trades spreadsheet, again
+     loaded on first use only. It needs nothing else from this policy: no eval, no worker. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://*.supabase.co https://cdnjs.cloudflare.com; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'self';" />
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
@@ -434,9 +436,14 @@ th:first-child::after,td:first-child::after{content:'';position:absolute;top:0;r
 .rbody{white-space:pre-wrap;font-size:var(--t-md);line-height:1.68;color:var(--ink)}
 /* The PDF button is the one affirmative action on this screen, so it carries the
    accent rather than sitting grey and anonymous at the far right. */
-.gbtn.pdf{border-color:var(--accent);color:var(--accent);font-weight:700}
-.gbtn.pdf:hover{background:color-mix(in srgb, var(--accent) 14%, transparent);
+.gbtn.pdf,.gbtn.dl{border-color:var(--accent);color:var(--accent);font-weight:700}
+.gbtn.pdf:hover,.gbtn.dl:hover{background:color-mix(in srgb, var(--accent) 14%, transparent);
   border-color:var(--accent);color:var(--accent)}
+.gbtn:disabled{opacity:.65;cursor:progress}
+/* Basket toolbar: back on the left, the spreadsheet download on the right. It wraps under
+   the back button on a phone rather than squeezing the label. */
+.bkbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+  margin-bottom:18px}
 .rmeta{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px}
 /* ── in-portal PDF viewer ──────────────────────────────────────────────── */
 .pdfwrap{margin-top:16px;border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;background:var(--surface-2)}
@@ -639,6 +646,9 @@ async function load(){
   if(te.error) console.warn('supplier curve unavailable:', te.error.message);
 
   D.baskets = bk.data||[];
+  // deskBasket() caches each basket's shaped months and targets. Without this, Refresh
+  // updated the basket cards but left the open basket (and its spreadsheet) on old data.
+  for(const k of Object.keys(_BK)) delete _BK[k];
   const by = (rows,key)=>{const o={};for(const r of (rows||[]))(o[r[key]] ??= []).push(r);return o;};
   D.positions = by(ps.data,'basket_id');
   D.trades    = by(tr.data,'basket_id');
@@ -907,9 +917,15 @@ function renderBasket(){
   const b=D.baskets.find(x=>x.id===OPEN); if(!b){renderBaskets();return;}
   const isP=b.commodity==='power';
   const S=statsOf(applyFilters(monthsOf(b.id)), b);
+  // Offered whenever there is anything to put in the file. A basket with neither months
+  // nor trades would download two empty sheets, which reads as a fault.
+  const canXl = monthsOf(b.id).length>0 || (D.trades[b.id]||[]).length>0;
   const el=document.getElementById('v-baskets');
   el.innerHTML=`
-    <button class="gbtn noprint" id="backBtn" style="margin-bottom:18px">&larr; All baskets</button>
+    <div class="bkbar noprint">
+      <button class="gbtn" id="backBtn">&larr; All baskets</button>
+      ${canXl?`<button class="gbtn dl" id="xlBtn" type="button"${_xlBusy?' disabled':''}>${_xlBusy?'Preparing&hellip;':XL_LABEL}</button>`:''}
+    </div>
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:14px">
       <h3 style="font-size:var(--t-head)">${esc(b.name)}</h3>
       <span class="tag ${isP?'power':'gas'}"><span aria-hidden="true">${isP?'&#9889;':'&#128293;'}</span> ${isP?'Electricity':'Gas'}</span>
@@ -925,6 +941,8 @@ function renderBasket(){
     </nav>
     <div id="subview"></div>`;
   document.getElementById('backBtn').addEventListener('click',()=>{OPEN=null;render();});
+  const xb=document.getElementById('xlBtn');
+  if(xb) xb.addEventListener('click',()=>cxDownloadXlsx(b));
   el.querySelectorAll('[data-sub]').forEach(t=>t.addEventListener('click',()=>{SUB=t.dataset.sub;renderBasket();}));
   renderSub();
   window.scrollTo({top:0,behavior:'smooth'});
@@ -943,12 +961,19 @@ function renderSub(){
   R(b,host);
 }
 
+/* The one note left under a basket table. The unit and row-count captions were removed
+   after the 17 Sep review with Dan (the headings already carry the units); this one stays
+   because it says Mkt Price is indicative, and Dan is supplying new wording for it. The
+   spreadsheet download prints the same constant, so reword it here and both change. */
+const POS_NOTE = "Mkt Price is your supplier's indicative forward price for that month. "
+  + "Delivered rate is the mark-to-market price converted to p/kWh plus that season's non-energy costs.";
+
 function subPositions(b,host){
   const bk = deskBasket(b);
   const all = monthsOf(b.id);
   if(!all.length){host.innerHTML='<div class="empty">No position data for this basket.</div>';return;}
   const rows = applyFilters(all);
-  const isP=b.commodity==='power', now=nowMonth();
+  const now=nowMonth();
   const seasons=[...new Set(all.map(r=>r.season).filter(Boolean))];
   const mkeys=[...new Set(all.map(r=>String(r.month).slice(0,10)))].sort();
   const opt=(v,sel,lab)=>`<option value="${esc(v)}"${v===sel?' selected':''}>${esc(lab)}</option>`;
@@ -968,10 +993,7 @@ function subPositions(b,host){
         FlexCore.POSITIONS(bk), rows,
         { nec: FlexCore.necMap(bk, D.necs), mktPrice: (m)=>cxMktPrice(b,m) },
         { totals: FlexCore.positionsTotals(rows, bk, FlexCore.necMap(bk, D.necs)),
-          caption: `Volumes in ${isP?'MW / MWh':'th/d / therms'}; rates in ${esc(b.unit_price||'')}. `
-                 + `Mkt Price is your supplier's indicative forward price for that month. `
-                 + `Delivered rate is the mark-to-market price converted to p/kWh plus that `
-                 + `season's non-energy costs.`,
+          caption: esc(POS_NOTE),
           rowClass: (m)=> m.month===now ? 'cur' : '' })
       : '<div class="empty">No months match these filters.</div>'}`;
 
@@ -988,16 +1010,20 @@ function subPositions(b,host){
 }
 
 
-function subTrades(b,host){
-  const rows=(D.trades[b.id]||[]).slice()
+// The trades exactly as the Trades tab lists them, in its order. The spreadsheet download
+// reads this same list, so a change to the order here changes both.
+function tradesOf(b){
+  return (D.trades[b.id]||[]).slice()
     .sort((x,y)=>String(x.trade_date||'')<String(y.trade_date||'')?1:-1)
     .map(FlexCore.normTrade);
+}
+
+function subTrades(b,host){
+  const rows=tradesOf(b);
   if(!rows.length){host.innerHTML='<div class="empty">No trades recorded for this basket.</div>';return;}
   // Same columns, order and formatting as the desk. Cost is shown to the penny here too:
   // rounding it to whole pounds meant a trade never quite tied back to the contract note.
   host.innerHTML = FlexCore.buildTable(FlexCore.TRADES(deskBasket(b)), rows, {}, {
-    caption:`${rows.length} trade${rows.length===1?'':'s'}, most recent first. `
-          + `A negative volume is a sell-back.`,
     cellClass:(c,t)=> (c.key==='vol' && t.volume!=null && t.volume<0) ? 'neg' : ''
   });
 }
@@ -1009,10 +1035,7 @@ function subSeasons(b,host){
   const bk = deskBasket(b);
   const groups = FlexCore.seasonGroups(bk.months, bk);
   if(!groups.length){host.innerHTML='<div class="empty">No season data for this basket.</div>';return;}
-  const isP=b.commodity==='power';
-  host.innerHTML = FlexCore.buildTable(FlexCore.SEASONS(bk), groups, {}, {
-    caption:`Grouped by delivery season. Volumes in ${isP?'MW':'th'}; rates in ${esc(b.unit_price||'')}.`
-  });
+  host.innerHTML = FlexCore.buildTable(FlexCore.SEASONS(bk), groups, {}, {});
 }
 
 /* Targets. Which tiers show, and whether a tier counts as achieved, both come from
@@ -1042,7 +1065,6 @@ function subSites(b,host){
   if(!rows.length){host.innerHTML='<div class="empty">No sites recorded against this basket.</div>';return;}
   const isP=b.commodity==='power';
   host.innerHTML=`<div class="tbwrap"><table>
-    <caption>${rows.length} supply point${rows.length===1?'':'s'} in this basket.</caption>
     <thead><tr><th scope="col">${isP?'MPAN':'MPRN'}</th><th scope="col">Site</th>
       <th scope="col">Contract start</th><th scope="col">Contract end</th></tr></thead>
     <tbody>${rows.map(s=>`<tr>
@@ -1050,6 +1072,233 @@ function subSites(b,host){
         <td>${esc(s.customer||'—')}</td>
         <td>${fmtDate(s.contract_start)}</td><td>${fmtDate(s.contract_end)}</td></tr>`).join('')}
     </tbody></table></div>`;
+}
+
+/* ── Spreadsheet download: positions and trades ───────────────────────────────
+   One workbook, two sheets (Positions, Trades), built in the browser from what this page
+   has already loaded. Nothing is recalculated for the file: every cell is the SAME
+   FlexCore cell the table on screen renders, read back and written as a real number with a
+   format showing the same decimals. So the file cannot show a figure the portal does not,
+   and every figure is a number Excel can sum, sort and chart. (The months hold the rounded
+   figures the screen shows and TOTAL is the screen's TOTAL, so a SUM can land a pound or
+   two away from it. The file says so under the Positions table.)
+
+   Where it deliberately differs from the screen:
+     · Every month, whatever the Positions filters are set to. The filters are shared across
+       baskets, so honouring them could hand over a file that looks complete and is not.
+     · Month and trade Date are real dates, so Excel sorts them by date rather than A to Z.
+     · Next Target and Upper Alert are left out. Dan wants them desk-only (17 Sep review),
+       and the desk's own export has always left them out.
+
+   ExcelJS is the library the desk already exports with. It is ~950 KB, so like pdf.js it is
+   fetched on first use rather than on every visit. cdn.jsdelivr.net is already in the CSP,
+   and it runs without 'unsafe-eval' (checked under this page's policy). */
+const EXCELJS_URL='https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+const XL_LABEL='<span aria-hidden="true">&darr;</span> Download positions and trades';
+const XL_POS_SKIP={ nt:1, ua:1 };
+const XL_BLANK=/^(?:|-|—|£-)$/;              // how the tables print "no value"
+const XL_NAVY='FF1F2D4D', XL_CUR='FFFDF3CF', XL_TOT='FFEEF1F6', XL_HAIR='FFE0E3EC';
+const XL_TIMEOUT_MS=20000;
+// The file's months hold the figures as the screen rounds them, and TOTAL is the screen's
+// TOTAL, worked out before rounding. Said once in the file, so a SUM that lands a pound or
+// two away from TOTAL does not read as an error.
+const XL_ROUND_NOTE='Totals are calculated before rounding, so they can differ slightly from a sum of the rounded figures above.';
+let _xlLib=null, _xlBusy=false, _xlTries=0;
+
+function loadExcelJs(){
+  if(window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  if(_xlLib) return _xlLib;
+  // A retry asks for a fresh URL. Chrome parks a second request for a URL that is still
+  // stalled behind the first, so the same URL would sit out the same stall again. jsDelivr
+  // serves the identical file with a query string on it (checked).
+  const url=EXCELJS_URL+(_xlTries++ ? '?retry='+_xlTries : '');
+  _xlLib=new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    // A CDN that stalls rather than fails must not leave the button on "Preparing..." until
+    // the page is reloaded. 20s is far past a normal fetch of this file on a slow line.
+    const t=setTimeout(()=>{ s.remove(); reject(new Error('ExcelJS timed out')); }, XL_TIMEOUT_MS);
+    s.src=url;
+    s.onload=()=>{ clearTimeout(t);
+      window.ExcelJS ? resolve(window.ExcelJS) : reject(new Error('ExcelJS did not initialise')); };
+    s.onerror=()=>{ clearTimeout(t); s.remove(); reject(new Error('ExcelJS could not be loaded')); };
+    document.head.appendChild(s);
+  }).catch(e=>{ _xlLib=null; throw e; });          // a failed fetch can be retried
+  return _xlLib;
+}
+
+// The text a cell shows. A <template> parses its markup inert: nothing loads, nothing runs.
+function xlText(html){
+  const t=document.createElement('template');
+  t.innerHTML=String(html==null?'':html);
+  return t.content.textContent.replace(/\s+/g,' ').trim();
+}
+
+// Displayed text back to the number it shows, with an Excel format of the same decimals.
+//   '12.5000' → 12.5 as #,##0.0000        '-£1,234' → -1234 as whole pounds
+//   '£-10.50' → -10.5 as pounds and pence  '63%'     → 0.63 as 0%
+// Anything that is not purely a number comes back null and is written as the text itself.
+function xlNum(text){
+  const m=/^([-−]?)(£?)([-−]?)(\d+(?:\.(\d+))?)(%?)$/.exec(String(text).replace(/[\s,]/g,''));
+  if(!m) return null;
+  const dp=m[5]?m[5].length:0, d=dp?'.'+'0'.repeat(dp):'';
+  let v=parseFloat(m[4])*((m[1]||m[3])?-1:1);
+  if(m[6]) v=v/100;
+  if(v===0) v=0;                                   // never write a -0
+  const fmt=m[6] ? '0'+d+'%' : m[2] ? '"£"#,##0'+d+';-"£"#,##0'+d : '#,##0'+d;
+  return { v, fmt };
+}
+
+// 'YYYY-MM-DD' to an Excel date serial, from the calendar date alone. No local-time Date is
+// involved, so a client on BST cannot see a month shift back a day.
+function xlDate(iso){
+  const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso||''));
+  return m ? (Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/864e5 : null;
+}
+
+// Lines a heading needs once wrapped at `w` characters, to size the heading row.
+function xlLines(text,w){
+  let lines=1, len=0;
+  for(const word of String(text).split(' ')){
+    if(len && len+1+word.length>w){ lines++; len=word.length; }
+    else len+=(len?1:0)+word.length;
+  }
+  return lines;
+}
+// The narrowest column at which a heading wraps onto two lines at most, never one word per
+// line. 10 is the floor because ExcelJS leaves a width of exactly 9 (its default) unwritten.
+function xlHeadWidth(h){
+  const longest=Math.max(...String(h).split(' ').map(w=>w.length));
+  for(let w=Math.max(10,longest+2); w<24; w++) if(xlLines(h,w-1)<=2) return w;
+  return 24;
+}
+
+// Header and footer codes treat & as a control character.
+const xlHF = s => String(s==null?'':s).replace(/&/g,'&&');
+
+/* One sheet from a FlexCore column spec: headings in row 1 exactly as the table prints them,
+   a row per table row, then the table's TOTAL row. o.dates maps a column key to the row's ISO
+   date and a date format; o.mark shades a row (the current month, as on screen). */
+function xlSheet(wb, name, cols, rows, ctx, o){
+  const ws=wb.addWorksheet(name,{
+    views:[{ state:'frozen', xSplit:1, ySplit:1 }],
+    pageSetup:{ paperSize:9, orientation:'landscape', fitToPage:true, fitToWidth:1, fitToHeight:0 }
+  });
+  ws.pageSetup.printTitlesRow='1:1';
+  ws.headerFooter.oddHeader='&L&B'+xlHF(o.title)+'&B&R'+xlHF(o.stamp);
+  ws.headerFooter.oddFooter='&LCES flex portal&RPage &P of &N';
+
+  const heads=cols.map(c=>xlText(c.head));
+  const width=heads.map(xlHeadWidth);
+  // Numbers sit right as Excel expects, whatever the screen does (Secured % is a bar there).
+  // Left-hand text is indented one step so it never runs into a number in the column before.
+  const LEFT={ horizontal:'left', indent:1 }, RIGHT={ horizontal:'right' }, MID={ horizontal:'center' };
+  const align=cols.map(c=> c.align==='right' ? RIGHT : c.align==='center' ? MID : LEFT);
+
+  const hr=ws.addRow(heads);
+  hr.eachCell(c=>{
+    c.fill={ type:'pattern', pattern:'solid', fgColor:{ argb:XL_NAVY } };
+    c.font={ size:10, bold:true, color:{ argb:'FFFFFFFF' } };
+    c.alignment={ horizontal:'center', vertical:'middle', wrapText:true };
+  });
+
+  const put=(r, isTotal)=>{
+    const row=ws.addRow([]);
+    cols.forEach((c,i)=>{
+      const cell=row.getCell(i+1), dt=!isTotal && o.dates && o.dates[c.key];
+      let shown='';
+      if(dt){
+        const v=xlDate(dt.get(r));
+        if(v!=null){ cell.value=v; cell.numFmt=dt.fmt; }
+        shown=dt.fmt;                              // same length as the date it displays
+      } else {
+        shown=xlText(isTotal ? (c.total ? c.total(r, ctx) : '') : c.value(r, ctx));
+        const n=(c.align==='right' || c.bar) ? xlNum(shown) : null;
+        if(n){ cell.value=n.v; cell.numFmt=n.fmt; }
+        else if(!XL_BLANK.test(shown)) cell.value=shown;
+      }
+      width[i]=Math.max(width[i], Math.min(shown.length+2, 40));
+      cell.alignment= dt ? LEFT : typeof cell.value==='number' ? RIGHT : align[i];
+      cell.font={ size:10, bold:!!isTotal };
+      cell.border=isTotal ? { top:{ style:'thin', color:{ argb:'FF55679A' } } }
+                          : { bottom:{ style:'hair', color:{ argb:XL_HAIR } } };
+      const fill=isTotal ? XL_TOT : (o.mark && o.mark(r) ? XL_CUR : null);
+      if(fill) cell.fill={ type:'pattern', pattern:'solid', fgColor:{ argb:fill } };
+    });
+  };
+  rows.forEach(r=>put(r,false));
+
+  if(!rows.length){
+    ws.addRow([o.empty]).getCell(1).font={ size:10, italic:true, color:{ argb:'FF6B7280' } };
+  } else {
+    // Filter and sort on the months or trades only. TOTAL sits below a spacer row as well,
+    // because Excel can stretch a filter over a row that touches the bottom of it, and a
+    // sort would then carry TOTAL into the months.
+    ws.autoFilter={ from:{ row:1, column:1 }, to:{ row:rows.length+1, column:cols.length } };
+    if(o.totals){ ws.addRow([]).height=6; put(o.totals,true); }
+    if(o.note){
+      ws.addRow([]);
+      const nr=ws.addRow([o.note]);
+      ws.mergeCells(nr.number,1,nr.number,cols.length);
+      nr.getCell(1).font={ size:9, italic:true, color:{ argb:'FF4B5563' } };
+      nr.getCell(1).alignment={ wrapText:true, vertical:'top' };
+      const across=width.reduce((a,w)=>a+w,0);
+      nr.height=13*Math.max(1,Math.ceil(o.note.length/Math.max(30,across-4)))+4;
+    }
+  }
+  width.forEach((w,i)=>{ ws.getColumn(i+1).width=w; });
+  hr.height=13*Math.max(...heads.map((h,i)=>xlLines(h,width[i]-1)))+5;
+  return ws;
+}
+
+function xlSave(buf, name){
+  const url=URL.createObjectURL(new Blob([buf],
+    { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  const a=document.createElement('a');
+  a.href=url; a.download=name; a.hidden=true;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),10000);
+}
+
+// "<basket> - positions and trades 2026-09-23.xlsx", dated in the client's own time zone.
+function xlStamp(){ const d=new Date(), p=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
+function xlFileName(b){
+  const safe=String(b.name||'Basket').replace(/[\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim();
+  return safe+' - positions and trades '+xlStamp()+'.xlsx';
+}
+
+async function cxDownloadXlsx(b){
+  if(_xlBusy) return;
+  _xlBusy=true;
+  // Looked up each time: switching tab mid-download re-renders the button.
+  const setBtn=busy=>{ const x=document.getElementById('xlBtn');
+    if(x){ x.disabled=busy; x.innerHTML=busy?'Preparing&hellip;':XL_LABEL; } };
+  setBtn(true);
+  try{
+    const XL=await loadExcelJs();
+    const bk=deskBasket(b), nm=FlexCore.necMap(bk, D.necs), months=bk.months.slice();
+    const stamp='Downloaded '+fmtLong(xlStamp());
+    const wb=new XL.Workbook();
+    wb.creator='CES flex portal'; wb.created=new Date(); wb.title=b.name+' - positions and trades';
+    xlSheet(wb,'Positions', FlexCore.POSITIONS(bk).filter(c=>!XL_POS_SKIP[c.key]), months,
+      { nec:nm, mktPrice:(m)=>cxMktPrice(b,m) },        // the Positions tab's own ctx
+      { dates:{ month:{ get:m=>m.month, fmt:'mmm-yy' } },
+        totals:FlexCore.positionsTotals(months, bk, nm),
+        mark:(m)=>m.month===nowMonth(),
+        note:POS_NOTE+' '+XL_ROUND_NOTE, empty:'No position data for this basket.',
+        title:b.name+' - positions', stamp });
+    xlSheet(wb,'Trades', FlexCore.TRADES(bk), tradesOf(b), {},
+      { dates:{ date:{ get:t=>t.date, fmt:'dd mmm yy' } },
+        empty:'No trades recorded for this basket.',
+        title:b.name+' - trades', stamp });
+    xlSave(await wb.xlsx.writeBuffer(), xlFileName(b));
+    toast('Spreadsheet downloaded');
+  }catch(e){
+    console.error('spreadsheet download', e);
+    toast('The spreadsheet could not be prepared. Please try again.');
+  }finally{
+    _xlBusy=false; setBtn(false);
+  }
 }
 
 function subGraphs(b,host){
