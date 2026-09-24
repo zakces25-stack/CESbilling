@@ -355,8 +355,19 @@ table{border-collapse:separate;border-spacing:0;width:100%}
 caption{text-align:left;padding:14px 16px 0;font-size:var(--t-sm);color:var(--ink-3);font-weight:600;
   max-width:80ch;white-space:normal;line-height:1.5}
 /* On a phone the table is far wider than the screen and a caption is laid out at the table's
-   width, so the Mkt Price note ran off the right edge. Capped to the visible box, it wraps there. */
+   width, so a long caption ran off the right edge. Capped to the visible box, it wraps there. */
 @media (max-width:640px){ caption{max-width:calc(100vw - 42px)} }
+
+/* The note under the Positions table. It sits OUTSIDE the table rather than in its caption,
+   which is the whole reason it can be readable on a phone: a caption is laid out at its
+   table's width, and the Positions table is around 1,680px wide, so the note had to be capped
+   to something narrower than the screen and then wrapped to 26 lines on a 360px Android. As a
+   plain block after the table it simply uses the column width like any other paragraph.
+   Measured at 360, 390, 430, 768 and 1440px wide: 11 lines on the smallest phone, 3 on a
+   laptop. Colours come from the theme variables, so the print stylesheet at the foot of this
+   file turns it dark-on-white when a client prints their position. */
+.tablenote{margin:10px 2px 0;font-size:var(--t-xs);line-height:1.55;color:var(--ink-3);
+  border-left:2px solid var(--line-strong);padding-left:10px;break-inside:avoid}                                  /* the scroll box's visible width */
 th,td{padding:11px 14px;font-size:var(--t-base);border-bottom:1px solid var(--line);
   text-align:left;white-space:nowrap}
 thead th{position:sticky;top:0;background:var(--surface-2);font-size:11px;font-weight:700;
@@ -987,11 +998,24 @@ function renderSub(){
 /* The one note left under a basket table. The unit and row-count captions were removed
    after the 17 Sep review with Dan (the headings already carry the units); this one stays
    because it has to say which figures are marks rather than money that has been spent.
-   The spreadsheet download prints the same constant, so reword it here and both change.
 
-   Plain text only: it is rendered through esc(), so an HTML entity would print literally.
-   Straight apostrophes are fine; a double quote would end the string and break the page. */
+   Two versions, because the two places have nothing in common: the screen has to fit a phone,
+   the spreadsheet has a whole cell to itself. Reword BOTH when the wording changes.
+
+   Plain text only: both are escaped before they reach the page, so an HTML entity would print
+   literally. Straight apostrophes are fine; a double quote would end the string. */
+// On screen, under the table. Short on purpose: the full text below ran to 26 lines on a
+// 360px phone, which is two thirds of the screen before a single figure. This keeps what a
+// customer has to know — secured is real, open is a mark, none of it is a bill.
 const POS_NOTE = "Market Price is your supplier's indicative forward price for that month. "
+  + "Secured volume is priced at what was actually bought; everything still open is valued at "
+  + "that indicative price, so every mark-to-market and delivered figure here is an estimate that "
+  + "moves with the market. These figures are a valuation, not a quotation and not an invoice.";
+
+// In the spreadsheet, where length costs nothing and nobody is scrolling a phone. This one
+// keeps the roll-call of affected columns, which is what lets someone querying a figure find
+// it by name, and the non-energy-cost caveat behind the delivered rate.
+const POS_NOTE_XL = "Market Price is your supplier's indicative forward price for that month. "
   + "Secured volume is priced at what was actually bought, so Weighted Average Price and Secured Cost "
   + "are fixed; everything else is an estimate, because your open volume is valued at that indicative "
   + "price. Open Cost, MtM Price, MtM Cost, Delivered Rate and Delivered Cost all assume the remaining "
@@ -1026,8 +1050,8 @@ function subPositions(b,host){
         FlexCore.POSITIONS(bk), rows,
         { nec: FlexCore.necMap(bk, D.necs), mktPrice: (m)=>cxMktPrice(b,m) },
         { totals: FlexCore.positionsTotals(rows, bk, FlexCore.necMap(bk, D.necs)),
-          caption: esc(POS_NOTE),
           rowClass: (m)=> m.month===now ? 'cur' : '' })
+        + `<p class="tablenote">${esc(POS_NOTE)}</p>`
       : '<div class="empty">No months match these filters.</div>'}`;
 
   const rerun=()=>{
@@ -1318,7 +1342,7 @@ async function cxDownloadXlsx(b){
       { dates:{ month:{ get:m=>m.month, fmt:'mmm-yy' } },
         totals:FlexCore.positionsTotals(months, bk, nm),
         mark:(m)=>m.month===nowMonth(),
-        note:POS_NOTE+' '+XL_ROUND_NOTE, empty:'No position data for this basket.',
+        note:POS_NOTE_XL+' '+XL_ROUND_NOTE, empty:'No position data for this basket.',
         title:b.name+' - positions', stamp });
     xlSheet(wb,'Trades', FlexCore.TRADES(bk), tradesOf(b), {},
       { dates:{ date:{ get:t=>t.date, fmt:'dd mmm yy' } },
