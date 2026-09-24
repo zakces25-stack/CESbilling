@@ -7677,8 +7677,9 @@ function fxRepForm(r){
     </div>
     <label style="font-size:11.5px;font-weight:700;color:#4b5563;display:block;margin:12px 0 4px">PDF attachment — what the client actually downloads</label>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 11px;border:1px dashed #c3cad4;border-radius:8px;background:#fafbfc">
-      <input id="rpPdf" type="file" accept="application/pdf" style="font-size:12.5px">
-      <span style="font-size:11.5px;color:#4b5563">${r.pdf_path
+      <input id="rpPdf" type="file" accept="application/pdf" style="font-size:12.5px"
+             onchange="fxRepPdfHint(this)">
+      <span id="rpPdfHint" style="font-size:11.5px;color:#4b5563">${r.pdf_path
         ? '\u{1F4C4} ' + escape(r.pdf_name||'report.pdf')
           + (r.pdf_size ? ' ('+Math.max(1,Math.round(r.pdf_size/1024))+' KB)' : '')
           + ' \u2014 attached. Choosing a new file replaces it.'
@@ -7692,6 +7693,17 @@ function fxRepForm(r){
       <button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
       <button class="fx-btn green" onclick="fxRepSave(${isNew?'null':"'"+escape(r.id)+"'"})">${isNew?'Create report':'Save changes'}</button>
     </div>`;
+}
+
+// Without this the hint still said "None attached" beside the file you had just chosen.
+function fxRepPdfHint(inp){
+  const el = document.getElementById('rpPdfHint'); if (!el) return;
+  const f = inp && inp.files && inp.files[0];
+  if (!f){ el.textContent = 'None attached \u2014 the report will be text only.'; return; }
+  const kb = Math.max(1, Math.round(f.size / 1024));
+  el.textContent = (f.type === 'application/pdf')
+    ? '\u{1F4C4} ' + f.name + ' (' + kb + ' KB) \u2014 will be uploaded when you save.'
+    : '\u26A0 ' + f.name + ' is not a PDF \u2014 saving will refuse it.';
 }
 
 function fxRepNew(){
@@ -7734,6 +7746,46 @@ async function fxRepSave(id){
     published:    document.getElementById('rpPub').checked,
     updated_by:   FLEX.user, updated_at: new Date().toISOString()
   };
+  /* The PDF goes up BEFORE the row is written, and the row is then written ONCE with
+     pdf_path already on it.
+
+     The old order was insert -> upload -> update, which cannot work for a PDF-only
+     report: at the instant of the insert the row has no body and no pdf_path, and
+     flex_reports_has_content refuses exactly that. The edit path had the same hole —
+     clearing the body and attaching a PDF in one save would have hit it too.
+
+     Writing once also means there is no window in which a half-made report exists. */
+  const _f = (document.getElementById('rpPdf') || {}).files;
+  const _file = _f && _f[0];
+  if (_file){
+    if (_file.type !== 'application/pdf') return fxMErr('That attachment is not a PDF.');
+    if (_file.size > 25 * 1024 * 1024)    return fxMErr('That PDF is over 25 MB.');
+  }
+
+  // The object path is keyed on the report id, so for a new report the id has to exist
+  // before the upload does — minted here rather than defaulted by the database.
+  const _existing = id ? ((window._fxReps || []).find(x => x.id === id) || {}) : null;
+  const _repId = id || ((window.crypto && crypto.randomUUID) ? crypto.randomUUID() : null);
+  // Only a PDF needs the id up front, to key its object path. A text-only report is
+  // perfectly happy letting the database default the id, so it is not held hostage to
+  // crypto.randomUUID being available.
+  if (_file && !_repId)
+    return fxMErr('This browser cannot generate a report id. Update it, or save the report without a PDF and attach the PDF afterwards.');
+
+  let _uploaded = null;
+  if (_file){
+    // A report for everyone has no customer to key the folder on, so it goes under all/.
+    // Reports written for one customer keep their original {customer_id}/ path — the
+    // storage policy no longer reads the folder, it checks the report row behind the
+    // object, which is the stronger test anyway.
+    const path = ((_existing && _existing.customer_id) || 'all') + '/' + _repId + '.pdf';
+    const up = await FLEX.sb.storage.from('flex-reports')
+      .upload(path, _file, { contentType: 'application/pdf', upsert: true });
+    if (up.error) return fxMErr('The PDF upload failed, so nothing was saved: ' + up.error.message);
+    _uploaded = path;
+    rec.pdf_path = path; rec.pdf_name = _file.name; rec.pdf_size = _file.size;
+  }
+
   let res;
   if (id){
     // customer_id is deliberately not sent — it is immutable on update, so a report
@@ -7742,32 +7794,14 @@ async function fxRepSave(id){
   } else {
     // No customer_id: NULL means every flex customer. The read policy spells that out.
     res = await FLEX.sb.from('flex_reports')
-            .insert(Object.assign({ created_by: FLEX.user }, rec))
+            .insert(Object.assign(_repId ? { id: _repId } : {}, { created_by: FLEX.user }, rec))
             .select('id,customer_id');
   }
-  if (res.error) return fxMErr(res.error.message);
-  if (!res.data || !res.data.length) return fxMErr(FX_REP_BLOCKED);
-  const saved = res.data[0];
-
-  // The PDF goes up AFTER the row exists, because the object path is keyed on the report
-  // id. A report for everyone has no customer to key the folder on, so it goes under
-  // all/. Reports written for one customer keep their original {customer_id}/ path —
-  // the storage policy no longer reads the folder, it checks the report row behind the
-  // object, which is the stronger test anyway.
-  const _f = (document.getElementById('rpPdf') || {}).files;
-  if (_f && _f[0]){
-    const file = _f[0];
-    if (file.type !== 'application/pdf') return fxMErr('That attachment is not a PDF.');
-    if (file.size > 25 * 1024 * 1024)    return fxMErr('That PDF is over 25 MB.');
-    const path = (saved.customer_id || 'all') + '/' + saved.id + '.pdf';
-    const up = await FLEX.sb.storage.from('flex-reports')
-      .upload(path, file, { contentType: 'application/pdf', upsert: true });
-    if (up.error) return fxMErr('Report saved, but the PDF upload failed: ' + up.error.message);
-    const pf = await FLEX.sb.from('flex_reports')
-      .update({ pdf_path: path, pdf_name: file.name, pdf_size: file.size,
-                updated_by: FLEX.user, updated_at: new Date().toISOString() })
-      .eq('id', saved.id).select('id');
-    if (pf.error) return fxMErr('PDF uploaded, but linking it failed: ' + pf.error.message);
+  if (res.error || !res.data || !res.data.length){
+    // An object with no row pointing at it is litter nobody can reach. Tidy it up rather
+    // than leave it in the bucket.
+    if (_uploaded){ try { await FLEX.sb.storage.from('flex-reports').remove([_uploaded]); } catch(e){} }
+    return fxMErr(res.error ? res.error.message : FX_REP_BLOCKED);
   }
   fxToast(rec.published ? 'Report saved and published' : 'Report saved as a draft');
   fxCloseModal(); fxRepRefresh();
