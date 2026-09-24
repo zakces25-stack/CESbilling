@@ -986,10 +986,20 @@ function renderSub(){
 
 /* The one note left under a basket table. The unit and row-count captions were removed
    after the 17 Sep review with Dan (the headings already carry the units); this one stays
-   because it says Mkt Price is indicative, and Dan is supplying new wording for it. The
-   spreadsheet download prints the same constant, so reword it here and both change. */
-const POS_NOTE = "Mkt Price is your supplier's indicative forward price for that month. "
-  + "Delivered rate is the mark-to-market price converted to p/kWh plus that season's non-energy costs.";
+   because it has to say which figures are marks rather than money that has been spent.
+   The spreadsheet download prints the same constant, so reword it here and both change.
+
+   Plain text only: it is rendered through esc(), so an HTML entity would print literally.
+   Straight apostrophes are fine; a double quote would end the string and break the page. */
+const POS_NOTE = "Market Price is your supplier's indicative forward price for that month. "
+  + "Secured volume is priced at what was actually bought, so Weighted Average Price and Secured Cost "
+  + "are fixed; everything else is an estimate, because your open volume is valued at that indicative "
+  + "price. Open Cost, MtM Price, MtM Cost, Delivered Rate and Delivered Cost all assume the remaining "
+  + "volume is bought today. Delivered Rate is the mark-to-market price converted to p/kWh plus that "
+  + "season's non-energy costs, which are themselves subject to change, and Delivered Cost applies that "
+  + "rate to the month's full baseload. Forward prices move daily: these figures value your position "
+  + "against today's market. They are not a quotation and not an invoice, and the amounts you are "
+  + "ultimately billed will differ.";
 
 function subPositions(b,host){
   const bk = deskBasket(b);
