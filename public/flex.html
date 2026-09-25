@@ -1112,10 +1112,16 @@ tr.fx-alert-auth:hover td{ background:rgba(194,69,59,.32)!important; }
 tr.fx-alert-adv:hover td{ background:rgba(124,58,237,.28)!important; }
 tr.fx-alert-auth td:first-child{ border-left:4px solid var(--negative-500); font-weight:700; }
 tr.fx-alert-adv td:first-child{ border-left:4px solid var(--advisory-500); font-weight:700; }
-/* A Mkt price cell showing the TotalEnergies indicative figure. Deliberately a text
-   colour and not a row/background treatment: it must never read as an alert state,
-   because nothing on the row was calculated from this number. */
+/* A Market Price cell showing something other than Marex. Deliberately a text colour
+   and not a row or background treatment: an alert state on this row would be read as a
+   warning about the position, which it is not.
+   Simulation is the louder of the two on purpose — an invented price should not look
+   like a quoted one — and carries the editing affordance in its own colour rather than
+   the lime used for real data. */
 td.fx-te-cell{ color:#a4560f; }
+td.fx-sim-cell{ color:#6d28d9; font-weight:700; }
+td.fx-editable.fx-sim-edit{ outline-color:#a78bfa; }
+td.fx-editable.fx-sim-edit:hover{ background:#f6f1ff; }
 .fx-mkt-src{ display:inline-flex; border:1.5px solid #d8dbe4; border-radius:999px; overflow:hidden; background:#fff; }
 .fx-mkt-src button{ border:0; background:transparent; font:inherit; font-size:12px; font-weight:700; color:#5a6488;
   padding:6px 14px; cursor:pointer; line-height:1.2; white-space:nowrap; }
@@ -2648,7 +2654,10 @@ function fxTargetScenario(basket, m, necMap, trades){
   return { wap, mtm, deliv, over, addTot, newTot, baseTot, pct: baseTot > 0 ? newTot / baseTot : null };
 }
 
-// ── MARKET PRICE DISPLAY SOURCE (Marex | TotalEnergies) ──────────
+// ── MARKET PRICE SOURCE (Marex | Indicative | Simulation) ────────
+// 'te' is kept as the internal key and flex_te_curves as the table: the curve still
+// comes from TotalEnergies, only its NAME on screen has changed. Renaming the key would
+// have meant a migration for no benefit.
 // TotalEnergies send an indicative curve we show to customers because it is the
 // supplier's own view of their price. It is DISPLAY ONLY. Marex stays the single
 // priced input to every calculation on this portal — secured/residual cost, MtM,
@@ -2663,7 +2672,7 @@ let FX_MKT_SRC = 'marex';
 try { if (localStorage.getItem('fx-mkt-src') === 'te') FX_MKT_SRC = 'te'; } catch(e) {}
 const FX_SRC = {
   marex: { key: 'marex', label: 'Marex',          short: 'Marex',      tint: '#2f3d7e' },
-  te:    { key: 'te',    label: 'TotalEnergies',  short: 'TE',         tint: '#c26a1f' },
+  te:    { key: 'te',    label: 'Indicative',     short: 'IND',        tint: '#c26a1f' },
   sim:   { key: 'sim',   label: 'Simulation',     short: 'SIM',        tint: '#7c3aed' }
 };
 function fxSrc(){ return FX_SRC[FX_MKT_SRC] || FX_SRC.marex; }
@@ -2932,7 +2941,11 @@ function renderPositionsTable(rows, basket) {
     },
     // Tint the Mkt price cell when the printed figure came from TotalEnergies rather
     // than Marex, so it is obvious which curve is on screen.
-    cellClass: (c, m) => (c.key === 'mkt' && fxDisplayMkt(basket, m).te) ? 'fx-te-cell' : ''
+    cellClass: (c, m) => {
+      if (c.key !== 'mkt') return '';
+      const src = fxDisplayMkt(basket, m).src;
+      return src === 'sim' ? 'fx-sim-cell' : src === 'te' ? 'fx-te-cell' : '';
+    }
   });
 }
 
@@ -3920,13 +3933,22 @@ renderPositionsTable = function(rows, basket){
     // POSITIONS is actually loaded is right under both.
     const mktCell = fxPosCell(tr, basket, 'mkt');
     const dm = fxDisplayMkt(basket, m);
-    if (mktCell && dm.te){
+    if (mktCell && dm.src === 'sim'){
+      // A month you have simulated. Says what it replaced, so the figure is never
+      // mistaken for something the market produced.
+      mktCell.title = 'Your simulated price for ' + fmtMonth(m.month)
+        + ' — Marex is ' + (m.market_price != null ? m.market_price.toFixed(2) : 'n/a')
+        + '. Every marked figure on this row is valued at your price instead. Click to change it, '
+        + 'or clear the box to put this month back on Marex.';
+      mktCell.innerHTML += '<sup style="font-size:8px;color:#6d28d9;margin-left:2px" aria-hidden="true">SIM</sup>';
+    } else if (mktCell && dm.te){
       // Showing TotalEnergies. The Marex source annotation would be wrong here, and so
       // would any hint that this figure drove the row's colour — it did not.
-      mktCell.title = 'TotalEnergies indicative price for ' + fmtMonth(m.month)
-        + ' — display only. Every figure on this row is still calculated from Marex '
-        + (m.market_price != null ? m.market_price.toFixed(2) : 'n/a') + '.';
-      mktCell.innerHTML += '<sup style="font-size:8px;color:#c26a1f;margin-left:2px" aria-hidden="true">TE</sup>';
+      mktCell.title = 'Indicative price for ' + fmtMonth(m.month)
+        + ' — the supplier\'s own figure, and what this row is marked at. Marex is '
+        + (m.market_price != null ? m.market_price.toFixed(2) : 'n/a')
+        + ', which is what targets, alerts and the Excel export still use.';
+      mktCell.innerHTML += '<sup style="font-size:8px;color:#c26a1f;margin-left:2px" aria-hidden="true">IND</sup>';
     } else if (mktCell && m.mkt_source){
       // The view returns four sources, not three: 'manual' means the figure came from Full
       // curve data rather than the live curve, and calling that "live from market curves"
@@ -3938,9 +3960,30 @@ renderPositionsTable = function(rows, basket){
         stated: 'Stored on the basket — no curve period covers this month'
       }[m.mkt_source] || ('Market price source: ' + m.mkt_source);
       const _srcSup = { season:'S', manual:'M', stated:'·' }[m.mkt_source] || '';
-      mktCell.title = (FX_MKT_SRC === 'te' ? 'No TotalEnergies price for this month — showing Marex. ' : '') + _srcTxt;
+      // A month the selected overlay does not price falls back to Marex. Saying so
+      // matters most on Simulation, where a Marex figure sitting among simulated ones
+      // would otherwise look like a price you had chosen.
+      const _pre = FX_MKT_SRC === 'te'  ? 'No indicative price for this month — showing Marex. '
+                 : FX_MKT_SRC === 'sim' ? 'Not simulated — showing Marex, and it will keep moving with Marex. Click to set your own price. '
+                 : '';
+      mktCell.title = _pre + _srcTxt;
       if (_srcSup) mktCell.innerHTML += `<sup style="font-size:8px;color:#8a92a6;margin-left:2px">${_srcSup}</sup>`;
     }
+    // Click-to-edit on the market price, but ONLY while Simulation is selected. It writes
+    // to your own scratch curve — no basket, no target, nothing a customer sees — so
+    // unlike baseload it does not wait for Edit mode. Editing the price on Marex or
+    // Indicative would mean editing someone else's curve, so those stay read-only.
+    if (mktCell && FX_MKT_SRC === 'sim'){
+      const _tip = mktCell.title;                       // keep the explanation above
+      const _own = fxSrcPrice('sim', basket.commodity, m.month);
+      mktCell.classList.add('fx-sim-edit');
+      // Seeded with your simulated price if you have one, otherwise with Marex, so the
+      // box opens on the number you are actually moving away from.
+      fxMakeCellEditable(mktCell, _own != null ? _own : m.market_price,
+                         v => fxSimSetMonth(basket.commodity, m.month, v));
+      if (_tip) mktCell.title = _tip;                   // not "Click to edit"
+    }
+
     // Same again. Getting this wrong once meant Baseload could not be edited at all;
     // getting it wrong the other way would write a kWh figure into baseload_vol.
     const baseCell = EDIT ? fxPosCell(tr, basket, 'base') : null;
@@ -4018,6 +4061,19 @@ function fxCellInput(cell, current, save){
     if(e.key==='Escape'){ done=true; cell.innerHTML=old; if(fxDirty) fxScheduleReload(); }
   });
   inp.addEventListener('blur', commit);
+}
+
+// One month of your own Simulation curve, from the Positions tab. The same RPC the
+// Curves tab uses, with a single entry — so there is one write path and one audit line
+// however you got here. A blank box sends null, which is how a month goes back to Marex.
+async function fxSimSetMonth(commodity, monthIso, v){
+  const mon = String(monthIso).slice(0, 10);
+  const { error } = await FLEX.sb.rpc('flex_apply_sim_curve',
+    { p_commodity: commodity, p_entries: [{ month: mon, mid: v }] });
+  if (error) return fxToast('That price was not saved: ' + error.message, false);
+  fxToast(v == null ? fmtMonth(mon) + ' back to Marex'
+                    : fmtMonth(mon) + ' simulated at ' + v);
+  fxScheduleReload(['flex_sim_curves']);
 }
 
 async function fxUpdMonth(basket, m, field, v){
@@ -4580,7 +4636,7 @@ function fxLogRowHtml(r, fresh){
 // Collapse a burst (bulk import / many small edits) into one general line instead of every value.
 function fxLogFriendlyScope(r){
   if(r.basket_id){ const b=(BASKETS||[]).concat((DATA&&DATA.archived)||[]).find(x=>x.id===r.basket_id); if(b) return b.name; }
-  const map={flex_curve_history:'the market curve',flex_curves:'the market curve',flex_te_curves:'the TotalEnergies curve',flex_sim_curves:'the Simulation curve',flex_targets:'targets',flex_basket_months:'baseload volumes',flex_trades:'trades',flex_sites:'sites',flex_necs:'NECs',flex_admin_cells:'the admin schedule',flex_admin_schedule:'the admin schedule',flex_baskets:'baskets',flex_notes:'notes',flex_contacts:'contacts',flex_firm_orders:'firm orders'};
+  const map={flex_curve_history:'the market curve',flex_curves:'the market curve',flex_te_curves:'the Indicative curve',flex_sim_curves:'the Simulation curve',flex_targets:'targets',flex_basket_months:'baseload volumes',flex_trades:'trades',flex_sites:'sites',flex_necs:'NECs',flex_admin_cells:'the admin schedule',flex_admin_schedule:'the admin schedule',flex_baskets:'baskets',flex_notes:'notes',flex_contacts:'contacts',flex_firm_orders:'firm orders'};
   return map[r.table_name]||(r.table_name||'the portal');
 }
 function fxLogGroupRowHtml(r,n){
@@ -5853,10 +5909,10 @@ renderCurves = function(){
           <thead><tr><th style="text-align:left">Month</th><th class="td-right">Mid</th></tr></thead>
           <tbody>${keys.map(k=>`<tr><td>${escape(fmtMonth(k))}</td>${t[k]!=null
             ? `<td class="td-right">${t[k].toFixed(2)}</td>`
-            : `<td class="td-right" style="color:#b91c1c;font-weight:700" title="TotalEnergies sent no price for this month — the client portal shows the Marex price for this month only">&mdash;</td>`}</tr>`).join('')}</tbody></table></div>`
+            : `<td class="td-right" style="color:#b91c1c;font-weight:700" title="No indicative price for this month — Marex is used for this month only">&mdash;</td>`}</tr>`).join('')}</tbody></table></div>`
           + `<div style="font-size:11px;color:#6b7280;margin-top:6px">${keys.length} month${keys.length>1?'s':''} &middot; earliest first</div>`
-          + (blanks ? `<div style="font-size:11.5px;color:#b91c1c;margin-top:6px">${blanks} month${blanks>1?'s':''} with no TotalEnergies price &mdash; ${blanks>1?'those months fall':'that month falls'} back to Marex on the client portal.</div>` : '')
-      : `<div style="margin-top:12px;font-size:12.5px;color:#6b7280">No TotalEnergies prices imported for this commodity yet &mdash; use <b>Import TotalEnergies curve</b> above.</div>`;
+          + (blanks ? `<div style="font-size:11.5px;color:#b91c1c;margin-top:6px">${blanks} month${blanks>1?'s':''} with no indicative price &mdash; ${blanks>1?'those months fall':'that month falls'} back to Marex on the client portal.</div>` : '')
+      : `<div style="margin-top:12px;font-size:12.5px;color:#6b7280">No indicative prices imported for this commodity yet &mdash; use <b>Import</b> above.</div>`;
     return `<div class="extra-section" style="margin-bottom:16px"><div class="extra-section-title">${title} (${unit})</div>${body}</div>`;
   };
   const _fxMoOpts=[['01','Jan'],['02','Feb'],['03','Mar'],['04','Apr'],['05','May'],['06','Jun'],['07','Jul'],['08','Aug'],['09','Sep'],['10','Oct'],['11','Nov'],['12','Dec']].map(function(m){return '<option value="'+m[0]+'">'+m[1]+'</option>';}).join('');
@@ -5886,9 +5942,9 @@ renderCurves = function(){
         + simSection('UK Power &mdash; Simulation','£/MWh','power')
         + `<p style="font-size:11px;color:#6d28d9;text-align:right;margin:0;">Simulation curve — last edited ${(DATA.sim && DATA.sim.last_updated) || '—'}. <b>Hand-entered, not a market.</b> While this is selected the desk marks market price, open cost, MtM and delivered figures against it. Secured trades, targets, alerts and the Excel export stay on Marex, and no customer ever sees this curve.</p>`
       : _te
-      ? teSection('NBP Gas &mdash; TotalEnergies indicative','p/th','gas')
-        + teSection('UK Power &mdash; TotalEnergies indicative','£/MWh','power')
-        + `<p style="font-size:11px;color:var(--grey-400);text-align:right;margin:0;">TotalEnergies indicative curve — last imported ${(DATA.te && DATA.te.last_updated) || '—'}. This is the curve customers see on the client portal. While it is selected the desk marks against it too; targets, alerts and the Excel export stay on Marex.</p>`
+      ? teSection('NBP Gas &mdash; Indicative','p/th','gas')
+        + teSection('UK Power &mdash; Indicative','£/MWh','power')
+        + `<p style="font-size:11px;color:var(--grey-400);text-align:right;margin:0;">Indicative curve (TotalEnergies) — last imported ${(DATA.te && DATA.te.last_updated) || '—'}. This is the curve customers see on the client portal. While it is selected the desk marks against it too; targets, alerts and the Excel export stay on Marex.</p>`
       : section('NBP Gas Forward Curve','p/th',C.gas)
         + section('UK Power Forward Curve','£/MWh',C.power)
         + `<p style="font-size:11px;color:var(--grey-400);text-align:right;margin:0;">Marex indicative forward curve — last updated ${C.last_updated || '—'}. Upcoming months only, from ${fmtMonth(fxNextMonth())} — ${fmtMonth(fxNowMonth())} is the current delivery month and has rolled into <b>Full market curve data</b> below. Basket market prices pull live: month first, then season.</p>`}
@@ -5925,7 +5981,7 @@ renderCurves = function(){
       <div id="fxTeDrop" style="flex:1 1 290px;border:2px dashed #e0a44a;border-radius:11px;background:#fffaf1;padding:10px 12px;cursor:pointer;transition:all .15s">
         <div style="display:flex;align-items:center;gap:8px">
           <div style="font-size:11px;font-weight:900;color:#a4560f;border:2px solid #e0a44a;border-radius:6px;padding:2px 5px;line-height:1">TE</div>
-          <div style="font-weight:800;font-size:12.5px;color:#141a3c">TotalEnergies &mdash; drop or browse</div>
+          <div style="font-weight:800;font-size:12.5px;color:#141a3c">Indicative &mdash; drop or browse</div>
         </div>
         <div style="font-size:10.5px;color:#6b7280;margin:3px 0 6px">The supplier&rsquo;s indicative prices, and the only overlay customers see. A blank month falls back to Marex.</div>
         <div class="fx-toolbar" style="margin:0;gap:5px">
@@ -6057,16 +6113,16 @@ async function fxParseTe(file){
       </tbody></table></div></div>`;
   };
   const totalBlank = fxTe.gas.filter(r=>r.mid==null).length + fxTe.power.filter(r=>r.mid==null).length;
-  fxModal(`<h3>TotalEnergies curve &mdash; ${escape(file.name)}</h3>
-  <p style="font-size:12px;color:#4b5563;margin:0 0 4px"><b>Display only.</b> This updates what customers see as the market price, and what you see when the switch above is set to TotalEnergies. It changes no cost, mark-to-market, delivered rate, target or alert &mdash; those stay on Marex.</p>
+  fxModal(`<h3>Indicative curve &mdash; ${escape(file.name)}</h3>
+  <p style="font-size:12px;color:#4b5563;margin:0 0 4px">This is the curve customers see, and the one the desk marks against while the switch above is set to Indicative &mdash; market price, open cost, MtM and delivered figures all follow it. Targets, alerts and the Excel export stay on Marex. It changes no cost, mark-to-market, delivered rate, target or alert &mdash; those stay on Marex.</p>
   <p style="font-size:12px;color:${totalBlank ? '#b91c1c' : '#4b5563'};margin:0 0 10px">${totalBlank
-    ? `${totalBlank} month(s) in this file have no price. Those months will be stored as blank and the client portal will show the Marex price for them — clearing any TotalEnergies figure previously held for those months.`
+    ? `${totalBlank} month(s) in this file have no price. Those months will be stored as blank and the client portal will show the Marex price for them — clearing any indicative figure previously held for those months.`
     : 'Every month in this file has a price.'} Months not present in the file are left untouched.</p>
   <div style="display:flex;gap:16px;flex-wrap:wrap">${blk('NBP Gas (p/th)','p/th',fxTe.gas)}${blk('UK Power (£/MWh)','£/MWh',fxTe.power)}</div>
   <div class="fx-err" id="fxMErr"></div>
   <div class="fx-modal-foot">
     <button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
-    <button class="fx-btn green" onclick="fxTeApply()">Import TotalEnergies curve</button>
+    <button class="fx-btn green" onclick="fxTeApply()">Import indicative curve</button>
   </div>`);
 }
 async function fxTeApply(){
@@ -6081,13 +6137,13 @@ async function fxTeApply(){
     if(error){ btns.forEach(b=>b.disabled=false); return fxMErr(fuel+': '+error.message); }
     n += rows.length;
   }
-  fxToast(n + ' TotalEnergies month(s) imported — display only, no calculations changed');
+  fxToast(n + ' indicative month(s) imported — this is what customers see, and what the desk marks against on Indicative');
   fxTe=null; fxCloseModal(); fxScheduleReload(['flex_te_curves']);
 }
 /* ── SIMULATION CURVE ─────────────────────────────────────────────────────────────
    A desk-only scratch curve for "what would this book look like at these prices".
    Everything below writes to flex_sim_curves and nowhere else. It shares the
-   TotalEnergies extractor and template deliberately, so one filled spreadsheet can be
+   Indicative extractor and template deliberately, so one filled spreadsheet can be
    imported as either without being re-laid-out.
 
    It reaches no customer: flex_client_positions_rows() reads flex_positions, which knows
@@ -6276,8 +6332,8 @@ async function fxTeTemplate(){
     ws.getCell('B'+r).numFmt='0.00'; ws.getCell('F'+r).numFmt='0.00';
   }
   fxDownloadBlob(await wb.xlsx.writeBuffer(),
-    'TotalEnergies curve template '+start.slice(0,7)+' to '+end.slice(0,7)+'.xlsx');
-  fxToast('Template downloaded — '+fmtMonth(start)+' to '+fmtMonth(end)+'. Leave a month blank where TotalEnergies have not priced it.');
+    'Indicative curve template '+start.slice(0,7)+' to '+end.slice(0,7)+'.xlsx');
+  fxToast('Template downloaded — '+fmtMonth(start)+' to '+fmtMonth(end)+'. Leave a month blank where the supplier has not priced it.');
 }
 // ── Previous (historic) market curve data — months before today, rolls automatically ──
 function fxQLabel(q){ if(!q) return '\u2014'; var m=/^Q(\d)(\d{2})$/.exec(String(q)); return m ? ('Q'+m[1]+'-'+m[2]) : q; }
