@@ -446,6 +446,47 @@ table tbody tr:hover td.achieved-cell{background:#8fe3a6;color:var(--navy-900)}
 .curtag{font-family:var(--font-body);font-size:var(--t-xs);font-weight:700;
   color:var(--accent);letter-spacing:.03em;margin-left:6px}
 .hit{color:var(--positive-700);font-weight:700}
+
+/* ── Market Price Source ──────────────────────────────────────────────────────
+   A segmented control rather than a dropdown: three options that change what every
+   figure below them means should all be visible at once, with the live one obvious,
+   not folded away behind a click. */
+.srcbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--r-md);padding:10px 14px;margin-bottom:14px}
+.srcbar label{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.srcbar .srchint{font-size:var(--t-sm);color:var(--ink-3);margin-left:auto}
+/* The hint is a nicety, and on a phone it is a third row on the bar. The buttons say
+   what they do; the note under the table says the rest. */
+@media (max-width:560px){ .srcbar .srchint{display:none} }
+.cx-mkt-src{display:inline-flex;border:1.5px solid var(--line-strong);border-radius:999px;
+  overflow:hidden;background:var(--surface-2)}
+.cx-mkt-src button{border:0;background:transparent;font-family:var(--font-body);
+  font-size:var(--t-sm);font-weight:700;color:var(--ink-3);padding:6px 15px;min-height:40px;cursor:pointer}
+.cx-mkt-src button:hover{color:var(--ink)}
+.cx-mkt-src button[aria-pressed="true"]{background:var(--accent-fill);color:var(--navy-900)}
+.cx-mkt-src button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
+/* The standing warning while a simulation is on screen. Bordered and tinted rather than
+   a quiet line of text: the figures beside it look exactly like real ones, and this is
+   the only thing on the page saying they are not. */
+.cxwarn{margin:0 0 16px;padding:12px 15px;border-radius:var(--r-md);font-size:var(--t-sm);
+  line-height:1.55;border:1.5px solid #8b6fd6;background:rgba(139,111,214,.15);color:var(--ink-2)}
+.cxwarn b{color:#c9a9ff}
+.cxwarn-acts{display:block;margin-top:7px}
+
+/* A Market Price the customer entered. A text colour and a small mark, never a row or
+   background treatment: an alert state across the row would be read as a warning about
+   the position itself, which it is not. */
+td.cx-sim-cell{color:#c9a9ff;font-weight:700}
+.cx-simmark{font-size:8px;font-weight:800;letter-spacing:.04em;color:#c9a9ff;margin-left:3px;vertical-align:super}
+/* The only editable cell in the portal, so the affordance has to be visible without a
+   hover — a dotted box that says "this one is different" at a glance. */
+td.cx-editable{cursor:pointer;outline:1px dotted var(--line-strong);outline-offset:-3px}
+td.cx-editable:hover,td.cx-editable:focus-visible{outline:1.5px solid #a78bfa;
+  background:rgba(139,111,214,.13)}
+input.cx-cell{width:100%;min-width:62px;font-family:var(--font-mono);font-size:var(--t-sm);
+  font-weight:700;color:var(--ink);background:var(--navy-900);border:1.5px solid #a78bfa;
+  border-radius:var(--r-sm);padding:3px 6px;text-align:right}
 .chartbox{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);
   padding:18px;margin-bottom:18px}
 .chartbox h4{margin:0 0 12px;font-family:var(--font-display);font-size:var(--t-md)}
@@ -523,6 +564,13 @@ table tbody tr:hover td.achieved-cell{background:#8fe3a6;color:var(--navy-900)}
   .fuelhead h2{color:#111 !important}
   .fuelchips{display:none}
   thead th{position:static}
+  /* On paper the toggle is gone, so the warning has to survive the light palette and
+     the simulated prices have to stay identifiable in black ink. */
+  .cxwarn{border:1.5pt solid #111;background:#fff;color:#111;break-inside:avoid}
+  .cxwarn b{color:#111}
+  td.cx-sim-cell{color:#111 !important;font-weight:700}
+  .cx-simmark{color:#111 !important}
+  td.cx-editable{outline:none !important;background:none !important}
   @page{margin:16mm 15mm}
 }
 </style>
@@ -566,9 +614,13 @@ table tbody tr:hover td.achieved-cell{background:#8fe3a6;color:var(--navy-900)}
    without a session it sends you straight back there, and signing out returns
    there too. Both pages share the ces-flex-auth storage key.
 
-   Read-only by construction:
+   Read-only about the BOOK, by construction:
      · reads only flex_client_* views + flex_reports + own customers row
-     · no insert / update / upsert / delete / rpc anywhere in this file
+     · no insert / update / upsert / delete anywhere in this file, and the single
+       rpc it makes — flex_apply_sim_curve — writes to nothing but the signed-in
+       user's own Simulation curve, a private scratch curve that no basket, trade,
+       target, report or other account can see. Nothing a customer does here can
+       move a figure for the desk or for another customer.
      · no .channel() / realtime / presence, and the flex-cursors topic is gated
        on is_flex_team() by an RLS policy, so broker cursors can neither appear
        here nor be subscribed to with this page's key
@@ -585,20 +637,112 @@ const CX = (() => {
   return { sb, company:'' };
 })();
 
-let D = { baskets:[], positions:{}, trades:{}, targets:{}, sites:{}, curve:{}, te:{gas:{},power:{}}, necs:[], reports:[] };
+let D = { baskets:[], positions:{}, trades:{}, targets:{}, sites:{}, curve:{},
+           te:{gas:{},power:{}}, sim:{gas:{},power:{}}, necs:[], reports:[] };
 let VIEW = 'baskets', OPEN = null, SUB = 'positions';
 const CHARTS = {};
 
-/* ── helpers ─────────────────────────────────────────────────────────── */
-/* Market price shown to a customer. TotalEnergies for that exact month; where they
-   have not priced a month — a season they skipped, a curve that stops short — that
-   month alone falls back to the price already on the position row. Display only:
-   it is never fed back into a total, an average, a cost or a comparison. */
-function cxMktPrice(basket, row){
-  const t = (D.te && D.te[basket && basket.commodity]) || {};
-  const v = t[String(row.month).slice(0,10)];
-  if (v != null) return +v;
-  return (row.market_price == null) ? null : +row.market_price;
+/* ── MARKET PRICE SOURCE (Marex | Indicative | Simulation) ─────────────────
+   Until this round the portal SHOWED the supplier's indicative price and COSTED at
+   Marex, so a customer could read 189.52 on a row whose Open Cost had been worked
+   out at 186.32. That is fixed here in the direction the customer was already being
+   pointed: the selected curve is now what everything on the page is valued at.
+
+   Three sources, and what each one is:
+     Marex       the wholesale broker curve the book is marked at. Global, set by the
+                 desk, read-only here.
+     Indicative  the supplier's own forward price for these months. Global, imported
+                 by the desk, read-only here. This is the default, so the market prices
+                 a customer sees are unchanged from before — it is the money beside
+                 them that has come into line.
+     Simulation  the customer's own what-if curve. Private to their login, editable
+                 only from this page, and invisible to the desk and to every other
+                 customer. Blank months fall back to Marex.
+
+   Deliberately NOT remembered between visits. Simulation must not survive a reload —
+   coming back tomorrow to a scenario you set up today, rendered as if it were the
+   market, is the mistake worth engineering out — and once Simulation cannot persist,
+   remembering Marex-or-Indicative would only mean two people on the same phone call
+   reading different figures with no way to tell. Every visit opens on Indicative. */
+const CX_SRC = {
+  marex: { key:'marex', label:'Marex',      tint:'#9fb0e8' },
+  te:    { key:'te',    label:'Indicative', tint:'#f0a868' },
+  sim:   { key:'sim',   label:'Simulation', tint:'#c9a9ff' }
+};
+const CX_SRC_DEFAULT = 'te';
+let CX_MKT_SRC = CX_SRC_DEFAULT;
+function cxSrc(){ return CX_SRC[CX_MKT_SRC] || CX_SRC[CX_SRC_DEFAULT]; }
+
+/* The overlay price for one exact month, or null where that source has nothing for it.
+   Marex is not an overlay — it is the price already on the position row. */
+function cxSrcPrice(src, commodity, monthIso){
+  if (src === 'marex') return null;
+  const bag = (src === 'sim' ? D.sim : D.te) || {};
+  const t = bag[commodity] || {};
+  const v = t[String(monthIso).slice(0,10)];
+  return (v == null) ? null : +v;
+}
+/* What the Market Price column prints, and which source it came from. The fallback is
+   per MONTH, never per curve: a gap in the indicative curve affects only the months it
+   actually leaves blank, and every other month still shows the supplier's figure. */
+function cxDisplayMkt(basket, row){
+  const v = cxSrcPrice(CX_MKT_SRC, basket && basket.commodity, row.month);
+  if (v == null) return { v: (row.market_price == null ? null : +row.market_price), src:'marex' };
+  return { v: v, src: CX_MKT_SRC };
+}
+// Every existing caller wants the number, so this keeps its name and its signature.
+function cxMktPrice(basket, row){ return cxDisplayMkt(basket, row).v; }
+// How many months the named overlay actually prices, across both fuels. A source with
+// nothing in it falls back to Marex on every row, which reads as a broken button.
+function cxSrcCount(src){
+  const bag = (src === 'sim' ? D.sim : D.te) || {};
+  return ['gas','power'].reduce((n,f)=>
+    n + Object.values(bag[f]||{}).filter(v=>v!=null).length, 0);
+}
+
+/* ── RE-MARKING AT THE SELECTED CURVE ────────────────────────────────────────
+   flex_client_positions marks every month at Marex. When another curve is selected the
+   rows are re-marked here, in the browser, and handed to the same renderers — which is
+   exactly what flex.html does, using the same three formulas, so the desk and the
+   portal cannot drift apart. Each figure is an exact linear function of the market
+   price, so this is the view's own arithmetic rather than an approximation of it:
+
+     residual_cost = open_vol_total x mkt / (100 for gas, 1 for power)
+     mtm_cost      = secured_cost + residual_cost      <- secured_cost never moves
+     mtm_price     = (secured_vol x wap + open_vol x mkt) / baseload_vol
+
+   Delivered rate and delivered cost need no line here: FlexCore derives both from
+   mtm_price, so they follow on their own and cannot be left behind.
+
+   What is NEVER touched: secured volume, its weighted average price and its cost.
+   Those are trades that actually happened. A curve changes what the OPEN volume is
+   worth, and nothing else. */
+function cxRemarkRow(basket, m){
+  const px = cxSrcPrice(CX_MKT_SRC, basket.commodity, m.month);
+  if (px == null || m.market_price == null || px === m.market_price) return m;
+  const g    = (basket.commodity === 'gas') ? 100 : 1;
+  const base = m.baseload_vol, sec = m.secured_vol || 0, wap = m.secured_wap;
+  const r = Object.assign({}, m);
+  r.residual_cost = (m.open_vol_total != null) ? m.open_vol_total * px / g : m.residual_cost;
+  r.mtm_cost = (r.residual_cost != null) ? (m.secured_cost || 0) + r.residual_cost : m.mtm_cost;
+  r.mtm_price = (base > 0)
+    ? ((sec && wap != null ? sec * wap : 0) + (base - sec) * px) / base
+    : null;
+  r.cx_remarked = CX_MKT_SRC;
+  return r;
+}
+
+function cxSetMktSrc(v){
+  const next = CX_SRC[v] ? v : CX_SRC_DEFAULT;
+  if (next === CX_MKT_SRC) return;
+  CX_MKT_SRC = next;
+  render();
+  if (next !== 'marex' && !cxSrcCount(next)){
+    return toast(next === 'sim'
+      ? 'Nothing simulated yet — every month is showing the Marex price. Click a Market Price to set your own.'
+      : 'No indicative prices for your baskets yet — showing Marex.');
+  }
+  toast('Showing ' + cxSrc().label + ' — every price, cost and rate on this basket now values your open volume at that curve.');
 }
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const n2 = v => v==null||v===''?'—':(+v).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -661,7 +805,7 @@ function bootMsg(html){ document.getElementById('bootTxt').innerHTML = html; }
 
 /* ── load ────────────────────────────────────────────────────────────── */
 async function load(){
-  const [bk,ps,tr,tg,st,cv,te,nx,rp,me] = await Promise.all([
+  const [bk,ps,tr,tg,st,cv,te,sm,nx,rp,me] = await Promise.all([
     CX.sb.from('flex_client_baskets').select('id,name,commodity,unit_vol,unit_price,target_count,target_labels,target_kinds,target_rules').order('name'),
     CX.sb.from('flex_client_positions').select('*').order('month'),
     CX.sb.from('flex_client_trades').select('*').order('trade_date'),
@@ -669,15 +813,20 @@ async function load(){
     CX.sb.from('flex_client_sites').select('*').order('mpxn'),
     CX.sb.from('flex_client_curves').select('commodity,period_type,period_label,month,mid,updated_at'),
     CX.sb.from('flex_client_te_curves').select('commodity,month,mid').order('month'),
+    CX.sb.from('flex_client_sim_curves').select('commodity,month,mid').order('month'),
     CX.sb.from('flex_client_necs').select('basket_name,commodity,season,nec'),
     CX.sb.from('flex_reports').select('id,kind,title,period_label,report_date,body,pdf_path,pdf_name,pdf_size')
          .eq('published',true).order('report_date',{ascending:false}),
     CX.sb.from('customers').select('customer_id,company_name').maybeSingle()
   ]);
   for(const r of [bk,ps,tr,tg,st,cv,rp]) if(r.error) throw new Error(r.error.message);
-  // A missing or unreadable TotalEnergies curve must never take the portal down —
-  // it degrades to the Marex figure the positions view already carries.
+  // A missing or unreadable overlay curve must never take the portal down — each one
+  // degrades to the Marex figure the positions view already carries. sm in particular
+  // will be missing on any deploy that lands before round 27's SQL has been run, and
+  // the portal has to go on working through that window rather than showing a blank
+  // page to every customer.
   if(te.error) console.warn('supplier curve unavailable:', te.error.message);
+  if(sm.error) console.warn('simulation curve unavailable:', sm.error.message);
 
   D.baskets = bk.data||[];
   // deskBasket() caches each basket's shaped months and targets. Without this, Refresh
@@ -697,12 +846,17 @@ async function load(){
     gas:  {months:grp('gas','month'),  quarters:grp('gas','quarter'),  seasons:grp('gas','season'),  annuals:grp('gas','annual')},
     power:{months:grp('power','month'),quarters:grp('power','quarter'),seasons:grp('power','season'),annuals:grp('power','annual')}
   };
-  // Supplier (TotalEnergies) curve, keyed month → mid. This is the only market price a
-  // customer is shown. It is DISPLAY ONLY: every figure beside it on this page — secured
-  // cost, mark-to-market, delivered rate, secured %, targets — arrives already calculated
-  // from flex_client_positions, which resolves off Marex and is not touched by any of this.
+  // Supplier (indicative) curve, keyed month → mid, and the default source. Since round 27
+  // it is no longer display only: where a month is priced here, the portal re-marks that
+  // row's open cost, MtM cost, MtM price and delivered figures at this price, so the
+  // number a customer reads and the money beside it are the same number. Secured volume,
+  // its WAP and its cost come straight from flex_client_positions and never move.
   D.te = {gas:{}, power:{}};
   for(const r of (te.data||[])) if(D.te[r.commodity] && r.month) D.te[r.commodity][String(r.month).slice(0,10)] = (r.mid==null?null:+r.mid);
+  // This customer user's own Simulation curve. flex_client_sim_curves is scoped to
+  // owner = auth.uid(), so what arrives here is theirs and nobody else's.
+  D.sim = {gas:{}, power:{}};
+  for(const r of (sm.data||[])) if(D.sim[r.commodity] && r.month) D.sim[r.commodity][String(r.month).slice(0,10)] = (r.mid==null?null:+r.mid);
   // NECs feed the delivered rate through the same FlexCore formula the desk uses. If
   // they are unavailable the rate simply blanks — better than a rate missing its
   // non-energy costs, which would read as a real (and much too low) number.
@@ -757,6 +911,80 @@ async function start(){
 async function cxReload(){
   try{ await load(); drawSceneChart(); render(); toast('Up to date'); }
   catch(e){ toast('Could not refresh — please try again'); }
+}
+
+/* ── the customer's own Simulation curve ─────────────────────────────────────
+   The ONLY thing this page writes, and the only rpc it makes. flex_apply_sim_curve is
+   security definer and takes the owner from auth.uid(), never from a parameter, so this
+   call cannot reach another user's curve however it is edited in a console. It writes
+   to flex_sim_curves and to nothing else: no basket, no trade, no target, no report.
+   The desk's Curves tab and its Positions cell call the same function with the same
+   arguments, so there is one write path for simulated prices however you got to it. */
+async function cxSimWrite(commodity, entries, msg){
+  const { error } = await CX.sb.rpc('flex_apply_sim_curve',
+    { p_commodity: commodity, p_entries: entries });
+  if(error){ toast('That price was not saved — please try again'); console.warn('sim write failed:', error.message); return false; }
+  await cxLoadSim();
+  toast(msg);
+  return true;
+}
+// Re-reads just the simulation curve and re-renders. A whole load() would pull every
+// basket, position, trade and report back for a one-cell edit.
+async function cxLoadSim(){
+  const sm = await CX.sb.from('flex_client_sim_curves').select('commodity,month,mid').order('month');
+  if(sm.error){ console.warn('simulation curve unavailable:', sm.error.message); return; }
+  D.sim = {gas:{}, power:{}};
+  for(const r of (sm.data||[])) if(D.sim[r.commodity] && r.month) D.sim[r.commodity][String(r.month).slice(0,10)] = (r.mid==null?null:+r.mid);
+  // Every cached basket is now marked at a curve that has moved under it.
+  for(const k of Object.keys(_BK)) delete _BK[k];
+  render();
+}
+// One month. A blank box sends null, which is how a month goes back to Marex.
+function cxSimSetMonth(commodity, monthIso, v){
+  const mon = String(monthIso).slice(0,10);
+  return cxSimWrite(commodity, [{ month: mon, mid: v }],
+    v == null ? fmtMonth(mon)+' back to Marex' : fmtMonth(mon)+' simulated at '+v);
+}
+// Every month the customer has priced, on both fuels, back to Marex in one write per
+// fuel. Only months that actually carry a price are sent, so this cannot invent rows.
+async function cxSimClearAll(){
+  let n = 0;
+  for(const f of ['gas','power']){
+    const months = Object.keys((D.sim && D.sim[f]) || {}).filter(k=>D.sim[f][k]!=null);
+    if(!months.length) continue;
+    n += months.length;
+    const { error } = await CX.sb.rpc('flex_apply_sim_curve',
+      { p_commodity: f, p_entries: months.map(m=>({ month:m, mid:null })) });
+    if(error){ toast('Those prices were not cleared — please try again'); console.warn('sim clear failed:', error.message); return; }
+  }
+  await cxLoadSim();
+  toast(n ? n+' simulated price'+(n===1?'':'s')+' cleared — back to Marex' : 'Nothing to clear');
+}
+// Click-to-edit on one Market Price cell. The portal has no other editable cell, so the
+// affordance has to carry itself: a dotted box, a pointer, and a title that says what a
+// click does rather than the desk's terse "Click to edit".
+function cxEditCell(cell, current, save){
+  if(!cell || cell.querySelector('input')) return;
+  const old = cell.innerHTML;
+  cell.innerHTML = `<input class="cx-cell" inputmode="decimal" aria-label="Simulated market price" value="${current!=null?current:''}">`;
+  const inp = cell.querySelector('input'); inp.focus(); inp.select();
+  let done = false;
+  const commit = async () => {
+    if(done) return; done = true;
+    const raw = inp.value.trim().replace(/[£,\s]/g,'');
+    const v = raw === '' ? null : Number(raw);
+    if(raw !== '' && !isFinite(v)){ toast('That is not a number'); cell.innerHTML = old; return; }
+    if(v === (current != null ? current : null)){ cell.innerHTML = old; return; }
+    cell.innerHTML = '&hellip;';
+    // A refused write must put the cell back. Leaving the spinner there was the state a
+    // customer would have been stuck in until they reloaded, with no figure in the cell.
+    if(await save(v) === false) cell.innerHTML = old;
+  };
+  inp.addEventListener('keydown', e=>{
+    if(e.key === 'Enter') commit();
+    if(e.key === 'Escape'){ done = true; cell.innerHTML = old; }
+  });
+  inp.addEventListener('blur', commit);
 }
 
 /* ── nav ─────────────────────────────────────────────────────────────── */
@@ -824,16 +1052,25 @@ function normTarget(t){
   return o;
 }
 // Cached because FlexCore's target rules walk basket.months for every tier of every row.
+// Keyed by SOURCE as well as basket: switching curve must not hand back the rows marked
+// at the previous one, and keying it means the two sets coexist rather than one evicting
+// the other every time the toggle moves.
+//
+// Re-marking happens HERE, at the single point every reader goes through — the stat
+// cards, the Positions table, Seasons, Targets, the graphs and the spreadsheet all end
+// up in this function. Doing it in any one of them would have left the others on Marex
+// and put two answers for one basket on one screen.
 const _BK = {};
 function deskBasket(b){
-  if(_BK[b.id]) return _BK[b.id];
+  const k = CX_MKT_SRC + '|' + b.id;
+  if(_BK[k]) return _BK[k];
   const bb = Object.assign({}, b, {
-    months:  (D.positions[b.id]||[]).map(normRow)
+    months:  (D.positions[b.id]||[]).map(normRow).map(m=>cxRemarkRow(b,m))
                .sort((x,y)=> x.month<y.month?-1:1),
     targets: (D.targets[b.id]||[]).map(normTarget)
                .sort((x,y)=> x.month<y.month?-1:1)
   });
-  _BK[b.id] = bb;
+  _BK[k] = bb;
   return bb;
 }
 
@@ -857,6 +1094,64 @@ function applyFilters(rows){
     if(FLT.from && mk < FLT.from) return false;
     if(FLT.to   && mk > FLT.to)   return false;
     return true;
+  });
+}
+
+/* ── the source control ──────────────────────────────────────────────────────
+   One control, in the basket detail only. The basket LIST carries no figure that a
+   curve can move — forward cover, secured and forecast volumes and the secured WAP are
+   all trades and forecasts — so putting a market-price switch above it would have
+   offered a button that changed nothing on the screen it sits on. */
+function cxSrcBarHtml(){
+  const btn = k => `<button type="button" data-src="${k}" aria-pressed="${CX_MKT_SRC===k?'true':'false'}">${esc(CX_SRC[k].label)}</button>`;
+  const sim = CX_MKT_SRC === 'sim';
+  const n   = sim ? cxSrcCount('sim') : 0;
+  // The warning is NOT .noprint. A printed or PDF'd page marked at a hand-entered curve
+  // must say so on the paper — that is the one place the toggle is no longer on screen
+  // to tell anyone.
+  // Kept short on purpose. The first draft ran to fourteen lines on a 360px phone — a
+  // third of the screen before a single figure — which is how a warning gets scrolled
+  // past. The note under the table carries the full explanation; this carries the point.
+  const warn = !sim ? '' : `
+      <div class="cxwarn">
+        <b>These figures are your own simulation.</b> ${n
+          ? 'Months you have priced are valued at your price, not a market price; the rest still show Marex. Secured volume and its cost are unchanged. Not a quotation, and private to you.'
+          : 'You have not priced any months yet, so every month still shows Marex. Click any Market Price below to set your own.'}
+        <span class="cxwarn-acts noprint">
+          <a href="#" data-src="${CX_SRC_DEFAULT}">Back to ${esc(CX_SRC[CX_SRC_DEFAULT].label)}</a>${n
+          ? ` &nbsp;·&nbsp; <a href="#" id="cxSimClear">Clear my simulated prices</a>` : ''}
+        </span>
+      </div>`;
+  return `<div class="srcbar noprint">
+      <label>Market Price Source</label>
+      <span class="cx-mkt-src" role="group" aria-label="Market price source">
+        ${btn('marex')}${btn('te')}${btn('sim')}
+      </span>
+      <span class="srchint">${sim
+        ? 'Click a Market Price on the Positions tab to change it'
+        : 'Every price, cost and rate below is valued at this curve'}</span>
+    </div>${warn}`;
+}
+// Wired after the markup lands. Delegated off data-src for the same reason the basket
+// cards are: an onclick attribute is HTML-decoded before it parses as JS.
+function cxWireSrcBar(el){
+  if(!el) return;
+  el.querySelectorAll('[data-src]').forEach(x=>x.addEventListener('click',e=>{
+    e.preventDefault(); cxSetMktSrc(x.dataset.src);
+  }));
+  const c = el.querySelector('#cxSimClear');
+  // Two clicks, not a confirm() dialog. Clearing cannot be undone — the prices a
+  // customer typed are gone — so it must not be one stray click away, and a modal on a
+  // phone is worse than a button that asks once.
+  if(c) c.addEventListener('click',e=>{
+    e.preventDefault();
+    if(c.dataset.armed !== '1'){
+      c.dataset.armed='1'; c.textContent='Click again to clear them';
+      setTimeout(()=>{ if(c.isConnected && c.dataset.armed==='1'){
+        c.dataset.armed=''; c.textContent='Clear my simulated prices'; } }, 6000);
+      return;
+    }
+    cxSimClearAll();
   });
 }
 
@@ -960,6 +1255,7 @@ function renderBasket(){
       <button class="gbtn" id="backBtn">&larr; All baskets</button>
       ${canXl?`<button class="gbtn dl" id="xlBtn" type="button"${_xlBusy?' disabled':''}>${_xlBusy?'Preparing&hellip;':XL_LABEL}</button>`:''}
     </div>
+    ${cxSrcBarHtml()}
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:14px">
       <h3 style="font-size:var(--t-head)">${esc(b.name)}</h3>
       <span class="tag ${isP?'power':'gas'}"><span aria-hidden="true">${isP?'&#9889;':'&#128293;'}</span> ${isP?'Electricity':'Gas'}</span>
@@ -975,6 +1271,7 @@ function renderBasket(){
     </nav>
     <div id="subview"></div>`;
   document.getElementById('backBtn').addEventListener('click',()=>{OPEN=null;render();});
+  cxWireSrcBar(el);
   const xb=document.getElementById('xlBtn');
   if(xb) xb.addEventListener('click',()=>cxDownloadXlsx(b));
   el.querySelectorAll('[data-sub]').forEach(t=>t.addEventListener('click',()=>{SUB=t.dataset.sub;renderBasket();}));
@@ -1025,6 +1322,29 @@ const POS_NOTE_XL = "Market Price is your supplier's indicative forward price fo
   + "against today's market. They are not a quotation and not an invoice, and the amounts you are "
   + "ultimately billed will differ.";
 
+/* POS_NOTE above is written for the Indicative curve, which is the default and what a
+   customer sees unless they change it. On the other two sources its first sentence would
+   be untrue, so each gets its own note rather than the approved one being patched at
+   runtime into something nobody has read. All three say the same three things: what the
+   market price is, that secured volume is real and open volume is a mark, and that none
+   of it is a bill. */
+const POS_NOTE_MAREX = "Market Price is the wholesale forward price for that month, from the "
+  + "broker curve CES trade against, rather than your supplier's indicative price. Secured volume "
+  + "is priced at what was actually bought; everything still open is valued at that wholesale price, "
+  + "so every mark-to-market and delivered figure here is an estimate that moves with the market. "
+  + "These figures are a valuation, not a quotation and not an invoice.";
+const POS_NOTE_SIM = "Market Price is the price YOU have entered for that month, not a market "
+  + "price and not a price anyone has offered you. Secured volume is still priced at what was "
+  + "actually bought and does not move; everything still open is valued at your price, so every "
+  + "mark-to-market and delivered figure here is the result of your own assumption. Months you "
+  + "have not priced fall back to the wholesale forward price. Nothing here is a quotation or an "
+  + "invoice, and nothing you enter is visible to CES or to anyone else.";
+function cxPosNote(){
+  return CX_MKT_SRC === 'sim' ? POS_NOTE_SIM
+       : CX_MKT_SRC === 'marex' ? POS_NOTE_MAREX
+       : POS_NOTE;
+}
+
 function subPositions(b,host){
   const bk = deskBasket(b);
   const all = monthsOf(b.id);
@@ -1050,9 +1370,45 @@ function subPositions(b,host){
         FlexCore.POSITIONS(bk), rows,
         { nec: FlexCore.necMap(bk, D.necs), mktPrice: (m)=>cxMktPrice(b,m) },
         { totals: FlexCore.positionsTotals(rows, bk, FlexCore.necMap(bk, D.necs)),
-          rowClass: (m)=> m.month===now ? 'cur' : '' })
-        + `<p class="tablenote">${esc(POS_NOTE)}</p>`
+          rowClass: (m)=> m.month===now ? 'cur' : '',
+          // Which month a row is, for the decorator below. Addressing rows by index
+          // breaks the moment a filter changes the set.
+          rowAttr: (m)=> ` data-month="${esc(String(m.month).slice(0,10))}"`,
+          // The simulated-price indicator. Only the Market Price cell, only where the
+          // price shown is one the customer entered — a month falling back to Marex
+          // stays plain, which is what makes the marked ones mean something.
+          cellClass: (c,m)=> (c.key==='mkt' && cxDisplayMkt(b,m).src==='sim') ? 'cx-sim-cell' : '' })
+        + `<p class="tablenote">${esc(cxPosNote())}</p>`
       : '<div class="empty">No months match these filters.</div>'}`;
+
+  // Market Price becomes editable while Simulation is selected, and only then. On Marex
+  // or Indicative it would mean editing a global curve the desk owns, which this page has
+  // no business doing and no permission to do.
+  if(CX_MKT_SRC === 'sim'){
+    const byMonth = {};
+    for(const m of rows) byMonth[String(m.month).slice(0,10)] = m;
+    host.querySelectorAll('tr[data-month]').forEach(tr=>{
+      const m = byMonth[tr.dataset.month]; if(!m) return;
+      const cell = tr.querySelector('td[data-k="mkt"]'); if(!cell) return;
+      const own = cxSrcPrice('sim', b.commodity, m.month);
+      if(own != null)
+        cell.innerHTML += '<sup class="cx-simmark" aria-hidden="true">SIM</sup>';
+      cell.classList.add('cx-editable');
+      cell.setAttribute('tabindex','0');
+      cell.setAttribute('role','button');
+      cell.title = own != null
+        ? 'Your simulated price for ' + fmtMonth(m.month) + '. Click to change it, or clear the box to put this month back to the market price.'
+        : 'Showing the market price for ' + fmtMonth(m.month) + '. Click to simulate your own price for this month.';
+      const open = () => cxEditCell(cell, own != null ? own : (m.market_price != null ? +m.market_price : null),
+                                    v => cxSimSetMonth(b.commodity, m.month, v));
+      cell.addEventListener('click', open);
+      // Reachable without a mouse. The rest of this table is read-only, so a keyboard
+      // user has no other way in.
+      cell.addEventListener('keydown', e=>{
+        if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); open(); }
+      });
+    });
+  }
 
   const rerun=()=>{
     FLT.season=document.getElementById('fSeason').value;
@@ -1161,6 +1517,24 @@ const XL_TIMEOUT_MS=20000;
 // two away from TOTAL does not read as an error.
 const XL_ROUND_NOTE='Totals are calculated before rounding, so they can differ slightly from a sum of the rounded figures above.';
 let _xlLib=null, _xlBusy=false, _xlTries=0;
+
+/* The file is built from whatever curve is selected, because its whole contract is that
+   it cannot show a figure the portal does not. So it has to SAY which curve — a workbook
+   forwarded to a finance team arrives with no toggle on it and no way to tell. On the
+   default (Indicative) POS_NOTE_XL already describes exactly that curve, so nothing is
+   added; the other two get a sentence at the front, where it is read first. */
+function cxXlNote(){
+  const pre = CX_MKT_SRC === 'sim'
+    ? 'WARNING: every Market Price in this file is a price entered by hand on the CES portal as a '
+      + 'what-if. It is not a market price, not a price any supplier has offered, and not a CES '
+      + 'valuation. Open Cost, MtM Price, MtM Cost, Delivered Rate and Delivered Cost are all '
+      + 'worked out from it. '
+    : CX_MKT_SRC === 'marex'
+    ? 'Market Prices in this file are the wholesale broker forward curve, not your supplier\'s '
+      + 'indicative curve, and every estimated figure is valued against it. '
+    : '';
+  return pre + POS_NOTE_XL + ' ' + XL_ROUND_NOTE;
+}
 
 function loadExcelJs(){
   if(window.ExcelJS) return Promise.resolve(window.ExcelJS);
@@ -1342,7 +1716,7 @@ async function cxDownloadXlsx(b){
       { dates:{ month:{ get:m=>m.month, fmt:'mmm-yy' } },
         totals:FlexCore.positionsTotals(months, bk, nm),
         mark:(m)=>m.month===nowMonth(),
-        note:POS_NOTE_XL+' '+XL_ROUND_NOTE, empty:'No position data for this basket.',
+        note:cxXlNote(), empty:'No position data for this basket.',
         title:b.name+' - positions', stamp });
     xlSheet(wb,'Trades', FlexCore.TRADES(bk), tradesOf(b), {},
       { dates:{ date:{ get:t=>t.date, fmt:'dd mmm yy' } },
@@ -1359,7 +1733,10 @@ async function cxDownloadXlsx(b){
 }
 
 function subGraphs(b,host){
-  const rows=(D.positions[b.id]||[]).slice().sort((x,y)=>String(x.month)<String(y.month)?-1:1);
+  // deskBasket's months, not the raw view rows: already numeric, already sorted, and
+  // already marked at the selected curve. Charting the raw rows meant the graphs kept
+  // showing Marex while every table beside them had moved.
+  const rows=deskBasket(b).months.slice();
   const flt=applyFilters(rows);
   if(!flt.length){host.innerHTML='<div class="empty">No data to chart for this basket.</div>';return;}
   const isP=b.commodity==='power', pu=b.unit_price||'';
@@ -1443,7 +1820,7 @@ function subGraphs(b,host){
       {label:'Secured WAP',data:flt.map(r=>(r.secured_wap!=null&&r.secured_wap>0)?+r.secured_wap:null),
        borderColor:PURPLE,backgroundColor:PURPLE,borderWidth:2.5,pointRadius:3,
        spanGaps:false,tension:.15,fill:false},
-      {label:'Market Price',data:flt.map(r=>{const v=cxMktPrice(b,r);return (v!=null&&v>0)?v:null;}),
+      {label:'Market Price ('+cxSrc().label+')',data:flt.map(r=>{const v=cxMktPrice(b,r);return (v!=null&&v>0)?v:null;}),
        borderColor:AMBER,backgroundColor:AMBER,borderWidth:2,borderDash:[5,4],
        pointRadius:2,spanGaps:false,tension:.15,fill:false},
       {label:'MtM Price',data:flt.map(r=>(r.mtm_price!=null&&r.mtm_price>0)?+r.mtm_price:null),
