@@ -289,6 +289,30 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
 .filters input[type=checkbox]{width:17px;height:17px;accent-color:var(--accent-fill);cursor:pointer}
 .filters .count{margin-left:auto;font-size:var(--t-sm);color:var(--ink-3);font-weight:600}
 
+/* Season is a multi-select, so it is a button that opens a list of checkboxes rather
+   than a <select>. A native <select multiple> was the other option and is worse on both
+   ends: on a phone it is a scrolling box with no obvious way to pick a second item, and
+   on a laptop it needs ctrl-click, which people do not discover. */
+.seasondrop{position:relative;display:inline-block}
+.seasondrop>button{font-family:var(--font-body);font-size:var(--t-base);font-weight:600;
+  color:var(--ink);background:var(--surface-2);border:1px solid var(--line-strong);
+  border-radius:var(--r-sm);padding:6px 11px;min-height:36px;cursor:pointer;white-space:nowrap}
+.seasondrop>button:hover{border-color:var(--ink-3)}
+.seasondrop>button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.seasondrop>button .caret{font-size:9px;margin-left:6px;opacity:.75}
+.seasonmenu{position:absolute;top:calc(100% + 5px);left:0;z-index:60;min-width:190px;
+  max-height:290px;overflow-y:auto;background:var(--surface-2);border:1px solid var(--line-strong);
+  border-radius:var(--r-md);box-shadow:var(--shadow-float);padding:5px 0}
+.seasonmenu .acts{display:flex;gap:12px;padding:6px 12px 8px;border-bottom:1px solid var(--line);
+  margin-bottom:4px}
+.seasonmenu .acts a{font-size:var(--t-xs);font-weight:700;text-decoration:none}
+.seasonmenu label{display:flex;align-items:center;gap:9px;padding:8px 12px;cursor:pointer;
+  font-size:var(--t-base);font-weight:600;color:var(--ink-2);text-transform:none;letter-spacing:0;
+  min-height:40px}
+.seasonmenu label:hover{background:var(--surface)}
+/* On a phone the menu would otherwise hang off the right edge of the filter bar. */
+@media (max-width:480px){ .seasonmenu{left:auto;right:0} }
+
 /* ── Ambient scene ──────────────────────────────────────────────────────
    A generation landscape behind the page: turbines turning, smoke drifting,
    a price line climbing. Inline SVG rather than a photograph, so it is a few
@@ -367,7 +391,7 @@ caption{text-align:left;padding:14px 16px 0;font-size:var(--t-sm);color:var(--in
    laptop. Colours come from the theme variables, so the print stylesheet at the foot of this
    file turns it dark-on-white when a client prints their position. */
 .tablenote{margin:10px 2px 0;font-size:var(--t-xs);line-height:1.55;color:var(--ink-3);
-  border-left:2px solid var(--line-strong);padding-left:10px;break-inside:avoid}                                  /* the scroll box's visible width */
+  border-left:2px solid var(--line-strong);padding-left:10px;break-inside:avoid}
 th,td{padding:11px 14px;font-size:var(--t-base);border-bottom:1px solid var(--line);
   text-align:left;white-space:nowrap}
 thead th{position:sticky;top:0;background:var(--surface-2);font-size:11px;font-weight:700;
@@ -386,6 +410,49 @@ tbody tr:nth-child(even) td:first-child{background:color-mix(in srgb, var(--surf
 tbody tr:hover td:first-child{background:var(--surface-2)}
 th:first-child::after,td:first-child::after{content:'';position:absolute;top:0;right:0;bottom:0;
   width:1px;background:var(--line)}
+
+/* ── The Positions scroll box ────────────────────────────────────────────────
+   Positions is the one client table that is both wider and longer than the screen, so
+   it gets its own treatment; the other tabs keep the plain wrapper.
+
+   Two things happen here. The box is given a height, which turns the heading row's
+   position:sticky from decoration into the thing it was written to be — until now the
+   wrapper scrolled sideways only, had no vertical overflow of its own, and so nothing
+   ever stuck to anything. And TOTAL is pinned to the foot, so the figure people are
+   actually looking for stays on screen while the months scroll between the two.
+
+   The height is capped against the viewport rather than set in pixels: a fixed 560px
+   box is two thirds of a phone screen. The page still scrolls normally around it, so
+   the cards and buttons above can be scrolled out of the way as before. */
+.posscroll .table-wrap{max-height:min(70vh, 640px);overflow:auto}
+.posscroll .table-wrap tbody tr.totals-row td{position:sticky;bottom:0;z-index:2;
+  background:var(--surface-2);border-top:2px solid var(--line-strong)}
+.posscroll .table-wrap tbody tr.totals-row td:first-child{z-index:3}
+/* A dark, always-drawn vertical scrollbar, and NO horizontal one — the horizontal
+   scrollbar lives above the table instead (see .hscroll). Hiding it here rather than
+   turning off overflow-x matters: the box must still scroll sideways to a swipe, a
+   trackpad and shift+wheel, which overflow-x:hidden would have taken away.
+   Firefox ignores these ::-webkit- rules and keeps its own bar at the foot; the bar
+   above works there either way. */
+.posscroll .table-wrap{scrollbar-width:thin;scrollbar-color:var(--line-strong) var(--surface-2)}
+.posscroll .table-wrap::-webkit-scrollbar{width:11px;height:0}
+.posscroll .table-wrap::-webkit-scrollbar-track{background:var(--surface-2);border-radius:999px}
+.posscroll .table-wrap::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px}
+.posscroll .table-wrap::-webkit-scrollbar-thumb:hover{background:var(--ink-3)}
+
+/* The horizontal scrollbar, moved above the table. It is a real scrolling element whose
+   only content is a spacer as wide as the table, kept in step with the box below it —
+   not a drawn imitation, so it drags, clicks, wheels and keyboards like the real thing.
+   overflow-x:scroll rather than auto, and an explicitly styled scrollbar, because both
+   defaults would give an overlay bar that fades out when idle — and being visible
+   without hunting for it is the entire point of moving it up here. */
+.hscroll{overflow-x:scroll;overflow-y:hidden;height:14px;margin:0 0 7px;
+  scrollbar-width:auto;scrollbar-color:var(--line-strong) var(--surface-2)}
+.hscroll>i{display:block;height:1px}
+.hscroll::-webkit-scrollbar{height:11px}
+.hscroll::-webkit-scrollbar-track{background:var(--surface-2);border-radius:999px}
+.hscroll::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:999px}
+.hscroll::-webkit-scrollbar-thumb:hover{background:var(--ink-3)}
 
 /* tabular-nums keeps digits the same width so columns line up down the page. */
 .num{text-align:right;font-family:var(--font-mono);font-weight:600;font-variant-numeric:tabular-nums}
@@ -564,6 +631,14 @@ input.cx-cell{width:100%;min-width:62px;font-family:var(--font-mono);font-size:v
   .fuelhead h2{color:#111 !important}
   .fuelchips{display:none}
   thead th{position:static}
+  /* On paper there is no scrolling, so the box must not be a box: a 640px cap would
+     print the first dozen months and silently drop the rest. */
+  .posscroll .table-wrap{max-height:none !important;overflow:visible !important}
+  .posscroll .table-wrap tbody tr.totals-row td{position:static}
+  /* th:first-child is more specific than the thead th rule above, so the Month column
+     would have stayed sticky on paper on its own. */
+  th:first-child,td:first-child{position:static}
+  .hscroll{display:none !important}
   /* On paper the toggle is gone, so the warning has to survive the light palette and
      the simulated prices have to stay identifiable in black ink. */
   .cxwarn{border:1.5pt solid #111;background:#fff;color:#111;break-inside:avoid}
@@ -937,7 +1012,9 @@ async function cxLoadSim(){
   for(const r of (sm.data||[])) if(D.sim[r.commodity] && r.month) D.sim[r.commodity][String(r.month).slice(0,10)] = (r.mid==null?null:+r.mid);
   // Every cached basket is now marked at a curve that has moved under it.
   for(const k of Object.keys(_BK)) delete _BK[k];
-  render();
+  // In place: you have just typed into a cell part-way down the table, and being
+  // returned to the top of the page to find it again is not a reward for that.
+  if(VIEW === 'baskets' && OPEN) renderBasket({ keepScroll:true }); else render();
 }
 // One month. A blank box sends null, which is how a month goes back to Marex.
 function cxSimSetMonth(commodity, monthIso, v){
@@ -1078,8 +1155,21 @@ function deskBasket(b){
    same call flex.html makes. Only the card markup below is this page's own. */
 function statsOf(rows, b){ return FlexCore.stats(rows, deskBasket(b), D.necs); }
 
-/* Filter state for the Positions tab, mirroring the desk's filter bar. */
-let FLT = { season:'', from:'', to:'', hideHist:false };
+/* Filter state, mirroring the desk's filter bar. Shared across tabs and across baskets,
+   exactly as the desk's is, so a filter set on Positions is still set when you look at
+   the Graphs.
+
+   FLT.seasons has three states, and the third is the one worth naming:
+     null        every season — the filter is off. This is the default, and it is why a
+                 filter carried from one basket cannot empty a different basket whose
+                 seasons happen to be named differently.
+     Set(names)  those seasons.
+     Set()       none of them. Reachable only by "None", and the table says so. */
+let FLT = { seasons:null, from:'', to:'', hideHist:false };
+// Whether the season menu is open, per bar. Kept outside the bar's markup because a
+// filter change rebuilds it, and a menu that shut itself after every tick would mean
+// re-opening it for each season you wanted.
+const SDOPEN = { pos:false, graphs:false };
 
 function monthsOf(id){
   const b = D.baskets.find(x=>x.id===id);
@@ -1090,7 +1180,7 @@ function applyFilters(rows){
   return rows.filter(r=>{
     const mk = String(r.month).slice(0,10);
     if(FLT.hideHist && mk < now) return false;
-    if(FLT.season && r.season !== FLT.season) return false;
+    if(FLT.seasons && !FLT.seasons.has(r.season || '')) return false;
     if(FLT.from && mk < FLT.from) return false;
     if(FLT.to   && mk > FLT.to)   return false;
     return true;
@@ -1242,7 +1332,16 @@ function renderBaskets(){
 // client:false and never reach this page.
 const SUBS = FlexCore.clientTabs().map(t=>[t.key,t.label]);
 
-function renderBasket(){
+/* opts.keepScroll is passed by anything that re-renders in place — a filter change, a
+   simulated price being saved. Without it every tick of a season checkbox scrolled the
+   page back to the top, which with a multi-select is once per season. Opening a basket
+   and changing sub-tab still go to the top, which is where you want to start reading.
+   The position is restored twice, synchronously and again after layout, because the new
+   content has not been measured on the first attempt — the same two-step the desk's
+   rerenderCurrent uses. */
+function renderBasket(opts){
+  const keep = !!(opts && opts.keepScroll);
+  const y = keep ? (window.scrollY || window.pageYOffset || 0) : 0;
   const b=D.baskets.find(x=>x.id===OPEN); if(!b){renderBaskets();return;}
   const isP=b.commodity==='power';
   const S=statsOf(applyFilters(monthsOf(b.id)), b);
@@ -1276,7 +1375,8 @@ function renderBasket(){
   if(xb) xb.addEventListener('click',()=>cxDownloadXlsx(b));
   el.querySelectorAll('[data-sub]').forEach(t=>t.addEventListener('click',()=>{SUB=t.dataset.sub;renderBasket();}));
   renderSub();
-  window.scrollTo({top:0,behavior:'smooth'});
+  if(keep){ window.scrollTo(0,y); requestAnimationFrame(()=>window.scrollTo(0,y)); }
+  else window.scrollTo({top:0,behavior:'smooth'});
 }
 
 function renderSub(){
@@ -1345,28 +1445,159 @@ function cxPosNote(){
        : POS_NOTE;
 }
 
+/* ── the filter bar ──────────────────────────────────────────────────────────
+   One builder for Positions and for Graphs, so the two can never offer different
+   filters or disagree about what is selected. `scope` only distinguishes their element
+   ids; the state behind both is the single FLT above. */
+function cxFilterBarHtml(b, scope){
+  const all = monthsOf(b.id);
+  // Seasons in the order the months run, not alphabetically: W-26 before S-27 before
+  // W-27 is the order a reader expects, and sorting the labels gives S, S, W, W.
+  const seasons = [];
+  for(const m of all) if(m.season && !seasons.includes(m.season)) seasons.push(m.season);
+  const mkeys = [...new Set(all.map(r=>String(r.month).slice(0,10)))].sort();
+  const opt = (v,sel,lab)=>`<option value="${esc(v)}"${v===sel?' selected':''}>${esc(lab)}</option>`;
+  const on = x => !FLT.seasons || FLT.seasons.has(x);
+  const nOn = seasons.filter(on).length;
+  // The button says what is selected. The desk's reads "Seasons" whatever is ticked,
+  // which means opening it to find out; one line of text here saves that every time.
+  const label = !FLT.seasons ? 'All seasons'
+              : nOn === 0 ? 'No seasons'
+              : nOn === 1 ? seasons.filter(on)[0]
+              : nOn === seasons.length ? 'All seasons'
+              : nOn + ' of ' + seasons.length + ' seasons';
+  return `
+    <div class="filters">
+      <label id="lbl-season-${scope}">Season</label>
+      <div class="seasondrop" id="sd-${scope}">
+        <button type="button" data-sdtoggle="${scope}" aria-haspopup="true"
+                aria-expanded="${SDOPEN[scope]?'true':'false'}" aria-labelledby="lbl-season-${scope}">
+          ${esc(label)}<span class="caret" aria-hidden="true">&#9660;</span></button>
+        <div class="seasonmenu" id="sdm-${scope}" style="display:${SDOPEN[scope]?'block':'none'}">
+          <div class="acts">
+            <a href="#" data-sdall="${scope}">All</a>
+            <a href="#" data-sdnone="${scope}">None</a>
+          </div>
+          ${seasons.map(x=>`<label><input type="checkbox" data-season="${esc(x)}"${on(x)?' checked':''}>${esc(x)}</label>`).join('')
+            || '<label style="cursor:default;color:var(--ink-3)">No seasons on this basket</label>'}
+        </div>
+      </div>
+      <label for="fFrom-${scope}">From</label>
+      <select id="fFrom-${scope}" data-flt="from">${opt('',FLT.from,'Earliest')}${mkeys.map(m=>opt(m,FLT.from,fmtMonth(m))).join('')}</select>
+      <label for="fTo-${scope}">To</label>
+      <select id="fTo-${scope}" data-flt="to">${opt('',FLT.to,'Latest')}${mkeys.map(m=>opt(m,FLT.to,fmtMonth(m))).join('')}</select>
+      <label class="chk" for="fHide-${scope}"><input type="checkbox" id="fHide-${scope}" data-flt="hide"${FLT.hideHist?' checked':''}>Hide historic months</label>
+      <span class="count">${applyFilters(all).length} of ${all.length} months</span>
+    </div>`;
+}
+
+// Everything the bar does, wired after it lands. Delegated off data- attributes for the
+// same reason the rest of this page is: an onclick attribute is HTML-decoded before it
+// parses as JS, so a season named with an apostrophe would break out of the string.
+function cxWireFilterBar(host, scope){
+  if(!host) return;
+  const redraw = () => renderBasket({ keepScroll:true });
+  const btn = host.querySelector('[data-sdtoggle]');
+  if(btn) btn.addEventListener('click', e=>{
+    e.stopPropagation();
+    SDOPEN[scope] = !SDOPEN[scope];
+    const m = host.querySelector('#sdm-'+scope);
+    if(m) m.style.display = SDOPEN[scope] ? 'block' : 'none';
+    btn.setAttribute('aria-expanded', SDOPEN[scope] ? 'true' : 'false');
+  });
+  host.querySelectorAll('[data-season]').forEach(cb=>cb.addEventListener('change', ()=>{
+    const boxes = [...host.querySelectorAll('[data-season]')];
+    // All ticked is stored as "no filter" rather than as the full set. That is what lets
+    // the same FLT be carried to a basket with different seasons without emptying it.
+    FLT.seasons = boxes.every(x=>x.checked)
+      ? null : new Set(boxes.filter(x=>x.checked).map(x=>x.dataset.season));
+    redraw();
+  }));
+  const all  = host.querySelector('[data-sdall]');
+  const none = host.querySelector('[data-sdnone]');
+  if(all)  all.addEventListener('click', e=>{ e.preventDefault(); FLT.seasons = null; redraw(); });
+  if(none) none.addEventListener('click', e=>{ e.preventDefault(); FLT.seasons = new Set(); redraw(); });
+  host.querySelectorAll('[data-flt]').forEach(el=>el.addEventListener('change', ()=>{
+    const k = el.dataset.flt;
+    if(k === 'from') FLT.from = el.value;
+    if(k === 'to')   FLT.to   = el.value;
+    if(k === 'hide') FLT.hideHist = el.checked;
+    redraw();
+  }));
+}
+// One listener for the life of the page, rather than one per render. Closes whichever
+// season menu is open when the click was not inside it.
+document.addEventListener('click', e=>{
+  let closed = false;
+  for(const scope of ['pos','graphs']){
+    if(!SDOPEN[scope]) continue;
+    const dd = document.getElementById('sd-'+scope);
+    if(dd && !dd.contains(e.target)){ SDOPEN[scope] = false; closed = true;
+      const m = document.getElementById('sdm-'+scope); if(m) m.style.display = 'none';
+      const b = dd.querySelector('[data-sdtoggle]'); if(b) b.setAttribute('aria-expanded','false');
+    }
+  }
+  if(closed) return;
+});
+document.addEventListener('keydown', e=>{
+  if(e.key !== 'Escape') return;
+  for(const scope of ['pos','graphs']){
+    if(!SDOPEN[scope]) continue;
+    SDOPEN[scope] = false;
+    const m = document.getElementById('sdm-'+scope); if(m) m.style.display = 'none';
+    const dd = document.getElementById('sd-'+scope);
+    const b = dd && dd.querySelector('[data-sdtoggle]');
+    if(b){ b.setAttribute('aria-expanded','false'); b.focus(); }
+  }
+});
+
+/* ── the scrollbar above the Positions table ─────────────────────────────────
+   The bar is a real scroll element with a spacer inside it as wide as the table. Both
+   directions are kept in step, so dragging either one moves the other, and a guard flag
+   stops the two scroll handlers calling each other back and forth.
+
+   The resize listener is registered ONCE, at module level, and calls whatever the
+   current table's fit function is. Registering it inside the renderer would have added
+   a listener every time a filter changed. */
+let _hsFit = null, _hsRO = null;
+window.addEventListener('resize', ()=>{ if(_hsFit) _hsFit(); });
+function cxWireHScroll(host){
+  const bar = host.querySelector('.hscroll');
+  const box = host.querySelector('.posscroll .table-wrap');
+  if(!bar || !box){ _hsFit = null; return; }
+  const spacer = bar.firstElementChild;
+  const fit = () => {
+    const w = box.scrollWidth;
+    spacer.style.width = w + 'px';
+    // Hidden when the table already fits. A scrollbar that cannot scroll is a control
+    // that does nothing, and it would sit above every narrow basket.
+    bar.style.display = (w > box.clientWidth + 1) ? '' : 'none';
+    bar.scrollLeft = box.scrollLeft;
+  };
+  let lock = false;
+  bar.addEventListener('scroll', ()=>{ if(lock) return; lock = true; box.scrollLeft = bar.scrollLeft; lock = false; });
+  box.addEventListener('scroll', ()=>{ if(lock) return; lock = true; bar.scrollLeft = box.scrollLeft; lock = false; });
+  _hsFit = fit;
+  // The table's width is not final until fonts have loaded and layout has run, and a
+  // column picker or a filter can change it without the window changing size.
+  if(window.ResizeObserver){
+    if(_hsRO) try{ _hsRO.disconnect(); }catch(e){}
+    _hsRO = new ResizeObserver(fit); _hsRO.observe(box);
+  }
+  fit();
+  requestAnimationFrame(fit);
+}
+
 function subPositions(b,host){
   const bk = deskBasket(b);
   const all = monthsOf(b.id);
   if(!all.length){host.innerHTML='<div class="empty">No position data for this basket.</div>';return;}
   const rows = applyFilters(all);
   const now=nowMonth();
-  const seasons=[...new Set(all.map(r=>r.season).filter(Boolean))];
-  const mkeys=[...new Set(all.map(r=>String(r.month).slice(0,10)))].sort();
-  const opt=(v,sel,lab)=>`<option value="${esc(v)}"${v===sel?' selected':''}>${esc(lab)}</option>`;
 
   host.innerHTML=`
-    <div class="filters">
-      <label for="fSeason">Season</label>
-      <select id="fSeason">${opt('',FLT.season,'All')}${seasons.map(x=>opt(x,FLT.season,x)).join('')}</select>
-      <label for="fFrom">From</label>
-      <select id="fFrom">${opt('',FLT.from,'Earliest')}${mkeys.map(m=>opt(m,FLT.from,fmtMonth(m))).join('')}</select>
-      <label for="fTo">To</label>
-      <select id="fTo">${opt('',FLT.to,'Latest')}${mkeys.map(m=>opt(m,FLT.to,fmtMonth(m))).join('')}</select>
-      <label class="chk" for="fHide"><input type="checkbox" id="fHide"${FLT.hideHist?' checked':''}>Hide historic months</label>
-      <span class="count">${rows.length} of ${all.length} months</span>
-    </div>
-    ${rows.length ? FlexCore.buildTable(
+    ${cxFilterBarHtml(b,'pos')}
+    ${rows.length ? '<div class="hscroll noprint" aria-hidden="true"><i></i></div><div class="posscroll">' + FlexCore.buildTable(
         FlexCore.POSITIONS(bk), rows,
         { nec: FlexCore.necMap(bk, D.necs), mktPrice: (m)=>cxMktPrice(b,m) },
         { totals: FlexCore.positionsTotals(rows, bk, FlexCore.necMap(bk, D.necs)),
@@ -1378,6 +1609,7 @@ function subPositions(b,host){
           // price shown is one the customer entered — a month falling back to Marex
           // stays plain, which is what makes the marked ones mean something.
           cellClass: (c,m)=> (c.key==='mkt' && cxDisplayMkt(b,m).src==='sim') ? 'cx-sim-cell' : '' })
+        + '</div>'
         + `<p class="tablenote">${esc(cxPosNote())}</p>`
       : '<div class="empty">No months match these filters.</div>'}`;
 
@@ -1410,16 +1642,8 @@ function subPositions(b,host){
     });
   }
 
-  const rerun=()=>{
-    FLT.season=document.getElementById('fSeason').value;
-    FLT.from  =document.getElementById('fFrom').value;
-    FLT.to    =document.getElementById('fTo').value;
-    FLT.hideHist=document.getElementById('fHide').checked;
-    renderBasket();   // stat cards recompute against the filtered set, as the desk does
-  };
-  ['fSeason','fFrom','fTo','fHide'].forEach(id=>{
-    const el=document.getElementById(id); if(el) el.addEventListener('change',rerun);
-  });
+  cxWireFilterBar(host, 'pos');
+  cxWireHScroll(host);
 }
 
 
@@ -1738,19 +1962,35 @@ function subGraphs(b,host){
   // showing Marex while every table beside them had moved.
   const rows=deskBasket(b).months.slice();
   const flt=applyFilters(rows);
-  if(!flt.length){host.innerHTML='<div class="empty">No data to chart for this basket.</div>';return;}
+  // The bar has to render even when the filters leave nothing to chart — otherwise the
+  // only way back from an empty Graphs tab would be to go to Positions and undo it there.
+  if(!flt.length){
+    host.innerHTML = cxFilterBarHtml(b,'graphs')
+      + '<div class="empty">' + (rows.length ? 'No months match these filters.'
+                                             : 'No data to chart for this basket.') + '</div>';
+    cxWireFilterBar(host, 'graphs');
+    return;
+  }
   const isP=b.commodity==='power', pu=b.unit_price||'';
   // Same four charts, same order and same colours as the trading desk sees, so
   // a client and their account manager are looking at the same picture.
+  // The same filter bar as Positions, driving the same FLT. Before this you had to go
+  // back to Positions to change a filter and then come back to see what it did.
   host.innerHTML=`
+    ${cxFilterBarHtml(b,'graphs')}
     <div class="chartbox"><h4>MtM Cost by Month (£)</h4><div class="cwrap"><canvas id="cMtm"></canvas></div></div>
     <div class="chartbox"><h4>Cost by Month (£)</h4><div class="cwrap"><canvas id="cCost"></canvas></div></div>
     <div class="chartbox"><h4>Volume Position (${esc(isP?'MW':'th/d')})</h4><div class="cwrap"><canvas id="cVol"></canvas></div></div>
     <div class="chartbox"><h4>Price Performance (${esc(pu)})</h4><div class="cwrap"><canvas id="cPrice"></canvas></div></div>`;
   if(typeof Chart==='undefined'){
-    host.innerHTML='<div class="empty">Charts could not load. The tables on the other tabs show the same figures.</div>';
+    // The bar is rebuilt rather than left in place: this branch replaces the whole
+    // subview, and wiring it before the replacement would have wired a discarded node.
+    host.innerHTML = cxFilterBarHtml(b,'graphs')
+      + '<div class="empty">Charts could not load. The tables on the other tabs show the same figures.</div>';
+    cxWireFilterBar(host, 'graphs');
     return;
   }
+  cxWireFilterBar(host, 'graphs');
 
   const css=k=>getComputedStyle(document.documentElement).getPropertyValue(k).trim();
   const GREEN='#AAC91F', PURPLE='#7c7fd0', AMBER='#e8a33d';
