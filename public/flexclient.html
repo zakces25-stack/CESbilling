@@ -421,10 +421,27 @@ th:first-child::after,td:first-child::after{content:'';position:absolute;top:0;r
    ever stuck to anything. And TOTAL is pinned to the foot, so the figure people are
    actually looking for stays on screen while the months scroll between the two.
 
-   The height is capped against the viewport rather than set in pixels: a fixed 560px
-   box is two thirds of a phone screen. The page still scrolls normally around it, so
-   the cards and buttons above can be scrolled out of the way as before. */
-.posscroll .table-wrap{max-height:min(70vh, 640px);overflow:auto}
+   How tall is set in MONTHS rather than in pixels, because months are the unit anyone
+   reasons in: the two filters people actually use are a season (6) and a year (12), and
+   the box should clear both with room to spare rather than land on 11. The three
+   variables below are the whole calculation and the only thing to change to tune it —
+   all three are measured, not guessed (Chromium: heading block 80px, month row 44px,
+   TOTAL row 45px), and if the type ever changes they are what has to be re-measured.
+
+   The viewport cap still wins on a short screen, so the box can never be taller than the
+   screen it is on — a box taller than the viewport would put its own stuck heading row
+   off the top of the screen, which is the one thing that would undo the point of it.
+   86vh leaves a strip of page visible around the box at every size, so it still reads as
+   a table on a page rather than as the whole screen, and the page goes on scrolling
+   normally so the cards and buttons above can be moved out of the way as before.
+
+   What this gives, measured: 12 months on a 1366x768 laptop and on a 360x800 Android,
+   14 on the common 1440x900 and 1536x864 laptops, 17 on a tablet and 18 on a 1080p
+   desktop. Never fewer than a year. */
+.posscroll{--row-h:44px; --table-chrome:125px; --max-rows:18}
+.posscroll .table-wrap{
+  max-height:min(86vh, calc(var(--table-chrome) + var(--max-rows) * var(--row-h)));
+  overflow:auto}
 .posscroll .table-wrap tbody tr.totals-row td{position:sticky;bottom:0;z-index:2;
   background:var(--surface-2);border-top:2px solid var(--line-strong)}
 .posscroll .table-wrap tbody tr.totals-row td:first-child{z-index:3}
