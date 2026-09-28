@@ -68,8 +68,6 @@ td.fx-actions{white-space:nowrap}
 .fx-src.hist{background:#eceff4;color:#6b7280}
 .fx-src.live{background:#e6f0d8;color:#5b6b1f}
 .fx-src.man{background:#efe9fb;color:#5b21b6}
-td.fx-fc-edit{cursor:pointer}
-td.fx-fc-edit:hover{background:rgba(159,190,28,.10)}
 td.fx-nec:hover{background:rgba(159,190,28,.10)}
 .fx-nectable td.fx-necname,.fx-nectable th:first-child{width:210px!important;min-width:210px!important;max-width:210px!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;text-align:left!important;line-height:1.25}
 .fx-admh-lbl{border-bottom:1px dashed transparent}
@@ -6004,6 +6002,18 @@ renderCurves = function(){
         </div>
         <input type="file" id="fxSimDropInput" accept=".xlsx,.xls" style="display:none">
       </div>
+      <div id="fxHistBox" style="flex:1 1 290px;max-width:480px;border:2px solid #b8c0cf;border-radius:11px;background:#f6f7f9;padding:10px 12px;transition:all .15s">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="font-size:11px;font-weight:900;color:#475569;border:2px solid #b8c0cf;border-radius:6px;padding:2px 5px;line-height:1">S/M</div>
+          <div style="font-weight:800;font-size:12.5px;color:#141a3c">Settled &amp; manual periods</div>
+        </div>
+        <div style="font-size:10.5px;color:#6b7280;margin:3px 0 6px">The stored curve either side of the imported window &mdash; delivered months, and the tail beyond the furthest Marex season. Months the live curve prices stay read-only.</div>
+        <div class="fx-toolbar" style="margin:0;gap:5px">
+          <button class="fx-btn" style="padding:3px 8px;font-size:11px" onclick="fxHistModal('power')">&#9998; Power</button>
+          <button class="fx-btn" style="padding:3px 8px;font-size:11px" onclick="fxHistModal('gas')">&#9998; Gas</button>
+        </div>
+      </div><!-- max-width so that when the four boxes wrap to two rows on a narrow
+      laptop this one does not stretch to the full width of the row on its own -->
     </div>`;
   const inner=document.getElementById('fxCurvesInner');
   inner.insertBefore(bar, inner.firstChild);
@@ -6020,6 +6030,8 @@ renderCurves = function(){
   ;['dragover','dragenter'].forEach(ev=>tz.addEventListener(ev, e=>{e.preventDefault();tz.style.background='#fdf1dd';}));
   ;['dragleave','drop'].forEach(ev=>tz.addEventListener(ev, e=>{e.preventDefault();tz.style.background='#fffaf1';}));
   tz.addEventListener('drop', e=>{ const f=e.dataTransfer.files && e.dataTransfer.files[0]; if(f) fxParseTe(f); });
+  // fxHistBox is not a drop zone — it has no file to take — so it gets no drag handlers.
+  // The buttons inside it are the whole control.
   const sz=document.getElementById('fxSimDrop'), sin=document.getElementById('fxSimDropInput');
   sz.addEventListener('click', ()=>sin.click());
   sin.addEventListener('change', ()=>{ if(sin.files[0]) fxParseSim(sin.files[0]); sin.value=''; });
@@ -6394,6 +6406,38 @@ function fxFullCurveMid(commodity, monthKey, seasonLabel, stored, nowKey, manual
   const live = imported ? fxMarexMid(commodity, monthKey, seasonLabel) : null;
   return (live != null) ? live : stored;
 }
+
+/* ── WHICH MONTHS ARE YOURS TO MAINTAIN ──────────────────────────────────────
+   One function, used by the Full curve table AND by the Settled/Manual editor, so the
+   two can never disagree about what may be typed into. Four answers:
+
+     settled   delivered. Stored history, and yours.
+     imported  the live Marex curve prices it. READ-ONLY — a hand edit here is
+               overwritten at the next twice-daily import and silently lost.
+     gap       inside the imported window, but the live curve does not actually price
+               this month. Yours, until the import covers it again.
+     manual    beyond the furthest imported season. The hand-kept tail, and yours.
+
+   The 'gap' case is why this is not simply a date test. On a normal day the window and
+   the season strips line up exactly and gap never occurs. One failed import or one
+   missing season puts a month there — and under the old pure-date lock that month
+   displayed its stale stored figure and could not be corrected. The lock now follows
+   whether the curve genuinely prices the month, so what is locked is what is live.
+
+   Both boundaries are still derived rather than stored: nowKey comes from the clock and
+   manualFrom from the furthest season Marex has sent, so both roll forward on their own
+   as months deliver and as the curve is extended. */
+function fxCurveRegion(commodity, monthKey, seasonLabel, nowKey, manualFrom){
+  if (monthKey < nowKey)
+    return { key:'settled', label:'settled', cls:'hist', live:null, editable:true };
+  const inWindow = (monthKey > nowKey && monthKey < manualFrom);
+  if (!inWindow)
+    return { key:'manual', label:'manual', cls:'man', live:null, editable:true };
+  const live = fxMarexMid(commodity, monthKey, seasonLabel);
+  return (live != null)
+    ? { key:'imported', label:'imported', cls:'live', live: live, editable:false }
+    : { key:'gap', label:'no live price', cls:'man', live:null, editable:true };
+}
 // Every month the Simulation editor offers, priced as Full curve data prices it. Async
 // because the stored curve and the imported/manual boundary both come from the database.
 async function fxMarexRef(commodity, keys){
@@ -6431,26 +6475,32 @@ async function fxRenderFullCurve(){
   // Was month-first, which disagreed with the Positions tab wherever the season strip is
   // the cheaper cover. Now the shared resolver, on the book's own rule.
   const marexMid=fxMarexMid;
-  const cell=(c,k,v,editable)=> (EDIT&&editable)
-    ? `<td class="td-right fx-fc-edit" data-c="${c}" data-m="${k}" title="Click to edit">${v!=null?(+v).toFixed(2):'—'}</td>`
-    : `<td class="td-right"${!editable?' style="color:#5b6472" title="From the live Marex curve (read-only)"':''}>${v!=null?(+v).toFixed(2):'—'}</td>`;
+  /* This table is a VIEW. Editing moved to the Settled/Manual box at the top of the tab
+     in round 29 — clicking one cell at a time through 132 rows was the only way to fix a
+     settled month, and there was no way at all to set a settled season in one go. */
+  const cell=(c,k,v,rg)=>
+    `<td class="td-right"${rg.editable
+        ? (rg.key === 'gap'
+            ? ' style="color:#a4560f" title="Inside the imported window, but the live curve does not price this month — it is yours to maintain until the import covers it. Edit it in Settled/Manual periods."'
+            : ' title="Stored figure — edit it in Settled/Manual periods at the top of this tab"')
+        : ' style="color:#5b6472" title="From the live Marex curve (read-only)"'
+      }>${v!=null?(+v).toFixed(2):'—'}</td>`;
   const rows=months.map(k=>{ const m=byM[k];
-    // current month is day-ahead (not in the forward curve) = manual; the region between it and the manual tail is the live Marex curve.
-    const imported = (k>nowKey && k<manualFrom);
-    const src = k<nowKey ? '<span class="fx-src hist">settled</span>'
-              : (imported ? '<span class="fx-src live">imported</span>' : '<span class="fx-src man">manual</span>');
-    const pv = imported ? (marexMid('power',k,m.season) ?? m.power) : m.power;
-    const gv = imported ? (marexMid('gas',k,m.season) ?? m.gas) : m.gas;
-    return `<tr><td>${fmtMonth(k)}</td><td>${fxQLabel(m.quarter)}</td><td>${m.season||'—'}</td>${cell('gas',k,gv,!imported)}${cell('power',k,pv,!imported)}<td>${src}</td></tr>`;
+    // Per commodity, because a partial import can leave one fuel priced and the other not.
+    const rg = fxCurveRegion('gas',   k, m.season, nowKey, manualFrom);
+    const rp = fxCurveRegion('power', k, m.season, nowKey, manualFrom);
+    // The badge describes the MONTH, which is a date question; the cells describe each
+    // fuel, which is a "did the curve actually price it" question.
+    const dateRegion = k < nowKey ? { label:'settled', cls:'hist' }
+                     : (k > nowKey && k < manualFrom) ? { label:'imported', cls:'live' }
+                     : { label:'manual', cls:'man' };
+    const src = `<span class="fx-src ${dateRegion.cls}">${dateRegion.label}</span>`;
+    const gv = rg.live != null ? rg.live : m.gas;
+    const pv = rp.live != null ? rp.live : m.power;
+    return `<tr><td>${fmtMonth(k)}</td><td>${fxQLabel(m.quarter)}</td><td>${m.season||'—'}</td>${cell('gas',k,gv,rg)}${cell('power',k,pv,rp)}<td>${src}</td></tr>`;
   }).join('');
-  const manSeasons=[...new Set(months.filter(k=>k>=manualFrom).map(k=>byM[k].season).filter(Boolean))];
-  // Applying re-renders this whole panel, so both dropdowns are rebuilt from scratch and
-  // used to snap back to the first option. Carry the last choice across the re-render —
-  // setting a season usually means setting the next one too.
-  const _selS = (_fxSeasonPick && manSeasons.indexOf(_fxSeasonPick) !== -1) ? _fxSeasonPick : manSeasons[0];
-  const seasonTool = manSeasons.length ? `<span style="display:inline-flex;align-items:center;gap:6px;margin-left:6px;padding-left:10px;border-left:1px solid #e0dccf"><b style="font-size:11px;color:#4b5563">Set whole season:</b><select id="fxCurveSeasonSel" style="font-size:11px;padding:2px 4px">${manSeasons.map(s=>`<option value="${escape(s)}"${s===_selS?' selected':''}>${escape(s)}</option>`).join('')}</select><select id="fxCurveSeasonComm" style="font-size:11px;padding:2px 4px"><option value="gas"${_fxSeasonComm==='gas'?' selected':''}>Gas p/th</option><option value="power"${_fxSeasonComm==='power'?' selected':''}>Power &pound;/MWh</option></select><input id="fxCurveSeasonVal" type="number" step="0.01" placeholder="value" style="width:78px;font-size:11px;padding:2px 4px"><button class="fx-btn" onclick="fxCurveSetSeason()">Apply</button></span>` : '';
   const tools = EDIT
-    ? `<div class="fx-toolbar" style="margin:0 0 10px;flex-wrap:wrap"><button class="fx-btn" onclick="fxFullCurveExport()">&#8623; Export to Excel</button><label class="fx-btn" style="cursor:pointer;display:inline-flex;align-items:center">&#8624; Import from Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])fxFullCurveImport(this.files[0]);this.value=''"></label><button class="fx-btn" onclick="fxCurvePushModal()" title="Apply these figures to the market price on every basket — shows what would change first">&#8679; Push to baskets</button>${seasonTool}<span style="font-size:11px;color:#6b7280;flex-basis:100%;margin-top:4px">Click a Power/Gas figure to edit, or set a whole season at once above. Imported months refresh from the twice-daily Marex curve (always the priority); the manual tail beyond the imported seasons is yours to maintain. <b>Editing here does not move the Positions tab on its own</b> &mdash; use Push to baskets, which lists every month that disagrees before writing.</span></div>`
+    ? `<div class="fx-toolbar" style="margin:0 0 10px;flex-wrap:wrap"><button class="fx-btn" onclick="fxFullCurveExport()">&#8623; Export to Excel</button><label class="fx-btn" style="cursor:pointer;display:inline-flex;align-items:center">&#8624; Import from Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])fxFullCurveImport(this.files[0]);this.value=''"></label><button class="fx-btn" onclick="fxCurvePushModal()" title="Apply these figures to the market price on every basket — shows what would change first">&#8679; Push to baskets</button><button class="fx-btn" onclick="fxHistModal('gas')">&#9998; Edit gas</button><button class="fx-btn" onclick="fxHistModal('power')">&#9998; Edit power</button><span style="font-size:11px;color:#6b7280;flex-basis:100%;margin-top:4px">This table is a view. Settled months and the manual tail are edited in <b>Settled/Manual periods</b> at the top of this tab, month by month or a whole season at a time. Imported months refresh from the twice-daily Marex curve and are always the priority. <b>Editing does not move the Positions tab on its own</b> &mdash; use Push to baskets, which lists every month that disagrees before writing.</span></div>`
     : '';
   body.innerHTML = tools
     + `<div style="font-size:11px;color:#6b7280;margin:2px 0 8px;">${months.length} months · oldest first · Gas p/th, Power £/MWh</div>`
@@ -6458,23 +6508,217 @@ async function fxRenderFullCurve(){
     + `<table class="fx-htable fx-fctable" style="width:100%;"><thead><tr>`
     + `<th style="text-align:left">Month</th><th style="text-align:left">Quarter</th><th style="text-align:left">Season</th>`
     + `<th class="td-right">Gas (p/th)</th><th class="td-right">Power (£/MWh)</th><th style="text-align:left">Source</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-  const _ss=document.getElementById('fxCurveSeasonSel'), _sc=document.getElementById('fxCurveSeasonComm');
-  if(_ss) _ss.onchange=()=>{ _fxSeasonPick=_ss.value; };
-  if(_sc) _sc.onchange=()=>{ _fxSeasonComm=_sc.value; };
-  if(EDIT) body.querySelectorAll('.fx-fc-edit').forEach(td=>{
-    td.onclick=()=>{ if(td.querySelector('input')) return;
-      const t=td.textContent.trim(); const cur=(t==='—'||t==='')?null:parseFloat(t);
-      fxCellInput(td, cur, async v=>{
-        const c=td.dataset.c, mo=td.dataset.m;
-        const r=(_fxFullCurve||[]).find(x=>x.commodity===c && String(x.month).slice(0,10)===mo)||{};
-        const {error}=await FLEX.sb.from('flex_curve_history').upsert({commodity:c,month:mo,quarter:r.quarter||null,season:r.season||null,mid:v},{onConflict:'commodity,month'});
-        if(error){ fxToast(error.message||'Save failed', false); return; }
-        fxToast('Curve updated — use “Push to baskets” to apply it to Positions');
-        _fxFullCurve=null; fxRenderFullCurve();
+}
+/* ── SETTLED / MANUAL PERIODS ────────────────────────────────────────────────
+   The same shape as the Simulation editor, for the same reason: a month list you can
+   read down, a value on every row you are allowed to change, and a season box on each
+   April and October that fills its six months in one go.
+
+   What it will not do is let you type into a month the live Marex curve is pricing.
+   Those are refreshed twice a day and any edit would be gone by tomorrow morning, so
+   they are shown greyed with their live figure and no box. A season that straddles the
+   boundary fills only the months it may write and says how many that was, rather than
+   silently doing four of six.
+
+   Nothing here moves the Positions tab. That is still Push to baskets, deliberately:
+   correcting a settled price and pushing it to every basket are two decisions. */
+let _fxHistFilter = 'all';
+async function fxHistModal(fuel){
+  const unit = fuel === 'power' ? '£/MWh' : 'p/th';
+  const hist = await fxLoadFullCurve(true);
+  if (hist == null) return fxToast('Could not load the curve — please reload', false);
+  const manualFrom = await fxManualFromMonth(true);
+  const nowKey = fxNowMonth();
+
+  // Everything stored, keyed by month, plus the quarter and season each row carries.
+  const byM = {};
+  for (const r of hist){
+    const k = String(r.month).slice(0, 10);
+    (byM[k] = byM[k] || { month:k, quarter:r.quarter, season:r.season })[r.commodity] = r.mid;
+  }
+  const keys = Object.keys(byM).sort();
+
+  /* The stored table is a fixed span and does not extend itself, so the tail would
+     eventually dead-end: next year the last stored month is still Sep-32 while the rest
+     of the portal is pricing beyond it. Offer the months past the end as blank rows so
+     the tail can be carried forward from here rather than in SQL. */
+  const last = keys.length ? keys[keys.length - 1] : fxNextMonth();
+  const horizon = (() => { const n = fxNextMonth(); return fxMonthKey(+n.slice(0,4), +n.slice(5,7) + 71); })();
+  if (last < horizon){
+    let y = +last.slice(0,4), mo = +last.slice(5,7);
+    while (true){
+      mo++; if (mo > 12){ mo = 1; y++; }
+      const k = fxMonthKey(y, mo);
+      if (k > horizon) break;
+      byM[k] = { month:k, quarter:'Q' + (Math.floor((mo - 1) / 3) + 1) + String(y % 100).padStart(2,'0'),
+                 season: FlexCore.seasonKey(k), _new:true };
+      keys.push(k);
+    }
+    keys.sort();
+  }
+
+  const region = k => fxCurveRegion(fuel, k, byM[k].season, nowKey, manualFrom);
+  const rows = keys.map((k, i) => {
+    const m = byM[k], rg = region(k);
+    const cur = (m[fuel] == null) ? null : +m[fuel];
+
+    // A season box on each April and October, but only when the whole six months are on
+    // screen — a half season would set fewer months than its label claims.
+    const isSeasonStart = (k.slice(5,7) === '04' || k.slice(5,7) === '10');
+    const six = isSeasonStart ? keys.slice(i, i + 6) : null;
+    const writable = six ? six.filter(x => region(x).editable) : [];
+    const seasonCell = (six && six.length === 6 && writable.length)
+      ? `<td style="white-space:nowrap"><input class="fx-hist-season" style="width:78px"
+           data-label="${escape(m.season || '')}" data-months="${writable.join(',')}"
+           title="Set the ${writable.length} editable month${writable.length===1?'':'s'} of ${escape(m.season || '')} at once">
+         <span style="font-size:10.5px;color:#6b7280">${escape(m.season || '')}${writable.length < 6 ? ' (' + writable.length + ' of 6)' : ''}</span></td>`
+      : '<td></td>';
+
+    const valueCell = rg.editable
+      ? `<td><input class="fx-hist-cell" style="width:95px" data-month="${k}"
+           data-orig="${cur != null ? cur : ''}" value="${cur != null ? cur : ''}"></td>`
+      : `<td style="text-align:right;color:#5b6472" title="The live Marex curve prices this month. It is refreshed twice a day, so anything typed here would be overwritten.">${rg.live != null ? (+rg.live).toFixed(2) : '—'}</td>`;
+
+    return `<tr data-region="${rg.key}">
+      <td>${escape(fmtMonth(k))}</td>
+      <td><span class="fx-src ${rg.cls}">${escape(rg.label)}</span></td>
+      <td style="text-align:right;color:#6b7280;font-variant-numeric:tabular-nums">${cur != null ? (+cur).toFixed(2) : '—'}</td>
+      ${seasonCell}${valueCell}</tr>`;
+  }).join('');
+
+  const counts = keys.reduce((o, k) => { const r = region(k).key; o[r] = (o[r] || 0) + 1; return o; }, {});
+  fxModal(`<h3>Settled &amp; manual periods &mdash; ${fuel} (${unit})</h3>
+  <p style="font-size:12px;color:#4b5563;margin:0 0 6px">The stored curve: the settled past, and the hand-kept tail beyond the furthest imported season.
+  <b>Months the live Marex curve prices are greyed and cannot be typed into</b> &mdash; the twice-daily import would overwrite them.</p>
+  <p style="font-size:11.5px;color:#6b7280;margin:0 0 6px"><b>Season</b> fills the editable months of that season in one go; it is a shortcut, not a stored value, so edit any month afterwards and the month wins.
+  Saving here does <b>not</b> move the Positions tab &mdash; use <b>Push to baskets</b> for that.</p>
+  <div class="fx-toolbar" style="margin:0 0 6px;gap:8px;align-items:center">
+    <label style="font-size:11px;font-weight:700;color:#4b5563">Show</label>
+    <select id="fxHistFilter" style="font-size:11.5px;padding:3px 6px">
+      <option value="all">All ${keys.length} months</option>
+      <option value="settled">Settled only (${counts.settled || 0})</option>
+      <option value="manual">Manual tail only (${counts.manual || 0})</option>
+      <option value="editable">Everything I can edit (${(counts.settled||0)+(counts.manual||0)+(counts.gap||0)})</option>
+      <option value="imported">Imported, read-only (${counts.imported || 0})</option>
+    </select>
+    <span id="fxHistCount" style="font-size:11px;color:#6b7280"></span>
+  </div>
+  <textarea id="fH_paste" style="min-height:44px" placeholder="Paste Month&#9;Price rows, e.g.&#10;Nov-26&#9;181.25"></textarea>
+  <div class="fx-preview" style="max-height:360px;overflow:auto"><table>
+    <thead><tr><th>Month</th><th>Region</th><th style="text-align:right">Stored</th><th>Season</th><th>Value (${unit})</th></tr></thead>
+    <tbody id="fxHistBody">${rows}</tbody></table></div>
+  <div class="fx-err" id="fxMErr"></div>
+  <div class="fx-modal-foot">
+    <button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
+    <button class="fx-btn green" onclick="fxHistSave('${fuel}')">Save curve</button>
+  </div>`);
+
+  // Filtering hides rows rather than rebuilding them, so anything already typed survives
+  // switching the view — which is the whole point of having the filter.
+  const applyFilter = () => {
+    const v = _fxHistFilter;
+    let shown = 0;
+    document.querySelectorAll('#fxHistBody tr').forEach(tr => {
+      const r = tr.dataset.region;
+      const on = v === 'all' ? true
+               : v === 'editable' ? r !== 'imported'
+               : v === 'manual' ? (r === 'manual' || r === 'gap')
+               : r === v;
+      tr.style.display = on ? '' : 'none';
+      if (on) shown++;
+    });
+    const c = document.getElementById('fxHistCount');
+    if (c) c.textContent = shown + ' month' + (shown === 1 ? '' : 's') + ' shown';
+  };
+  const sel = document.getElementById('fxHistFilter');
+  if (sel){ sel.value = _fxHistFilter; sel.onchange = () => { _fxHistFilter = sel.value; applyFilter(); }; }
+  applyFilter();
+
+  // Typing a season price fills its months on input rather than on blur, so it is
+  // obvious immediately that the boxes moved. Clearing the box leaves them alone:
+  // wiping six months by backspacing one is not what anyone means.
+  document.querySelectorAll('#fxModal input.fx-hist-season').forEach(si => {
+    si.addEventListener('input', () => {
+      const raw = String(si.value).trim();
+      if (raw === '') return;
+      const v = fxNum(raw);
+      if (v == null) return;
+      const want = (si.dataset.months || '').split(',').filter(Boolean);
+      let n = 0;
+      document.querySelectorAll('#fxModal input.fx-hist-cell').forEach(ci => {
+        if (want.indexOf(ci.dataset.month) >= 0){ ci.value = v; n++; }
       });
-    };
+      if (n) fxToast(si.dataset.label + ' set to ' + v + ' across ' + n + ' month' + (n === 1 ? '' : 's'));
+    });
+  });
+
+  // Paste Month/Price rows. Months the curve owns are skipped and counted rather than
+  // being silently dropped, so a paste that half-lands says so.
+  const pa = document.getElementById('fH_paste');
+  if (pa) pa.addEventListener('input', () => {
+    const by = {};
+    for (const l of pa.value.split(/\r?\n/)){
+      const c = l.split(/\t|,| {2,}/).map(x => x.trim()).filter(x => x !== '');
+      if (c.length < 2) continue;
+      const iso = fxParseDate(c[0]), v = fxNum(c[1]);
+      if (iso && v != null) by[String(iso).slice(0, 10)] = v;
+    }
+    let set = 0, locked = 0;
+    const cells = {};
+    document.querySelectorAll('#fxModal input.fx-hist-cell').forEach(ci => { cells[ci.dataset.month] = ci; });
+    for (const k of Object.keys(by)){
+      if (cells[k]){ cells[k].value = by[k]; set++; }
+      else if (byM[k]) locked++;
+    }
+    if (set || locked) fxToast(set + ' month' + (set === 1 ? '' : 's') + ' filled'
+      + (locked ? ', ' + locked + ' skipped — the live curve prices those' : ''));
   });
 }
+
+/* Writes only what actually changed, and only months the region test says are yours.
+   The second half of that is defence in depth: the modal does not render a box on a
+   locked month, so this filter should never remove anything — but a write that silently
+   disagreed with the lock is exactly the failure worth making impossible. */
+async function fxHistSave(fuel){
+  const nowKey = fxNowMonth();
+  const manualFrom = await fxManualFromMonth(false);
+  const hist = _fxFullCurve || [];
+  const meta = {};
+  for (const r of hist) if (r.commodity === fuel) meta[String(r.month).slice(0,10)] = r;
+
+  const rows = [], bad = [];
+  let unchanged = 0, refused = 0;
+  document.querySelectorAll('#fxModal input.fx-hist-cell').forEach(ci => {
+    const k = ci.dataset.month, raw = String(ci.value).trim();
+    const orig = ci.dataset.orig === '' ? null : +ci.dataset.orig;
+    const v = raw === '' ? null : fxNum(raw);
+    if (raw !== '' && v == null){ bad.push(fmtMonth(k)); return; }
+    if (v === orig || (v == null && orig == null)){ unchanged++; return; }
+    const season = (meta[k] && meta[k].season) || FlexCore.seasonKey(k);
+    if (!fxCurveRegion(fuel, k, season, nowKey, manualFrom).editable){ refused++; return; }
+    const mo = +k.slice(5,7), y = +k.slice(0,4);
+    rows.push({ commodity: fuel, month: k,
+      quarter: (meta[k] && meta[k].quarter) || ('Q' + (Math.floor((mo - 1) / 3) + 1) + String(y % 100).padStart(2,'0')),
+      season: season, mid: v, updated_at: new Date().toISOString() });
+  });
+
+  if (bad.length) return fxMErr('Not a number: ' + bad.slice(0, 6).join(', ') + (bad.length > 6 ? ' and ' + (bad.length - 6) + ' more' : ''));
+  if (!rows.length) return fxMErr(unchanged ? 'Nothing changed.' : 'Nothing to save.');
+
+  const { error } = await FLEX.sb.from('flex_curve_history')
+    .upsert(rows, { onConflict: 'commodity,month' });
+  if (error) return fxMErr('Not saved: ' + (error.message || 'unknown error'));
+
+  fxCloseModal();
+  const cleared = rows.filter(r => r.mid == null).length;
+  fxToast(rows.length + ' ' + fuel + ' month' + (rows.length === 1 ? '' : 's') + ' saved'
+    + (cleared ? ' (' + cleared + ' cleared)' : '')
+    + (refused ? ', ' + refused + ' skipped — the live curve prices those' : '')
+    + ' — use “Push to baskets” to apply them to Positions');
+  _fxFullCurve = null;
+  fxRenderFullCurve();
+}
+
 async function fxRenderPrevCurve(){ return fxRenderFullCurve(); }  // back-compat alias
 
 // ── FULL CURVE → BASKETS ─────────────────────────────────────────
@@ -6623,31 +6867,10 @@ async function fxFullCurveImport(file){
   if(error) return fxToast(error.message||'Import failed', false);
   fxToast('Imported '+upserts.length+' curve values'); _fxFullCurve=null; fxRenderFullCurve();
 }
-// Last "Set whole season" choice, held across the re-render that Apply triggers.
-// Module-level rather than read off the DOM, because the elements are destroyed and
-// rebuilt each time the panel redraws.
-let _fxSeasonPick = null, _fxSeasonComm = 'gas';
-
-// Set one commodity's value across every (manual) month of a whole season at once
-async function fxCurveSetSeason(){
-  const sel=document.getElementById('fxCurveSeasonSel'), commEl=document.getElementById('fxCurveSeasonComm'), valEl=document.getElementById('fxCurveSeasonVal');
-  if(!sel||!commEl||!valEl) return;
-  const season=sel.value, comm=commEl.value, raw=(valEl.value||'').trim();
-  // Remember the pair even when the value is rejected — the selection was still deliberate.
-  _fxSeasonPick = season; _fxSeasonComm = comm;
-  if(raw===''||isNaN(+raw)){ fxToast('Enter a value first', false); return; }
-  const val=+raw;
-  const manualFrom=await fxManualFromMonth(true);
-  const data=await fxLoadFullCurve(true)||[];
-  const targetMonths=[...new Set(data.filter(r=>r.season===season).map(r=>String(r.month).slice(0,10)))].filter(k=>k>=manualFrom).sort();
-  if(!targetMonths.length){ fxToast('No manual months in '+season+' — earlier months are governed by the Marex import', false); return; }
-  if(!confirm('Set '+(comm==='power'?'Power':'Gas')+' = '+val+(comm==='power'?' £/MWh':' p/th')+' for all '+targetMonths.length+' month(s) in '+season+'?')) return;
-  const ups=targetMonths.map(k=>{ const r=data.find(x=>x.commodity===comm && String(x.month).slice(0,10)===k) || data.find(x=>String(x.month).slice(0,10)===k) || {};
-    return {commodity:comm, month:k, quarter:r.quarter||null, season:season, mid:val}; });
-  const {error}=await FLEX.sb.from('flex_curve_history').upsert(ups,{onConflict:'commodity,month'});
-  if(error){ fxToast(error.message||'Save failed', false); return; }
-  fxToast('Set '+(comm==='power'?'Power':'Gas')+' for '+ups.length+' month(s) in '+season); _fxFullCurve=null; fxRenderFullCurve();
-}
+// ("Set whole season" was retired in round 29. It only ever reached the manual tail,
+// which is the half of the stored curve that was already the easiest to edit; whole
+// settled seasons — the actual gap — it could not touch. Settled/Manual periods
+// does both, through one write path that checks the region before it writes.)
 
 // ── TARGETS: staged batch editing (edit many, Apply once) ────────
 let FX_TBUF = {}, FX_TBUF_ORIG = {}, FX_TBUF_BID = null;
