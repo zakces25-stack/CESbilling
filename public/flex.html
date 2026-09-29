@@ -2261,11 +2261,24 @@ async function fxBasketReorder(commodity, orderedIds){
   // trip. The reload below is what makes it true.
   moved.forEach(x => { x.b.sort_order = x.i; });
   renderOverview(); renderSidebar();
-  const { error } = await FLEX.sb.from('flex_baskets')
-    .upsert(moved.map(x => ({ id: x.b.id, sort_order: x.i, updated_by: FLEX.user })),
-            { onConflict: 'id' });
-  if (error){ fxToast('Order not saved: ' + (error.message || 'unknown error'), false); }
-  else fxToast(moved.length + ' basket' + (moved.length === 1 ? '' : 's') + ' reordered');
+  /* UPDATE per row, never upsert. PostgREST turns an upsert into INSERT .. ON CONFLICT,
+     and Postgres validates the whole proposed row before it ever decides to take the
+     update branch — so a payload of {id, sort_order} fails on flex_baskets.name being
+     NOT NULL, even though the row plainly already exists and nothing would be inserted.
+     That is exactly what happened the first time this shipped:
+       null value in column "name" of relation "flex_baskets" violates not-null constraint
+     Sending the whole row instead would mean this function had to know every column the
+     table will ever have. It is a handful of rows either way, so they go in parallel. */
+  const results = await Promise.all(moved.map(x =>
+    FLEX.sb.from('flex_baskets')
+      .update({ sort_order: x.i, updated_by: FLEX.user })
+      .eq('id', x.b.id)));
+  const failed = results.filter(r => r && r.error);
+  if (failed.length){
+    fxToast('Order not saved: ' + (failed[0].error.message || 'unknown error'), false);
+  } else {
+    fxToast(moved.length + ' basket' + (moved.length === 1 ? '' : 's') + ' reordered');
+  }
   fxScheduleReload(['flex_baskets']);
 }
 
