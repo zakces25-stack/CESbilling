@@ -1550,6 +1550,16 @@ tr.future-month:hover td { background: #e8effe !important; }
 .admin-grp  { background: var(--grey-100); font-weight: 700; font-size: 11px; color: var(--navy-700); }
 
 /* Curves two-col layout */
+/* Reordering. The cursor is the affordance — there is no grip handle, because the whole
+   card is the target and a handle would only make it smaller. */
+.mini-card.fx-card-draggable { cursor: grab; }
+.mini-card.fx-card-draggable:active { cursor: grabbing; }
+.mini-card.fx-card-dragging { opacity: .45; }
+.mini-card.fx-card-over { outline: 2px dashed var(--accent-500, #4a6fa5); outline-offset: 2px; }
+.mini-card.fx-card-draggable:focus-visible { outline: 2px solid var(--accent-500, #4a6fa5); outline-offset: 2px; }
+.fx-reorder-hint { font-size: 11.5px; color: #6b7280; margin: 0 0 10px; }
+.overview-edit { margin-left: auto; }
+.overview-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .curves-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 @media (max-width: 900px) { .curves-cols { grid-template-columns: 1fr; } }
 
@@ -1858,6 +1868,9 @@ button{transition:all .14s ease}
         <div class="overview-header">
           <div class="overview-title">Flex Portfolio</div>
           <div class="overview-sub">All active trading baskets</div>
+          <!-- Edit here does one thing: make the cards draggable. It shares the EDIT flag
+               with the basket tabs, so turning it on here also turns it on there. -->
+          <div class="overview-edit"><button class="fx-btn fx-edit-toggle" onclick="fxSetEdit(!EDIT)">&#9998; Edit</button></div>
         </div>
         <div class="summary-row" id="summary-row"></div>
         <div id="overview-grid-container"></div>
@@ -2205,10 +2218,111 @@ function renderSidebar() {
 }
 
 // ── OVERVIEW RENDERING ───────────────────────────────────────────
+/* The Portfolio grid used to sort CES-named baskets first and then alphabetically, while
+   the sidebar rendered load order — which is `order by sort_order`. Two lists of the same
+   baskets in two different orders, and no way to change either without editing the database.
+
+   Both now follow sort_order, which the desk sets by dragging the cards. Ties fall back to
+   the old rule so a basket created before this round, or one whose sort_order never got
+   set, still lands somewhere sensible rather than wherever the database happened to
+   return it. */
 function sortBaskets(arr) {
-  const ces   = arr.filter(b => b.name.startsWith('CES')).sort((a,b) => a.name.localeCompare(b.name));
-  const other = arr.filter(b => !b.name.startsWith('CES')).sort((a,b) => a.name.localeCompare(b.name));
-  return [...ces, ...other];
+  const rank = b => (b && b.sort_order != null) ? +b.sort_order : Number.MAX_SAFE_INTEGER;
+  const ces  = b => b.name.startsWith('CES') ? 0 : 1;
+  return arr.slice().sort((a, b) =>
+    rank(a) - rank(b) || ces(a) - ces(b) || a.name.localeCompare(b.name));
+}
+
+/* ── REORDERING ───────────────────────────────────────────────────────────────
+   A drop hands over the new order of ONE commodity column. The stored sort_order is a
+   single sequence across both commodities, though, because the sidebar reads it as one
+   list — so the column order is merged back into the global order rather than replacing
+   it: walk the current global list, and wherever a basket of the dragged commodity
+   appears, take the next one from the column's new order. Every other basket keeps its
+   position exactly.
+
+   Then renumber 0..n-1 and write only the rows whose number actually changed. Renumbering
+   the whole list rather than nudging one value keeps the sequence dense, so repeated
+   dragging cannot drift into collisions or gaps. */
+function fxBasketOrderRows(commodity, orderedIds){
+  const global = sortBaskets(BASKETS.slice());
+  const queue  = orderedIds.map(id => global.find(b => b.id === id)).filter(Boolean);
+  if (queue.length !== global.filter(b => b.commodity === commodity).length) return null;
+  let qi = 0;
+  const merged = global.map(b => b.commodity === commodity ? queue[qi++] : b);
+  return merged.map((b, i) => ({ b: b, i: i })).filter(x => x.b.sort_order !== x.i);
+}
+
+async function fxBasketReorder(commodity, orderedIds){
+  const moved = fxBasketOrderRows(commodity, orderedIds);
+  if (moved == null) return fxToast('Could not work out the new order — please reload', false);
+  if (!moved.length) return;                       // dropped where it already was
+  // Optimistic, so the grid does not snap back to the old order for the length of a round
+  // trip. The reload below is what makes it true.
+  moved.forEach(x => { x.b.sort_order = x.i; });
+  renderOverview(); renderSidebar();
+  const { error } = await FLEX.sb.from('flex_baskets')
+    .upsert(moved.map(x => ({ id: x.b.id, sort_order: x.i, updated_by: FLEX.user })),
+            { onConflict: 'id' });
+  if (error){ fxToast('Order not saved: ' + (error.message || 'unknown error'), false); }
+  else fxToast(moved.length + ' basket' + (moved.length === 1 ? '' : 's') + ' reordered');
+  fxScheduleReload(['flex_baskets']);
+}
+
+/* HTML5 drag and drop rather than pointer events: the cards are a CSS grid, the browser
+   gives us the drag image for free, and a keyboard user gets the arrow-key path below
+   instead. dragover must preventDefault or no drop event is ever delivered. */
+let _fxDragId = null, _fxDragged = false;
+function fxCardDragStart(ev, id){
+  if (!EDIT) return;
+  _fxDragId = id; _fxDragged = false;
+  ev.dataTransfer.effectAllowed = 'move';
+  try { ev.dataTransfer.setData('text/plain', id); } catch(e){}
+  ev.currentTarget.classList.add('fx-card-dragging');
+}
+function fxCardDragEnd(ev){
+  ev.currentTarget.classList.remove('fx-card-dragging');
+  document.querySelectorAll('.fx-card-over').forEach(el => el.classList.remove('fx-card-over'));
+  // The click that follows a drag would otherwise open the basket you just moved.
+  if (_fxDragged) setTimeout(() => { _fxDragged = false; }, 0);
+  _fxDragId = null;
+}
+function fxCardDragOver(ev, id){
+  if (!EDIT || !_fxDragId || id === _fxDragId) return;
+  const from = BASKETS.find(b => b.id === _fxDragId), to = BASKETS.find(b => b.id === id);
+  if (!from || !to || from.commodity !== to.commodity) return;   // gas stays in gas
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'move';
+  ev.currentTarget.classList.add('fx-card-over');
+}
+function fxCardDragLeave(ev){ ev.currentTarget.classList.remove('fx-card-over'); }
+function fxCardDrop(ev, id){
+  if (!EDIT || !_fxDragId || id === _fxDragId) return;
+  const from = BASKETS.find(b => b.id === _fxDragId), to = BASKETS.find(b => b.id === id);
+  if (!from || !to || from.commodity !== to.commodity) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  _fxDragged = true;
+  const col = sortBaskets(BASKETS.filter(b => b.commodity === from.commodity)).map(b => b.id);
+  const cut = col.filter(x => x !== _fxDragId);
+  cut.splice(cut.indexOf(id), 0, _fxDragId);        // land BEFORE the card dropped on
+  fxBasketReorder(from.commodity, cut);
+}
+// Keyboard: a card in Edit mode takes focus, and the arrow keys move it one place. Drag
+// and drop is unusable without a mouse, and this grid is the only way to set the order.
+function fxCardKey(ev, id){
+  if (!EDIT) return;
+  const dir = ev.key === 'ArrowLeft' || ev.key === 'ArrowUp' ? -1
+            : ev.key === 'ArrowRight' || ev.key === 'ArrowDown' ? 1 : 0;
+  if (!dir) return;
+  const b = BASKETS.find(x => x.id === id); if (!b) return;
+  ev.preventDefault();
+  const col = sortBaskets(BASKETS.filter(x => x.commodity === b.commodity)).map(x => x.id);
+  const at = col.indexOf(id), to = at + dir;
+  if (at < 0 || to < 0 || to >= col.length) return;
+  col.splice(to, 0, col.splice(at, 1)[0]);
+  fxBasketReorder(b.commodity, col);
+  setTimeout(() => { const el = document.querySelector('.mini-card[data-id="' + id + '"]'); if (el) el.focus(); }, 60);
 }
 
 function miniCardHtml(b) {
@@ -2216,7 +2330,17 @@ function miniCardHtml(b) {
   const isPower = b.commodity === 'power';
   const vol = isPower ? calcAvgBaseMW(b) : calcTotalBaseVol(b);
   const aKind = basketAlertKind(b); const hasAlert = !!aKind;
-  return `<div class="mini-card${hasAlert ? ' has-alert' + (aKind === 'advisory' ? ' advisory' : '') : ''}" onclick="selectBasket('${escape(b.id)}')">
+  // In Edit mode the card is a drag handle as well as a link. The click guard is on the
+  // handler rather than the attribute because a drag always ends with a click on the card
+  // that was dragged, which would otherwise open it.
+  const drag = EDIT
+    ? ` draggable="true" tabindex="0" data-id="${escape(b.id)}"
+        title="Drag to reorder, or use the arrow keys"
+        ondragstart="fxCardDragStart(event,'${escape(b.id)}')" ondragend="fxCardDragEnd(event)"
+        ondragover="fxCardDragOver(event,'${escape(b.id)}')" ondragleave="fxCardDragLeave(event)"
+        ondrop="fxCardDrop(event,'${escape(b.id)}')" onkeydown="fxCardKey(event,'${escape(b.id)}')"`
+    : '';
+  return `<div class="mini-card${hasAlert ? ' has-alert' + (aKind === 'advisory' ? ' advisory' : '') : ''}${EDIT ? ' fx-card-draggable' : ''}"${drag} onclick="if(!_fxDragged)selectBasket('${escape(b.id)}')">
     <div class="mini-card-top">
       <div class="mini-card-name">${escape(b.name)}${hasAlert ? ' <span style="color:' + (aKind === 'advisory' ? 'var(--advisory-500)' : 'var(--negative-500)') + ';" title="Price alert active">&#9888;</span>' : ''}</div>
       <span class="commodity-badge ${b.commodity}">${b.commodity === 'power' ? 'Power' : 'Gas'}</span>
@@ -2284,6 +2408,8 @@ function renderOverview() {
   }
 
   html += '</div>';
+  if (EDIT) html = '<div class="fx-reorder-hint">Drag a card to reorder it within its column, '
+    + 'or focus one and use the arrow keys. The order is shared with the sidebar and saved for everyone.</div>' + html;
   document.getElementById('overview-grid-container').innerHTML = html;
 }
 
