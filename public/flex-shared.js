@@ -753,6 +753,253 @@
     ];
   }
 
+  /* ── SITES ────────────────────────────────────────────────────────────────────────
+     The last tab that was still built by hand on both portals, which is why the desk
+     called the identifier column "MPAN/MPRN" on a gas basket and the customer's page
+     called it "MPRN". One spec now, and the identifier is named for the commodity.
+
+     The last two columns are the commercial terms. They are on the desk's Sites tab and
+     not on the customer's, so both portals get the same spec and each drops what its own
+     screen does not show — the same arrangement as Next Target and Upper Alert.        */
+
+  function SITES(basket) {
+    var power = isPower(basket);
+    return [
+      { key: 'mpxn',  head: power ? 'MPAN' : 'MPRN', align: 'left',
+        value: function (s) { return esc(s.mpxn || '-'); } },
+      { key: 'site',  head: 'Site', align: 'left',
+        value: function (s) { return esc(s.customer || '-'); } },
+      { key: 'start', head: 'Contract Start', align: 'left',
+        value: function (s) { return fmtDate(s.contract_start); } },
+      { key: 'end',   head: 'Contract End', align: 'left',
+        value: function (s) { return fmtDate(s.contract_end); } },
+      { key: 'nec',   head: 'NEC Unit Rate (p/kWh)', align: 'right',
+        value: function (s) { return s.nec_unit_rate != null ? (+s.nec_unit_rate).toFixed(3) : '-'; } },
+      { key: 'necsc', head: 'NEC Standing Charge (p/day)', align: 'right',
+        value: function (s) { return s.nec_standing_charge != null ? (+s.nec_standing_charge).toFixed(3) : '-'; } }
+    ];
+  }
+
+  /* ── SPREADSHEET ──────────────────────────────────────────────────────────────────
+     Moved here from flexclient.html in round 30b, when the desk's export was retired in
+     favour of it. The desk had its own hand-written column list, which had already
+     drifted once — it was missing Delivered Rate for months after the tab gained it.
+
+     The contract is the same one the tables keep: every cell in the file is the SAME
+     FlexCore cell the table on screen renders, read back and written as a real number
+     with a format showing the same decimals. So the file cannot show a figure the portal
+     does not, and every figure is a number Excel can sum, sort and chart.
+
+     Where it deliberately differs from the screen:
+       · Every month, whatever the Positions filters are set to. Filters are shared across
+         baskets, so honouring them could hand over a file that looks complete and is not.
+       · Month and dates are real dates, so Excel sorts them by date, not A to Z.
+       · What the two portals drop differs, and only that: see XL_DESK_ONLY.            */
+
+  // Desk-only columns, by spec key. The customer's workbook drops these four and is
+  // otherwise identical to the desk's — Dan's 17 Sep decision for the target columns,
+  // and the customer's own Sites tab has never shown the NEC terms.
+  //   nt / ua  Next Target, Upper Alert  (POSITIONS, and ua on TARGETS)
+  //   nec      NEC unit rate             (SITES)
+  //   necsc    NEC standing charge       (SITES)
+  var XL_DESK_ONLY = { nt: 1, ua: 1, nec: 1, necsc: 1 };
+
+  var XL_NAVY = 'FF1F2D4D', XL_CUR = 'FFFDF3CF', XL_TOT = 'FFEEF1F6', XL_HAIR = 'FFE0E3EC';
+  var XL_BLANK = /^(?:|-|—|£-)$/;              // how the tables print "no value"
+
+  // The months hold the figures as the screen rounds them, and TOTAL is the screen's
+  // TOTAL, worked out before rounding. Said once in the file, so a SUM that lands a pound
+  // or two away from TOTAL does not read as an error.
+  var XL_ROUND_NOTE = 'Totals are calculated before rounding, so they can differ slightly '
+                    + 'from a sum of the rounded figures above.';
+
+  // The text a cell shows. A <template> parses its markup inert: nothing loads, nothing runs.
+  function xlText(html) {
+    var t = root.document.createElement('template');
+    t.innerHTML = String(html == null ? '' : html);
+    return t.content.textContent.replace(/\s+/g, ' ').trim();
+  }
+
+  // Displayed text back to the number it shows, with an Excel format of the same decimals.
+  //   '12.5000' → 12.5 as #,##0.0000        '-£1,234' → -1234 as whole pounds
+  //   '£-10.50' → -10.5 as pounds and pence  '63%'    → 0.63 as 0%
+  // Anything that is not purely a number comes back null and is written as the text itself.
+  function xlNum(text) {
+    var m = /^([-−]?)(£?)([-−]?)(\d+(?:\.(\d+))?)(%?)$/.exec(String(text).replace(/[\s,]/g, ''));
+    if (!m) return null;
+    var dp = m[5] ? m[5].length : 0, d = dp ? '.' + new Array(dp + 1).join('0') : '';
+    var v = parseFloat(m[4]) * ((m[1] || m[3]) ? -1 : 1);
+    if (m[6]) v = v / 100;
+    if (v === 0) v = 0;                                   // never write a -0
+    var fmt = m[6] ? '0' + d + '%'
+            : m[2] ? '"£"#,##0' + d + ';-"£"#,##0' + d
+            : '#,##0' + d;
+    return { v: v, fmt: fmt };
+  }
+
+  // 'YYYY-MM-DD' to an Excel date serial, from the calendar date alone. No local-time Date
+  // is involved, so a client on BST cannot see a month shift back a day.
+  function xlDate(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+    return m ? (Date.UTC(+m[1], +m[2] - 1, +m[3]) - Date.UTC(1899, 11, 30)) / 864e5 : null;
+  }
+
+  // Lines a heading needs once wrapped at `w` characters, to size the heading row.
+  function xlLines(text, w) {
+    var lines = 1, len = 0, words = String(text).split(' ');
+    for (var i = 0; i < words.length; i++) {
+      var word = words[i];
+      if (len && len + 1 + word.length > w) { lines++; len = word.length; }
+      else len += (len ? 1 : 0) + word.length;
+    }
+    return lines;
+  }
+  // The narrowest column at which a heading wraps onto two lines at most, never one word
+  // per line. 10 is the floor because ExcelJS leaves a width of exactly 9 (its default)
+  // unwritten.
+  function xlHeadWidth(h) {
+    var longest = Math.max.apply(null, String(h).split(' ').map(function (w) { return w.length; }));
+    for (var w = Math.max(10, longest + 2); w < 24; w++) if (xlLines(h, w - 1) <= 2) return w;
+    return 24;
+  }
+
+  // Header and footer codes treat & as a control character.
+  function xlHF(s) { return String(s == null ? '' : s).replace(/&/g, '&&'); }
+
+  /* One sheet from a column spec: headings in row 1 exactly as the table prints them, a
+     row per table row, then the table's TOTAL row. o.dates maps a column key to the row's
+     ISO date and a date format; o.mark shades a row (the current month, as on screen). */
+  function xlSheet(wb, name, cols, rows, ctx, o) {
+    o = o || {};
+    var ws = wb.addWorksheet(name, {
+      views: [{ state: 'frozen', xSplit: 1, ySplit: 1 }],
+      pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
+    });
+    ws.pageSetup.printTitlesRow = '1:1';
+    ws.headerFooter.oddHeader = '&L&B' + xlHF(o.title) + '&B&R' + xlHF(o.stamp);
+    ws.headerFooter.oddFooter = '&LCES flex portal&RPage &P of &N';
+
+    var heads = cols.map(function (c) { return xlText(c.head); });
+    var width = heads.map(xlHeadWidth);
+    // Numbers sit right as Excel expects, whatever the screen does (Secured % is a bar
+    // there). Left-hand text is indented one step so it never runs into a number in the
+    // column before.
+    var LEFT = { horizontal: 'left', indent: 1 }, RIGHT = { horizontal: 'right' },
+        MID = { horizontal: 'center' };
+    var align = cols.map(function (c) {
+      return c.align === 'right' ? RIGHT : c.align === 'center' ? MID : LEFT; });
+
+    var hr = ws.addRow(heads);
+    hr.eachCell(function (c) {
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: XL_NAVY } };
+      c.font = { size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+      c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    });
+
+    var put = function (r, isTotal) {
+      var row = ws.addRow([]);
+      cols.forEach(function (c, i) {
+        var cell = row.getCell(i + 1), dt = !isTotal && o.dates && o.dates[c.key];
+        var shown = '';
+        if (dt) {
+          var v = xlDate(dt.get(r));
+          if (v != null) { cell.value = v; cell.numFmt = dt.fmt; }
+          shown = dt.fmt;                              // same length as the date it displays
+        } else {
+          shown = xlText(isTotal ? (c.total ? c.total(r, ctx) : '') : c.value(r, ctx));
+          var n = (c.align === 'right' || c.bar) ? xlNum(shown) : null;
+          if (n) { cell.value = n.v; cell.numFmt = n.fmt; }
+          else if (!XL_BLANK.test(shown)) cell.value = shown;
+        }
+        width[i] = Math.max(width[i], Math.min(shown.length + 2, 40));
+        cell.alignment = dt ? LEFT : typeof cell.value === 'number' ? RIGHT : align[i];
+        cell.font = { size: 10, bold: !!isTotal };
+        cell.border = isTotal ? { top: { style: 'thin', color: { argb: 'FF55679A' } } }
+                              : { bottom: { style: 'hair', color: { argb: XL_HAIR } } };
+        var fill = isTotal ? XL_TOT : (o.mark && o.mark(r) ? XL_CUR : null);
+        if (fill) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+      });
+    };
+    rows.forEach(function (r) { put(r, false); });
+
+    if (!rows.length) {
+      ws.addRow([o.empty]).getCell(1).font =
+        { size: 10, italic: true, color: { argb: 'FF6B7280' } };
+    } else {
+      // Filter and sort on the rows only. TOTAL sits below a spacer row as well, because
+      // Excel can stretch a filter over a row that touches the bottom of it, and a sort
+      // would then carry TOTAL into the months.
+      ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: rows.length + 1, column: cols.length } };
+      if (o.totals) { ws.addRow([]).height = 6; put(o.totals, true); }
+      if (o.note) {
+        ws.addRow([]);
+        var nr = ws.addRow([o.note]);
+        ws.mergeCells(nr.number, 1, nr.number, cols.length);
+        nr.getCell(1).font = { size: 9, italic: true, color: { argb: 'FF4B5563' } };
+        nr.getCell(1).alignment = { wrapText: true, vertical: 'top' };
+        var across = width.reduce(function (a, w) { return a + w; }, 0);
+        nr.height = 13 * Math.max(1, Math.ceil(o.note.length / Math.max(30, across - 4))) + 4;
+      }
+    }
+    width.forEach(function (w, i) { ws.getColumn(i + 1).width = w; });
+    hr.height = 13 * Math.max.apply(null, heads.map(function (h, i) {
+      return xlLines(h, width[i] - 1); })) + 5;
+    return ws;
+  }
+
+  /* The whole workbook: five sheets, in tab order, from one spec each. Both portals call
+     this and nothing else, so a column added to a spec above reaches both files with no
+     edit in either page. `o.desk` is the ONLY difference between the two workbooks.
+
+     o = { XL, basket, trades, sites, necRows, ctx, name, stamp, note, desk }           */
+  function xlWorkbook(o) {
+    var bk = o.basket, desk = !!o.desk;
+    var keep = function (cols) {
+      return desk ? cols : cols.filter(function (c) { return !XL_DESK_ONLY[c.key]; });
+    };
+    var months = (bk.months || []).slice();
+    var nm = necMap(bk, o.necRows || []);
+    var stamp = o.stamp || '';
+    var ctx = o.ctx || {};
+    var wb = new o.XL.Workbook();
+    wb.creator = 'CES flex portal';
+    wb.created = new Date();
+    wb.title = o.name + ' - portfolio';
+
+    xlSheet(wb, 'Positions', keep(POSITIONS(bk)), months, ctx, {
+      dates: { month: { get: function (m) { return m.month; }, fmt: 'mmm-yy' } },
+      totals: positionsTotals(months, bk, nm),
+      mark: function (m) { return m.month === nowMonth(); },
+      note: (o.note ? o.note + ' ' : '') + XL_ROUND_NOTE,
+      empty: 'No position data for this basket.',
+      title: o.name + ' - positions', stamp: stamp });
+
+    xlSheet(wb, 'Trades', TRADES(bk), o.trades || [], {}, {
+      dates: { date: { get: function (t) { return t.date; }, fmt: 'dd mmm yy' } },
+      empty: 'No trades recorded for this basket.',
+      title: o.name + ' - trades', stamp: stamp });
+
+    xlSheet(wb, 'Seasons', SEASONS(bk), seasonGroups(months, bk), ctx, {
+      empty: 'No seasons to summarise for this basket.',
+      title: o.name + ' - seasons', stamp: stamp });
+
+    // visibleTargets, so the file shows the tradable months the tab shows rather than
+    // reintroducing the settled ones the tab deliberately drops.
+    xlSheet(wb, 'Targets', keep(TARGETS(bk)), visibleTargets(bk), ctx, {
+      dates: { month: { get: function (t) { return t.month; }, fmt: 'mmm-yy' } },
+      mark: function (t) { return t.month === nowMonth(); },
+      empty: 'No targets set for this basket.',
+      title: o.name + ' - targets', stamp: stamp });
+
+    xlSheet(wb, 'Sites', keep(SITES(bk)), o.sites || [], {}, {
+      dates: { start: { get: function (s) { return s.contract_start; }, fmt: 'dd mmm yy' },
+               end:   { get: function (s) { return s.contract_end;   }, fmt: 'dd mmm yy' } },
+      empty: 'No sites recorded against this basket.',
+      title: o.name + ' - sites', stamp: stamp });
+
+    return wb;
+  }
+
   /* ── TABS ─────────────────────────────────────────────────────────────────────────
      The shared tab list. `client:true` means the customer sees it too — so adding a tab
      here with client:true is all it takes for it to appear on both portals. Desk-only
@@ -853,12 +1100,16 @@
     nextTargetForMonth: nextTargetForMonth, upperAlertForMonth: upperAlertForMonth,
     // specs
     POSITIONS: POSITIONS, SEASONS: SEASONS, TARGETS: TARGETS, TRADES: TRADES,
+    SITES: SITES,
+    // spreadsheet — both portals build their workbook from xlWorkbook and nothing else
+    xlWorkbook: xlWorkbook, xlSheet: xlSheet, xlText: xlText, xlNum: xlNum,
+    XL_DESK_ONLY: XL_DESK_ONLY, XL_ROUND_NOTE: XL_ROUND_NOTE,
     normTrade: normTrade, fmtDate: fmtDate,
     TABS: TABS, clientTabs: clientTabs, TARGETS_TABLE_CLASS: TARGETS_TABLE_CLASS,
     pctCell: pctCell, buildTable: buildTable,
     // BUMP THIS on every change to this file. It is how anyone tells which build a
     // browser actually has — the desk shows it, and it is the first thing to check when
     // the two portals disagree or a change appears not to have landed.
-    VERSION: '2026-09-14'
+    VERSION: '2026-09-29'
   };
 })(typeof window !== 'undefined' ? window : globalThis);

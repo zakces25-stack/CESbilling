@@ -1741,22 +1741,19 @@ function subSites(b,host){
      · Every month, whatever the Positions filters are set to. The filters are shared across
        baskets, so honouring them could hand over a file that looks complete and is not.
      · Month and trade Date are real dates, so Excel sorts them by date rather than A to Z.
-     · Next Target and Upper Alert are left out. Dan wants them desk-only (17 Sep review),
-       and the desk's own export has always left them out.
+     · Next Target, Upper Alert and the NEC terms are left out — desk-only (17 Sep
+       review). That list lives in FlexCore.XL_DESK_ONLY, so the two workbooks differ in
+       exactly one place and by exactly four columns.
 
    ExcelJS is the library the desk already exports with. It is ~950 KB, so like pdf.js it is
    fetched on first use rather than on every visit. cdn.jsdelivr.net is already in the CSP,
    and it runs without 'unsafe-eval' (checked under this page's policy). */
 const EXCELJS_URL='https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
-const XL_LABEL='<span aria-hidden="true">&darr;</span> Download positions and trades';
-const XL_POS_SKIP={ nt:1, ua:1 };
-const XL_BLANK=/^(?:|-|—|£-)$/;              // how the tables print "no value"
-const XL_NAVY='FF1F2D4D', XL_CUR='FFFDF3CF', XL_TOT='FFEEF1F6', XL_HAIR='FFE0E3EC';
+const XL_LABEL='<span aria-hidden="true">&darr;</span> Download spreadsheet';
+/* The workbook engine moved to flex-shared.js in round 30b, when the desk was retired
+   onto it. What stays here is page-level: fetching ExcelJS, and the sentence that says
+   which curve the file was built from. Columns, formatting and sheet order are shared. */
 const XL_TIMEOUT_MS=20000;
-// The file's months hold the figures as the screen rounds them, and TOTAL is the screen's
-// TOTAL, worked out before rounding. Said once in the file, so a SUM that lands a pound or
-// two away from TOTAL does not read as an error.
-const XL_ROUND_NOTE='Totals are calculated before rounding, so they can differ slightly from a sum of the rounded figures above.';
 let _xlLib=null, _xlBusy=false, _xlTries=0;
 
 /* The file is built from whatever curve is selected, because its whole contract is that
@@ -1774,7 +1771,8 @@ function cxXlNote(){
     ? 'Market Prices in this file are the wholesale broker forward curve, not your supplier\'s '
       + 'indicative curve, and every estimated figure is valued against it. '
     : '';
-  return pre + POS_NOTE_XL + ' ' + XL_ROUND_NOTE;
+  // xlWorkbook appends FlexCore.XL_ROUND_NOTE itself, so it is not repeated here.
+  return pre + POS_NOTE_XL;
 }
 
 function loadExcelJs(){
@@ -1798,130 +1796,6 @@ function loadExcelJs(){
   return _xlLib;
 }
 
-// The text a cell shows. A <template> parses its markup inert: nothing loads, nothing runs.
-function xlText(html){
-  const t=document.createElement('template');
-  t.innerHTML=String(html==null?'':html);
-  return t.content.textContent.replace(/\s+/g,' ').trim();
-}
-
-// Displayed text back to the number it shows, with an Excel format of the same decimals.
-//   '12.5000' → 12.5 as #,##0.0000        '-£1,234' → -1234 as whole pounds
-//   '£-10.50' → -10.5 as pounds and pence  '63%'     → 0.63 as 0%
-// Anything that is not purely a number comes back null and is written as the text itself.
-function xlNum(text){
-  const m=/^([-−]?)(£?)([-−]?)(\d+(?:\.(\d+))?)(%?)$/.exec(String(text).replace(/[\s,]/g,''));
-  if(!m) return null;
-  const dp=m[5]?m[5].length:0, d=dp?'.'+'0'.repeat(dp):'';
-  let v=parseFloat(m[4])*((m[1]||m[3])?-1:1);
-  if(m[6]) v=v/100;
-  if(v===0) v=0;                                   // never write a -0
-  const fmt=m[6] ? '0'+d+'%' : m[2] ? '"£"#,##0'+d+';-"£"#,##0'+d : '#,##0'+d;
-  return { v, fmt };
-}
-
-// 'YYYY-MM-DD' to an Excel date serial, from the calendar date alone. No local-time Date is
-// involved, so a client on BST cannot see a month shift back a day.
-function xlDate(iso){
-  const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso||''));
-  return m ? (Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/864e5 : null;
-}
-
-// Lines a heading needs once wrapped at `w` characters, to size the heading row.
-function xlLines(text,w){
-  let lines=1, len=0;
-  for(const word of String(text).split(' ')){
-    if(len && len+1+word.length>w){ lines++; len=word.length; }
-    else len+=(len?1:0)+word.length;
-  }
-  return lines;
-}
-// The narrowest column at which a heading wraps onto two lines at most, never one word per
-// line. 10 is the floor because ExcelJS leaves a width of exactly 9 (its default) unwritten.
-function xlHeadWidth(h){
-  const longest=Math.max(...String(h).split(' ').map(w=>w.length));
-  for(let w=Math.max(10,longest+2); w<24; w++) if(xlLines(h,w-1)<=2) return w;
-  return 24;
-}
-
-// Header and footer codes treat & as a control character.
-const xlHF = s => String(s==null?'':s).replace(/&/g,'&&');
-
-/* One sheet from a FlexCore column spec: headings in row 1 exactly as the table prints them,
-   a row per table row, then the table's TOTAL row. o.dates maps a column key to the row's ISO
-   date and a date format; o.mark shades a row (the current month, as on screen). */
-function xlSheet(wb, name, cols, rows, ctx, o){
-  const ws=wb.addWorksheet(name,{
-    views:[{ state:'frozen', xSplit:1, ySplit:1 }],
-    pageSetup:{ paperSize:9, orientation:'landscape', fitToPage:true, fitToWidth:1, fitToHeight:0 }
-  });
-  ws.pageSetup.printTitlesRow='1:1';
-  ws.headerFooter.oddHeader='&L&B'+xlHF(o.title)+'&B&R'+xlHF(o.stamp);
-  ws.headerFooter.oddFooter='&LCES flex portal&RPage &P of &N';
-
-  const heads=cols.map(c=>xlText(c.head));
-  const width=heads.map(xlHeadWidth);
-  // Numbers sit right as Excel expects, whatever the screen does (Secured % is a bar there).
-  // Left-hand text is indented one step so it never runs into a number in the column before.
-  const LEFT={ horizontal:'left', indent:1 }, RIGHT={ horizontal:'right' }, MID={ horizontal:'center' };
-  const align=cols.map(c=> c.align==='right' ? RIGHT : c.align==='center' ? MID : LEFT);
-
-  const hr=ws.addRow(heads);
-  hr.eachCell(c=>{
-    c.fill={ type:'pattern', pattern:'solid', fgColor:{ argb:XL_NAVY } };
-    c.font={ size:10, bold:true, color:{ argb:'FFFFFFFF' } };
-    c.alignment={ horizontal:'center', vertical:'middle', wrapText:true };
-  });
-
-  const put=(r, isTotal)=>{
-    const row=ws.addRow([]);
-    cols.forEach((c,i)=>{
-      const cell=row.getCell(i+1), dt=!isTotal && o.dates && o.dates[c.key];
-      let shown='';
-      if(dt){
-        const v=xlDate(dt.get(r));
-        if(v!=null){ cell.value=v; cell.numFmt=dt.fmt; }
-        shown=dt.fmt;                              // same length as the date it displays
-      } else {
-        shown=xlText(isTotal ? (c.total ? c.total(r, ctx) : '') : c.value(r, ctx));
-        const n=(c.align==='right' || c.bar) ? xlNum(shown) : null;
-        if(n){ cell.value=n.v; cell.numFmt=n.fmt; }
-        else if(!XL_BLANK.test(shown)) cell.value=shown;
-      }
-      width[i]=Math.max(width[i], Math.min(shown.length+2, 40));
-      cell.alignment= dt ? LEFT : typeof cell.value==='number' ? RIGHT : align[i];
-      cell.font={ size:10, bold:!!isTotal };
-      cell.border=isTotal ? { top:{ style:'thin', color:{ argb:'FF55679A' } } }
-                          : { bottom:{ style:'hair', color:{ argb:XL_HAIR } } };
-      const fill=isTotal ? XL_TOT : (o.mark && o.mark(r) ? XL_CUR : null);
-      if(fill) cell.fill={ type:'pattern', pattern:'solid', fgColor:{ argb:fill } };
-    });
-  };
-  rows.forEach(r=>put(r,false));
-
-  if(!rows.length){
-    ws.addRow([o.empty]).getCell(1).font={ size:10, italic:true, color:{ argb:'FF6B7280' } };
-  } else {
-    // Filter and sort on the months or trades only. TOTAL sits below a spacer row as well,
-    // because Excel can stretch a filter over a row that touches the bottom of it, and a
-    // sort would then carry TOTAL into the months.
-    ws.autoFilter={ from:{ row:1, column:1 }, to:{ row:rows.length+1, column:cols.length } };
-    if(o.totals){ ws.addRow([]).height=6; put(o.totals,true); }
-    if(o.note){
-      ws.addRow([]);
-      const nr=ws.addRow([o.note]);
-      ws.mergeCells(nr.number,1,nr.number,cols.length);
-      nr.getCell(1).font={ size:9, italic:true, color:{ argb:'FF4B5563' } };
-      nr.getCell(1).alignment={ wrapText:true, vertical:'top' };
-      const across=width.reduce((a,w)=>a+w,0);
-      nr.height=13*Math.max(1,Math.ceil(o.note.length/Math.max(30,across-4)))+4;
-    }
-  }
-  width.forEach((w,i)=>{ ws.getColumn(i+1).width=w; });
-  hr.height=13*Math.max(...heads.map((h,i)=>xlLines(h,width[i]-1)))+5;
-  return ws;
-}
-
 function xlSave(buf, name){
   const url=URL.createObjectURL(new Blob([buf],
     { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
@@ -1931,12 +1805,13 @@ function xlSave(buf, name){
   setTimeout(()=>URL.revokeObjectURL(url),10000);
 }
 
-// "<basket> - positions and trades 2026-09-23.xlsx", dated in the client's own time zone.
+// "<basket> - portfolio 2026-09-29.xlsx", dated in the client's own time zone. Five
+// sheets now rather than two, so the old "positions and trades" name undersold it.
 function xlStamp(){ const d=new Date(), p=n=>String(n).padStart(2,'0');
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
 function xlFileName(b){
   const safe=String(b.name||'Basket').replace(/[\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim();
-  return safe+' - positions and trades '+xlStamp()+'.xlsx';
+  return safe+' - portfolio '+xlStamp()+'.xlsx';
 }
 
 async function cxDownloadXlsx(b){
@@ -1948,21 +1823,17 @@ async function cxDownloadXlsx(b){
   setBtn(true);
   try{
     const XL=await loadExcelJs();
-    const bk=deskBasket(b), nm=FlexCore.necMap(bk, D.necs), months=bk.months.slice();
-    const stamp='Downloaded '+fmtLong(xlStamp());
-    const wb=new XL.Workbook();
-    wb.creator='CES flex portal'; wb.created=new Date(); wb.title=b.name+' - positions and trades';
-    xlSheet(wb,'Positions', FlexCore.POSITIONS(bk).filter(c=>!XL_POS_SKIP[c.key]), months,
-      { nec:nm, mktPrice:(m)=>cxMktPrice(b,m) },        // the Positions tab's own ctx
-      { dates:{ month:{ get:m=>m.month, fmt:'mmm-yy' } },
-        totals:FlexCore.positionsTotals(months, bk, nm),
-        mark:(m)=>m.month===nowMonth(),
-        note:cxXlNote(), empty:'No position data for this basket.',
-        title:b.name+' - positions', stamp });
-    xlSheet(wb,'Trades', FlexCore.TRADES(bk), tradesOf(b), {},
-      { dates:{ date:{ get:t=>t.date, fmt:'dd mmm yy' } },
-        empty:'No trades recorded for this basket.',
-        title:b.name+' - trades', stamp });
+    const bk=deskBasket(b);
+    // One call. Columns, order, formatting and which sheets exist all come from
+    // flex-shared.js, so this page and the desk cannot build different workbooks.
+    const wb=FlexCore.xlWorkbook({
+      XL, basket:bk, name:b.name,
+      trades:tradesOf(b), sites:(D.sites[b.id]||[]), necRows:D.necs,
+      ctx:{ nec:FlexCore.necMap(bk, D.necs), mktPrice:(m)=>cxMktPrice(b,m) },
+      stamp:'Downloaded '+fmtLong(xlStamp()),
+      note:cxXlNote(),
+      desk:false                       // drops Next Target, Upper Alert and the NEC terms
+    });
     xlSave(await wb.xlsx.writeBuffer(), xlFileName(b));
     toast('Spreadsheet downloaded');
   }catch(e){

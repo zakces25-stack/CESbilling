@@ -3868,7 +3868,7 @@ function fxDecorateHeader(){
   if (dh && !document.getElementById('fxDetailTools')){
     const sp=document.createElement('span'); sp.id='fxDetailTools';
     sp.innerHTML = `<button class="fx-btn fx-edit-toggle${EDIT?' on':''}" onclick="fxSetEdit(!EDIT)">&#9998; ${EDIT?'Editing on':'Edit'}</button>
-      <button class="fx-btn" onclick="fxExportBasket()" title="Styled Excel export of this basket">&#11015; Export</button>
+      <button class="fx-btn" onclick="fxExportBasket()" title="Excel export of this basket — Positions, Trades, Seasons, Targets and Sites">&#11015; Export</button>
       <button class="fx-btn" onclick="fxTemplateBasket()" title="Baseload + targets template for this basket — months prefilled. Same Targets sheet as the Targets tab.">&#10515; Template</button>
       <button class="fx-btn" onclick="fxImportBasket()" title="Import a filled baseload + targets template">&#10514; Import</button>
       <button class="fx-btn fx-edit-only" onclick="fxRenameModal()" title="Rename this basket everywhere">&#9998; Rename</button>
@@ -5731,72 +5731,50 @@ function fxDownloadBlob(buf, name){
 // index from the range start (col B), shifting every column one to the left. This was the cause of
 // the sites-import misalignment; apply it before every header:1 parse.
 function fxNormRange(ws){ if(ws && ws['!ref']){ try{ const r=XLSX.utils.decode_range(ws['!ref']); r.s.r=0; r.s.c=0; ws['!ref']=XLSX.utils.encode_range(r); }catch(e){} } return ws; }
+/* The basket export. Retired onto the shared workbook in round 30b: the column list
+   here was hand-written and had already drifted from the Positions tab — it never
+   carried Delivered rate, and the desk and the customer were handing out two different
+   files for the same basket. Now both portals call FlexCore.xlWorkbook and differ by
+   exactly the four columns in FlexCore.XL_DESK_ONLY.
+
+   Five sheets: Positions, Trades, Seasons, Targets, Sites. Graphs stay on the portal.
+
+   The months are re-marked at the selected curve first, exactly as the Seasons tab does,
+   so the file agrees with the screen on Marex / Indicative / Simulation rather than
+   quietly exporting Marex whatever the toggle says. */
+function fxXlNote(){
+  return FX_MKT_SRC === 'sim'
+    ? 'WARNING: every Market Price in this file is a Simulation price entered by hand on the '
+      + 'CES desk as a what-if. It is not a market price and not a CES valuation. Open cost, '
+      + 'MtM price, MtM cost, delivered rate and delivered cost are all worked out from it.'
+    : FX_MKT_SRC === 'te'
+    ? 'Market Prices in this file are the supplier (TotalEnergies) indicative curve, not the '
+      + 'Marex broker curve, and every estimated figure is valued against it.'
+    : 'Market Prices in this file are the Marex broker forward curve.';
+}
+
 async function fxExportBasket(){
   const b=currentBasket; if(!b) return;
   if(typeof ExcelJS==='undefined') return fxToast('Excel engine not loaded — reload the page', false);
-  const isPower=b.commodity==='power';
-  const vu=b.unit_vol, pu=b.unit_price;
-  const nec=fxNecFor(b);
-  const volFmt=isPower?'0.0000':'#,##0';
-  const n2=(v,dp)=>v!=null&&!isNaN(v)?+(+v).toFixed(dp):null;
   // A stale shared file must cost the export its NEW columns, not the whole download.
-  // Before this guard the first FlexCore.energyKwh call threw and the button did nothing
-  // at all — no sheet, no error, nothing to tell you why.
-  const full=fxCoreCurrent();
-  // ONE spec, in the on-screen column order, so the sheet and the table cannot drift —
-  // the old list had drifted already: it never carried Delivered rate. Every cell is
-  // written as a NUMBER with a format, never a pre-formatted string, so the sheet stays
-  // arithmetic. Next Target and Upper Alert are deliberately absent: they are target
-  // data, and the Targets tab's own export carries them properly, with Auth/Adv and
-  // per-tier detail that a single column here would flatten away.
-  const spec=[
-    {h:'Month',                 w:10, f:null,       align:'left', v:m=>fmtMonth(m.month)},
-    {h:'Season',                w:11, f:null,       v:m=>m.season||''},
-    {h:`Baseload (${vu})`,      w:14, f:volFmt,     v:m=>m.baseload_vol},
-    {h:'Baseload (kWh)',        w:15, f:'#,##0',    need:1, v:m=>n2(FlexCore.energyKwh(b,m),0)},
-    {h:`Secured (${vu})`,       w:13, f:volFmt,     v:m=>m.secured_vol},
-    {h:'Secured (kWh)',         w:15, f:'#,##0',    need:1, v:m=>n2(FlexCore.securedKwh(b,m),0)},
-    {h:`Weighted average price (${pu})`, w:22, f:'0.00', v:m=>n2(m.secured_wap,4)},
-    {h:'Secured %',             w:10, f:'0%',       v:m=>m.secured_pct!=null?+m.secured_pct:null},
-    {h:'Secured cost (£)',      w:15, f:'#,##0.00', v:m=>n2(m.secured_cost,2)},
-    {h:`Open (${vu})`,          w:12, f:volFmt,     v:m=>n2(m.open_vol,isPower?4:0)},
-    {h:'Open (kWh)',            w:15, f:'#,##0',    need:1, v:m=>n2(FlexCore.openKwh(b,m),0)},
-    {h:`Market price (${pu})`,  w:15, f:'0.00',     v:m=>n2(m.market_price,2)},
-    {h:'Open cost (£)',         w:15, f:'#,##0.00', v:m=>n2(m.residual_cost,2)},
-    {h:`MtM price (${pu})`,     w:14, f:'0.00',     v:m=>n2(m.mtm_price,2)},
-    {h:'MtM cost (£)',          w:14, f:'#,##0.00', v:m=>n2(m.mtm_cost,2)},
-    {h:'Delivered rate (p/kWh)',w:18, f:'0.000',    v:m=>n2(FlexCore.deliveredRate(b,m,nec),3)},
-    {h:'Delivered cost (£)',    w:17, f:'#,##0.00', need:1, v:m=>n2(FlexCore.deliveredCost(b,m,nec),2)}
-  ].filter(c=>full||!c.need);
-  if(!full) fxToast('Shared file out of date — kWh and delivered cost left out. Ctrl+F5 and try again.', false);
-  const wb=new ExcelJS.Workbook();
-  const ws=wb.addWorksheet('Positions',{views:[{state:'frozen',xSplit:1,ySplit:1}]});
-  ws.columns=spec.map(c=>({header:c.h,width:c.w}));
-  const nowM=fxNowMonth();
-  const GREEN='FFE3F2DF', YELLOW='FFFDF3CF', NAVY='FF1F2D4D';
-  const hdr=ws.getRow(1);
-  hdr.eachCell(c=>{ c.fill={type:'pattern',pattern:'solid',fgColor:{argb:NAVY}};
-    c.font={color:{argb:'FFFFFFFF'},bold:true,size:10}; c.alignment={horizontal:'center',wrapText:true};
-    c.border={bottom:{style:'thin',color:{argb:'FFB9C0D4'}}}; });
-  for(const m of b.months){
-    const row=ws.addRow(spec.map(c=>c.v(m)));
-    let fill=null;
-    if(m.month===nowM) fill=YELLOW;
-    else if((m.secured_pct||0)>=0.995) fill=GREEN;
-    row.eachCell({includeEmpty:true},c=>{
-      if(fill) c.fill={type:'pattern',pattern:'solid',fgColor:{argb:fill}};
-      c.border={bottom:{style:'hair',color:{argb:'FFE0E3EC'}}};
-      c.font={size:10};
+  if(!fxCoreCurrent()) return fxToast('Shared file out of date — press Ctrl+F5 and try again.', false);
+  try{
+    const bk=Object.assign({}, b, { months: fxRemark(b.months, b) });
+    const wb=FlexCore.xlWorkbook({
+      XL: ExcelJS, basket: bk, name: b.name,
+      trades: (b.trades||[]), sites: fxSitesFor(b), necRows: (DATA.necs||[]),
+      ctx: { nec: fxNecFor(bk), mktPrice: (m)=>fxDisplayMkt(b,m).v },
+      stamp: 'Downloaded '+new Date().toISOString().slice(0,10),
+      note: fxXlNote(),
+      desk: true                    // keeps Next Target, Upper Alert and the NEC terms
     });
-    spec.forEach((c,i)=>{
-      const cell=row.getCell(i+1);
-      if(c.f) cell.numFmt=c.f;
-      if(c.align) cell.alignment={horizontal:c.align};
-    });
+    const buf=await wb.xlsx.writeBuffer();
+    fxDownloadBlob(buf, `${b.name} - portfolio ${new Date().toISOString().slice(0,10)}.xlsx`);
+    fxToast('Export downloaded');
+  }catch(e){
+    console.error('basket export', e);
+    fxToast('The spreadsheet could not be prepared — please try again.', false);
   }
-  const buf=await wb.xlsx.writeBuffer();
-  fxDownloadBlob(buf, `${b.name} — Positions ${new Date().toISOString().slice(0,10)}.xlsx`);
-  fxToast('Export downloaded');
 }
 async function fxTemplateBasket(){
   const b=currentBasket; if(!b) return;
