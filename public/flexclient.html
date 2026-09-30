@@ -626,6 +626,14 @@ input.cx-cell{width:100%;min-width:62px;font-family:var(--font-mono);font-size:v
 
 .empty{padding:40px 20px;text-align:center;color:var(--ink-3);font-size:var(--t-md);
   background:var(--surface);border:1px dashed var(--line-strong);border-radius:var(--r-md)}
+
+/* Trades period filter. Print drops it — a printed page has no control to operate, and
+   the rows under it are already whatever the filter left. */
+.cx-trade-filter{display:flex;align-items:center;gap:8px;margin:0 0 10px;flex-wrap:wrap}
+.cx-trade-filter label{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-2)}
+.cx-trade-filter select{font-size:12.5px;padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink-1)}
+.cx-trade-count{font-size:11.5px;color:var(--ink-2)}
+@media print{.cx-trade-filter{display:none}}
 /* Parked fully below the screen. translateY(140%) of its own height left the empty pill's top
    8px showing at the bottom centre of every page, over whatever row was there. */
 #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(calc(100% + 40px));
@@ -898,7 +906,10 @@ function bootMsg(html){ document.getElementById('bootTxt').innerHTML = html; }
 /* ── load ────────────────────────────────────────────────────────────── */
 async function load(){
   const [bk,ps,tr,tg,st,cv,te,sm,nx,rp,me] = await Promise.all([
-    CX.sb.from('flex_client_baskets').select('id,name,commodity,unit_vol,unit_price,target_count,target_labels,target_kinds,target_rules').order('name'),
+    // select('*') rather than a column list, as every other client query here does: the
+    // view is the security boundary, so naming columns adds nothing and means a column
+    // added to the view — sort_order, in round 32 — needs an edit here as well.
+    CX.sb.from('flex_client_baskets').select('*').order('name'),
     CX.sb.from('flex_client_positions').select('*').order('month'),
     CX.sb.from('flex_client_trades').select('*').order('trade_date'),
     CX.sb.from('flex_client_targets').select('*').order('month'),
@@ -920,7 +931,15 @@ async function load(){
   if(te.error) console.warn('supplier curve unavailable:', te.error.message);
   if(sm.error) console.warn('simulation curve unavailable:', sm.error.message);
 
-  D.baskets = bk.data||[];
+  /* The desk sets the running order by dragging the cards on its Portfolio tab, which
+     writes flex_baskets.sort_order. The customer was seeing alphabetical, so a customer
+     with several baskets saw them in a different order from the person they were on the
+     phone to. Same rule as the desk's sortBaskets: sort_order first, and for anything
+     without one, CES-named first and then alphabetically.
+
+     Falls back cleanly: if flex_client_baskets does not expose sort_order, every rank is
+     equal and the list is alphabetical exactly as before. */
+  D.baskets = cxSortBaskets(bk.data||[]);
   // deskBasket() caches each basket's shaped months and targets. Without this, Refresh
   // updated the basket cards but left the open basket (and its spreadsheet) on old data.
   for(const k of Object.keys(_BK)) delete _BK[k];
@@ -1279,6 +1298,16 @@ function coverOf(rows){
   return {base,sec,mtm,pct:base?sec/base:null,wap:sec?wsum/sec:null};
 }
 
+/* Mirrors FlexCore-era sortBaskets on the desk. Not in flex-shared.js because the desk's
+   version reads a live BASKETS array and carries the drag handling with it; this is the
+   ordering rule alone, which is the part that has to agree. */
+function cxSortBaskets(arr){
+  const rank = b => (b && b.sort_order != null) ? +b.sort_order : Number.MAX_SAFE_INTEGER;
+  const ces  = b => String(b.name||'').startsWith('CES') ? 0 : 1;
+  return arr.slice().sort((a,b) =>
+    rank(a) - rank(b) || ces(a) - ces(b) || String(a.name||'').localeCompare(String(b.name||'')));
+}
+
 function basketCard(b){
   const c=coverOf(D.positions[b.id]); const isP=b.commodity==='power';
   return `<article class="card clickable" data-fuel="${isP?'power':'gas'}">
@@ -1287,7 +1316,6 @@ function basketCard(b){
       <div style="margin-top:16px">
         <div class="stat" style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
           <span class="k">Forward cover</span>
-          <span class="k" style="color:var(--${coverLabel(c.pct).c});text-transform:none;letter-spacing:0">${coverLabel(c.pct).t}</span>
         </div>
         <div class="barrow" style="margin-top:7px">
           <div class="bar" style="flex:1"><i style="width:${barW(c.pct)}%"></i></div>
@@ -1340,7 +1368,11 @@ function renderBaskets(){
   // Delegated listeners rather than onclick="f('...')": an attribute is
   // HTML-decoded before its contents parse as JS, so an escaped quote would
   // break out of the string. Data attributes remove the whole class of bug.
-  el.querySelectorAll('[data-basket]').forEach(b=>b.addEventListener('click',()=>{OPEN=b.dataset.basket;SUB='positions';render();}));
+  el.querySelectorAll('[data-basket]').forEach(b=>b.addEventListener('click',()=>{
+    OPEN=b.dataset.basket; SUB='positions';
+    CX_TRADE_MONTH='';        // per basket, as on the desk
+    render();
+  }));
 }
 
 /* ── basket detail ───────────────────────────────────────────────────── */
@@ -1666,20 +1698,67 @@ function subPositions(b,host){
 
 // The trades exactly as the Trades tab lists them, in its order. The spreadsheet download
 // reads this same list, so a change to the order here changes both.
+/* Earliest first. It used to run newest first, which reads like a feed rather than like a
+   position being built up over time — and disagreed with the desk, where the same trades
+   are listed oldest first. */
 function tradesOf(b){
   return (D.trades[b.id]||[]).slice()
-    .sort((x,y)=>String(x.trade_date||'')<String(y.trade_date||'')?1:-1)
+    .sort((x,y)=>String(x.trade_date||'').localeCompare(String(y.trade_date||'')))
     .map(FlexCore.normTrade);
 }
 
+/* Every month any trade on this basket covers, for the period filter. Built from the
+   trades themselves rather than from the basket's months, so a trade running past the end
+   of the forecast still has its months offered. */
+function cxTradeMonths(rows){
+  const out = new Set();
+  (rows||[]).forEach(t => {
+    const s = String(t.start||'').slice(0,10), e = String(t.end||'').slice(0,10);
+    if (!s || !e) return;
+    let y = +s.slice(0,4), mo = +s.slice(5,7);
+    const endKey = e.slice(0,7);
+    for (let guard = 0; guard < 240; guard++){          // a trade cannot span 20 years
+      const key = y + '-' + String(mo).padStart(2,'0');
+      out.add(key + '-01');
+      if (key >= endKey) break;
+      mo++; if (mo > 12){ mo = 1; y++; }
+    }
+  });
+  return [...out].sort();
+}
+let CX_TRADE_MONTH = '';
+
 function subTrades(b,host){
-  const rows=tradesOf(b);
-  if(!rows.length){host.innerHTML='<div class="empty">No trades recorded for this basket.</div>';return;}
+  const all=tradesOf(b);
+  if(!all.length){host.innerHTML='<div class="empty">No trades recorded for this basket.</div>';return;}
+
+  // The desk's rule: a trade is shown for a month when its period covers that month.
+  const months=cxTradeMonths(all);
+  const rows = CX_TRADE_MONTH
+    ? all.filter(t => t.start && t.end
+        && String(t.start).slice(0,10) <= CX_TRADE_MONTH
+        && String(t.end).slice(0,10)   >= CX_TRADE_MONTH)
+    : all;
+
+  const bar = months.length ? `<div class="cx-trade-filter">
+      <label for="cxTradeMonth">Period month</label>
+      <select id="cxTradeMonth">
+        <option value="">All</option>
+        ${months.map(m=>`<option value="${esc(m)}"${m===CX_TRADE_MONTH?' selected':''}>${esc(fmtMonth(m))}</option>`).join('')}
+      </select>
+      ${CX_TRADE_MONTH?`<span class="cx-trade-count">${rows.length} of ${all.length} trades</span>`:''}
+    </div>` : '';
+
   // Same columns, order and formatting as the desk. Cost is shown to the penny here too:
   // rounding it to whole pounds meant a trade never quite tied back to the contract note.
-  host.innerHTML = FlexCore.buildTable(FlexCore.TRADES(deskBasket(b)), rows, {}, {
-    cellClass:(c,t)=> (c.key==='vol' && t.volume!=null && t.volume<0) ? 'neg' : ''
-  });
+  host.innerHTML = bar + (rows.length
+    ? FlexCore.buildTable(FlexCore.TRADES(deskBasket(b)), rows, {}, {
+        cellClass:(c,t)=> (c.key==='vol' && t.volume!=null && t.volume<0) ? 'neg' : ''
+      })
+    : '<div class="empty">No trades cover that month.</div>');
+
+  const sel=host.querySelector('#cxTradeMonth');
+  if(sel) sel.addEventListener('change', ()=>{ CX_TRADE_MONTH=sel.value; renderBasket({ keepScroll:true }); });
 }
 
 /* Seasons. Grouping, volumes, WAP and cover come from FlexCore.seasonGroups — the same
