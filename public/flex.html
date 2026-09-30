@@ -4296,13 +4296,25 @@ async function fxSaveTrade(dbId){
   if (await fxWrite(q, dbId?'Trade updated':'Trade added — positions recalculating')) fxCloseModal();
 }
 
-// bulk trades (paste from FDB annex or simple grid)
+/* Bulk add trades. Built around a template with a heading row rather than around one
+   particular export, because the exports it used to be built around are not the same
+   shape from one basket to the next — which is why the column-counting guesswork it
+   relied on so often put the values in the wrong fields. */
 function fxBulkTradesModal(){
   const b=currentBasket; if(!b) return;
+  const vu = b.unit_vol, pu = b.unit_price;
   fxModal(`<h3>Bulk add trades — ${escape(b.name)}</h3>
-  <p style="font-size:12.5px;color:#4b5563;margin:0 0 8px">Paste rows copied straight from the FDB trade annex (Ref | Date | Commodity | Counterparty | Start | End | Volume | Product | Strike | Buy/Sell)
-  or a simple grid (Date | Ref | Counterparty | Start | End | Volume | Product | Strike | Buy/Sell). Sells may use negative volume or the word Sell.</p>
-  <textarea id="fB_paste" placeholder="Paste rows from Excel here..."></textarea>
+  <div style="background:#f4f8fb;border:1px solid #dbe4ec;border-radius:6px;padding:10px 12px;margin:0 0 10px">
+    <div style="font-weight:700;font-size:12.5px;color:#12324f;margin-bottom:3px">Fill the template, then paste the rows in</div>
+    <p style="font-size:12px;color:#4b5563;margin:0 0 8px">The template has the headings this box expects, with this basket&rsquo;s units on them.
+    Fill it in Excel, copy the rows <b>including the heading row</b>, and paste below. Keeping the headings is what lets it
+    match the columns by name rather than guessing at their order.</p>
+    <button class="fx-btn" onclick="fxBulkTradesTemplate()">&#10515; Download template</button>
+  </div>
+  <p style="font-size:12px;color:#4b5563;margin:0 0 8px">Columns: <b>Trade Date | Trade Ref | Counterparty | Start | End | Volume (${escape(vu)}) | Product | Strike (${escape(pu)}) | Buy/Sell</b>.
+  Periods may be written <b>Oct-26</b> or as full dates; an end written as a month is taken as the last day of it.
+  Sells may use a negative volume or the word Sell.</p>
+  <textarea id="fB_paste" placeholder="Paste the rows from the template here, heading row included..."></textarea>
   <div id="fB_prev"></div>
   <div class="fx-err" id="fxMErr"></div>
   <div class="fx-modal-foot">
@@ -4312,29 +4324,159 @@ function fxBulkTradesModal(){
   </div>`);
   document.getElementById('fB_paste').focus();
 }
-let fxBulkRows=[];
+/* The template. Built per basket so the volume and strike headings carry that basket's
+   own units, exactly as they are written everywhere else in the portal.
+
+   The Trades sheet is headings and empty formatted rows only — the worked examples live
+   on the How to use sheet instead. A sample row on the sheet you paste from is a sample
+   row that eventually gets pasted in by accident. */
+const FX_BULK_HEADS = [
+  ['Trade Date',   14, 'The date the trade was struck.'],
+  ['Trade Ref',    16, 'Your reference for it. Optional, but worth having.'],
+  ['Counterparty', 22, 'Who it was traded with.'],
+  ['Start',        12, 'First month of the period.'],
+  ['End',          12, 'Last month. Written as a month, it means the whole of that month.'],
+  ['Volume',       14, null],   // unit filled in per basket
+  ['Product',      14, 'Baseload unless it is something else.'],
+  ['Strike',       14, null],   // unit filled in per basket
+  ['Buy/Sell',     10, 'Buy or Sell. A negative volume is read as a Sell either way.']
+];
+
+async function fxBulkTradesTemplate(){
+  const b = currentBasket; if (!b) return;
+  if (typeof ExcelJS === 'undefined') return fxToast('Excel engine not loaded — reload the page', false);
+  try {
+    const heads = FX_BULK_HEADS.map(h => h[0] === 'Volume' ? 'Volume (' + b.unit_vol + ')'
+                                       : h[0] === 'Strike' ? 'Strike (' + b.unit_price + ')'
+                                       : h[0]);
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'CES flex portal'; wb.created = new Date();
+
+    const ws = wb.addWorksheet('Trades', { views:[{ state:'frozen', ySplit:1 }] });
+    ws.columns = FX_BULK_HEADS.map((h, i) => ({ header: heads[i], width: h[1] }));
+    ws.getRow(1).eachCell(c => {
+      c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF1F2D4D' } };
+      c.font = { color:{ argb:'FFFFFFFF' }, bold:true, size:10 };
+      c.alignment = { horizontal:'center', vertical:'middle', wrapText:true };
+    });
+    // Room to type into, formatted so what is entered lines up with what is expected.
+    for (let r = 2; r <= 200; r++){
+      const row = ws.getRow(r);
+      row.getCell(1).numFmt = 'dd/mm/yyyy';
+      row.getCell(6).numFmt = b.commodity === 'power' ? '#,##0.0000' : '#,##0';
+      row.getCell(8).numFmt = '0.00';
+      row.getCell(9).dataValidation = { type:'list', allowBlank:true, formulae:['"Buy,Sell"'] };
+      row.eachCell({ includeEmpty:true }, c => { c.font = { size:10 }; });
+    }
+
+    const gs = wb.addWorksheet('How to use');
+    gs.columns = [{ width:18 }, { width:92 }];
+    const line = (a, t, opts) => { const r = gs.addRow([a, t]);
+      r.getCell(1).font = { bold:true, size:10, color:{ argb:'FF12324F' } };
+      r.getCell(2).font = Object.assign({ size:10 }, opts || {});
+      r.getCell(2).alignment = { wrapText:true, vertical:'top' }; return r; };
+    line('', 'Bulk add trades — ' + b.name, { bold:true, size:12 });
+    gs.addRow([]);
+    line('What to do', 'Fill the Trades sheet, then copy the rows — INCLUDING the heading row — and paste them into the Bulk add box on the Trades tab. Preview first; nothing is written until you press Add all.');
+    line('Why the headings', 'They are how the portal matches your columns. Paste them with the rows and the column order does not matter. Leave them out and it falls back to reading by position, which is what used to go wrong.');
+    gs.addRow([]);
+    line('', 'The columns', { bold:true, size:11 });
+    FX_BULK_HEADS.forEach((h, i) => { if (h[2]) line(heads[i], h[2]); });
+    line(heads[5], 'In this basket\u2019s own unit: ' + b.unit_vol + '. A sell may be entered as a negative number.');
+    line(heads[7], 'In this basket\u2019s own unit: ' + b.unit_price + '.');
+    gs.addRow([]);
+    line('', 'Worked examples', { bold:true, size:11 });
+    gs.addRow(['', heads.join('  |  ')]).getCell(2).font = { size:10, bold:true };
+    const ex = b.commodity === 'power'
+      ? [['15/09/2026','TR-1041','SEFE','Oct-26','Mar-27','2.5','Baseload','78.40','Buy'],
+         ['22/09/2026','TR-1042','Shell','Jan-27','Jan-27','1.0','Peak','84.15','Sell']]
+      : [['15/09/2026','TR-1041','SEFE','Oct-26','Mar-27','500','Baseload','182.50','Buy'],
+         ['22/09/2026','TR-1042','Shell','Jan-27','Jan-27','250','Baseload','191.20','Sell']];
+    ex.forEach(r => { gs.addRow(['', r.join('  |  ')]).getCell(2).font = { size:10 }; });
+    gs.addRow([]);
+    line('Periods', 'Oct-26 means the whole of October 2026. An End written as a month is taken as the last day of that month, so Oct-26 to Mar-27 is 01/10/2026 to 31/03/2027.');
+    line('Dates', 'Day first — 15/09/2026 is the 15th of September. 15-Sep-26 and 2026-09-15 are read the same way.');
+    line('Nothing is', 'written until you have previewed it and pressed Add all. A row the portal cannot read is shown in red and blocks the commit until it is fixed.');
+
+    const buf = await wb.xlsx.writeBuffer();
+    fxDownloadBlob(buf, b.name + ' - bulk trades template.xlsx');
+    fxToast('Template downloaded');
+  } catch (e) {
+    console.error('bulk trades template', e);
+    fxToast('The template could not be prepared — please try again.', false);
+  }
+}
+
+/* Which column is which. Headings are matched by name with the unit stripped, so
+   "Volume (th/d)" and "volume" are the same column and the order does not matter. */
+const FX_BULK_ALIAS = {
+  date:'date', 'trade date':'date',
+  ref:'ref', 'trade ref':'ref', 'trade reference':'ref', reference:'ref',
+  counterparty:'cp', cp:'cp', 'counter party':'cp',
+  start:'start', 'start date':'start', from:'start',
+  end:'end', 'end date':'end', to:'end',
+  volume:'vol', vol:'vol', quantity:'vol', qty:'vol',
+  product:'prod',
+  strike:'strike', 'strike price':'strike', price:'strike',
+  'buy/sell':'deal', type:'deal', 'deal type':'deal', deal:'deal', direction:'deal', 'buy sell':'deal'
+};
+function fxBulkHeaderMap(cells){
+  const map = {};
+  cells.forEach((raw, i) => {
+    const k = String(raw || '').replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const f = FX_BULK_ALIAS[k];
+    if (f && map[f] == null) map[f] = i;
+  });
+  // A header row has to carry enough to be worth trusting. Below that it is more likely
+  // a data row that happens to start with a word.
+  return (map.date != null && map.start != null && map.end != null && map.vol != null) ? map : null;
+}
+
+let fxBulkRows=[], fxBulkMode='';
 function fxBulkParse(){
   const txt=document.getElementById('fB_paste').value;
   const lines=txt.split(/\r?\n/).map(l=>l.replace(/ /g,' ')).filter(l=>l.trim());
   const out=[];
-  for(const line of lines){
-    let c=line.split('\t'); if(c.length===1) c=line.split(/ {2,}|;/);
-    c=c.map(x=>x.trim());
-    if(/^trade reference$/i.test(c[0]||'')) continue; // header row
+  const split = l => { let c = l.split('\t'); if (c.length === 1) c = l.split(/ {2,}|;/); return c.map(x => x.trim()); };
+
+  /* Headings first. With them the columns are matched by name and nothing is guessed —
+     which is the whole point of the template. Without them, fall back to reading by
+     position, so a paste that used to work still does. */
+  let map = null, start = 0;
+  for (let i = 0; i < Math.min(lines.length, 3); i++){
+    const m = fxBulkHeaderMap(split(lines[i]));
+    if (m){ map = m; start = i + 1; break; }
+  }
+  fxBulkMode = map ? 'headings' : 'position';
+
+  for (let i = start; i < lines.length; i++){
+    const c = split(lines[i]);
     let r=null;
     const looksDate=s=>!!fxParseDate(s);
-    if(c.length>=10 && looksDate(c[1])){        // annex without Column1
+    if (map){
+      const at = k => map[k] != null ? c[map[k]] : null;
+      r = { ref:at('ref'), date:at('date'), cp:at('cp'), start:at('start'), end:at('end'),
+            vol:at('vol'), prod:at('prod'), strike:at('strike'), deal:at('deal') };
+      // A row with nothing in any of the columns that matter is a spare row in the
+      // template, not a trade. Skip it rather than reporting 198 broken rows.
+      if (!r.date && !r.start && !r.vol && !r.strike) continue;
+    } else if(/^trade reference$/i.test(c[0]||'')) { continue; // header row
+    } else if(c.length>=10 && looksDate(c[1])){  // older annex paste, without Column1
       r={ref:c[0],date:c[1],cp:c[3],start:c[4],end:c[5],vol:c[6],prod:c[7],strike:c[8],deal:c[9]};
-    } else if(c.length>=11 && looksDate(c[2])){ // annex with Column1
+    } else if(c.length>=11 && looksDate(c[2])){  // older annex paste, with Column1
       r={ref:c[0],date:c[2],cp:c[4],start:c[5],end:c[6],vol:c[7],prod:c[8],strike:c[9],deal:c[10]};
-    } else if(c.length>=9){                      // simple
+    } else if(c.length>=9){                      // simple grid
       r={date:c[0],ref:c[1],cp:c[2],start:c[3],end:c[4],vol:c[5],prod:c[6],strike:c[7],deal:c[8]};
     } else continue;
     const vol=fxNum(r.vol);
     const deal=/sell/i.test(r.deal||'')||(vol!=null&&vol<0)?'Sell':'Buy';
     const sd=fxParseDate(r.start), ed0=fxParseDate(r.end);
     out.push({ trade_ref:r.ref||null, trade_date:fxParseDate(r.date), counterparty:r.cp||null,
-      start_date:sd, end_date: ed0 ? (ed0.endsWith('-01')&&r.end.match(/^[A-Za-z]{3}-\d{2}$/)?fxMonthEnd(ed0):ed0) : null,
+      start_date:sd,
+      // An End written as a month means the whole month. \d{2,4} because Oct-2026 is as
+      // likely as Oct-26 out of a spreadsheet, and the four-digit form used to fall
+      // through to the 1st of it.
+      end_date: ed0 ? (ed0.endsWith('-01')&&String(r.end||'').match(/^[A-Za-z]{3}[- ]\d{2,4}$/)?fxMonthEnd(ed0):ed0) : null,
       volume: vol==null?null:(deal==='Sell'?-Math.abs(vol):Math.abs(vol)),
       product:r.prod||'Baseload', strike:fxNum(r.strike), deal_type:deal });
   }
@@ -4356,7 +4498,10 @@ function fxBulkPreview(){
   document.getElementById('fB_prev').innerHTML=`<div class="fx-preview"><table>
     <thead><tr><th>Date</th><th>Ref</th><th>Counterparty</th><th>Period</th><th>Vol</th><th>Product</th><th>Strike</th><th>Type</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
-    <div style="font-size:12px;margin-top:6px;color:${bad?'#8b2015':'#0f6e56'};font-weight:600">${fxBulkRows.length} rows parsed${bad?` — ${bad} with problems (fix the paste and re-preview)`:' — all valid'}</div>`;
+    <div style="font-size:12px;margin-top:6px;color:${bad?'#8b2015':'#0f6e56'};font-weight:600">${fxBulkRows.length} rows parsed${bad?` — ${bad} with problems (fix the paste and re-preview)`:' — all valid'}</div>
+    <div style="font-size:11.5px;margin-top:3px;color:#6b7280">${fxBulkMode==='headings'
+      ? 'Columns matched to your heading row by name.'
+      : 'No heading row found, so the columns were read in order &mdash; check the preview carefully. Pasting the template&rsquo;s heading row with the data removes the guesswork.'}</div>`;
   document.getElementById('fB_commit').style.display = bad? 'none':'inline-flex';
 }
 async function fxBulkCommit(){
