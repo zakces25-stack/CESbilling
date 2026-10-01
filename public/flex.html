@@ -2045,7 +2045,14 @@ function fxBuildData(){
   // forward period, so it drops out of the curve the moment we roll into it and lives on
   // in "Full market curve data" below. Rolls on its own — no month is hard-coded anywhere.
   const _fwdFromM = fxNextMonth();
-  const _grp = (f, pt) => curves.filter(c => c.commodity === f && c.period_type === pt && (pt !== 'month' || !c.month || c.month >= _fwdFromM))
+  // Quarters, seasons and annuals roll the same way (round 33). A period that has already
+  // started is no longer quoted — Marex drop Q4-26, W-26 and Oct Annual-26 once October
+  // delivers — but flex_apply_curve only ever upserts, so yesterday's row stays in the
+  // table at yesterday's price. It is not on the curve any more, so it is not shown, and
+  // fxMarexMid stops offering it as cover for its remaining months. A label this cannot
+  // read is kept rather than guessed at.
+  const _grp = (f, pt) => curves.filter(c => c.commodity === f && c.period_type === pt
+        && (pt === 'month' ? (!c.month || c.month >= _fwdFromM) : fxPeriodLive(pt, c.period_label, _fwdFromM)))
       .map(c => ({ period: c.period_label, month: c.month, mid: _num(c.mid), pct_chg: _num(c.pct_chg) }));
   const _cu = curves.map(c=>c.updated_at).filter(Boolean).sort().pop();
   const _cuTxt = _cu ? new Date(_cu).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : null;
@@ -2841,6 +2848,11 @@ function fxSetMktSrc(v){
 // never sent it. Marex is not an overlay — it is what every row already carries.
 function fxSrcPrice(src, commodity, monthIso){
   if (src === 'marex') return null;
+  // Forward months only (round 33). The delivering month and everything before it are
+  // marked from Settled/Manual periods, whatever curve is selected — the same rule the
+  // view has applied to Marex since round 30a. Without this a stale Oct-26 simulated or
+  // indicative price went on re-marking October after it started delivering.
+  if (String(monthIso).slice(0,10) < fxNextMonth()) return null;
   const t = (DATA && DATA[src] && DATA[src][commodity]) || {};
   const v = t[String(monthIso).slice(0,10)];
   return (v == null) ? null : v;
@@ -4102,7 +4114,11 @@ renderPositionsTable = function(rows, basket){
       // A month the selected overlay does not price falls back to Marex. Saying so
       // matters most on Simulation, where a Marex figure sitting among simulated ones
       // would otherwise look like a price you had chosen.
-      const _pre = FX_MKT_SRC === 'te'  ? 'No indicative price for this month — showing Marex. '
+      // A month that has started is marked from Settled/Manual periods on every curve
+      // (round 33), so neither overlay applies to it and it cannot be simulated.
+      const _started = String(m.month).slice(0,10) < fxNextMonth();
+      const _pre = (FX_MKT_SRC !== 'marex' && _started) ? 'Delivering or settled — marked from Settled/Manual periods on every curve. '
+                 : FX_MKT_SRC === 'te'  ? 'No indicative price for this month — showing Marex. '
                  : FX_MKT_SRC === 'sim' ? 'Not simulated — showing Marex, and it will keep moving with Marex. Click to set your own price. '
                  : '';
       mktCell.title = _pre + _srcTxt;
@@ -4112,7 +4128,7 @@ renderPositionsTable = function(rows, basket){
     // to your own scratch curve — no basket, no target, nothing a customer sees — so
     // unlike baseload it does not wait for Edit mode. Editing the price on Marex or
     // Indicative would mean editing someone else's curve, so those stay read-only.
-    if (mktCell && FX_MKT_SRC === 'sim'){
+    if (mktCell && FX_MKT_SRC === 'sim' && String(m.month).slice(0,10) >= fxNextMonth()){
       const _tip = mktCell.title;                       // keep the explanation above
       const _own = fxSrcPrice('sim', basket.commodity, m.month);
       mktCell.classList.add('fx-sim-edit');
@@ -6182,8 +6198,8 @@ renderCurves = function(){
   // The Simulation section. Same list shape as TotalEnergies, different warning: a blank
   // month falls back to Marex here too, but the priced ones are invented, not quoted.
   const simSection=(title,unit,f)=>{
-    const t=(DATA.sim&&DATA.sim[f])||{};
-    const keys=Object.keys(t).sort();
+    const t=(DATA.sim&&DATA.sim[f])||{}, fwd=fxNextMonth();
+    const keys=Object.keys(t).filter(k=>k>=fwd).sort();     // upcoming months only, as Indicative
     const blanks=keys.filter(k=>t[k]==null).length;
     const body = keys.length
       ? `<div style="margin-top:14px;max-height:280px;overflow:auto;border:1px solid var(--border,#e6e1d6);border-radius:8px">
@@ -6487,7 +6503,7 @@ async function fxSimModal(fuel){
   const start = fxNextMonth(), sy = +start.slice(0,4), sm = +start.slice(5,7);
   const keys = [];
   for (let i=0;i<72;i++) keys.push(fxMonthKey(sy, sm + i));
-  Object.keys(sim).forEach(k=>{ if(keys.indexOf(k)<0) keys.push(k); });
+  Object.keys(sim).forEach(k=>{ if(k>=start && keys.indexOf(k)<0) keys.push(k); });   // never a started month
   keys.sort();
   // The reference column is now the figure Full curve data shows and Positions marks at —
   // cheaper of monthly and season inside the imported window, stored history beyond it —
@@ -6622,6 +6638,25 @@ const FX_MANUAL_FALLBACK = '2029-10-01'; // used only if the live curve has no s
 function fxSeasonStart(label){
   const m=/^([SW])-?(\d{2})$/.exec(String(label||'').trim()); if(!m) return null;
   return (2000+(+m[2]))+'-'+(m[1]==='S'?'04':'10')+'-01';   // S-YY → Apr, W-YY → Oct
+}
+/* When a quarter, season or annual period STARTS, from its Marex label. Round 33.
+   Q4-26 / Q426 → 2026-10-01 · W-26 / Win-26 → 2026-10-01 · S-27 / Sum-27 → 2027-04-01 ·
+   Oct Annual-26 → 2026-10-01. Anything else returns null: unknown, so never hidden. */
+function fxPeriodStart(pt, label){
+  const s = String(label || '').trim(), yr = y => (y.length === 2 ? 2000 + (+y) : +y);
+  let m;
+  if (pt === 'quarter' && (m = /^Q([1-4])\s*-?\s*'?(\d{4}|\d{2})$/i.exec(s)))
+    return yr(m[2]) + '-' + String((+m[1] - 1) * 3 + 1).padStart(2, '0') + '-01';
+  if (pt === 'season' && (m = /^(S|W|Sum|Summer|Win|Winter)\s*-?\s*'?(\d{4}|\d{2})$/i.exec(s)))
+    return yr(m[2]) + '-' + (/^s/i.test(m[1]) ? '04' : '10') + '-01';
+  if (pt === 'annual' && (m = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b.*?'?(\d{4}|\d{2})\s*$/i.exec(s)))
+    return yr(m[2]) + '-' + String('janfebmaraprmayjunjulaugsepoctnovdec'.indexOf(m[1].toLowerCase()) / 3 + 1).padStart(2, '0') + '-01';
+  return null;
+}
+// Still on the forward curve: starts next month or later, or cannot be dated.
+function fxPeriodLive(pt, label, fwd){
+  const st = fxPeriodStart(pt, label);
+  return st == null || st >= (fwd || fxNextMonth());
 }
 let _fxManualFrom=null;
 async function fxManualFromMonth(force){

@@ -777,6 +777,11 @@ function cxSrc(){ return CX_SRC[CX_MKT_SRC] || CX_SRC[CX_SRC_DEFAULT]; }
    Marex is not an overlay — it is the price already on the position row. */
 function cxSrcPrice(src, commodity, monthIso){
   if (src === 'marex') return null;
+  // Forward months only (round 33), as on the desk. The delivering month and everything
+  // before it are marked from the settled figures whatever curve is selected — so a
+  // supplier or simulated price left on October does not go on valuing October once it
+  // is delivering.
+  if (String(monthIso).slice(0,10) < nextMonth()) return null;
   const bag = (src === 'sim' ? D.sim : D.te) || {};
   const t = bag[commodity] || {};
   const v = t[String(monthIso).slice(0,10)];
@@ -795,9 +800,9 @@ function cxMktPrice(basket, row){ return cxDisplayMkt(basket, row).v; }
 // How many months the named overlay actually prices, across both fuels. A source with
 // nothing in it falls back to Marex on every row, which reads as a broken button.
 function cxSrcCount(src){
-  const bag = (src === 'sim' ? D.sim : D.te) || {};
+  const bag = (src === 'sim' ? D.sim : D.te) || {}, fwd = nextMonth();
   return ['gas','power'].reduce((n,f)=>
-    n + Object.values(bag[f]||{}).filter(v=>v!=null).length, 0);
+    n + Object.entries(bag[f]||{}).filter(([k,v])=>v!=null && k>=fwd).length, 0);
 }
 
 /* ── RE-MARKING AT THE SELECTED CURVE ────────────────────────────────────────
@@ -950,8 +955,15 @@ async function load(){
   D.sites     = by(st.data,'basket_id');
 
   const fwd = nextMonth();
+  // Quarters, seasons and annuals that have started are off the curve, as on the desk
+  // (round 33). A label that cannot be dated is kept.
+  const pStart=(t,l)=>{ const s=String(l||'').trim(), yr=y=>y.length===2?2000+(+y):+y; let m;
+    if(t==='quarter'&&(m=/^Q([1-4])\s*-?\s*'?(\d{4}|\d{2})$/i.exec(s))) return yr(m[2])+'-'+String((+m[1]-1)*3+1).padStart(2,'0')+'-01';
+    if(t==='season'&&(m=/^(S|W|Sum|Summer|Win|Winter)\s*-?\s*'?(\d{4}|\d{2})$/i.exec(s))) return yr(m[2])+'-'+(/^s/i.test(m[1])?'04':'10')+'-01';
+    if(t==='annual'&&(m=/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b.*?'?(\d{4}|\d{2})\s*$/i.exec(s))) return yr(m[2])+'-'+String('janfebmaraprmayjunjulaugsepoctnovdec'.indexOf(m[1].toLowerCase())/3+1).padStart(2,'0')+'-01';
+    return null; };
   const grp=(f,t)=>(cv.data||[])
-    .filter(c=>c.commodity===f&&c.period_type===t&&(t!=='month'||!c.month||String(c.month).slice(0,10)>=fwd))
+    .filter(c=>c.commodity===f&&c.period_type===t&&(t==='month'?(!c.month||String(c.month).slice(0,10)>=fwd):((pStart(t,c.period_label)||fwd)>=fwd)))
     .map(c=>({label:c.period_label,month:c.month,mid:c.mid==null?null:+c.mid}));
   D.curve = {
     gas:  {months:grp('gas','month'),  quarters:grp('gas','quarter'),  seasons:grp('gas','season'),  annuals:grp('gas','annual')},
@@ -1670,6 +1682,7 @@ function subPositions(b,host){
     for(const m of rows) byMonth[String(m.month).slice(0,10)] = m;
     host.querySelectorAll('tr[data-month]').forEach(tr=>{
       const m = byMonth[tr.dataset.month]; if(!m) return;
+      if(String(m.month).slice(0,10) < nextMonth()) return;   // started: not simulatable (round 33)
       const cell = tr.querySelector('td[data-k="mkt"]'); if(!cell) return;
       const own = cxSrcPrice('sim', b.commodity, m.month);
       if(own != null)
