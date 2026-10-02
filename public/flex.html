@@ -27,6 +27,12 @@
 .fx-toolbar{display:flex;gap:8px;align-items:center;margin:0 0 10px 0;flex-wrap:wrap}
 td.fx-editable{cursor:pointer;outline:1.5px dashed #aac91f;outline-offset:-2px;position:relative}
 td.fx-editable:hover{background:#f4f8e4}
+/* A cell holding an edit that has not been written yet. Amber rather than the green of a
+   saved figure, so a half-finished grid is readable at a glance and an un-applied edit is
+   not mistaken for a saved one. */
+td.fx-staged,td.fx-editable.fx-staged{background:#fff7e0;outline-color:#e0a21a;font-weight:700}
+td.fx-editable.fx-staged:hover{background:#ffeec2}
+.fx-admh-lbl.fx-staged,.fx-admh-mlbl.fx-staged{background:#fff7e0;outline:1.5px dashed #e0a21a;outline-offset:1px;border-radius:3px}
 input.fx-cell{width:74px;box-sizing:border-box;border:1.5px solid #2f3d7e;border-radius:5px;padding:3px 5px;font-size:12px;font-family:inherit;text-align:right}
 td.fx-actions{white-space:nowrap}
 .fx-icon{border:0;background:transparent;cursor:pointer;font-size:14px;padding:2px 5px;border-radius:5px}
@@ -3876,6 +3882,52 @@ function fxSeason(iso){const d=new Date(iso+'T00:00:00Z');const m=d.getUTCMonth(
 
 // ── write helpers ────────────────────────────────────────────────
 let fxDirty=false, fxHold=false, fxReloadTimer=null, fxReloadScope=null;
+/* ── STAGED EDITS ON THE GRID TABS (NEC, Admin) ─────────────────────────────
+   Positions and Targets each keep their own buffer, because each stages structured
+   patches onto live in-memory objects. NEC and Admin are flat grids of cells, so one
+   keyed store serves both: a staged record holds what to show on screen and a thunk that
+   produces the database call when Apply is pressed.
+
+   The thunk matters. Two task cells on the same tracker row and month live in ONE
+   flex_admin_cells row, so applying them as two independent writes would have the second
+   overwrite the first. Each scope below merges its own fields and builds the row once. */
+const FX_GBUF = {};
+
+function fxGPending(scope){
+  const b = FX_GBUF[scope]; if (!b) return 0;
+  // Counts FIELDS, not records: three cells on one tracker row are three edits to the
+  // person who typed them, even though they commit as one write.
+  return Object.keys(b).reduce((n, k) => n + (b[k].patch ? Object.keys(b[k].patch).length : 1), 0);
+}
+
+function fxGBar(scope, applyCall, discardCall, noun){
+  const n = fxGPending(scope); if (!n) return '';
+  return ` <span style="font-size:12px;font-weight:700;color:var(--navy-900)">${n} ${noun}${n>1?'s':''} edited, not yet saved</span>`
+    + ` <button class="fx-btn" style="background:var(--green-500);color:var(--navy-900);font-weight:800" onclick="${applyCall}">&#10003; Apply</button>`
+    + ` <button class="fx-btn danger" onclick="${discardCall}">Discard</button>`;
+}
+
+async function fxGApply(scope, repaint, tables, noun){
+  const b = FX_GBUF[scope]; const keys = b ? Object.keys(b) : [];
+  if (!keys.length) return;
+  const n = fxGPending(scope);
+  const recs = keys.map(k => b[k]);
+  delete FX_GBUF[scope];
+  const results = await Promise.all(recs.map(r => r.apply()));
+  const bad = results.find(r => r && r.error);
+  if (bad) fxToast(bad.error.message || 'Save failed', false);
+  else fxToast('Applied ' + n + ' ' + noun + (n>1?'s':''));
+  if (repaint) repaint();
+  fxScheduleReload(tables);
+}
+
+function fxGDiscard(scope, repaint){
+  if (!fxGPending(scope)) return;
+  delete FX_GBUF[scope];
+  if (repaint) repaint();
+  fxToast('Changes discarded');
+}
+
 /* Anything staged but not yet applied counts as holding. A colleague's realtime change,
    or the periodic refresh, redraws the tab from the database; if that happens while
    baseload or target edits are sitting in a buffer, the figures on screen quietly revert
@@ -3884,7 +3936,8 @@ let fxDirty=false, fxHold=false, fxReloadTimer=null, fxReloadScope=null;
 function fxStagedPending(){
   try {
     return (typeof FX_PBUF === 'object' && FX_PBUF && Object.keys(FX_PBUF).length > 0)
-        || (typeof FX_TBUF === 'object' && FX_TBUF && Object.keys(FX_TBUF).length > 0);
+        || (typeof FX_TBUF === 'object' && FX_TBUF && Object.keys(FX_TBUF).length > 0)
+        || (typeof FX_GBUF === 'object' && FX_GBUF && Object.keys(FX_GBUF).some(k => fxGPending(k) > 0));
   } catch (e) { return false; }
 }
 function fxHolding(){ return fxHold || fxStagedPending() || document.querySelector('#fxModalWrap[style*="flex"]') || document.activeElement && (document.activeElement.classList.contains('fx-cell') || document.activeElement.closest('#fxModal')); }
@@ -4330,7 +4383,48 @@ async function fxAddTargetMonths(){
   const rows=b.months.filter(m=>m.month>=CUTOFF && !have.has(m.month))
     .map(m=>({basket_id:b.id, month:m.month, updated_by:FLEX.user}));
   if(!rows.length){ fxToast('All future months already have target rows'); return; }
+  // One click used to fill the Targets tab for a basket that was never meant to have
+  // targets, with no way back out of it.
+  if(!confirm('Add '+rows.length+' target row'+(rows.length===1?'':'s')+' to "'+b.name+'"?\n\n'
+    + 'One row per future month, from '+fmtMonth(rows[0].month)+' onward. Empty rows can be removed again with Remove empty rows.')) return;
   await fxWrite(FLEX.sb.from('flex_targets').insert(rows), rows.length+' target rows added');
+}
+
+/* The way back. Only rows with nothing in them: no price on any tier, nothing marked
+   achieved, no note. A target someone actually set can never be lost to a mis-click here
+   — clear its prices first if you want the row gone too. */
+function fxTargetRowEmpty(t){
+  for (let n=1; n<=8; n++){
+    if (t['lower_t'+n] != null) return false;
+    // Only an actual Yes. The column also holds the literal string "No", which an import
+    // writes and the desk leaves behind when a tick is cleared — treating that as
+    // "something is set" would make a row impossible to remove for no reason the reader
+    // can see. The tN_kind designations are deliberately ignored: they are a column's
+    // default, not something anyone set on this month.
+    if (String(t['t'+n+'_achieved']||'').trim().toLowerCase() === 'yes') return false;
+  }
+  return t.upper_alert == null;
+}
+
+async function fxRemoveEmptyTargetRows(){
+  const b=currentBasket; if(!b) return;
+  const all=(b.targets||[]);
+  if(!all.length){ fxToast('This basket has no target rows'); return; }
+  const empty=all.filter(fxTargetRowEmpty);
+  const kept=all.length-empty.length;
+  if(!empty.length){
+    fxToast('Every target row has something set — clear a row before removing it', false);
+    return;
+  }
+  const msg = kept
+    ? 'Remove the '+empty.length+' empty target row'+(empty.length===1?'':'s')+' from "'+b.name+'"?\n\n'
+      + kept+' row'+(kept===1?' has':'s have')+' prices or marks set and will be kept.'
+    : 'Remove all '+empty.length+' target row'+(empty.length===1?'':'s')+' from "'+b.name+'"?\n\n'
+      + 'None of them have anything set, so the Targets tab goes back to empty. Nothing else is affected.';
+  if(!confirm(msg)) return;
+  await fxWrite(FLEX.sb.from('flex_targets').delete()
+    .eq('basket_id', b.id).in('month', empty.map(t=>t.month)),
+    empty.length+' empty target row'+(empty.length===1?'':'s')+' removed', ['flex_targets']);
 }
 
 // ── MODALS ───────────────────────────────────────────────────────
@@ -5320,6 +5414,73 @@ async function fxDeleteNote(id){
   await fxWrite(FLEX.sb.from('flex_notes').delete().eq('id', id), 'Note deleted');
 }
 
+/* Tracker staging. Several cells can sit in ONE flex_admin_cells row (same tracker row,
+   same month, different task columns), so those are merged under one key and the row is
+   rebuilt once at Apply. Applying them as separate writes would silently lose all but
+   the last. Detail cells behave the same way against flex_admin_schedule. */
+function fxAdminRepaint(){
+  const el=document.getElementById('main-tab-admin');
+  if(el){ delete el.dataset.rendered; renderAdmin(); }
+}
+function fxAdmApply(){ return fxGApply('admin', fxAdminRepaint,
+  ['flex_admin_schedule','flex_admin_cells','flex_admin_columns','flex_admin_months'], 'change'); }
+function fxAdmDiscard(){ return fxGDiscard('admin', fxAdminRepaint); }
+
+function fxAdmBuf(){ return (FX_GBUF.admin = FX_GBUF.admin || {}); }
+function fxAdmStagedPatch(key){ const r=(FX_GBUF.admin||{})[key]; return (r && r.patch) || null; }
+
+function fxAdmStageCell(rowId, mo, key, v){
+  const k='cell|'+rowId+'|'+mo, b=fxAdmBuf();
+  const patch=Object.assign({}, (b[k]&&b[k].patch)||{});
+  patch[key] = (v==null ? '' : v);
+  b[k]={ patch, apply: ()=>{
+    const c=(DATA.adminCells||[]).find(x=>x.row_id===rowId && x.month===mo);
+    const vals=Object.assign({}, (c&&c.vals)||{});
+    for(const kk in patch){ if(patch[kk]==='') delete vals[kk]; else vals[kk]=patch[kk]; }
+    return (c && c.id)
+      ? FLEX.sb.from('flex_admin_cells').update({vals, updated_by:FLEX.user}).eq('id', c.id)
+      : FLEX.sb.from('flex_admin_cells').insert({row_id:rowId, month:mo, vals, updated_by:FLEX.user});
+  }};
+  fxAdminRepaint();
+}
+function fxAdmStagedCell(rowId, mo, key){
+  const p=fxAdmStagedPatch('cell|'+rowId+'|'+mo);
+  return (p && (key in p)) ? p[key] : undefined;
+}
+
+function fxAdmStageDetail(rowId, key, v){
+  const k='detail|'+rowId, b=fxAdmBuf();
+  const patch=Object.assign({}, (b[k]&&b[k].patch)||{});
+  patch[key] = (v==null ? '' : v);
+  b[k]={ patch, apply: ()=>{
+    const r=((DATA.admin&&DATA.admin.rows)||[]).find(x=>x.id===rowId);
+    const detail=Object.assign({}, (r&&r.detail)||{});
+    for(const kk in patch){ if(patch[kk]==='') delete detail[kk]; else detail[kk]=patch[kk]; }
+    return FLEX.sb.from('flex_admin_schedule').update({detail, updated_by:FLEX.user}).eq('id', rowId);
+  }};
+  fxAdminRepaint();
+}
+function fxAdmStagedDetail(rowId, key){
+  const p=fxAdmStagedPatch('detail|'+rowId);
+  return (p && (key in p)) ? p[key] : undefined;
+}
+
+function fxAdmStageColLabel(id, v){
+  fxAdmBuf()['col|'+id] = { value: (v||'Column'), apply: ()=>
+    FLEX.sb.from('flex_admin_columns').update({label: (v||'Column'), updated_by:FLEX.user}).eq('id', id) };
+  fxAdminRepaint();
+}
+function fxAdmStagedColLabel(id){ const r=(FX_GBUF.admin||{})['col|'+id]; return r ? r.value : undefined; }
+
+function fxAdmStageMonthLabel(mo, v){
+  fxAdmBuf()['mon|'+mo] = { value: (v||''), apply: ()=>
+    FLEX.sb.from('flex_admin_months')
+      .update({label: (v||null), updated_by:FLEX.user, updated_at:new Date().toISOString()})
+      .eq('month', mo) };
+  fxAdminRepaint();
+}
+function fxAdmStagedMonthLabel(mo){ const r=(FX_GBUF.admin||{})['mon|'+mo]; return r ? r.value : undefined; }
+
 // ── ADMIN (rolling two months, exact-date cells, editable) ───────
 renderAdmin = function(){
   const el=document.getElementById('main-tab-admin'); if(!el) return;
@@ -5335,10 +5496,20 @@ renderAdmin = function(){
   const monthsArr=(mlist.length?mlist:[prevM,curM]);
   const months=monthsArr.map((mo,i)=>[mo,(i%2===0?'A':'B')]);
   const tCount=Math.max(taskCols.length,1);
-  const cellVal=(rowId,month,key)=>{ const c=(DATA.adminCells||[]).find(x=>x.row_id===rowId && x.month===month); return (c&&c.vals)?(c.vals[key]||''):''; };
-  const headLbl=c=> EDIT
-    ? `<span class="fx-admh-lbl" data-col="${c.id}" title="Click to rename">${escape(c.label)}</span><button class="fx-admh-x" title="Remove column" onclick="event.stopPropagation();fxAdmColRemove(${c.id})">&times;</button>`
-    : escape(c.label);
+  const cellVal=(rowId,month,key)=>{
+    const st=EDIT?fxAdmStagedCell(rowId,month,key):undefined;
+    if(st!==undefined) return st;
+    const c=(DATA.adminCells||[]).find(x=>x.row_id===rowId && x.month===month); return (c&&c.vals)?(c.vals[key]||''):''; };
+  const cellStaged=(rowId,month,key)=> EDIT && fxAdmStagedCell(rowId,month,key)!==undefined;
+  const detailVal=(r,key)=>{
+    const st=EDIT?fxAdmStagedDetail(r.id,key):undefined;
+    if(st!==undefined) return st;
+    return (r.detail&&r.detail[key])||''; };
+  const headLbl=c=>{ const st=EDIT?fxAdmStagedColLabel(c.id):undefined;
+    const lbl=(st!==undefined)?st:c.label;
+    return EDIT
+    ? `<span class="fx-admh-lbl${st!==undefined?' fx-staged':''}" data-col="${c.id}" title="Click to rename">${escape(lbl)}</span><button class="fx-admh-x" title="Remove column" onclick="event.stopPropagation();fxAdmColRemove(${c.id})">&times;</button>`
+    : escape(lbl); };
   const dash='<span style="color:#c8cdd8">&mdash;</span>';
   const detailTh=(detailCols.length?detailCols.map(c=>`<th rowspan="2" class="fx-admh" style="text-align:left">${headLbl(c)}</th>`).join('')
     : '<th rowspan="2" style="text-align:left;color:#c8cdd8">(no detail columns)</th>');
@@ -5346,9 +5517,12 @@ renderAdmin = function(){
   // The `month` date itself stays untouched — it is the primary key and flex_admin_cells
   // rows are keyed on it, so only the display label is editable.
   const mLblMap=(DATA.admin&&DATA.admin.month_label_map)||{};
-  const mLbl=mo=> mLblMap[mo] || fmtMonth(mo);
+  const mLbl=mo=>{ const st=EDIT?fxAdmStagedMonthLabel(mo):undefined;
+    if(st!==undefined) return st || fmtMonth(mo);
+    return mLblMap[mo] || fmtMonth(mo); };
+  const mLblStaged=mo=> EDIT && fxAdmStagedMonthLabel(mo)!==undefined;
   const topTh=months.map(([mo,g])=>`<th colspan="${tCount}" class="fx-mh${g}">${EDIT
-      ? `<span class="fx-admh-mlbl" data-month="${mo}" title="Click to rename this month header (clear it to go back to ${escape(fmtMonth(mo))})">${escape(mLbl(mo))}</span>`
+      ? `<span class="fx-admh-mlbl${mLblStaged(mo)?' fx-staged':''}" data-month="${mo}" title="Click to rename this month header (clear it to go back to ${escape(fmtMonth(mo))})">${escape(mLbl(mo))}</span>`
       : escape(mLbl(mo))}${mo===nowM2?' &middot; current':''}${EDIT?` <button class="fx-admh-x" title="Remove this month" onclick="event.stopPropagation();fxAdmRemoveMonth('${mo}')">&times;</button>`:''}</th>`).join('');
   const subTh=months.map(([mo,g])=> (taskCols.length?taskCols:[{id:0}]).map((c,ci)=>`<th class="fx-g${g}${ci===0?' fx-gs':''} fx-admh">${c.id?headLbl(c):dash}</th>`).join('') ).join('');
   // Cells actually emitted per row — the group heading spans exactly these.
@@ -5361,11 +5535,11 @@ renderAdmin = function(){
     let _head='';
     if(_g!==_lastGrp){ _lastGrp=_g; if(_g) _head=`<tr class="fx-admgrp"><td colspan="${_span}">${escape(_g)}</td></tr>`; }
     let tds=(detailCols.length?detailCols:[{id:0}]).map(c=> c.id
-      ? `<td class="lbl fx-admd${EDIT?' fx-editable':''}" data-row="${r.id}" data-key="${escape(c.key)}" style="text-align:left">${escape((r.detail&&r.detail[c.key])||'')||dash}</td>`
+      ? `<td class="lbl fx-admd${EDIT?' fx-editable':''}${EDIT&&fxAdmStagedDetail(r.id,c.key)!==undefined?' fx-staged':''}" data-row="${r.id}" data-key="${escape(c.key)}" style="text-align:left">${escape(detailVal(r,c.key))||dash}</td>`
       : `<td>${dash}</td>`).join('');
     months.forEach(([mo,g])=> (taskCols.length?taskCols:[{id:0}]).forEach((c,ci)=>{
       tds+= c.id
-        ? `<td class="fx-adm fx-g${g}${ci===0?' fx-gs':''}${EDIT?' fx-editable':''}" data-row="${r.id}" data-month="${mo}" data-key="${escape(c.key)}">${escape(cellVal(r.id,mo,c.key))||dash}</td>`
+        ? `<td class="fx-adm fx-g${g}${ci===0?' fx-gs':''}${EDIT?' fx-editable':''}${cellStaged(r.id,mo,c.key)?' fx-staged':''}" data-row="${r.id}" data-month="${mo}" data-key="${escape(c.key)}">${escape(cellVal(r.id,mo,c.key))||dash}</td>`
         : `<td class="fx-g${g}">${dash}</td>`;
     }));
     if(EDIT) tds+=`<td class="fx-actions"><button class="fx-icon" title="Delete row" onclick="fxAdminRowDelete(${r.id})">&#128465;</button></td>`;
@@ -5373,7 +5547,7 @@ renderAdmin = function(){
   }).join('');
   const colCount=detailCols.length + taskCols.length*months.length + (EDIT?1:0) + 3;
   el.innerHTML=`<div class="extra-tab-inner">
-    ${EDIT?`<div class="fx-toolbar"><button class="fx-btn green" onclick="fxAdmImportModal()">&#8624; Update from Excel</button><button class="fx-btn" onclick="fxAdminAddRow()">+ Add row</button><button class="fx-btn" onclick="fxAdmAddColumn('detail')">+ Add detail column</button><button class="fx-btn" onclick="fxAdmAddColumn('task')">+ Add task column</button><button class="fx-btn" onclick="fxAdmAddMonth()">+ Add month</button><span style="font-size:11px;color:#6b7280">Click a cell to edit &middot; click a header to rename &middot; &times; removes that column or month &middot; + Add month adds the next month section</span></div>`:''}
+    ${EDIT?`<div class="fx-toolbar"><button class="fx-btn green" onclick="fxAdmImportModal()">&#8624; Update from Excel</button><button class="fx-btn" onclick="fxAdminAddRow()">+ Add row</button><button class="fx-btn" onclick="fxAdmAddColumn('detail')">+ Add detail column</button><button class="fx-btn" onclick="fxAdmAddColumn('task')">+ Add task column</button><button class="fx-btn" onclick="fxAdmAddMonth()">+ Add month</button><span style="font-size:11px;color:#6b7280">Click a cell to edit &middot; click a header to rename &middot; &times; removes that column or month &middot; edits stage until you Apply</span>${fxGBar('admin','fxAdmApply()','fxAdmDiscard()','change')}</div>`:''}
     <div class="extra-section" style="overflow-x:auto">
       <div class="extra-section-title">Admin — trade &amp; reporting schedule</div>
       <table class="extra-table" style="width:100%;border-collapse:collapse;font-size:12px">
@@ -5385,47 +5559,38 @@ renderAdmin = function(){
   if(!EDIT) return;
   el.querySelectorAll('td.fx-adm').forEach(td=>{ td.style.cursor='pointer';
     td.onclick=()=>{ if(td.querySelector('input')) return;
-      const cur=(DATA.adminCells||[]).find(x=>x.row_id===+td.dataset.row && x.month===td.dataset.month); const key=td.dataset.key;
-      fxCellInputText(td, (cur&&cur.vals)?(cur.vals[key]||''):'', async v=>{
-        if(cur && cur.id){ const vals=Object.assign({},cur.vals||{}); if(v==null||v==='') delete vals[key]; else vals[key]=v;
-          await fxWrite(FLEX.sb.from('flex_admin_cells').update({vals, updated_by:FLEX.user}).eq('id',cur.id),'Saved');
-        } else { const vals={}; if(v!=null&&v!=='') vals[key]=v;
-          await fxWrite(FLEX.sb.from('flex_admin_cells').insert({row_id:+td.dataset.row, month:td.dataset.month, vals, updated_by:FLEX.user}),'Saved');
-        }
-      });
+      const rowId=+td.dataset.row, mo=td.dataset.month, key=td.dataset.key;
+      fxCellInputText(td, cellVal(rowId, mo, key), v=>fxAdmStageCell(rowId, mo, key, v));
     };
   });
   el.querySelectorAll('td.fx-admd').forEach(td=>{ td.style.cursor='pointer';
     td.onclick=()=>{ if(td.querySelector('input')) return;
-      const r=(DATA.admin.rows||[]).find(x=>x.id===+td.dataset.row); const key=td.dataset.key;
-      fxCellInputText(td, (r&&r.detail)?(r.detail[key]||''):'', async v=>{
-        const detail=Object.assign({}, (r&&r.detail)||{}); if(v==null||v==='') delete detail[key]; else detail[key]=v;
-        await fxWrite(FLEX.sb.from('flex_admin_schedule').update({detail, updated_by:FLEX.user}).eq('id',+td.dataset.row),'Saved');
-      });
+      const rowId=+td.dataset.row, key=td.dataset.key;
+      const r=((DATA.admin&&DATA.admin.rows)||[]).find(x=>x.id===rowId);
+      fxCellInputText(td, r?detailVal(r,key):'', v=>fxAdmStageDetail(rowId, key, v));
     };
   });
   el.querySelectorAll('.fx-admh-lbl').forEach(sp=>{ sp.style.cursor='pointer';
     sp.onclick=(e)=>{ e.stopPropagation(); if(sp.querySelector('input')) return;
-      const id=+sp.dataset.col; const c=(DATA.admin.columns||[]).find(x=>x.id===id);
-      fxCellInputText(sp, c?c.label:'', async v=>{
-        await fxWrite(FLEX.sb.from('flex_admin_columns').update({label:v||'Column', updated_by:FLEX.user}).eq('id',id),'Column renamed');
-      });
+      const id=+sp.dataset.col; const c=((DATA.admin&&DATA.admin.columns)||[]).find(x=>x.id===id);
+      const _st=fxAdmStagedColLabel(id);
+      fxCellInputText(sp, (_st!==undefined)?_st:(c?c.label:''), v=>fxAdmStageColLabel(id, v));
     };
   });
   // Month headers: rename to anything; clearing the box restores the formatted month.
   el.querySelectorAll('.fx-admh-mlbl').forEach(sp=>{ sp.style.cursor='pointer';
     sp.onclick=(e)=>{ e.stopPropagation(); if(sp.querySelector('input')) return;
       const mo=sp.dataset.month;
-      const cur=((DATA.admin&&DATA.admin.month_label_map)||{})[mo] || '';
-      fxCellInputText(sp, cur, async v=>{
-        await fxWrite(FLEX.sb.from('flex_admin_months')
-          .update({label: v || null, updated_by:FLEX.user, updated_at:new Date().toISOString()})
-          .eq('month',mo), v? 'Month header renamed' : 'Month header reset');
-      });
+      const _st=fxAdmStagedMonthLabel(mo);
+      const cur=(_st!==undefined)?_st:(((DATA.admin&&DATA.admin.month_label_map)||{})[mo] || '');
+      fxCellInputText(sp, cur, v=>fxAdmStageMonthLabel(mo, v));
     };
   });
 };
 async function fxAdmAddColumn(kind){
+  // A column lands on every row and every month section at once.
+  if(!confirm('Add a new '+(kind==='detail'?'detail':'task')+' column to the tracker?\n\n'
+    + 'It appears on every row'+(kind==='task'?' and in every month section':'')+', and can be renamed or removed afterwards.')) return;
   const cols=(DATA.admin.columns||[]).filter(c=>c.kind===kind);
   const sort=cols.reduce((m,c)=>Math.max(m,c.sort||0),0)+1;
   const key='k'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
@@ -5445,6 +5610,7 @@ async function fxAdmAddMonth(){
   let guard=0;
   while(have.has(nm) && guard++ < 120) nm=fxMonthShift(nm, 1);
   if(have.has(nm)){ fxToast('Could not find a free month to add', false); return; }
+  if(!confirm('Add the '+fmtMonth(nm)+' section to the tracker?\n\nIt adds a column block for every task column, on every row.')) return;
   await fxWrite(FLEX.sb.from('flex_admin_months').insert({month:nm, updated_by:FLEX.user}),'Added '+fmtMonth(nm));
 }
 async function fxAdmRemoveMonth(mo){
@@ -5452,6 +5618,7 @@ async function fxAdmRemoveMonth(mo){
   await fxWrite(FLEX.sb.from('flex_admin_months').delete().eq('month',mo),'Removed '+fmtMonth(mo));
 }
 async function fxAdminAddRow(){
+  if(!confirm('Add an empty row to the tracker?')) return;
   await fxWrite(FLEX.sb.from('flex_admin_schedule').insert({detail:{}, updated_by:FLEX.user}),'Row added');
 }
 async function fxAdminRowDelete(id){
@@ -5816,6 +5983,20 @@ async function fxSitesImport(file){
   fxScheduleReload(['flex_sites']);
 }
 
+/* NEC staging. One key per basket+season, which is one flex_necs row, so no merging is
+   needed here — unlike the tracker, where several cells share a row. */
+function fxNecKey(cm, bn, se){ return cm+'|'+bn+'|'+se; }
+function fxNecStaged(cm, bn, se){
+  const r=(FX_GBUF.nec||{})[fxNecKey(cm,bn,se)];
+  return r ? r : null;
+}
+function fxNecsRepaint(){
+  const el=document.getElementById('main-tab-necs');
+  if(el){ delete el.dataset.rendered; renderNecs(); }
+}
+function fxNecsApply(){ return fxGApply('nec', fxNecsRepaint, ['flex_necs'], 'NEC'); }
+function fxNecsDiscard(){ return fxGDiscard('nec', fxNecsRepaint); }
+
 // ── NEC main tab: per-basket NECs by season (W-21 → S-32), fully editable ─────
 function renderNecs(){
   const el=document.getElementById('main-tab-necs'); if(!el) return;
@@ -5830,8 +6011,9 @@ function renderNecs(){
     const names=Object.keys(rowsMap).sort((a,b)=>(rowsMap[a].so-rowsMap[b].so)||a.localeCompare(b));
     const head='<tr><th style="text-align:left">Basket</th>'+seasons.map(s=>`<th class="td-right">${s}</th>`).join('')+(EDIT?'<th style="width:30px"></th>':'')+'</tr>';
     const body=names.map(nm=>{ const vals=rowsMap[nm].vals; const linked=!!isBasket[nm];
-      const tds=seasons.map(s=>{ const v=vals[s];
-        return `<td class="td-right fx-nec${EDIT?' fx-editable':''}" data-b="${escape(nm)}" data-c="${commodity}" data-s="${s}">${v!=null?(+v).toFixed(4).replace(/\.?0+$/,''):'<span style="color:#c8cdd8">—</span>'}</td>`; }).join('');
+      const tds=seasons.map(s=>{ const st=EDIT?fxNecStaged(commodity, nm, s):null;
+        const v=st?st.value:vals[s];
+        return `<td class="td-right fx-nec${EDIT?' fx-editable':''}${st?' fx-staged':''}" data-b="${escape(nm)}" data-c="${commodity}" data-s="${s}">${v!=null?(+v).toFixed(4).replace(/\.?0+$/,''):'<span style="color:#c8cdd8">—</span>'}</td>`; }).join('');
       const warn=linked?'':` <span title="No basket has this exact name, so this row isn't linked to a basket. Rename it to match a basket to link it." style="color:#c2453b;font-size:9px;font-weight:700;margin-left:5px;vertical-align:middle">&#9888; unlinked</span>`;
       const del=EDIT?`<td style="text-align:center"><button class="fx-necdel" data-name="${escape(nm)}" data-c="${commodity}" title="Remove this NEC row" style="border:none;background:none;color:#c2453b;cursor:pointer;font-size:14px;font-weight:700;line-height:1;padding:0 2px">&#10005;</button></td>`:'';
       return `<tr><td class="fx-necname${EDIT?' fx-editable':''}" data-name="${escape(nm)}" data-c="${commodity}" title="${escape(nm)}${EDIT?' — click to rename this NEC row':''}" style="text-align:left;font-weight:600">${escape(nm)}${warn}</td>${tds}${del}</tr>`; }).join('');
@@ -5839,7 +6021,7 @@ function renderNecs(){
     return `<div class="extra-section" style="margin-bottom:18px;overflow-x:auto"><div class="extra-section-title">${title}</div><table class="fx-htable fx-nectable" style="border-collapse:collapse;font-size:11.5px"><thead>${head}</thead><tbody>${body}</tbody></table>${add}</div>`;
   }
   el.innerHTML=`<div class="extra-tab-inner">
-    ${EDIT?`<div class="fx-toolbar" style="margin-bottom:10px"><button class="fx-btn" onclick="fxNecsExport()">&#8623; Export to Excel</button><label class="fx-btn" style="cursor:pointer;display:inline-flex;align-items:center">&#8624; Import from Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])fxNecsImport(this.files[0]);this.value=''"></label></div>`:''}
+    ${EDIT?`<div class="fx-toolbar" style="margin-bottom:10px"><button class="fx-btn" onclick="fxNecsExport()">&#8623; Export to Excel</button><label class="fx-btn" style="cursor:pointer;display:inline-flex;align-items:center">&#8624; Import from Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])fxNecsImport(this.files[0]);this.value=''"></label>${fxGBar('nec','fxNecsApply()','fxNecsDiscard()','NEC')}</div>`:''}
     <div style="font-size:12.5px;color:#6b7280;margin-bottom:12px;">Non-energy costs (p/kWh) per basket, by season W-21 &rarr; S-32 (auto-extends into new seasons). ${EDIT?'Click any cell to edit, click a name to rename that row, use <b>+ Add row</b> / <b>&#10005;</b> to manage rows.':'Read-only — switch on edit mode to change values.'} A row links to a basket <b>only when its name is identical</b> to the basket — new baskets appear here automatically. These NECs are added to each basket’s converted wholesale rate to produce its delivered rate on the Positions tab.</div>
     ${section('power','Power — NECs (p/kWh)')}
     ${section('gas','Gas — NECs (p/kWh)')}
@@ -5849,8 +6031,12 @@ function renderNecs(){
     td.onclick=()=>{ if(td.querySelector('input')) return;
       const bn=td.dataset.b, cm=td.dataset.c, se=td.dataset.s;
       const rec=(DATA.necs||[]).find(n=>n.basket_name===bn && n.commodity===cm && n.season===se);
-      fxCellInput(td, rec?rec.nec:null, async v=>{
-        await fxWrite(FLEX.sb.from('flex_necs').upsert({basket_name:bn, commodity:cm, season:se, nec:v, updated_by:FLEX.user},{onConflict:'basket_name,commodity,season'}),'NEC updated',['flex_necs']);
+      // Stages. The grid redraws from the staged figure, and nothing is written until Apply.
+      const _st=fxNecStaged(cm, bn, se);
+      fxCellInput(td, _st ? _st.value : (rec?rec.nec:null), v=>{
+        (FX_GBUF.nec = FX_GBUF.nec || {})[fxNecKey(cm,bn,se)] = { value: v, apply: ()=>
+          FLEX.sb.from('flex_necs').upsert({basket_name:bn, commodity:cm, season:se, nec:v, updated_by:FLEX.user},{onConflict:'basket_name,commodity,season'}) };
+        fxNecsRepaint();
       });
     };
   });
@@ -5860,6 +6046,11 @@ function renderNecs(){
       const oldName=td.dataset.name, cm=td.dataset.c;
       fxCellInputText(td, oldName, async v=>{
         const nn2=(v||'').trim(); if(!nn2 || nn2===oldName) return;
+        /* A name, not a figure, so this asks rather than staging: it is what links the row
+           to a basket, and a row whose name stops matching silently drops its NEC out of
+           that basket's delivered rate. */
+        if(!confirm('Rename the NEC row "'+oldName+'" to "'+nn2+'"?\n\n'
+          + 'A row feeds a basket\u2019s delivered rate only while its name matches that basket exactly.')) { fxNecsRepaint(); return; }
         if((DATA.necs||[]).some(n=>n.commodity===cm && n.basket_name===nn2)){ fxToast('A NEC row named “'+nn2+'” already exists.', false); return; }
         const has=(DATA.necs||[]).some(n=>n.commodity===cm && n.basket_name===oldName);
         if(has){ await fxWrite(FLEX.sb.from('flex_necs').update({basket_name:nn2}).eq('basket_name',oldName).eq('commodity',cm), 'NEC row renamed', ['flex_necs']); }
@@ -5877,6 +6068,7 @@ function renderNecs(){
 async function fxNecAddRow(commodity){
   const nm=(prompt('Name for the new NEC row.\n\nType the exact basket name to link it to a basket, or any label for an unlinked row:')||'').trim();
   if(!nm) return;
+  if(!confirm('Add a NEC row named "'+nm+'" to '+(commodity==='gas'?'Gas':'Power')+'?')) return;
   if((DATA.necs||[]).some(n=>n.commodity===commodity && n.basket_name===nm)){ fxToast('A NEC row named “'+nm+'” already exists.', false); return; }
   // placeholder row (earliest season, no value) so the row persists and appears immediately
   await fxWrite(FLEX.sb.from('flex_necs').upsert({basket_name:nm, commodity:commodity, season:'W-21', nec:null, updated_by:FLEX.user},{onConflict:'basket_name,commodity,season'}),'NEC row added',['flex_necs']);
@@ -7235,6 +7427,7 @@ function _fxRenderTargetsBody(basket){
     const bar=document.createElement('div'); bar.className='fx-toolbar';
     const _pend=Object.keys(FX_TBUF).length;
     bar.innerHTML=`<button class="fx-btn green" onclick="fxAddTargetMonths()">+ Add target rows for future months</button>`
+      + ((basket.targets||[]).some(fxTargetRowEmpty) ? ` <button class="fx-btn danger" onclick="fxRemoveEmptyTargetRows()" title="Delete target rows that have no prices, no marks and no note">&minus; Remove empty rows</button>` : '')
       + ` <button class="fx-btn" onclick="fxTargetWapModal(currentBasket)" title="Model the WAP and delivered rate if these targets were struck">&#931; Targeted WAPs${(basket.target_trades||[]).length?' ('+basket.target_trades.length+')':''}</button>`
       + ` <button class="fx-btn" onclick="fxExportTargets()" title="Download these target rows as an Excel workbook">&#8681; Export targets</button>`
       + ` <button class="fx-btn" onclick="fxImportTargets()" title="Update targets in bulk from an edited export">&#8679; Import targets</button>`
@@ -8576,10 +8769,12 @@ async function fxRepTogglePublish(id, pub){
      but unpublishing is too — a client reading it loses it mid-sentence. */
   const r = (window._fxReps||[]).find(x=>x.id===id);
   const title = (r && r.title) || 'this report';
-  const who = r ? ((( _fxRepCusts.find(c=>c.customer_id===r.customer_id) || {}).company_name) || r.customer_id) : 'the client';
+  /* No customer name in the sentence. A report goes to every customer it is addressed to,
+     so there is no single name that would be true, and where customer_id was null the old
+     wording read "null's portal" — which teaches people to click through the box. */
   const msg = pub
-    ? 'Publish "' + title + '"?\n\n' + who + ' will be able to read it on their portal as soon as you confirm.'
-    : 'Unpublish "' + title + '"?\n\nIt disappears from ' + who + '\u2019s portal immediately. The report itself is kept and can be published again.';
+    ? 'Publish "' + title + '"?\n\nClients will be able to read it on their portal as soon as you confirm.'
+    : 'Unpublish "' + title + '"?\n\nIt disappears from the client portals immediately. The report itself is kept and can be published again.';
   if (!confirm(msg)) return;
   const { data, error } = await FLEX.sb.from('flex_reports')
     .update({ published: pub, updated_by: FLEX.user, updated_at: new Date().toISOString() })
