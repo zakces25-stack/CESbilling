@@ -3876,7 +3876,18 @@ function fxSeason(iso){const d=new Date(iso+'T00:00:00Z');const m=d.getUTCMonth(
 
 // ── write helpers ────────────────────────────────────────────────
 let fxDirty=false, fxHold=false, fxReloadTimer=null, fxReloadScope=null;
-function fxHolding(){ return fxHold || document.querySelector('#fxModalWrap[style*="flex"]') || document.activeElement && (document.activeElement.classList.contains('fx-cell') || document.activeElement.closest('#fxModal')); }
+/* Anything staged but not yet applied counts as holding. A colleague's realtime change,
+   or the periodic refresh, redraws the tab from the database; if that happens while
+   baseload or target edits are sitting in a buffer, the figures on screen quietly revert
+   and the person walks away believing they saved. Declared defensively because this runs
+   before the buffers are initialised on the very first paint. */
+function fxStagedPending(){
+  try {
+    return (typeof FX_PBUF === 'object' && FX_PBUF && Object.keys(FX_PBUF).length > 0)
+        || (typeof FX_TBUF === 'object' && FX_TBUF && Object.keys(FX_TBUF).length > 0);
+  } catch (e) { return false; }
+}
+function fxHolding(){ return fxHold || fxStagedPending() || document.querySelector('#fxModalWrap[style*="flex"]') || document.activeElement && (document.activeElement.classList.contains('fx-cell') || document.activeElement.closest('#fxModal')); }
 // scope = array of DB table names to refetch; omit for a full reload. Scopes accumulate across the debounce window.
 function fxScheduleReload(scope){
   if(!scope) fxReloadScope='full';
@@ -4147,7 +4158,9 @@ renderPositionsTable = function(rows, basket){
     // Same again. Getting this wrong once meant Baseload could not be edited at all;
     // getting it wrong the other way would write a kWh figure into baseload_vol.
     const baseCell = EDIT ? fxPosCell(tr, basket, 'base') : null;
-    if (baseCell) fxMakeCellEditable(baseCell, m.baseload_vol, v=>fxUpdMonth(basket, m, 'baseload_vol', v));
+    // Stages rather than saves — see fxStageMonth. The cell shows the staged figure and
+    // the tab recalculates from it, so the consequence is visible before Apply.
+    if (baseCell) fxMakeCellEditable(baseCell, m.baseload_vol, v=>fxStageMonth(basket, m, 'baseload_vol', v));
   });
 };
 // ── SHARED-FILE VERSION GUARD ────────────────────────────────────
@@ -4188,11 +4201,23 @@ renderPositions = function(basket){
   _renderPositions(basket);
   if (!EDIT) return;
   const el = document.getElementById('tab-positions'); if(!el) return;
+  if (FX_PBUF_BID !== basket.id){ FX_PBUF = {}; FX_PBUF_ORIG = {}; FX_PBUF_BID = basket.id; }
+  const _pend = fxPosPending();
   const bar=document.createElement('div'); bar.className='fx-toolbar'; bar.style.marginTop='10px';
   bar.innerHTML=`<button class="fx-btn" onclick="fxExtendModal()">&#8628; Extend months</button>
     <button class="fx-btn" onclick="fxBulkBaseloadModal()">&#8687; Bulk baseload update</button>
-    <span style="font-size:11px;color:#6b7280">Mkt price is always live from Market Curves (month &rarr; season) and cannot be edited here</span>`;
+    <span style="font-size:11px;color:#6b7280">Mkt price is always live from Market Curves (month &rarr; season) and cannot be edited here &middot; baseload edits stage until you Apply</span>`
+    + (_pend ? ` <button class="fx-btn" style="background:var(--green-500);color:var(--navy-900);font-weight:800" onclick="fxApplyPositions(currentBasket)">&#10003; Apply ${_pend} month${_pend>1?'s':''}</button> <button class="fx-btn danger" onclick="fxDiscardPositions(currentBasket)">Discard</button>` : '');
   el.appendChild(bar);
+  // A second copy above the table. The months list is long, and an Apply button only at
+  // the bottom is one a reader scrolled past on their way to the cell they edited.
+  if (_pend){
+    const top=document.createElement('div'); top.className='fx-toolbar'; top.style.margin='0 0 10px';
+    top.innerHTML=`<span style="font-size:12px;font-weight:700;color:var(--navy-900)">${_pend} month${_pend>1?'s':''} edited, not yet saved</span>`
+      + ` <button class="fx-btn" style="background:var(--green-500);color:var(--navy-900);font-weight:800" onclick="fxApplyPositions(currentBasket)">&#10003; Apply</button>`
+      + ` <button class="fx-btn danger" onclick="fxDiscardPositions(currentBasket)">Discard</button>`;
+    el.insertBefore(top, el.firstChild);
+  }
 };
 
 const _renderTargets = renderTargets;
@@ -4236,17 +4261,63 @@ async function fxSimSetMonth(commodity, monthIso, v){
   fxScheduleReload(['flex_sim_curves']);
 }
 
-async function fxUpdMonth(basket, m, field, v){
-  await fxWrite(FLEX.sb.from('flex_basket_months')
-    .update({[field]: v, updated_by: FLEX.user})
-    .eq('basket_id', basket.id).eq('month', m.month), 'Saved');
+/* ── POSITIONS: staged editing (edit many, Apply once) ──────────────────────
+   Baseload used to write the moment you pressed Enter. One mis-typed cell was a silent
+   change to the number every other figure on the tab derives from — open volume, open
+   cost, MtM, the delivered rate, every target's requirement — and the only way to notice
+   was to spot the row had moved.
+
+   Same shape as the Targets buffer below: edits land in memory, the tab redraws from
+   them so you can see the consequence before committing, and nothing reaches the
+   database until Apply. Discard puts every staged cell back to what it was.
+
+   Keyed by month, then by field, so two fields on one month do not overwrite each other
+   and a month edited twice keeps its ORIGINAL original. */
+let FX_PBUF = {}, FX_PBUF_ORIG = {}, FX_PBUF_BID = null;
+
+function fxStageMonth(basket, m, field, v){
+  FX_PBUF_ORIG[m.month] = FX_PBUF_ORIG[m.month] || {};
+  // First touch only: edit a cell twice and Discard must still reach the figure that was
+  // there before you started, not the one you typed first.
+  if (!(field in FX_PBUF_ORIG[m.month])) FX_PBUF_ORIG[m.month][field] = (field in m) ? m[field] : null;
+  m[field] = v;
+  FX_PBUF[m.month] = Object.assign(FX_PBUF[m.month] || {}, { [field]: v });
+  renderPositions(basket);
 }
-// (Basket-level Authorised/Advisory toggle removed \u2014 designations are now set per target tier.)
-async function fxUpdTarget(basket, t, patch){
-  patch.updated_by = FLEX.user;
-  await fxWrite(FLEX.sb.from('flex_targets').update(patch)
-    .eq('basket_id', basket.id).eq('month', t.month), 'Saved');
+
+function fxPosPending(){ return Object.keys(FX_PBUF).length; }
+
+async function fxApplyPositions(basket){
+  const months = Object.keys(FX_PBUF); if(!months.length) return;
+  const patches = months.map(mo => ({ mo, patch: Object.assign({}, FX_PBUF[mo], { updated_by: FLEX.user }) }));
+  FX_PBUF = {}; FX_PBUF_ORIG = {};
+  const results = await Promise.all(patches.map(p =>
+    FLEX.sb.from('flex_basket_months').update(p.patch)
+      .eq('basket_id', basket.id).eq('month', p.mo)));
+  const bad = results.find(r => r.error);
+  if (bad) fxToast(bad.error.message || 'Save failed', false);
+  else fxToast('Applied ' + patches.length + ' month' + (patches.length>1?'s':''));
+  // Baseload moves every derived figure on the tab, so this is a full reload rather than
+  // a scoped one — unlike targets, which do not touch positions.
+  fxScheduleReload();
 }
+
+function fxDiscardPositions(basket){
+  for (const mo in FX_PBUF_ORIG){
+    const m = (basket.months||[]).find(x => x.month === mo);
+    if (m) Object.assign(m, FX_PBUF_ORIG[mo]);
+  }
+  FX_PBUF = {}; FX_PBUF_ORIG = {};
+  renderPositions(basket); fxToast('Changes discarded');
+}
+
+/* No basket-level Authorised / Advisory toggle: designation is set per target tier.
+
+   fxUpdMonth and fxUpdTarget used to live here. Each took one call and wrote straight to
+   the database, and each had lost its last caller — the positions and targets cells now
+   stage through FX_PBUF / FX_TBUF and commit on Apply, and the bulk baseload update
+   issues its own updates behind its preview. They are gone rather than kept, because a
+   one-line writer sitting in the file is an invitation to wire a new cell to it. */
 async function fxDeleteTrade(dbId){
   const t = (currentBasket.trades||[]).find(x=>x.db_id===dbId);
   if (!t) return;
@@ -8500,6 +8571,16 @@ async function fxRepSave(id){
 }
 
 async function fxRepTogglePublish(id, pub){
+  /* One click used to put a document in front of every customer it is addressed to, or
+     take one away, with nothing in between. Publishing is the consequential direction,
+     but unpublishing is too — a client reading it loses it mid-sentence. */
+  const r = (window._fxReps||[]).find(x=>x.id===id);
+  const title = (r && r.title) || 'this report';
+  const who = r ? ((( _fxRepCusts.find(c=>c.customer_id===r.customer_id) || {}).company_name) || r.customer_id) : 'the client';
+  const msg = pub
+    ? 'Publish "' + title + '"?\n\n' + who + ' will be able to read it on their portal as soon as you confirm.'
+    : 'Unpublish "' + title + '"?\n\nIt disappears from ' + who + '\u2019s portal immediately. The report itself is kept and can be published again.';
+  if (!confirm(msg)) return;
   const { data, error } = await FLEX.sb.from('flex_reports')
     .update({ published: pub, updated_by: FLEX.user, updated_at: new Date().toISOString() })
     .eq('id', id).select('id');
