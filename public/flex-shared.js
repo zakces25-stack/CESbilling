@@ -1113,6 +1113,6 @@
     // BUMP THIS on every change to this file. It is how anyone tells which build a
     // browser actually has — the desk shows it, and it is the first thing to check when
     // the two portals disagree or a change appears not to have landed.
-    VERSION: '2026-09-29'
+    VERSION: '2026-10-05'
   };
 })(typeof window !== 'undefined' ? window : globalThis);
