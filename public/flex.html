@@ -33,8 +33,7 @@ td.fx-editable:hover{background:#f4f8e4}
 td.fx-staged,td.fx-editable.fx-staged{background:#fff7e0;outline-color:#e0a21a;font-weight:700}
 /* The address is the one column holding prose rather than a code or a date. It gets the
    width, and wraps rather than pushing the contract dates off the right of the screen. */
-td.fx-siteaddr{min-width:240px;max-width:380px;white-space:normal;line-height:1.35}
-input.fx-cell-date{width:140px;text-align:left}
+input.fx-cell-date{width:150px;text-align:left}
 td.fx-editable.fx-staged:hover{background:#ffeec2}
 .fx-admh-lbl.fx-staged,.fx-admh-mlbl.fx-staged{background:#fff7e0;outline:1.5px dashed #e0a21a;outline-offset:1px;border-radius:3px}
 input.fx-cell{width:74px;box-sizing:border-box;border:1.5px solid #2f3d7e;border-radius:5px;padding:3px 5px;font-size:12px;font-family:inherit;text-align:right}
@@ -1618,6 +1617,29 @@ tr.fx-row-current td{background:#fdf3cf!important}
 .fx-htable thead th{background:#eef1f6!important;color:#1f2d4d!important;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;padding:6px 8px;border-bottom:1.5px solid #d5dae6}
 .fx-htable tbody td{background:#fff;padding:7px 8px;font-family:var(--font-mono);font-size:12px;font-weight:600;color:#16233f}
 .fx-htable th.rowlbl,.fx-htable td.rowlbl{background:#f7f8fb!important;font-family:var(--font-body);font-weight:800;color:#4b5563!important;font-size:10px;text-transform:uppercase;letter-spacing:.4px;text-align:left;padding-left:10px}
+/* ── THE SITES GRID ─────────────────────────────────────────────────────────
+   Everything above is written for tables of numbers: a fixed layout, columns clamped to
+   110px, one line each, anything longer cut with an ellipsis. That is right for a month
+   of figures and wrong for the only table here holding prose — "Hill House Nursing Home
+   Limited" came out as "Hill House Nursing Home Li…", and an address cut at the comma
+   identifies nothing.
+
+   So this table opts out: it lays out to its own content, every column takes the width
+   its longest value needs, and the panel around it scrolls sideways instead. */
+.fx-htable.fx-sitetable{table-layout:auto;width:auto;min-width:100%}
+.fx-htable.fx-sitetable th,.fx-htable.fx-sitetable td{
+  width:auto;min-width:0;max-width:none;overflow:visible;text-overflow:clip;
+  text-align:left;white-space:nowrap;padding-right:14px}
+.fx-htable.fx-sitetable th:first-child,.fx-htable.fx-sitetable td:first-child{width:auto;min-width:0}
+/* Floors rather than caps, so a short column still reads as a column. */
+.fx-htable.fx-sitetable td[data-f="customer"],.fx-htable.fx-sitetable th.fx-h-customer{min-width:210px}
+.fx-htable.fx-sitetable td[data-f="mpxn"],.fx-htable.fx-sitetable th.fx-h-mpxn{min-width:150px}
+.fx-htable.fx-sitetable td[data-f="site_address"],.fx-htable.fx-sitetable th.fx-h-site_address{min-width:300px}
+.fx-htable.fx-sitetable td[data-f="contract_start"],.fx-htable.fx-sitetable td[data-f="contract_end"]{min-width:112px}
+/* The editor must not be narrower than the text it replaced, or typing an address means
+   reading it through a slot. It takes the cell's own width and grows with the panel. */
+.fx-htable.fx-sitetable input.fx-cell{max-width:none}
+
 .fx-htable tr:first-child th:first-child{border-top-left-radius:8px}
 .fx-htable tr:first-child th:last-child{border-top-right-radius:8px}
 .fx-fctable thead th{position:sticky;top:0;z-index:3}
@@ -5259,9 +5281,13 @@ function fxCellInputDate(cell, current, save){
   inp.addEventListener('blur', commit);
 }
 
-function fxCellInputText(cell, current, save){
+/* `width` is optional and defaults to the 110px every other caller has always had. It
+   exists for the Sites tab, where a 110px box to type a full postal address into shows
+   about a dozen characters — you end up editing text you cannot see. */
+function fxCellInputText(cell, current, save, width){
   const old = cell.innerHTML;
-  cell.innerHTML = `<input class="fx-cell" style="width:110px;text-align:left" value="${current!=null?escape(String(current)):''}">`;
+  const w = (typeof width === 'number' && width > 0) ? width : 110;
+  cell.innerHTML = `<input class="fx-cell" style="width:${w}px;text-align:left" value="${current!=null?escape(String(current)):''}">`;
   const inp = cell.querySelector('input'); inp.focus(); inp.select();
   let done=false;
   const commit = async () => {
@@ -5961,16 +5987,19 @@ function renderSites(basket){
     return typ==='date' ? fxDMY(v) : (typ==='num' ? (+v).toFixed(4).replace(/\.?0+$/,'') : escape(String(v))); };
   function tableHtml(list, archive){
     if(!list.length) return `<div style="padding:12px 2px;color:#6b7280;font-size:12px;">${archive?'No archived sites.':'No live sites in this basket yet.'}</div>`;
-    const head='<tr>'+cols.map(c=>`<th style="text-align:left${c[2]==='addr'?';min-width:240px':''}">${c[1]}</th>`).join('')+(EDIT?'<th></th>':'')+'</tr>';
+    // The heading carries its field name too, so a column's floor is set in one place.
+    const head='<tr>'+cols.map(c=>`<th class="fx-h-${c[0]}">${c[1]}</th>`).join('')+(EDIT?'<th></th>':'')+'</tr>';
     const body=list.map(s=>{
       const tds=cols.map(c=>{
         const st=EDIT && fxSiteStaged(s.id,c[0])!==undefined;
-        return `<td class="fx-sitec${EDIT?' fx-editable':''}${st?' fx-staged':''}${c[2]==='addr'?' fx-siteaddr':''}" data-id="${s.id}" data-f="${c[0]}" data-t="${c[2]}">${disp(s,c[0],c[2])}</td>`;
+        return `<td class="fx-sitec${EDIT?' fx-editable':''}${st?' fx-staged':''}" data-id="${s.id}" data-f="${c[0]}" data-t="${c[2]}">${disp(s,c[0],c[2])}</td>`;
       }).join('');
       const act=EDIT?`<td class="fx-actions"><button class="fx-icon" title="Delete site" onclick="fxSiteDelete(${s.id})">&#128465;</button></td>`:'';
       return `<tr>${tds}${act}</tr>`;
     }).join('');
-    return `<div style="overflow-x:auto;border:1px solid var(--border,#e6e1d6);border-radius:8px;"><table class="fx-htable" style="width:100%;border-collapse:collapse;"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+    // No inline width here: an inline style beats the stylesheet, and width:100% with
+    // the shared fixed layout is exactly what squeezed the columns.
+    return `<div style="overflow-x:auto;border:1px solid var(--border,#e6e1d6);border-radius:8px;"><table class="fx-htable fx-sitetable" style="border-collapse:collapse;"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
   }
   const tools=EDIT?`<div class="fx-toolbar" style="margin:0 0 10px"><button class="fx-btn green" onclick="fxSiteAdd()">+ Add site</button><button class="fx-btn" onclick="fxSitesExport()">&#8623; Export to Excel</button><label class="fx-btn" style="cursor:pointer;display:inline-flex;align-items:center">&#8624; Import from Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])fxSitesImport(this.files[0]);this.value=''"></label>${fxGBar('sites','fxSitesApply()','fxSitesDiscard()','site change')}</div>`:'';
   el.innerHTML = tools
@@ -5985,7 +6014,13 @@ function renderSites(basket){
       const st=fxSiteStaged(id,f);
       const cur=(st!==undefined) ? st : (s?s[f]:null);
       if(typ==='date') fxCellInputDate(td, cur, v=>fxSiteStage(id, f, v));
-      else fxCellInputText(td, cur!=null?cur:'', v=>fxSiteStage(id, f, v));
+      else {
+        // Wide enough to read what you are typing. The box never shrinks below the cell
+        // it replaced, so a long address does not reflow the row while being edited.
+        const want = (f==='site_address') ? 460 : (f==='customer' ? 300 : 180);
+        fxCellInputText(td, cur!=null?cur:'', v=>fxSiteStage(id, f, v),
+                        Math.max(want, Math.round(td.getBoundingClientRect().width) - 16));
+      }
     };
   });
 }
