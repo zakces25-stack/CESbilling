@@ -627,6 +627,10 @@ input.cx-cell{width:100%;min-width:62px;font-family:var(--font-mono);font-size:v
 .empty{padding:40px 20px;text-align:center;color:var(--ink-3);font-size:var(--t-md);
   background:var(--surface);border:1px dashed var(--line-strong);border-radius:var(--r-md)}
 
+/* The supply address is prose, not a code, so it wraps instead of pushing the contract
+   dates off the right-hand edge on a phone. */
+.cx-siteaddr{min-width:220px;max-width:360px;white-space:normal;line-height:1.35}
+
 /* Trades period filter. Print drops it — a printed page has no control to operate, and
    the rows under it are already whatever the filter left. */
 .cx-trade-filter{display:flex;align-items:center;gap:8px;margin:0 0 10px;flex-wrap:wrap}
@@ -1806,16 +1810,21 @@ function subTargets(b,host){
         ? 'achieved-cell' : '' });
 }
 
+/* Round 36 adds the supply address. It is the column a reader actually recognises a site
+   by — a meter number identifies it to a supplier, an address identifies it to the person
+   who runs the building. Same four other columns as the desk, in the same order. */
 function subSites(b,host){
   const rows=D.sites[b.id]||[];
   if(!rows.length){host.innerHTML='<div class="empty">No sites recorded against this basket.</div>';return;}
   const isP=b.commodity==='power';
   host.innerHTML=`<div class="tbwrap"><table>
     <thead><tr><th scope="col">${isP?'MPAN':'MPRN'}</th><th scope="col">Site</th>
+      <th scope="col" class="cx-siteaddr">Site address</th>
       <th scope="col">Contract start</th><th scope="col">Contract end</th></tr></thead>
     <tbody>${rows.map(s=>`<tr>
         <td style="font-family:var(--font-mono)">${esc(s.mpxn||'—')}</td>
         <td>${esc(s.customer||'—')}</td>
+        <td class="cx-siteaddr">${esc(s.site_address||'—')}</td>
         <td>${fmtDate(s.contract_start)}</td><td>${fmtDate(s.contract_end)}</td></tr>`).join('')}
     </tbody></table></div>`;
 }

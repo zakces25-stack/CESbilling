@@ -758,9 +758,11 @@
      called the identifier column "MPAN/MPRN" on a gas basket and the customer's page
      called it "MPRN". One spec now, and the identifier is named for the commodity.
 
-     The last two columns are the commercial terms. They are on the desk's Sites tab and
-     not on the customer's, so both portals get the same spec and each drops what its own
-     screen does not show — the same arrangement as Next Target and Upper Alert.        */
+     Round 36 took the two NEC columns off and put the site address on. The NEC figures
+     were the one thing here the desk saw and the customer did not, and they were not
+     what anything calculates from — the delivered rate reads flex_necs, keyed by basket
+     and season, not these per-site fields. So the spec is now identical for both
+     portals, and nothing in it needs dropping for either of them.                      */
 
   function SITES(basket) {
     var power = isPower(basket);
@@ -769,14 +771,12 @@
         value: function (s) { return esc(s.mpxn || '-'); } },
       { key: 'site',  head: 'Site', align: 'left',
         value: function (s) { return esc(s.customer || '-'); } },
+      { key: 'addr',  head: 'Site Address', align: 'left', width: 52,
+        value: function (s) { return esc(s.site_address || '-'); } },
       { key: 'start', head: 'Contract Start', align: 'left',
         value: function (s) { return fmtDate(s.contract_start); } },
       { key: 'end',   head: 'Contract End', align: 'left',
-        value: function (s) { return fmtDate(s.contract_end); } },
-      { key: 'nec',   head: 'NEC Unit Rate (p/kWh)', align: 'right',
-        value: function (s) { return s.nec_unit_rate != null ? (+s.nec_unit_rate).toFixed(3) : '-'; } },
-      { key: 'necsc', head: 'NEC Standing Charge (p/day)', align: 'right',
-        value: function (s) { return s.nec_standing_charge != null ? (+s.nec_standing_charge).toFixed(3) : '-'; } }
+        value: function (s) { return fmtDate(s.contract_end); } }
     ];
   }
 
@@ -802,6 +802,9 @@
   //   nt / ua  Next Target, Upper Alert  (POSITIONS, and ua on TARGETS)
   //   nec      NEC unit rate             (SITES)
   //   necsc    NEC standing charge       (SITES)
+  // nec and necsc left here on purpose although SITES no longer emits them: an older
+  // cached copy of a portal can still hand those keys in, and a filter that stops
+  // recognising a column is how one quietly comes back on a customer's workbook.
   var XL_DESK_ONLY = { nt: 1, ua: 1, nec: 1, necsc: 1 };
 
   var XL_NAVY = 'FF1F2D4D', XL_CUR = 'FFFDF3CF', XL_TOT = 'FFEEF1F6', XL_HAIR = 'FFE0E3EC';
