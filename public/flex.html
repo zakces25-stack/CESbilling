@@ -34,6 +34,19 @@ td.fx-staged,td.fx-editable.fx-staged{background:#fff7e0;outline-color:#e0a21a;f
 /* The address is the one column holding prose rather than a code or a date. It gets the
    width, and wraps rather than pushing the contract dates off the right of the screen. */
 input.fx-cell-date{width:150px;text-align:left}
+/* Targeted WAPs. The price cell holds a source dropdown plus either a typed box or a
+   live read-out, so it needs room and a baseline the three variants share. */
+td.fx-tt-pcell{white-space:nowrap;text-align:left}
+td.fx-tt-pcell select.fx-tt-src{font-size:11.5px;padding:3px 5px;border:1.5px solid #d8dbe4;border-radius:6px;
+  font-family:inherit;background:#fff;max-width:150px;vertical-align:middle}
+td.fx-tt-pcell input.fx-tt-px{width:88px;margin-left:6px;vertical-align:middle}
+.fx-tt-live{margin-left:6px;font-size:11.5px;font-weight:600;vertical-align:middle}
+/* The Σ on a targets row. Quiet until hovered — it sits on every month, and a column of
+   loud buttons would compete with the figures the table exists to show. */
+button.fx-twap-go{border:1px solid #d8dbe4;background:#fff;color:#6b7280;border-radius:5px;
+  font-size:10.5px;font-weight:800;line-height:1;padding:2px 5px;margin-left:6px;cursor:pointer;
+  font-family:inherit;vertical-align:middle}
+button.fx-twap-go:hover{background:#eef1f6;color:#2f3d7e;border-color:#aab2c4}
 td.fx-editable.fx-staged:hover{background:#ffeec2}
 .fx-admh-lbl.fx-staged,.fx-admh-mlbl.fx-staged{background:#fff7e0;outline:1.5px dashed #e0a21a;outline-offset:1px;border-radius:3px}
 input.fx-cell{width:74px;box-sizing:border-box;border:1.5px solid #2f3d7e;border-radius:5px;padding:3px 5px;font-size:12px;font-family:inherit;text-align:right}
@@ -2019,7 +2032,8 @@ const FX_TABLES = {
   adminCells: ['flex_admin_cells','id,row_id,month,da_trade,cog,pos_report,vals',['id']],
   adminCols:  ['flex_admin_columns','id,col_key,kind,label,sort_order',['sort_order','id']],
   adminMonths:['flex_admin_months','month,sort_order,label',['month']],
-  targetTrades:['flex_target_trades','id,basket_id,label,start_month,end_month,amount_type,amount,price,price_mode,sort_order',['basket_id','sort_order','id']],
+  // price_tier added round 37: which target column a 'target' row prices against.
+  targetTrades:['flex_target_trades','id,basket_id,label,start_month,end_month,amount_type,amount,price,price_mode,price_tier,sort_order',['basket_id','sort_order','id']],
   // site_address added round 36. NEC and Source are still fetched: the tab no longer
   // shows them, but the data is there and a later round may want it back without a
   // second schema trip.
@@ -2793,6 +2807,44 @@ function fxTTVolTotal(basket, m, tt, running, baseTot){
     default:           return tt.amount != null ? asTotal(tt.amount) : 0;   // 'volume'
   }
 }
+/* ── A TARGET-LINKED PRICE ────────────────────────────────────────────────────
+   What `price_mode: 'target'` resolves to for one month: that month's own price for
+   the named target column. Null when the month has no target row, or that tier is
+   unpriced there — and a null price is already how fxTargetScenario skips a row for
+   a month, so an unpriced tier contributes no volume and the trailing at-market row
+   picks the gap up. That is the right model: you have not targeted that month.
+
+   Reads basket.targets, which is the SAME array the Targets tab renders and stages
+   into — so a target edited on screen moves the model immediately, saved or not. */
+function fxTTTierPrice(basket, monthKey, tier){
+  if (!basket || !(tier >= 1 && tier <= 8)) return null;
+  const t = (basket.targets || []).find(x => x.month === monthKey);
+  if (!t) return null;
+  const v = t['lower_t' + tier];
+  return v == null ? null : +v;
+}
+
+/* Every month a row covers, with the price its tier carries there. The modal's price
+   preview is built from this, and so is the "column removed" check. */
+function fxTTTierSpan(basket, row){
+  const out = [];
+  if (!basket || !row) return out;
+  for (const m of (basket.months || [])){
+    if (m.month < row.start_month || m.month > row.end_month) continue;
+    out.push({ month: m.month, price: fxTTTierPrice(basket, m.month, row.price_tier) });
+  }
+  return out;
+}
+
+// What a row prices at for one month, whichever mode it is in. One place, so the
+// modal preview and the table can never disagree about it.
+function fxTTRowPrice(basket, m, row){
+  if (!row) return null;
+  if (row.price_mode === 'market') return m ? m.market_price : null;
+  if (row.price_mode === 'target') return fxTTTierPrice(basket, m ? m.month : null, row.price_tier);
+  return row.price;
+}
+
 // Scenario position for one month. Returns null when no scenario trade covers it.
 // Pass `trades` to preview an unsaved set (used by the modal); omit to use what's saved.
 function fxTargetScenario(basket, m, necMap, trades){
@@ -2819,7 +2871,11 @@ function fxTargetScenario(basket, m, necMap, trades){
     // can cover a whole season and still price each month on its own merits. Always the
     // Marex-resolved figure — the TotalEnergies toggle changes what is printed, never a
     // calculation.
-    const px = (t.price_mode === 'market') ? m.market_price : t.price;
+    // Round 37: three modes. 'market' takes this month's market price, 'target' this
+    // month's price for the named target column, 'fixed' the typed figure. The first
+    // two are the same idea — a price that belongs to the month rather than the row —
+    // which is why one row can cover a whole season and still price each month.
+    const px = fxTTRowPrice(basket, m, t);
     if (!(v > 0) || px == null) continue;
     addTot += v; addCost += v * px; running += v;
   }
@@ -3282,6 +3338,16 @@ function renderTargets(basket) {
   // and the other did not. Calculations are untouched: fxRowAlert and every target test
   // still read m.market_price, which is always Marex.
   const tCtx = { mktPrice: (m) => fxDisplayMkt(basket, m).v };
+  /* Round 37: a Σ beside each month opens the Targeted WAPs editor already filtered to
+     it, and carries how many scenario rows cover that month so you can see which
+     periods are modelled without opening anything.
+
+     It goes in the MONTH CELL through buildTable's cellHtml hook rather than as an
+     extra column: the desk's table is meant to stay a superset of the customer's with
+     the shared columns in the same order (see the twap/tdel comment above), and an
+     extra column at the far right would also put the button a screen away from the
+     month it belongs to. flex-shared.js is untouched. */
+  const ttFor = (mo) => (basket.target_trades || []).filter(t => t.start_month <= mo && t.end_month >= mo).length;
   document.getElementById('tab-targets').innerHTML = FlexCore.buildTable(cols, targets, tCtx, {
     tableClass: FlexCore.TARGETS_TABLE_CLASS,
     // A month whose every set target is achieved goes green as a row — reads far faster
@@ -3328,7 +3394,24 @@ function renderTargets(basket) {
     // The only thing the desk adds to a shared tier cell: the "auto" tag saying the tick
     // came from the volume rule rather than a hand. Achieved / hit / pending all come
     // from FlexCore, so the customer's cell and this one cannot say different things.
+    /* ONE cellHtml for the whole table. There can only be one: a second key of the same
+       name in this object literal silently replaces the first, and the replacement is
+       invisible — Object.keys shows one entry either way. That is exactly how the
+       round-37 month button rendered nothing while every other hook in the object went
+       on working. Both cases live here. */
     cellHtml: (c, t) => {
+      // The month, with the Sigma that opens Targeted WAPs filtered to it (round 37).
+      if (c.key === 'month'){
+        if (!EDIT) return null;
+        const n = ttFor(t.month);
+        return FlexCore.fmtMonth(t.month)
+          + ` <button type="button" class="fx-twap-go" data-month="${t.month}"`
+          + ` title="${n ? n + ' Targeted WAP row' + (n === 1 ? '' : 's') + ' cover this month \u2014 open them'
+                         : 'No Targeted WAP rows cover this month \u2014 open the editor here'}"`
+          + `>&#931;${n ? ' ' + n : ''}</button>`;
+      }
+      // A tier the volume rule ticked on its own, badged so it is not mistaken for a
+      // hand tick.
       if (!c.tier) return null;
       const price = t['lower_t' + c.tier];
       if (price == null) return null;
@@ -7571,6 +7654,14 @@ function _fxRenderTargetsBody(basket){
       renderTargets(basket);
     };
   }
+  // The Σ buttons live inside the month cells, which the shared renderer wrote, so they
+  // are wired up here rather than inline — an onclick attribute would have to be built
+  // into FlexCore, and this stays desk-only.
+  el.querySelectorAll('.fx-twap-go').forEach(btn => { btn.onclick = (e) => {
+    e.stopPropagation();
+    fxTargetWapModal(basket, btn.dataset.month);
+  }; });
+
   // toolbar + per-cell editing with explicit tick buttons
   if(EDIT){
     const bar=document.createElement('div'); bar.className='fx-toolbar';
@@ -7648,6 +7739,69 @@ function fxTTUnit(b, type){
   return b.unit_vol;                          // 'MW' | 'th/d', for volume and open_minus
 }
 function fxTTNeedsAmount(type){ return type !== 'open'; }
+
+// What a target column is called on this basket — its own name where one is set, so
+// the dropdown reads the way the table header does rather than inventing "Target 2"
+// beside a column labelled "Budget".
+function fxTTTierName(b, i){
+  const l = b && b.target_labels && b.target_labels[i - 1];
+  return l ? String(l) : ('T' + i);
+}
+
+/* The price cell for one row: a dropdown choosing WHERE the price comes from, and
+   beside it either the typed box or a live read-out of what the chosen source gives.
+
+   The three modes are not three ways of typing a number. 'market' and 'target' both
+   mean "a price that belongs to the month", which is why either can span a season and
+   still price each month on its own merits; 'fixed' is the one that freezes. */
+function fxTTPriceCell(b, r, i){
+  const numT = fxTierCount(b);
+  const opts = [];
+  for (let n = 1; n <= numT; n++)
+    opts.push(`<option value="t${n}"${r.price_mode === 'target' && r.price_tier === n ? ' selected' : ''}>${escape(fxTTTierName(b, n))}</option>`);
+  // A row linked to a column that has since been removed still points somewhere real
+  // in the database, so it would go on pricing invisibly. Keep it selectable and say so.
+  const ghost = (r.price_mode === 'target' && r.price_tier > numT)
+    ? `<option value="t${r.price_tier}" selected>T${r.price_tier} — column removed</option>` : '';
+  const sel = `<select data-i="${i}" class="fx-tt-src" title="Where this row's price comes from">
+      ${opts.join('')}${ghost}
+      <option value="fixed"${r.price_mode === 'fixed' ? ' selected' : ''}>Manual price</option>
+      <option value="market"${r.price_mode === 'market' ? ' selected' : ''}>At market</option>
+    </select>`;
+  if (r.price_mode === 'fixed')
+    return sel + `<input data-i="${i}" class="fx-cell fx-tt-px" type="number" step="any" value="${r.price != null ? r.price : ''}">`;
+  if (r.price_mode === 'market')
+    return sel + `<span class="fx-tt-live" style="color:#0f6e56">each month's market price</span>`;
+  return sel + `<span class="fx-tt-live" data-i="${i}">${fxTTTierPreview(b, r)}</span>`;
+}
+
+/* What a target-linked row currently prices at. The row covers a range and the tier is
+   priced per month, so one figure is usually a lie: show the single price when the
+   whole range shares it, and the spread plus how many months are priced when it does
+   not. With the month filter on, that month's own price is what matters, so it is
+   named exactly. */
+function fxTTTierPreview(b, r){
+  const numT = fxTierCount(b);
+  if (r.price_tier > numT)
+    return `<span style="color:#c2453b">column removed &mdash; prices nothing</span>`;
+  const span = fxTTTierSpan(b, r);
+  const priced = span.filter(x => x.price != null);
+  const name = escape(fxTTTierName(b, r.price_tier));
+  if (!span.length) return `<span style="color:#9aa1ad">no months in range</span>`;
+  if (!priced.length) return `<span style="color:#c2453b">${name} is unpriced in all ${span.length} month${span.length === 1 ? '' : 's'}</span>`;
+  if (FX_TT_MONTH){
+    const one = span.find(x => x.month === FX_TT_MONTH);
+    if (one) return one.price != null
+      ? `${name} &middot; <b>${(+one.price).toFixed(2)}</b> for ${escape(fmtMonth(FX_TT_MONTH))}`
+      : `<span style="color:#c2453b">${name} unpriced in ${escape(fmtMonth(FX_TT_MONTH))}</span>`;
+  }
+  const lo = Math.min(...priced.map(x => +x.price)), hi = Math.max(...priced.map(x => +x.price));
+  const gap = priced.length < span.length
+    ? ` <span style="color:#8a6d1f">(${priced.length} of ${span.length} months priced)</span>` : '';
+  return lo === hi
+    ? `${name} &middot; <b>${lo.toFixed(2)}</b>${gap}`
+    : `${name} &middot; <b>${lo.toFixed(2)}&ndash;${hi.toFixed(2)}</b>${gap}`;
+}
 const FX_TT_TYPES = [
   ['volume',     'Volume'],
   ['percent',    '% of baseload'],
@@ -7680,6 +7834,46 @@ function fxTTFromTargets(b){
   if (!rows.length) return [];
   const ruleOf = i => fxTargetRule(b, i);
   const anyRule = (() => { for (let i = 1; i <= numT; i++) if (ruleOf(i).type !== 'none') return true; return false; })();
+
+  /* ROUND 37: one row per tier, spanning the whole tradable window, LINKED to that
+     tier rather than carrying a copy of its price.
+
+     The old shape is directly below and is still used for a basket with no volume
+     rules. It grouped months into runs sharing identical tier prices, because a row
+     could only hold one price — which is why a basket priced to Sep-32 produced
+     dozens of rows that then had to be re-found and re-edited whenever a target moved.
+     A linked row needs none of that: it reads each month's own price, so a month where
+     the tier is unpriced simply contributes nothing and the at-market row covers it.
+
+     A tier is included when it is priced in at least ONE covered month and carries a
+     rule that asks for volume. Order is T1..Tn then the at-market row, so 'open' and
+     'open_minus' resolve against the tiers above them exactly as before. */
+  if (anyRule){
+    const first = rows[0].month, last = rows[rows.length - 1].month;
+    const out = []; let order = 0;
+    for (let i = 1; i <= numT; i++){
+      const r = ruleOf(i);
+      if (r.type === 'none') continue;                       // no rule -> no volume to model
+      if (r.type !== 'open' && !(r.amount > 0)) continue;     // rule needs an amount it does not have
+      if (!rows.some(t => t['lower_t' + i] != null)) continue; // never priced -> nothing to track
+      out.push({ id: null, label: null, start_month: first, end_month: last,
+        amount_type: r.type, amount: (r.type === 'open' ? null : r.amount),
+        price: null, price_mode: 'target', price_tier: i, sort_order: order++ });
+    }
+    // Close the period out to baseload at the market price. A ladder often stops short:
+    // CCCH Win-26 reaches only 66% because T3 carries no price, so without this the WAP
+    // covers two thirds of the month and cannot be compared with anything measured over
+    // the whole baseload. Priced at market, not at a target, because that volume is
+    // precisely the part no target claims. It goes LAST so it takes only what the tiers
+    // leave, and computes to nothing when they already fill the month.
+    if (out.length) out.push({ id: null, label: null, start_month: first, end_month: last,
+      amount_type: 'open', amount: null, price: null, price_mode: 'market', price_tier: null, sort_order: order++ });
+    return out;
+  }
+
+  /* Below here is the pre-round-37 shape, reached only when the basket has NO volume
+     rules at all — there is no rule to put on a linked row, so the old even-split over
+     the open volume is still the most useful thing the button can do. */
   // Signature of a month = every priced tier AND ITS PRICE. The price has to be in here:
   // a basket typically re-prices every season, so keying the run on which tiers are priced
   // alone merged Apr-27 through Sep-32 into a single row carrying only Sum-27's prices and
@@ -7695,26 +7889,7 @@ function fxTTFromTargets(b){
   const out = []; let order = 0;
   for (const g of groups){
     if (!g.tiers.length) continue;
-    if (anyRule){
-      let made = 0;
-      for (const i of g.tiers){
-        const r = ruleOf(i);
-        if (r.type === 'none') continue;                       // no rule -> no volume to model
-        if (r.type !== 'open' && !(r.amount > 0)) continue;     // rule needs an amount it does not have
-        out.push({ id: null, label: null, start_month: g.start, end_month: g.end,
-          amount_type: r.type, amount: (r.type === 'open' ? null : r.amount),
-          price: g.first['lower_t' + i], price_mode: 'fixed', sort_order: order++ });
-        made++;
-      }
-      // Close the period out to baseload at the market price. A ladder often stops short:
-      // CCCH Win-26 reaches only 66% because T3 carries no price, so without this the WAP
-      // covers two thirds of the month and cannot be compared with anything measured over
-      // the whole baseload. Priced at market, not at a target, because that volume is
-      // precisely the part no target claims. It goes LAST so it takes only what the tiers
-      // leave, and computes to nothing when they already fill the month.
-      if (made) out.push({ id: null, label: null, start_month: g.start, end_month: g.end,
-        amount_type: 'open', amount: null, price: null, price_mode: 'market', sort_order: order++ });
-    } else {
+    {
       // No rules on this basket — old behaviour: share the still-open volume equally.
       const ms = (b.months || []).filter(m => m.month >= g.start && m.month <= g.end);
       const baseTot = ms.reduce((s, m) => s + (m.baseload_vol_total || 0), 0);
@@ -7723,7 +7898,7 @@ function fxTTFromTargets(b){
       const each = openPct > 0 ? Math.floor(openPct / g.tiers.length * 100) / 100 : 0;
       if (!(each > 0)) continue;
       g.tiers.forEach(i => out.push({ id: null, label: null, start_month: g.start, end_month: g.end,
-        amount_type: 'percent', amount: each, price: g.first['lower_t' + i], price_mode: 'fixed', sort_order: order++ }));
+        amount_type: 'percent', amount: each, price: g.first['lower_t' + i], price_mode: 'fixed', price_tier: null, sort_order: order++ }));
     }
   }
   return out;
@@ -7737,25 +7912,29 @@ let FX_TT_MONTH = '';
 // Does a row's period cover this month?
 function fxTTCovers(r, mo){ return !mo || (r.start_month <= mo && r.end_month >= mo); }
 
-function fxTargetWapModal(basket){
+/* `month` opens the editor already filtered to that month — the Σ buttons on the
+   targets table pass it, so checking one period no longer means re-applying the filter
+   or scrolling for the rows that cover it. */
+function fxTargetWapModal(basket, month){
   const b = basket || currentBasket; if (!b) return;
   FX_TT      = (b.target_trades || []).map(t => Object.assign({}, t));
   FX_TT_ORIG = (b.target_trades || []).map(t => Object.assign({}, t));
-  FX_TT_MONTH = '';
+  FX_TT_MONTH = month || '';
   if (!FX_TT.length) FX_TT = fxTTFromTargets(b);
   fxModal(`<h3>Targeted WAPs — ${escape(b.name)}</h3>
-  <div style="font-size:12px;color:#4b5563;margin:-8px 0 12px">What the WAP would be if <b>every target traded at exactly its target price</b> &mdash; the whole ladder, including targets already achieved, because real trades rarely land on the target price. Filling also adds a final <b>at market</b> row per period, taking whatever the targets leave open, so the WAP covers the full baseload rather than only the part the targets claim. This is a model only: it stands apart from the actual secured position and never touches real trades, hedge %, MtM or the Monday heat map. It fills the two Targeted columns on the right of the targets table.</div>
+  <div style="font-size:12px;color:#4b5563;margin:-8px 0 12px">What the WAP would be if <b>every target traded at exactly its target price</b> &mdash; the whole ladder, including targets already achieved, because real trades rarely land on the target price. A row set to a target column takes <b>that month's own price</b> and keeps taking it, so amending a target on the table moves the model with no edit here. Filling also adds a final <b>at market</b> row taking whatever the targets leave open, so the WAP covers the full baseload rather than only the part the targets claim. This is a model only: it stands apart from the actual secured position and never touches real trades, hedge %, MtM or the Monday heat map. It fills the two Targeted columns on the right of the targets table.</div>
   <div class="fx-toolbar" style="margin-bottom:8px">
     <button class="fx-btn green" onclick="fxTTAddRow()">+ Add row</button>
-    <button class="fx-btn" onclick="fxTTFill()" title="Replace the rows below with one per priced target — achieved ones included — each using that target column's own volume rule, plus a final row taking whatever is left open at the market price">&#8635; Fill from targets</button>
+    <button class="fx-btn" onclick="fxTTFill()" title="Replace the rows below with one row per priced target column — achieved ones included — each linked to that column and using its own volume rule, plus a final row taking whatever is left open at the market price">&#8635; Fill from targets</button>
     <button class="fx-btn danger" onclick="fxTTClear()" title="Remove every row (saving then clears the Targeted columns)">Clear all</button>
     <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#4b5563">
       <label for="fTW_filter"><b>Show rows covering</b></label>
       <select id="fTW_filter" title="Show only the rows whose period includes this month — a row running Oct-26 to Mar-27 shows under any of those months" style="font-size:11.5px;padding:3px 5px;border:1.5px solid #d8dbe4;border-radius:6px;font-family:inherit;background:#fff">
         <option value="">All months</option>
-        ${(b.months || []).map(m => `<option value="${m.month}">${fmtMonth(m.month)}</option>`).join('')}
+        ${(b.months || []).map(m => `<option value="${m.month}"${m.month === FX_TT_MONTH ? ' selected' : ''}>${fmtMonth(m.month)}</option>`).join('')}
       </select></span>
   </div>
+  ${(typeof FX_TBUF === 'object' && FX_TBUF && Object.keys(FX_TBUF).length) ? `<div style="margin:0 0 10px;font-size:11.5px;color:#8a6d1f;background:#fdf4e0;border:1px solid #efdfb4;border-radius:7px;padding:7px 9px"><b>${Object.keys(FX_TBUF).length} target edit${Object.keys(FX_TBUF).length === 1 ? '' : 's'} not yet applied</b> &mdash; this model includes them, so the figures below are what the ladder would give once you press Apply on the Targets tab. Discard there and they go back.</div>` : ''}
   <div id="fTW_rows"></div>
   <div id="fTW_prev"></div>
   <div class="fx-err" id="fxMErr"></div>
@@ -7787,15 +7966,13 @@ function fxTTRefresh(b){
     : !view.length
     ? note + `<div style="font-size:12px;color:#9aa1ad;padding:10px 0">No rows cover ${escape(fmtMonth(FX_TT_MONTH))}. Add a row, or switch back to All months.</div>`
     : note + `<div class="fx-preview" style="max-height:320px"><table class="fx-tt-table">
-      <thead><tr><th>Type</th><th class="td-right">${escape(hdr)}</th><th class="td-right">Price (${escape(b.unit_price)})</th><th>From</th><th>To</th><th></th></tr></thead>
+      <thead><tr><th>Type</th><th class="td-right">${escape(hdr)}</th><th>Price (${escape(b.unit_price)})</th><th>From</th><th>To</th><th></th></tr></thead>
       <tbody>${view.map(({ r, i }) => `<tr>
         <td><select data-i="${i}" class="fx-tt-type">${FX_TT_TYPES.map(o => `<option value="${o[0]}"${r.amount_type === o[0] ? ' selected' : ''}>${o[1]}</option>`).join('')}</select></td>
         <td class="td-right">${fxTTNeedsAmount(r.amount_type)
           ? `<input data-i="${i}" class="fx-cell fx-tt-amt" type="number" step="any" value="${r.amount != null ? r.amount : ''}"><span class="fx-tt-u">${escape(fxTTUnit(b, r.amount_type))}</span>`
           : `<span style="color:#9aa1ad;font-size:11.5px">all open</span>`}</td>
-        <td class="td-right">${r.price_mode === 'market'
-          ? `<span style="color:#0f6e56;font-size:11.5px;font-weight:600">at market</span>`
-          : `<input data-i="${i}" class="fx-cell fx-tt-px" type="number" step="any" value="${r.price != null ? r.price : ''}">`}<button type="button" data-i="${i}" class="fx-kindcell fx-tt-pmode" style="color:${r.price_mode === 'market' ? '#0f6e56' : '#6b7280'}" title="${r.price_mode === 'market' ? 'Priced at each month&apos;s market price — click to type a fixed price' : 'Fixed price — click to price at market instead'}">${r.price_mode === 'market' ? 'MKT' : 'FIX'}</button></td>
+        <td class="fx-tt-pcell">${fxTTPriceCell(b, r, i)}</td>
         <td>${mSel(r.start_month, 'fx-tt-start', i)}</td>
         <td>${mSel(r.end_month, 'fx-tt-end', i)}</td>
         <td class="fx-actions"><button class="fx-icon" title="Clone this row for another period" onclick="fxTTClone(${i})">&#10697;</button><button class="fx-icon" title="Remove this row" onclick="fxTTDel(${i})">&#128465;</button></td>
@@ -7808,11 +7985,13 @@ function fxTTRefresh(b){
   });
   wrap.querySelectorAll('.fx-tt-amt').forEach(el => el.oninput  = e => { FX_TT[+e.target.dataset.i].amount = fxNum(e.target.value); fxTTPreview(b); });
   wrap.querySelectorAll('.fx-tt-px').forEach(el  => el.oninput  = e => { FX_TT[+e.target.dataset.i].price  = fxNum(e.target.value); fxTTPreview(b); });
-  wrap.querySelectorAll('.fx-tt-pmode').forEach(el => el.onclick = e => {
-    e.preventDefault();
-    const r = FX_TT[+e.currentTarget.dataset.i];
-    r.price_mode = (r.price_mode === 'market') ? 'fixed' : 'market';
-    if (r.price_mode === 'market') r.price = null;   // the DB requires null on an at-market row
+  wrap.querySelectorAll('.fx-tt-src').forEach(el => el.onchange = e => {
+    const r = FX_TT[+e.target.dataset.i], v = e.target.value;
+    if (v === 'fixed'){ r.price_mode = 'fixed'; r.price_tier = null; }
+    else if (v === 'market'){ r.price_mode = 'market'; r.price = null; r.price_tier = null; }
+    else { r.price_mode = 'target'; r.price_tier = +String(v).slice(1); r.price = null; }
+    // The database requires null in the columns the chosen mode does not use, so they
+    // are cleared here rather than left to the save to notice.
     fxTTRefresh(b);
   });
   wrap.querySelectorAll('.fx-tt-start').forEach(el => el.onchange = e => { const r = FX_TT[+e.target.dataset.i]; r.start_month = e.target.value; if (r.end_month < r.start_month) r.end_month = r.start_month; fxTTRefresh(b); });
@@ -7857,8 +8036,12 @@ function fxTTAddRow(){
   // invisible-looking; start it on the month being viewed so it appears where expected.
   const f = FX_TT_MONTH || ms.find(m => m > fxNowMonth()) || ms[0] || fxNowMonth();
   const t = FX_TT_MONTH || ms[ms.length - 1] || f;
+  // Starts linked to the first target column, which is what a new row is almost always
+  // for. Manual is one dropdown away and stays available as a precaution.
+  const tier = fxTierCount(b) >= 1 ? 1 : null;
   FX_TT.push({ id: null, label: null, start_month: f, end_month: t,
-    amount_type: 'percent', amount: null, price: null, price_mode: 'fixed', sort_order: FX_TT.length });
+    amount_type: 'percent', amount: null, price: null,
+    price_mode: tier ? 'target' : 'fixed', price_tier: tier, sort_order: FX_TT.length });
   fxTTRefresh(b);
 }
 function fxTTClone(i){ const b = currentBasket; FX_TT.splice(i + 1, 0, Object.assign({}, FX_TT[i], { id: null })); FX_TT.forEach((r, n) => r.sort_order = n); fxTTRefresh(b); }
@@ -7880,15 +8063,23 @@ function fxTTFill(){
   fxTTRefresh(b);
   // A basket priced every season to the end of its curve produces a lot of rows. Say so,
   // rather than leaving someone to scroll and guess whether it caught everything.
-  const periods = new Set(g.map(r => r.start_month + '|' + r.end_month)).size;
-  fxToast('Filled ' + g.length + ' row' + (g.length === 1 ? '' : 's') + ' across ' + periods + ' period' + (periods === 1 ? '' : 's'));
+  // The old fill reported how many PERIODS it had made, because chopping the curve into
+  // price-runs was the thing you could not see. A linked fill makes one window, so what
+  // is worth saying is how many of the rows now track the targets table.
+  const linked = g.filter(r => r.price_mode === 'target').length;
+  fxToast('Filled ' + g.length + ' row' + (g.length === 1 ? '' : 's')
+    + (linked ? ' \u2014 ' + linked + ' linked to target column' + (linked === 1 ? '' : 's') : ''));
 }
 
-// A row is usable once it has a price — or is priced at market — and, for every type
-// except "all open", an amount.
+/* A row is usable once its PRICE MODE has what that mode needs — a typed price, a
+   tier, or nothing at all at market — and, for every type except "all open", an
+   amount. A target row deliberately does not require the tier to be priced in any
+   particular month: an unpriced month simply contributes nothing, which is a
+   modelling outcome rather than a broken row. */
 function fxTTRowReady(r){
   if (!r) return false;
-  if (r.price_mode !== 'market' && r.price == null) return false;
+  if (r.price_mode === 'target'){ if (!(r.price_tier >= 1 && r.price_tier <= 8)) return false; }
+  else if (r.price_mode !== 'market' && r.price == null) return false;
   return fxTTNeedsAmount(r.amount_type) ? (r.amount > 0) : true;
 }
 
@@ -7907,16 +8098,24 @@ async function fxTTSave(){
   const ops = [];
   for (const o of FX_TT_ORIG) if (!keep.has(o.id)) ops.push(FLEX.sb.from('flex_target_trades').delete().eq('id', o.id));
   for (const r of rows){
-    const _pm = (r.price_mode === 'market') ? 'market' : 'fixed';
+    // Three modes now, and the database checks that each carries what it needs: a fixed
+    // row a price, a target row a tier, a market row neither. Clearing the unused column
+    // here rather than passing it through keeps a stale tier off a row that stopped
+    // being linked.
+    const _pm = (r.price_mode === 'market' || r.price_mode === 'target') ? r.price_mode : 'fixed';
     const payload = { basket_id: b.id, label: r.label || null, start_month: r.start_month, end_month: r.end_month,
       amount_type: r.amount_type, amount: r.amount,
-      price: (_pm === 'market') ? null : r.price, price_mode: _pm,
+      price: (_pm === 'fixed') ? r.price : null,
+      price_mode: _pm,
+      price_tier: (_pm === 'target') ? r.price_tier : null,
       sort_order: r.sort_order, updated_by: FLEX.user };
     if (r.id){
       const o = FX_TT_ORIG.find(x => x.id === r.id);
       const same = o && o.start_month === r.start_month && o.end_month === r.end_month
-        && o.amount_type === r.amount_type && o.amount === r.amount && o.price === r.price && o.sort_order === r.sort_order
-        && (o.price_mode === 'market' ? 'market' : 'fixed') === _pm;
+        && o.amount_type === r.amount_type && o.amount === r.amount && o.sort_order === r.sort_order
+        && (o.price == null ? null : +o.price) === (payload.price == null ? null : +payload.price)
+        && (o.price_tier == null ? null : +o.price_tier) === (payload.price_tier == null ? null : +payload.price_tier)
+        && (o.price_mode === 'market' || o.price_mode === 'target' ? o.price_mode : 'fixed') === _pm;
       if (!same) ops.push(FLEX.sb.from('flex_target_trades').update(Object.assign({ updated_at: new Date().toISOString() }, payload)).eq('id', r.id));
     } else ops.push(FLEX.sb.from('flex_target_trades').insert(payload));
   }
