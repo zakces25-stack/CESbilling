@@ -2069,8 +2069,21 @@ function fxBuildData(){
     id: t.id, label: t.label || null,
     start_month: String(t.start_month).slice(0,10), end_month: String(t.end_month).slice(0,10),
     amount_type: t.amount_type || 'volume', amount: _num(t.amount), price: _num(t.price),
-    // 'market' prices the row at each month's own market price instead of a fixed number.
-    price_mode: (t.price_mode === 'market') ? 'market' : 'fixed',
+    /* THREE modes since round 37, and this projection is what the whole Targeted WAP
+       feature reads back after a save. 'market' prices the row at each month's own
+       market price; 'target' at each month's own price for the named target column;
+       anything else is the typed figure. An unrecognised value becomes 'fixed' rather
+       than being trusted through — the database constrains the column, but this is the
+       boundary and it should not depend on that.
+
+       price_tier is WHICH column, and only a 'target' row has one. It is cleared on the
+       other two so a row that stopped being linked cannot carry a stale tier around.
+       It is deliberately NOT range-checked here: fxTTRowReady() rejects a tier outside
+       1-8, and the editor shows a tier above the basket's count as "column removed",
+       which is more use than a silent null. Until round 38 this line did not exist at
+       all and the mode collapsed to 'fixed', so a linked row came back unusable. */
+    price_mode: (t.price_mode === 'market' || t.price_mode === 'target') ? t.price_mode : 'fixed',
+    price_tier: (t.price_mode === 'target' && t.price_tier != null) ? +t.price_tier : null,
     sort_order: t.sort_order == null ? 0 : t.sort_order
   });
   for (const m of months) (byM[m.basket_id] ??= []).push({
@@ -2660,10 +2673,21 @@ function renderDetailStatsFromRows(rows, basket) {
     </div>`).join('');
 }
 
+/* ROUND 38: the cards read fxRows(), which is what the table and the charts already
+   read — the filtered months, marked at the selected curve. They used to read
+   basket.months, every month in the basket, and that is this function rather than
+   applyFilters(), so the cards were right until the pane was re-rendered and then
+   quietly went back to the whole basket underneath a filter bar still showing a
+   season. A source change, an Edit toggle, a save and a background reload all land
+   here. On a freshly selected basket the two are the same thing anyway, because
+   selectBasket() clears the bar first — the cards still open on the whole basket.
+
+   The filters are page state, not basket state, and every caller sets currentBasket
+   to this basket immediately before calling. If that ever stops being true the cards
+   would be filtered by another basket's window, so it is worth keeping them together. */
 function renderDetailStats(basket) {
   // (per-basket Authorised/Advisory toggle removed \u2014 designations are now per target tier)
-  // Show stats for ALL months (unfiltered) on initial load
-  renderDetailStatsFromRows(fxRemark(basket.months, basket), basket);
+  renderDetailStatsFromRows(fxRows(basket), basket);
 }
 
 // ── POSITIONS TABLE RENDERER ─────────────────────────────────────
