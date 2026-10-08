@@ -13,6 +13,9 @@
      apart. See the header of flex-shared.js. Loaded before the inline script below,
      which delegates its formatters and table renderers to it. -->
 <script src="flex-shared.js"></script>
+<!-- Client Accounts tab (create flex clients, share baskets, reset passwords). The ?v= must
+     equal VERSION inside the file; tests/flex_accounts_render_test.js checks it. -->
+<script src="flex-accounts.js?v=2026-10-07.1"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -1907,9 +1910,9 @@ button{transition:all .14s ease}
              (Dan, Sarah, Adam). flexStart() unhides it after reading the
              profile. Cosmetic only — the real gate is the RLS policy. -->
         <button class="main-tab-btn fx-reports-only" data-main-tab="clientreports" style="display:none">Client Reports</button>
-        <!-- Client accounts (round 34): same audience as Client Reports, unhidden by the
-             same line in flexStart(). The real gate is inside flex_client_accounts(). -->
-        <button class="main-tab-btn fx-reports-only" data-main-tab="clientaccounts" style="display:none">Client Accounts</button>
+        <!-- Client Accounts: every desk user (round 34 limited it to client-reports admins).
+             The real gate is is_flex_team() inside every function the tab calls. -->
+        <button class="main-tab-btn" data-main-tab="clientaccounts">Client Accounts</button>
       </div>
       <!-- Portfolio tab -->
       <div class="main-tab-pane active" id="main-tab-portfolio">
@@ -8681,188 +8684,18 @@ window._fxTick = (t, n) => {
   (window._fxParts = window._fxParts || []).push(n.toLocaleString('en-GB') + ' ' + _fxTickNames[t]);
   el.textContent = window._fxParts.join(' · ');
 };
-// ── CLIENT ACCOUNTS (round 34) ───────────────────────────────────────────────
-// Who can sign in to the client portal, and what each of them will see. Read only:
-// nothing on this tab writes anything. Logins are still made in the billing admin
-// console; this is the place to check they were made properly.
-//
-// One RPC, flex_client_accounts(), because login details (email, last sign-in) live
-// in auth.users, which the browser cannot read. The function is security definer and
-// refuses anyone can_manage_flex_reports() refuses — the same gate as Client Reports —
-// so hiding the tab is a convenience, not the protection.
-//
-// One row per login, plus one row (user_id null) for a customer with no login at all.
-// Rows are grouped here by customer.
-//
-// READY FOR PHASE 2: every login row carries data-user-id, and fxCaLoginActions() is
-// where Create login / Reset password will plug in once the server-side function for
-// them exists. It returns nothing today, and the column is not drawn while it does.
-let _fxCa = null;                         // { rows, error, at } from the last load
-let _fxCaQ = '', _fxCaOnlyIssues = false;  // search box, needs-attention filter
-
-async function fxCaLoad(){
-  const { data, error } = await FLEX.sb.rpc('flex_client_accounts');
-  _fxCa = { rows: Array.isArray(data) ? data : [], error: error || null, at: new Date() };
-  return _fxCa;
-}
-
-// What a login's state means for the person trying to use it. The first problem found
-// wins, in the order someone would hit it: can they sign in, would they be let through,
-// is there anything to see.
-function fxCaStatus(r, group){
-  const scope = group.portal_scope || [];
-  const live = (group.baskets || []).filter(b => !b.archived);
-  if (!r.user_id)                       return { key:'nologin',   bad:true,  label:'No login yet',          tip:'Baskets are shared with this customer but nobody can sign in. Create a login in the admin console.' };
-  if (r.is_admin || (r.role && r.role !== 'customer'))
-                                        return { key:'notclient', bad:true,  label:'Not a client login',    tip:'This account is linked to the customer but is ' + (r.is_admin ? 'an admin' : 'role "' + r.role + '"') + '. It will open the desk, not the client portal.' };
-  if (!r.confirmed_at)                  return { key:'unconfirmed', bad:true, label:'Login not confirmed',  tip:'The login exists but is not confirmed, so it cannot sign in. Confirm it in Supabase → Authentication → Users.' };
-  if (scope.indexOf('flex') < 0)        return { key:'noflex',    bad:true,  label:'Flex not ticked',       tip:'Tick Flex for this customer in the admin console (Customers).' };
-  if (!live.length)                     return { key:'nobaskets', bad:true,  label:'No baskets shared',     tip:'They can sign in but have nothing to see, so they land on the no-access page.' };
-  if (!r.last_sign_in_at)               return { key:'ready',     bad:false, label:'Ready · never signed in', tip:'Everything is in place; they have not signed in yet.' };
-  return                                       { key:'active',    bad:false, label:'Active',                tip:'Signed in at least once and set up correctly.' };
-}
-
-function fxCaGroups(rows){
-  const by = new Map();
-  for (const r of rows || []){
-    const k = r.customer_id;
-    if (!by.has(k)) by.set(k, { customer_id: k, company_name: r.company_name || k,
-                               portal_scope: r.portal_scope || [], baskets: r.baskets || [], logins: [] });
-    by.get(k).logins.push(r);
-  }
-  const out = [...by.values()];
-  for (const g of out){
-    g.logins.sort((a, b) => String(a.username || '').localeCompare(String(b.username || '')));
-    g.logins.forEach(l => { l._st = fxCaStatus(l, g); });
-    g.issues = g.logins.filter(l => l._st.bad).length;
-  }
-  return out.sort((a, b) => String(a.company_name).localeCompare(String(b.company_name)));
-}
-
-function fxCaWhen(ts){
-  if (!ts) return '<span style="color:#9aa1ad">never</span>';
-  const d = new Date(ts); if (isNaN(d)) return '—';
-  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
-  const rel = days <= 0 ? 'today' : days === 1 ? 'yesterday' : days < 60 ? days + ' days ago'
-            : Math.round(days / 30) + ' months ago';
-  const abs = d.toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
-  return '<span title="' + escape(abs) + '">' + escape(rel) + '</span>';
-}
-function fxCaDate(ts){
-  if (!ts) return '—';
-  const d = new Date(ts); return isNaN(d) ? '—' : d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
-}
-
-// Phase 2 plugs in here. Nothing yet: no button is drawn that cannot work.
-function fxCaLoginActions(login, group){ return ''; }
-
-function fxCaMatches(g, q){
-  if (!q) return true;
-  const hay = [g.company_name, g.customer_id]
-    .concat((g.baskets || []).map(b => b.name))
-    .concat(g.logins.map(l => [l.username, l.display_name, l.contact_email].join(' ')))
-    .join(' ').toLowerCase();
-  return q.toLowerCase().split(/\s+/).filter(Boolean).every(w => hay.indexOf(w) >= 0);
-}
-
-function fxCaHtml(){
-  if (!_fxCa) return '<div style="padding:12px 2px;color:#6b7280;font-size:12px">Loading client accounts…</div>';
-  const e = _fxCa.error;
-  if (e){
-    const msg = String(e.message || '');
-    // PostgREST reports a function that does not exist as PGRST202.
-    if (e.code === 'PGRST202' || /could not find the function|does not exist/i.test(msg))
-      return '<div class="fx-err" style="display:block">The database part of this tab has not been installed yet. '
-           + 'Run <b>34-step2-apply.sql</b> in Supabase, then press Refresh.</div>';
-    if (e.code === '42501' || /permission|not permitted|only client-reports admins/i.test(msg))
-      return '<div class="fx-err" style="display:block">Your profile cannot view client accounts. '
-           + 'This tab is for client-reports admins.</div>';
-    return '<div class="fx-err" style="display:block">Could not load client accounts — ' + escape(msg) + '</div>';
-  }
-  const groups = fxCaGroups(_fxCa.rows);
-  const logins = groups.reduce((n, g) => n + g.logins.filter(l => l.user_id).length, 0);
-  const recent = groups.reduce((n, g) => n + g.logins.filter(l => l.last_sign_in_at
-                   && (Date.now() - new Date(l.last_sign_in_at).getTime()) < 30 * 86400000).length, 0);
-  const issues = groups.reduce((n, g) => n + g.issues, 0);
-  const shown = groups.filter(g => fxCaMatches(g, _fxCaQ) && (!_fxCaOnlyIssues || g.issues));
-  const anyActions = shown.some(g => g.logins.some(l => fxCaLoginActions(l, g)));
-
-  const chip = (on, label) => '<span class="fx-src ' + (on ? 'live' : 'man') + '" style="margin-right:4px'
-                             + (on ? '' : ';opacity:.45;text-decoration:line-through') + '">' + label + '</span>';
-  const card = g => {
-    const sc = g.portal_scope || [];
-    const bk = (g.baskets || []).map(b => '<span style="display:inline-block;margin:0 10px 2px 0;'
-        + (b.archived ? 'color:#9aa1ad;text-decoration:line-through' : '') + '" title="' + (b.archived ? 'Archived — not shown to the client' : '') + '">'
-        + '<span class="fx-src ' + (b.commodity === 'power' ? 'live' : 'man') + '" style="margin-right:4px">' + (b.commodity === 'power' ? 'Power' : 'Gas') + '</span>'
-        + escape(b.name) + (b.archived ? ' (archived)' : '') + '</span>').join('')
-        || '<span style="color:#c2453b">none shared</span>';
-    const rows = g.logins.map(l => {
-      const st = l._st;
-      const badge = '<span class="fx-ca-st" data-st="' + st.key + '" title="' + escape(st.tip) + '" style="display:inline-block;padding:2px 8px;border-radius:9px;font-size:11px;font-weight:700;'
-        + (st.bad ? 'background:#fdecea;color:#b42318' : st.key === 'ready' ? 'background:#eef1fb;color:#2f3d7e' : 'background:#e7f6ec;color:#1e7b3a') + '">' + escape(st.label) + '</span>';
-      const act = anyActions ? '<td class="td-center" style="white-space:nowrap">' + fxCaLoginActions(l, g) + '</td>' : '';
-      return l.user_id
-        ? '<tr data-user-id="' + escape(l.user_id) + '"><td><b>' + escape(l.username || '—') + '</b></td>'
-          + '<td>' + escape(l.display_name || '—') + '</td><td>' + escape(l.contact_email || '—') + '</td>'
-          + '<td>' + fxCaWhen(l.last_sign_in_at) + '</td><td>' + fxCaDate(l.created_at) + '</td><td>' + badge + '</td>' + act + '</tr>'
-        : '<tr data-user-id=""><td colspan="5" style="color:#6b7280">No login for this customer</td><td>' + badge + '</td>' + (anyActions ? '<td></td>' : '') + '</tr>';
-    }).join('');
-    return '<div class="fx-ca-card" data-customer="' + escape(g.customer_id) + '" style="border:1px solid var(--border,#e6e1d6);border-radius:10px;padding:12px 14px;margin-bottom:12px;background:#fff">'
-      + '<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 14px;margin-bottom:6px">'
-      +   '<div style="font-size:15px;font-weight:800">' + escape(g.company_name) + '</div>'
-      +   '<div style="font-size:11.5px;color:#6b7280">' + escape(g.customer_id) + '</div>'
-      +   '<div style="margin-left:auto">' + chip(sc.indexOf('flex') >= 0, 'Flex') + chip(sc.indexOf('billing') >= 0, 'Billing') + chip(sc.indexOf('carbon') >= 0, 'Carbon') + '</div>'
-      + '</div>'
-      + '<div style="font-size:12px;margin-bottom:8px"><span style="color:#6b7280;margin-right:6px">Baskets:</span>' + bk + '</div>'
-      // Fixed column widths so the columns line up from one client to the next.
-      + '<div style="overflow-x:auto"><table class="extra-table" style="table-layout:fixed;width:100%;min-width:760px">'
-      + '<colgroup><col style="width:13%"><col style="width:16%"><col style="width:24%"><col style="width:13%"><col style="width:13%"><col style="width:21%">'
-      + (anyActions ? '<col style="width:14%">' : '') + '</colgroup>'
-      + '<thead><tr><th>Username</th><th>Name</th><th>Contact email</th>'
-      + '<th>Last sign-in</th><th>Created</th><th>Status</th>' + (anyActions ? '<th class="td-center">Actions</th>' : '') + '</tr></thead>'
-      + '<tbody>' + rows + '</tbody></table></div></div>';
-  };
-
-  return '<div class="fx-ca-sum" style="margin-bottom:12px;font-size:12.5px;color:#3b3b46">'
-    + '<b>' + groups.length + '</b> client' + (groups.length === 1 ? '' : 's') + ' &middot; '
-    + '<b>' + logins + '</b> login' + (logins === 1 ? '' : 's') + ' &middot; '
-    + '<b>' + recent + '</b> signed in within 30 days'
-    + (issues ? ' &middot; <b style="color:#b42318">' + issues + '</b> need' + (issues === 1 ? 's' : '') + ' attention' : '')
-    + '<span style="color:#9aa1ad;margin-left:10px">loaded ' + escape(_fxCa.at.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' })) + '</span></div>'
-    + (shown.length ? shown.map(card).join('')
-       : '<div style="padding:12px 2px;color:#6b7280;font-size:12.5px">' + (groups.length ? 'Nothing matches.' : 'No client accounts yet.') + '</div>');
-}
-
-function fxCaPaint(){
-  const host = document.getElementById('fxCaBody'); if (host) host.innerHTML = fxCaHtml();
-}
-
-async function fxCaRefresh(){
-  _fxCa = null; fxCaPaint();
-  await fxCaLoad(); fxCaPaint();
-}
-
+// ── CLIENT ACCOUNTS ── lives in flex-accounts.js (7 Oct 2026) ────────────────────────
+// Round 34's read-only list moved there whole, plus + New customer, Edit baskets, Reset
+// password and Edit details. Every desk user sees the tab; the _42 database functions and
+// the flex-client-admin edge function check is_flex_team() themselves, so hiding the tab
+// was never the protection. This stays a function declaration because switchMainTab()
+// calls it by name.
 async function fxRenderClientAccounts(){
   const el = document.getElementById('main-tab-clientaccounts'); if (!el) return;
-  if (el.dataset.rendered) return; el.dataset.rendered = '1';
-  el.innerHTML = '<div class="extra-tab-inner">'
-    + '<div class="overview-header" style="margin-bottom:12px"><div class="overview-title">Client Accounts</div>'
-    + '<div class="overview-sub">Who can sign in to the client portal, and what each of them will see</div></div>'
-    + '<div class="fx-toolbar" style="margin:0 0 12px;flex-wrap:wrap;gap:8px">'
-    +   '<input id="fxCaQ" type="search" placeholder="Search company, login, email or basket" style="min-width:260px;padding:6px 9px;font-size:12.5px">'
-    +   '<label style="font-size:12.5px;display:flex;align-items:center;gap:5px"><input id="fxCaIssues" type="checkbox"> Needs attention only</label>'
-    +   '<button class="fx-btn" onclick="fxCaRefresh()">&#8635; Refresh</button>'
-    + '</div>'
-    + '<div id="fxCaBody"></div>'
-    + '<div style="font-size:11.5px;color:#6b7280;margin-top:10px">Read only. Logins are created in the billing admin console '
-    + '(Customers → Add customer, then tick Flex) and baskets are shared by CES. Hover a status for what to do about it.</div>'
-    + '</div>';
-  const q = document.getElementById('fxCaQ'), iss = document.getElementById('fxCaIssues');
-  q.value = _fxCaQ; iss.checked = _fxCaOnlyIssues;
-  q.addEventListener('input', () => { _fxCaQ = q.value.trim(); fxCaPaint(); });
-  iss.addEventListener('change', () => { _fxCaOnlyIssues = iss.checked; fxCaPaint(); });
-  fxCaPaint();
-  await fxCaLoad(); fxCaPaint();
+  if (window.FlexAccounts && typeof window.FlexAccounts.render === 'function') return window.FlexAccounts.render(el);
+  el.innerHTML = '<div class="extra-tab-inner"><div class="fx-err" style="display:block">The Client Accounts module '
+    + '(flex-accounts.js) did not load. Refresh the page; if it keeps happening, flex-accounts.js is missing '
+    + 'from the deploy.</div></div>';
 }
 
 // ── CLIENT REPORTS ───────────────────────────────────────────────
