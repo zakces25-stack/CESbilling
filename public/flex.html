@@ -1241,6 +1241,40 @@ td.fx-editable.fx-sim-edit:hover{ background:#f6f1ff; }
 
 /* ── STATS ROW ───────────────────────────────────────────────── */
 .stats-row { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+/* ── Day Ahead (round 40) ───────────────────────────────────────────────────
+   A split card: one figure per fuel, side by side, so the pair reads as one
+   measurement of two markets rather than as eight unrelated cards. */
+.fx-da-card{flex:1 1 210px;min-width:200px;background:#fff;border:1px solid #e3e7ee;border-radius:13px;padding:11px 13px;
+  box-shadow:0 1px 2px rgba(22,35,63,.05),0 4px 14px rgba(22,35,63,.05)}
+.fx-da-card .lbl{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:7px}
+.fx-da-card .pair{display:flex;gap:10px}
+.fx-da-card .half{flex:1;min-width:0}
+.fx-da-card .fuel{font-size:10px;font-weight:700;color:#9aa1ad;text-transform:uppercase;letter-spacing:.4px}
+.fx-da-card .fig{font-family:var(--font-mono);font-size:17px;font-weight:700;color:#1f2d4d;line-height:1.25;white-space:nowrap}
+.fx-da-card .unit{font-size:10.5px;color:#6b7280;font-weight:600}
+.fx-da-card .sub{font-size:10px;color:#9aa1ad;margin-top:1px}
+.fx-da-table{width:100%;border-collapse:collapse;font-size:12px}
+.fx-da-table th{position:sticky;top:0;z-index:2;background:#1f2d4d;color:#fff;font-size:11px;font-weight:700;
+  text-align:right;padding:7px 10px;white-space:nowrap}
+.fx-da-table th:first-child{text-align:left}
+.fx-da-table td{padding:4px 10px;border-bottom:1px solid #eef0f5;text-align:right;white-space:nowrap;
+  font-family:var(--font-mono);font-size:11.5px}
+.fx-da-table td:first-child{text-align:left;font-family:inherit}
+/* A month header is a button: the whole row toggles, so there is no small target. */
+.fx-da-mrow td{background:#f4f6fa;font-weight:700;font-family:inherit;font-size:12px;cursor:pointer;
+  border-top:1px solid #e3e7ee;border-bottom:1px solid #e3e7ee;padding:6px 10px}
+.fx-da-mrow:hover td{background:#eaeef6}
+.fx-da-mrow .caret{display:inline-block;width:11px;color:#6b7280}
+.fx-da-mrow .n{font-weight:600;color:#6b7280;font-size:11px}
+.fx-da-day td{background:#fff}
+.fx-da-day:nth-child(even) td{background:#fcfcfe}
+/* A day the other fuel has not been entered for yet. Blank, not zero. */
+.fx-da-miss{color:#c8cdd8}
+.fx-da-wrap{max-height:62vh;overflow:auto;border:1px solid #e3e7ee;border-radius:11px;background:#fff}
+.fx-da-chart{background:#fff;border:1px solid #e3e7ee;border-radius:13px;padding:10px 12px;margin:0 0 14px;height:230px}
+.fx-da-seg{display:inline-flex;border:1px solid #d7dbe4;border-radius:8px;overflow:hidden}
+.fx-da-seg button{border:0;background:#fff;padding:5px 13px;font-size:12px;font-weight:700;color:#4b5563;cursor:pointer}
+.fx-da-seg button[aria-pressed="true"]{background:#1f2d4d;color:#fff}
 
 .stat-card {
   background: var(--white);
@@ -1900,6 +1934,7 @@ button{transition:all .14s ease}
       <div class="main-tab-bar">
         <button class="main-tab-btn active" data-main-tab="portfolio">Portfolio</button>
         <button class="main-tab-btn" data-main-tab="curves">Market Curves</button>
+        <button class="main-tab-btn" data-main-tab="dayahead">Day Ahead</button>
         <button class="main-tab-btn" data-main-tab="admin">Admin</button>
         <button class="main-tab-btn" data-main-tab="contacts">Contacts</button>
         <button class="main-tab-btn" data-main-tab="orders">Firm Orders</button>
@@ -1928,6 +1963,8 @@ button{transition:all .14s ease}
       </div>
       <!-- Market Curves tab -->
       <div class="main-tab-pane" id="main-tab-curves"></div>
+      <!-- Day Ahead tab (round 40) -->
+      <div class="main-tab-pane" id="main-tab-dayahead"></div>
       <!-- Admin tab -->
       <div class="main-tab-pane" id="main-tab-admin"></div>
       <!-- Contacts tab -->
@@ -2026,6 +2063,10 @@ const FX_TABLES = {
   // the whole page down. flex.html and the SQL are two deploys, and they have gone live
   // out of order before.
   simCurves:  ['flex_sim_curves','commodity,month,mid,updated_at',['commodity','month'], true],
+  // Day-ahead cash-out, one row per fuel per calendar day (round 40). Optional for the
+  // same reason simCurves is: flex.html and the SQL are two deploys and they have gone
+  // live out of order before, and an empty Day Ahead tab beats a dead portal.
+  daPrices:   ['flex_da_prices','commodity,price_date,price,updated_by,updated_at',['commodity','price_date'], true],
   orders:     ['flex_firm_orders','id,commodity,basket_name,period,volume,price',['id']],
   contacts:   ['flex_contacts','id,supplier,note,details',['id']],
   deadlines:  ['flex_sefe_deadlines','id,period,last_trading,deadline',['id']],
@@ -2066,7 +2107,7 @@ function fxBuildData(){
         admin=RAW.admin||[], meta=RAW.meta||[], notes=RAW.notes||[], adminCells=RAW.adminCells||[],
         adminCols=RAW.adminCols||[], adminMonths=RAW.adminMonths||[], sites=RAW.sites||[], necs=RAW.necs||[],
         targetTrades=RAW.targetTrades||[], teCurves=RAW.teCurves||[],
-        simCurves=RAW.simCurves||[];
+        simCurves=RAW.simCurves||[], daPrices=RAW.daPrices||[];
   const byM = {}, byT = {}, byG = {}, byTT = {};
   for (const t of targetTrades) (byTT[t.basket_id] ??= []).push({
     id: t.id, label: t.label || null,
@@ -2153,6 +2194,11 @@ function fxBuildData(){
       months: byM[b.id] || [], targets: byT[b.id] || [], target_trades: byTT[b.id] || [],
       trades: byG[b.id] || [], seasons: []
     });
+  const daOf = c => (daPrices || [])
+    .filter(r => r.commodity === c && r.price_date != null && r.price != null)
+    .map(r => ({ d: String(r.price_date).slice(0, 10), p: +r.price, by: r.updated_by || null }))
+    .sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
+
   DATA = {
     generated: new Date().toISOString().slice(0, 10),
     baskets: baskets.filter(b => !b.archived).map(mkB),
@@ -2173,7 +2219,11 @@ function fxBuildData(){
     necs: (necs||[]).map(n => ({ id:n.id, basket_name:n.basket_name, commodity:n.commodity, season:n.season, nec:_num(n.nec), sort_order:n.sort_order, basket_id:n.basket_id })),
     contacts: { suppliers: contacts.map(c => ({ id: c.id, supplier: c.supplier, note: c.note, details: c.details || [] })),
                 sefe_deadlines: deadlines.map(d => ({ id: d.id, period: d.period, last_trading: d.last_trading, deadline: d.deadline })) },
-    firm_orders: { power: ordersOf('power'), gas: ordersOf('gas') }
+    firm_orders: { power: ordersOf('power'), gas: ordersOf('gas') },
+    /* One ascending array per fuel. Sorted here rather than at render time because the
+       monthly grouping, the 30-reading window and the chart all walk it in order, and a
+       PostgREST page boundary is not a guarantee of order. */
+    da: { gas: daOf('gas'), power: daOf('power') }
   };
   BASKETS = DATA.baskets;
   const el = document.getElementById('fx-asof');
@@ -3480,6 +3530,589 @@ function renderTargets(basket) {
   });
 }
 
+
+// ── DAY AHEAD CASH-OUT PRICES (round 40, desk only) ──────────────────────────
+/* One reading per fuel per calendar day, kept by hand every working day. The whole
+   tab derives from DATA.da.{gas,power}, two ascending arrays of {d, p}; nothing here
+   is stored except the readings themselves.
+
+   WHY THE AVERAGES ARE COMPUTED. The source workbook kept 51 gas and 50 power monthly
+   averages by hand down three scattered columns. Every one matched the computed figure
+   to four decimals, and the first six months of 2022 had none at all — so computing
+   them loses nothing, fills the gaps, and makes it impossible for a month's average to
+   disagree with the days printed above it. */
+
+let FX_DA_YEAR = null;        // null = not yet chosen; resolves to the current year
+let FX_DA_SRC  = 'gas';       // drives the CHART only — the table always shows both
+let FX_DA_OPEN = null;        // Set of 'YYYY-MM' month keys expanded in the table
+
+const FX_DA_UNIT = { gas: 'p/th', power: '£/MWh' };
+const FX_DA_NAME = { gas: 'Gas',  power: 'Power' };
+
+// Both series as one map keyed by date, so a day missing from one fuel is a blank cell
+// rather than a missing row. Power normally runs a day or two behind gas.
+function fxDaMerged(){
+  const out = {};
+  for (const c of ['gas', 'power'])
+    for (const r of ((DATA.da && DATA.da[c]) || [])) (out[r.d] = out[r.d] || {})[c] = r.p;
+  return out;
+}
+
+function fxDaYears(){
+  const ys = new Set();
+  for (const c of ['gas', 'power'])
+    for (const r of ((DATA.da && DATA.da[c]) || [])) ys.add(+r.d.slice(0, 4));
+  return [...ys].sort((a, b) => b - a);
+}
+
+/* The year defaults to the CLOCK's year, not to the latest reading's, and is clamped
+   to a year the data actually has. On 1 January the tab therefore moves to the new
+   year on its own, which is the behaviour asked for — but if nothing has been entered
+   yet it falls back to the newest year present rather than showing an empty table. */
+function fxDaYear(){
+  const ys = fxDaYears();
+  if (!ys.length) return null;
+  if (FX_DA_YEAR != null && ys.includes(FX_DA_YEAR)) return FX_DA_YEAR;
+  const now = new Date().getFullYear();
+  return ys.includes(now) ? now : ys[0];
+}
+
+function fxDaMean(a){ return a.length ? a.reduce((x, y) => x + y, 0) / a.length : null; }
+
+/* The four card figures for one fuel. "Last 30" is the last 30 READINGS, Daniel's
+   choice — with no gaps in the history the two readings of that are identical today,
+   and counting readings keeps the window meaningful if a day is ever missed. */
+function fxDaStats(c){
+  const rows = (DATA.da && DATA.da[c]) || [];
+  if (!rows.length) return null;
+  const last = rows[rows.length - 1];
+  const mk = last.d.slice(0, 7);
+  const cur = rows.filter(r => r.d.slice(0, 7) === mk).map(r => r.p);
+  const win = rows.slice(-30).map(r => r.p);
+  return {
+    all:    fxDaMean(rows.map(r => r.p)),
+    allN:   rows.length,
+    month:  fxDaMean(cur),
+    monthK: mk,
+    monthN: cur.length,
+    d30:    fxDaMean(win),
+    d30N:   win.length,
+    latest: last.p,
+    latestD: last.d
+  };
+}
+
+function fxDaFmtDate(iso){
+  const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return iso.slice(8, 10) + ' ' + M[+iso.slice(5, 7) - 1] + ' ' + iso.slice(2, 4);
+}
+function fxDaFmtMonth(mk){
+  const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return M[+mk.slice(5, 7) - 1] + '-' + mk.slice(2, 4);
+}
+// Prices carry up to 5 decimals in the source; 2 is what the desk reads by.
+function fxDaFmt(v){ return v == null ? '' : (+v).toFixed(2); }
+
+function fxDaCard(label, pick, sub){
+  const g = fxDaStats('gas'), p = fxDaStats('power');
+  const half = (st, c) => {
+    const v = st ? pick(st) : null;
+    return '<div class="half"><div class="fuel">' + FX_DA_NAME[c] + '</div>'
+      + '<div class="fig">' + (v == null ? '&mdash;' : fxDaFmt(v))
+      + ' <span class="unit">' + escape(FX_DA_UNIT[c]) + '</span></div>'
+      + '<div class="sub">' + (st ? escape(sub(st)) : '') + '</div></div>';
+  };
+  return '<div class="fx-da-card"><div class="lbl">' + escape(label) + '</div>'
+    + '<div class="pair">' + half(g, 'gas') + half(p, 'power') + '</div></div>';
+}
+
+function fxDaCards(){
+  return '<div class="stats-row" style="margin-bottom:14px">'
+    + fxDaCard('Average, all data',  st => st.all,   st => st.allN + ' days')
+    + fxDaCard('This month to date', st => st.month, st => fxDaFmtMonth(st.monthK) + ' · ' + st.monthN + ' days')
+    + fxDaCard('Last 30 readings',   st => st.d30,   st => st.d30N + ' days')
+    + fxDaCard('Latest reading',     st => st.latest, st => fxDaFmtDate(st.latestD))
+    + '</div>';
+}
+
+function fxRenderDayAhead(){
+  const el = document.getElementById('main-tab-dayahead'); if (!el) return;
+  if (el.dataset.rendered) return; el.dataset.rendered = '1';
+  const years = fxDaYears(), yr = fxDaYear();
+
+  if (!years.length){
+    el.innerHTML = '<div class="extra-tab-inner">'
+      + '<div class="overview-header" style="margin-bottom:12px"><div class="overview-title">Day Ahead</div>'
+      + '<div class="overview-sub">Daily cash-out prices</div></div>'
+      + '<div class="no-targets">No day-ahead prices yet. '
+      + (EDIT ? 'Use <b>+ Add a day</b> or <b>Import</b> to load them.'
+              : 'Turn on Edit to add them.') + '</div>'
+      + (EDIT ? '<div class="fx-toolbar" style="margin-top:12px">'
+          + '<button class="fx-btn green" onclick="fxDaAddModal()">+ Add a day</button>'
+          + '<button class="fx-btn" onclick="fxDaImport()">&#8679; Import</button></div>' : '')
+      + '</div>';
+    return;
+  }
+
+  const yearSel = '<select onchange="fxDaSetYear(this.value)" style="padding:5px 8px;font-size:12.5px">'
+    + years.map(y => '<option value="' + y + '"' + (y === yr ? ' selected' : '') + '>' + y + '</option>').join('')
+    + '</select>';
+  const seg = '<span class="fx-da-seg" role="group" aria-label="Chart series">'
+    + ['gas', 'power'].map(c => '<button type="button" aria-pressed="' + (FX_DA_SRC === c) + '"'
+        + ' onclick="fxDaSetSrc(\'' + c + '\')">' + FX_DA_NAME[c] + '</button>').join('')
+    + '</span>';
+
+  el.innerHTML = '<div class="extra-tab-inner">'
+    + '<div class="overview-header" style="margin-bottom:12px">'
+    +   '<div class="overview-title">Day Ahead</div>'
+    +   '<div class="overview-sub">Daily cash-out prices · gas in p/th, power in £/MWh</div></div>'
+    + fxDaCards()
+    + '<div class="fx-toolbar" style="margin:0 0 12px;flex-wrap:wrap;gap:8px;align-items:center">'
+    +   '<label style="margin:0;font-size:12.5px">Year</label>' + yearSel
+    +   '<label style="margin:0 0 0 6px;font-size:12.5px">Chart</label>' + seg
+    +   '<button class="fx-btn" onclick="fxDaOpenAll(true)">Expand all</button>'
+    +   '<button class="fx-btn" onclick="fxDaOpenAll(false)">Collapse all</button>'
+    +   (EDIT ? '<button class="fx-btn green" onclick="fxDaAddModal()">+ Add a day</button>'
+             + '<button class="fx-btn" onclick="fxDaImport()" title="Paste or upload a block of dates and prices">&#8679; Import</button>' : '')
+    +   '<button class="fx-btn" onclick="fxDaExport()" title="Download every reading as an Excel workbook">&#8681; Export</button>'
+    +   '<span style="font-size:11px;color:#6b7280">Click a month to open it'
+    +     (EDIT ? ' · click a price to edit' : '') + '</span>'
+    + '</div>'
+    + '<div class="fx-da-chart"><canvas id="fxDaChart"></canvas></div>'
+    + '<div id="fxDaBody"></div></div>';
+
+  fxDaPaint();
+}
+
+function fxDaSetYear(v){ FX_DA_YEAR = +v; FX_DA_OPEN = null; fxDaRepaint(); }
+function fxDaSetSrc(c){ FX_DA_SRC = (c === 'power' ? 'power' : 'gas'); fxDaRepaint(); }
+function fxDaOpenAll(open){
+  const yr = fxDaYear(); if (yr == null) return;
+  FX_DA_OPEN = new Set(open ? fxDaMonthsOf(yr) : []);
+  fxDaPaint();
+}
+// The tab guards on dataset.rendered like NEC and Admin, so a repaint has to clear it.
+function fxDaRepaint(){
+  const el = document.getElementById('main-tab-dayahead'); if (!el) return;
+  delete el.dataset.rendered; fxRenderDayAhead();
+}
+
+function fxDaMonthsOf(yr){
+  const merged = fxDaMerged();
+  return [...new Set(Object.keys(merged).filter(d => +d.slice(0, 4) === yr).map(d => d.slice(0, 7)))]
+    .sort((a, b) => a < b ? 1 : -1);          // newest month first
+}
+
+function fxDaPaint(){
+  const host = document.getElementById('fxDaBody'); if (!host) return;
+  const yr = fxDaYear(); if (yr == null) return;
+  const merged = fxDaMerged();
+  const months = fxDaMonthsOf(yr);
+
+  /* Default: the current month open, everything else folded. Falls back to the newest
+     month in view when the clock's month is not in the chosen year, so switching to an
+     old year still shows something rather than twelve closed rows. */
+  if (FX_DA_OPEN == null){
+    const nowK = new Date().toISOString().slice(0, 7);
+    FX_DA_OPEN = new Set([months.includes(nowK) ? nowK : (months[0] || '')]);
+  }
+
+  let rows = '';
+  for (const mk of months){
+    const days = Object.keys(merged).filter(d => d.slice(0, 7) === mk).sort((a, b) => a < b ? 1 : -1);
+    const g = days.map(d => merged[d].gas).filter(v => v != null);
+    const p = days.map(d => merged[d].power).filter(v => v != null);
+    const open = FX_DA_OPEN.has(mk);
+    rows += '<tr class="fx-da-mrow" data-mk="' + mk + '">'
+      + '<td><span class="caret">' + (open ? '▾' : '▸') + '</span> ' + fxDaFmtMonth(mk)
+      +   ' <span class="n">avg of ' + g.length + ' / ' + p.length + '</span></td>'
+      + '<td>' + (g.length ? fxDaFmt(fxDaMean(g)) : '—') + '</td>'
+      + '<td>' + (p.length ? fxDaFmt(fxDaMean(p)) : '—') + '</td></tr>';
+    if (!open) continue;
+    for (const d of days){
+      const r = merged[d];
+      const cell = (c) => {
+        const v = r[c];
+        if (v == null) return '<td class="fx-da-miss">—</td>';
+        return '<td' + (EDIT ? ' class="fx-editable fx-da-cell" data-d="' + d + '" data-c="' + c
+                 + '" title="Click to edit"' : '') + '>' + fxDaFmt(v) + '</td>';
+      };
+      rows += '<tr class="fx-da-day"><td>' + fxDaFmtDate(d) + '</td>' + cell('gas') + cell('power') + '</tr>';
+    }
+  }
+
+  host.innerHTML = '<div class="fx-da-wrap"><table class="fx-da-table">'
+    + '<thead><tr><th>Date</th><th>Gas (p/th)</th><th>Power (£/MWh)</th></tr></thead>'
+    + '<tbody>' + (rows || '<tr><td colspan="3">No readings in ' + yr + '.</td></tr>') + '</tbody>'
+    + '</table></div>';
+
+  /* Wired here rather than with an onclick attribute. The attribute is HTML-decoded
+     before it parses as JS, which is how a value with an apostrophe escapes its own
+     string — the same reason renderTargets wires its buttons in JS. */
+  host.querySelectorAll('.fx-da-mrow').forEach(tr => {
+    tr.onclick = () => fxDaToggle(tr.dataset.mk);
+  });
+
+  if (EDIT) host.querySelectorAll('.fx-da-cell').forEach(td => {
+    td.onclick = () => {
+      if (td.querySelector('input')) return;
+      const d = td.dataset.d, c = td.dataset.c, cur = merged[d] ? merged[d][c] : null;
+      fxCellInput(td, cur, v => fxDaSaveCell(c, d, v));
+    };
+  });
+
+  fxDaChart(yr);
+}
+
+function fxDaToggle(mk){
+  if (FX_DA_OPEN == null) FX_DA_OPEN = new Set();
+  if (FX_DA_OPEN.has(mk)) FX_DA_OPEN.delete(mk); else FX_DA_OPEN.add(mk);
+  fxDaPaint();
+}
+
+/* One series, following the toggle. Gas is p/th and power is £/MWh, so putting both on
+   one axis would invite a comparison that means nothing — the toggle exists for that
+   reason rather than to save space. */
+function fxDaChart(yr){
+  const cv = document.getElementById('fxDaChart'); if (!cv || typeof Chart === 'undefined') return;
+  try { if (activeCharts.dayahead) activeCharts.dayahead.destroy(); } catch(e){}
+  const c = FX_DA_SRC;
+  const rows = ((DATA.da && DATA.da[c]) || []).filter(r => +r.d.slice(0, 4) === yr);
+  const colour = c === 'gas' ? '#424378' : '#AAC91F';
+  activeCharts.dayahead = new Chart(cv.getContext('2d'), {
+    type: 'line',
+    data: { labels: rows.map(r => fxDaFmtDate(r.d)),
+      datasets: [{ label: FX_DA_NAME[c] + ' (' + FX_DA_UNIT[c] + ')', data: rows.map(r => r.p),
+        borderColor: colour, backgroundColor: colour, borderWidth: 1.8,
+        pointRadius: 0, pointHitRadius: 8, tension: 0.12, fill: false }] },
+    options: { responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: true, labels: { boxWidth: 12, font: { size: 11 } } },
+        tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(2) + ' ' + FX_DA_UNIT[c] } } },
+      scales: {
+        // One label per fortnight or so — a tick per day is unreadable at any width.
+        x: { ticks: { maxTicksLimit: 14, font: { size: 10 }, color: '#6b7280' },
+             grid: { color: 'rgba(66,67,120,0.07)' } },
+        y: { ticks: { font: { size: 10 }, color: '#6b7280' },
+             grid: { color: 'rgba(66,67,120,0.12)' },
+             title: { display: true, text: FX_DA_UNIT[c], font: { size: 10 }, color: '#6b7280' } } } }
+  });
+}
+
+/* ── writing ──────────────────────────────────────────────────────────────────
+   Day-ahead readings are NOT staged behind Apply/Discard like the basket grids. A
+   reading is one independent fact typed once a day, not a cell whose value changes
+   every other figure on the tab, and the staging pattern exists for the latter. An
+   edit here writes immediately and says so. */
+async function fxDaSaveCell(commodity, d, v){
+  if (v == null){
+    // Clearing a cell deletes that fuel's reading for the day rather than storing a
+    // zero — zero is a real price here, and 21 power readings are under £20.
+    if (!confirm('Remove the ' + FX_DA_NAME[commodity] + ' reading for ' + fxDaFmtDate(d) + '?')){
+      fxDaRepaint(); return;
+    }
+    await fxWrite(FLEX.sb.from('flex_da_prices').delete()
+      .eq('commodity', commodity).eq('price_date', d),
+      FX_DA_NAME[commodity] + ' ' + fxDaFmtDate(d) + ' removed', ['flex_da_prices']);
+    return;
+  }
+  const bad = fxDaBadPrice(v);
+  if (bad){ fxToast(bad, false); fxDaRepaint(); return; }
+  await fxWrite(FLEX.sb.from('flex_da_prices').upsert(
+      { commodity: commodity, price_date: d, price: v, updated_by: FLEX.user,
+        updated_at: new Date().toISOString() }, { onConflict: 'commodity,price_date' }),
+    FX_DA_NAME[commodity] + ' ' + fxDaFmtDate(d) + ' saved', ['flex_da_prices']);
+}
+
+// The table's CHECK constraints in words, so the message arrives before the round trip.
+function fxDaBadPrice(v){
+  if (v == null || isNaN(v)) return 'That is not a number';
+  if (v < 0) return 'A cash-out price is not negative here';
+  if (v >= 10000) return 'That looks like a typo — over 10,000';
+  return null;
+}
+function fxDaBadDate(d){
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d || '')) return 'Pick a date';
+  const t = new Date(); t.setDate(t.getDate() + 1);
+  if (d > t.toISOString().slice(0, 10)) return 'That date is in the future';
+  if (d < '2022-01-01') return 'Before the series starts (24 Feb 2022)';
+  return null;
+}
+
+/* The day you are about to type. The LATEST date when it is still missing a fuel —
+   power usually lands a day or two after gas, so that is the common case — and
+   otherwise the day after it.
+
+   Deliberately NOT the first gap anywhere in the history. An old day one fuel never
+   had would sit there as the suggested date for ever, dragging the box back years
+   every time it opened. Historical gaps are filled through Import or by typing the
+   date, both of which take any day. */
+function fxDaNextDate(){
+  const merged = fxDaMerged(), ks = Object.keys(merged).sort();
+  if (!ks.length) return new Date().toISOString().slice(0, 10);
+  const last = ks[ks.length - 1];
+  if (merged[last].gas == null || merged[last].power == null) return last;
+  const d = new Date(last + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function fxDaAddModal(){
+  if (!EDIT) return fxToast('Turn on Edit first', false);
+  const d = fxDaNextDate(), merged = fxDaMerged(), have = merged[d] || {};
+  fxModal('<h3>Add a day — Day Ahead</h3>'
+    + '<div style="font-size:12px;color:#4b5563;margin:-8px 0 12px">The date is the first day still '
+    + 'missing a reading. Leave a price blank to skip that fuel — power often lands a day or '
+    + 'two after gas, and you can come back for it.</div>'
+    + '<div class="fx-grid">'
+    +   '<div class="fx-field"><label>Date</label><input id="fDA_d" type="date" value="' + d + '"></div>'
+    +   '<div class="fx-field"><label>Gas (p/th)</label><input id="fDA_g" inputmode="decimal" value="'
+    +     (have.gas != null ? have.gas : '') + '"></div>'
+    +   '<div class="fx-field"><label>Power (£/MWh)</label><input id="fDA_p" inputmode="decimal" value="'
+    +     (have.power != null ? have.power : '') + '"></div>'
+    + '</div>'
+    + '<div class="fx-err" id="fxMErr"></div>'
+    + '<div class="fx-modal-foot"><button class="fx-btn" onclick="fxCloseModal()">Cancel</button>'
+    + '<button class="fx-btn green" onclick="fxDaAddSave()">Save</button></div>');
+  setTimeout(() => { const g = document.getElementById('fDA_g'); if (g) g.focus(); }, 30);
+}
+
+async function fxDaAddSave(){
+  const d = (document.getElementById('fDA_d') || {}).value || '';
+  const dBad = fxDaBadDate(d); if (dBad) return fxMErr(dBad);
+  const rows = [];
+  for (const [id, c] of [['fDA_g', 'gas'], ['fDA_p', 'power']]){
+    const raw = ((document.getElementById(id) || {}).value || '').trim();
+    if (raw === '') continue;
+    const v = fxNum(raw);
+    const bad = fxDaBadPrice(v);
+    if (bad) return fxMErr(FX_DA_NAME[c] + ': ' + bad);
+    rows.push({ commodity: c, price_date: d, price: v, updated_by: FLEX.user,
+                updated_at: new Date().toISOString() });
+  }
+  if (!rows.length) return fxMErr('Enter at least one price.');
+  const { error } = await FLEX.sb.from('flex_da_prices')
+    .upsert(rows, { onConflict: 'commodity,price_date' });
+  if (error) return fxMErr(error.message);
+  fxToast(rows.length + ' reading' + (rows.length === 1 ? '' : 's') + ' saved for ' + fxDaFmtDate(d));
+  fxCloseModal();
+  fxScheduleReload(['flex_da_prices']);
+}
+
+/* ── import ───────────────────────────────────────────────────────────────────
+   Takes the source workbook as it stands (a Gas sheet and a Power sheet, Date in the
+   second column and the price in the third) and also a plain paste of
+   date<TAB>gas<TAB>power. Shows every change before writing, like the Targets import
+   — months not in the file are untouched. */
+function fxDaImport(){
+  if (!EDIT) return fxToast('Turn on Edit first', false);
+  fxModal('<h3>Import day-ahead prices</h3>'
+    + '<div style="font-size:12px;color:#4b5563;margin:-8px 0 12px">Upload the cash-out workbook '
+    + '(a <b>Gas</b> sheet and a <b>Power</b> sheet, dates in one column and prices in the next), '
+    + 'or paste rows of <b>date, gas, power</b> — tab or comma separated, one day per line. '
+    + 'Everything is shown for checking before anything is written.</div>'
+    + '<div class="fx-field"><label>Workbook</label><input id="fDA_file" type="file" accept=".xlsx,.xls"></div>'
+    + '<div class="fx-field" style="margin-top:9px"><label>… or paste</label>'
+    + '<textarea id="fDA_paste" rows="7" style="width:100%;font-family:var(--font-mono);font-size:12px"'
+    + ' placeholder="2026-10-13&#9;191.20&#9;58.40"></textarea></div>'
+    + '<div class="fx-err" id="fxMErr"></div>'
+    + '<div class="fx-modal-foot"><button class="fx-btn" onclick="fxCloseModal()">Cancel</button>'
+    + '<button class="fx-btn" onclick="fxDaImportParse()">Check it</button></div>');
+  const f = document.getElementById('fDA_file');
+  if (f) f.onchange = () => fxDaImportParse();
+}
+
+// Excel serial, a real Date, or text. Returns YYYY-MM-DD or null.
+function fxDaParseDate(v){
+  if (v == null || v === '') return null;
+  if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v))
+    return new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate())).toISOString().slice(0, 10);
+  if (typeof v === 'number' && v > 20000 && v < 80000){
+    // Excel's day 0 is 30 Dec 1899; the 1900 leap-year bug is already in that offset.
+    const ms = Math.round((v - 25569) * 86400000);
+    return new Date(ms).toISOString().slice(0, 10);
+  }
+  const t = String(v).trim();
+  let m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return m[1] + '-' + m[2] + '-' + m[3];
+  // dd/mm/yyyy — British order, deliberately not American. A typed date is the one
+  // place this could silently land a month out, which is why the preview shows it back
+  // written long before anything is saved.
+  m = t.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
+  if (m){
+    let y = +m[3]; if (y < 100) y += 2000;
+    const mo = String(+m[2]).padStart(2, '0'), da = String(+m[1]).padStart(2, '0');
+    if (+m[2] >= 1 && +m[2] <= 12 && +m[1] >= 1 && +m[1] <= 31) return y + '-' + mo + '-' + da;
+  }
+  return null;
+}
+
+async function fxDaImportParse(){
+  const merged = fxDaMerged();
+  const found = {};                       // 'gas|2026-10-13' -> price
+  const errs = [];
+  const add = (c, d, raw) => {
+    if (raw == null || raw === '') return;
+    const v = fxNum(raw);
+    const bad = (v == null) ? 'not a number' : fxDaBadPrice(v);
+    const dBad = fxDaBadDate(d);
+    if (dBad){ errs.push(fxDaFmtDate(d) + ': ' + dBad); return; }
+    if (bad){ errs.push(FX_DA_NAME[c] + ' ' + fxDaFmtDate(d) + ': ' + bad); return; }
+    found[c + '|' + d] = v;
+  };
+
+  const f = document.getElementById('fDA_file');
+  const file = f && f.files && f.files[0];
+  if (file){
+    if (typeof XLSX === 'undefined') return fxMErr('Excel engine not loaded — reload the page');
+    let wb;
+    try { wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true }); }
+    catch(e){ return fxMErr('Could not read that file'); }
+    for (const c of ['gas', 'power']){
+      const name = wb.SheetNames.find(n => n.trim().toLowerCase() === c);
+      if (!name){ errs.push('No "' + FX_DA_NAME[c] + '" sheet in that workbook'); continue; }
+      const grid = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: null });
+      /* The columns are found by looking for the first row whose cells parse as a date
+         and a number, rather than by position — the source workbook has its headings on
+         row 2 and its data in columns B and C, and that is a layout nobody promised to
+         keep. Anything above the first such row is ignored, headings included. */
+      let dc = -1, pc = -1;
+      for (const row of grid){
+        if (!row) continue;
+        for (let i = 0; i < row.length - 1; i++){
+          if (fxDaParseDate(row[i]) && fxNum(row[i + 1]) != null){ dc = i; pc = i + 1; break; }
+        }
+        if (dc >= 0) break;
+      }
+      if (dc < 0){ errs.push('Could not find a date and a price on the ' + FX_DA_NAME[c] + ' sheet'); continue; }
+      for (const row of grid){
+        if (!row) continue;
+        const d = fxDaParseDate(row[dc]);
+        if (d) add(c, d, row[pc]);
+      }
+    }
+  }
+
+  const txt = ((document.getElementById('fDA_paste') || {}).value || '').trim();
+  if (txt) for (const line of txt.split(/\r?\n/)){
+    const cells = line.split(/\t|,|;/).map(x => x.trim()).filter((x, i) => i < 3);
+    if (!cells.length) continue;
+    const d = fxDaParseDate(cells[0]);
+    if (!d){ if (line.trim()) errs.push('Not a date: "' + line.trim().slice(0, 28) + '"'); continue; }
+    add('gas', d, cells[1]); add('power', d, cells[2]);
+  }
+
+  const keys = Object.keys(found);
+  if (!keys.length)
+    return fxMErr(errs.length ? errs.slice(0, 3).join(' · ') : 'Nothing readable in that file or paste.');
+
+  // Only the genuine changes. A round trip of the same file applies nothing.
+  const changes = [];
+  for (const k of keys){
+    const [c, d] = k.split('|');
+    const cur = (merged[d] && merged[d][c] != null) ? +merged[d][c] : null;
+    if (cur !== found[k]) changes.push({ c: c, d: d, from: cur, to: found[k] });
+  }
+  changes.sort((a, b) => a.d < b.d ? -1 : a.d > b.d ? 1 : (a.c < b.c ? -1 : 1));
+  window._fxDaImport = changes;
+
+  if (!changes.length)
+    return fxMErr(keys.length + ' reading(s) read, and every one already matches. Nothing to do.');
+
+  const nNew = changes.filter(x => x.from == null).length;
+  fxModal('<h3>Import day-ahead prices</h3>'
+    + '<p style="font-size:12.5px;color:#4b5563">' + changes.length + ' change'
+    + (changes.length === 1 ? '' : 's') + ' from ' + keys.length + ' reading'
+    + (keys.length === 1 ? '' : 's') + ' read · ' + nNew + ' new, '
+    + (changes.length - nNew) + ' replacing a figure already stored. '
+    + 'Days not in the file are untouched.</p>'
+    + (errs.length ? '<div class="fx-err" style="display:block">' + errs.length + ' skipped: '
+        + escape(errs.slice(0, 3).join(' · ')) + (errs.length > 3 ? ' …' : '') + '</div>' : '')
+    + '<div class="fx-preview" style="max-height:320px"><table class="fx-tt-table">'
+    + '<thead><tr><th>Date</th><th>Fuel</th><th class="td-right">Stored</th><th class="td-right">New</th></tr></thead><tbody>'
+    + changes.slice(0, 400).map(x => '<tr><td>' + fxDaFmtDate(x.d) + '</td><td>' + FX_DA_NAME[x.c] + '</td>'
+        + '<td class="td-right">' + (x.from == null ? '<span style="color:#c8cdd8">&mdash;</span>' : fxDaFmt(x.from)) + '</td>'
+        + '<td class="td-right"><b>' + fxDaFmt(x.to) + '</b></td></tr>').join('')
+    + '</tbody></table></div>'
+    + (changes.length > 400 ? '<div style="font-size:11.5px;color:#6b7280;margin-top:6px">Showing the first 400 of '
+        + changes.length + '. All of them will be written.</div>' : '')
+    + '<div class="fx-err" id="fxMErr"></div>'
+    + '<div class="fx-modal-foot"><button class="fx-btn" onclick="fxCloseModal()">Cancel</button>'
+    + '<button class="fx-btn green" onclick="fxDaImportCommit()">Write ' + changes.length + ' reading'
+    + (changes.length === 1 ? '' : 's') + '</button></div>');
+}
+
+async function fxDaImportCommit(){
+  const changes = window._fxDaImport; if (!changes || !changes.length) return;
+  const rows = changes.map(x => ({ commodity: x.c, price_date: x.d, price: x.to,
+    updated_by: FLEX.user, updated_at: new Date().toISOString() }));
+  // Chunked: a 3,000-row upsert in one request is a long way past what the API likes,
+  // and a first load through this path is exactly that size.
+  for (let i = 0; i < rows.length; i += 500){
+    const { error } = await FLEX.sb.from('flex_da_prices')
+      .upsert(rows.slice(i, i + 500), { onConflict: 'commodity,price_date' });
+    if (error) return fxMErr(error.message);
+  }
+  fxToast(rows.length + ' reading' + (rows.length === 1 ? '' : 's') + ' written');
+  window._fxDaImport = null;
+  fxCloseModal();
+  fxScheduleReload(['flex_da_prices']);
+}
+
+/* ── export ───────────────────────────────────────────────────────────────────
+   Deliberately the same shape as the source workbook — a Gas sheet and a Power sheet,
+   Date then price — so the file this produces imports straight back through the button
+   above. The monthly averages get a sheet of their own rather than being scattered down
+   the margin as they were in the original. */
+async function fxDaExport(){
+  if (typeof ExcelJS === 'undefined') return fxToast('Excel engine not loaded — reload the page', false);
+  const wb = new ExcelJS.Workbook();
+  const NAVY = 'FF1F2D4D';
+  const head = (ws, cols) => {
+    ws.getRow(1).values = cols.map(c => c[0]);
+    ws.columns = cols.map(c => ({ width: c[1] }));
+    const r = ws.getRow(1);
+    r.font = { bold: true, color: { argb: 'FFFFFFFF' }, name: 'Arial', size: 10 };
+    r.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+    r.height = 20;
+  };
+  for (const c of ['gas', 'power']){
+    const ws = wb.addWorksheet(FX_DA_NAME[c]);
+    head(ws, [['Date', 14], ['Day Ahead Cash Out Price (' + FX_DA_UNIT[c] + ')', 34]]);
+    for (const r of ((DATA.da && DATA.da[c]) || [])){
+      // Midday UTC, never local midnight: ExcelJS converts to UTC on write, so a local
+      // midnight under BST lands at 23:00 the day before and every date reads one out.
+      const row = ws.addRow([new Date(r.d + 'T12:00:00Z'), r.p]);
+      row.getCell(1).numFmt = 'dd/mm/yyyy';
+      row.getCell(2).numFmt = '0.####';
+    }
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+  }
+  const ws = wb.addWorksheet('Monthly averages');
+  head(ws, [['Month', 12], ['Gas (p/th)', 14], ['Gas days', 11],
+            ['Power (£/MWh)', 16], ['Power days', 12]]);
+  const merged = fxDaMerged();
+  const mks = [...new Set(Object.keys(merged).map(d => d.slice(0, 7)))].sort();
+  for (const mk of mks){
+    const days = Object.keys(merged).filter(d => d.slice(0, 7) === mk);
+    const g = days.map(d => merged[d].gas).filter(v => v != null);
+    const p = days.map(d => merged[d].power).filter(v => v != null);
+    const row = ws.addRow([fxDaFmtMonth(mk), g.length ? fxDaMean(g) : null, g.length,
+                                             p.length ? fxDaMean(p) : null, p.length]);
+    row.getCell(2).numFmt = '0.0000'; row.getCell(4).numFmt = '0.0000';
+  }
+  ws.views = [{ state: 'frozen', ySplit: 1 }];
+
+  const buf = await wb.xlsx.writeBuffer();
+  const url = URL.createObjectURL(new Blob([buf],
+    { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = 'Day Ahead Cash Out Prices - ' + TODAY + '.xlsx';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  fxToast('Workbook downloaded');
+}
+
 // ── CHARTS ────────────────────────────────────────────────────────
 let activeCharts = {};
 
@@ -3828,6 +4461,7 @@ function switchMainTab(tabId) {
     p.classList.toggle('active', p.id === 'main-tab-' + tabId);
   });
   if (tabId === 'curves')   renderCurves();
+  if (tabId === 'dayahead') fxRenderDayAhead();
   if (tabId === 'admin')    renderAdmin();
   if (tabId === 'contacts') renderContacts();
   if (tabId === 'orders')   renderOrders();
@@ -4224,13 +4858,13 @@ function _fxRerenderBody(){
   } else {
     renderOverview();
   }
-  ['curves','admin','contacts','orders','notes','necs','archive','clientreports'].forEach(t=>{
+  ['curves','dayahead','admin','contacts','orders','notes','necs','archive','clientreports'].forEach(t=>{
     const el=document.getElementById('main-tab-'+t);
     if(!el) return;
     delete el.dataset.rendered; 
     if(el.classList.contains('active')){
       el.innerHTML='';
-      ({curves:renderCurves,admin:renderAdmin,contacts:renderContacts,orders:renderOrders,notes:fxRenderNotes,necs:renderNecs,archive:fxRenderArchive,clientreports:fxRenderClientReports})[t]();
+      ({curves:renderCurves,dayahead:fxRenderDayAhead,admin:renderAdmin,contacts:renderContacts,orders:renderOrders,notes:fxRenderNotes,necs:renderNecs,archive:fxRenderArchive,clientreports:fxRenderClientReports})[t]();
     } else { el.innerHTML=''; }
   });
   fxDecorateHeader();
