@@ -2891,7 +2891,32 @@ function fxTargetScenario(basket, m, necMap, trades){
   // unit, so the pounds-versus-pence problem that used to bite gas baskets here cannot
   // arise — there is no longer a £ cost in the sum. (fxCostToPrice still guards the
   // Seasons tab and the Positions total, which do divide a £ cost by a volume.)
-  let addTot = 0, addCost = 0, running = 0;
+  /* ROUND 39 — A BLANK TARGET COLUMN DOES NOT SWALLOW ITS RUNG.
+     The ladder is cumulative. A season that prices T1, T2 and T4 but not T3 still means
+     to reach T4's level, so the volume T3 would have bought carries to T4 rather than
+     falling through to the at-market closer. Until this round it fell through, and
+     CCCH's Nov-26 modelled at 112.95 against a hand-worked 95.95.
+
+     `carry` only ever moves volume between rungs of the SAME ladder:
+       · produced by a target-linked row whose column is blank this month, and only when
+         that row states a quantity of its own (percent / volume). An 'open' or
+         'open_minus' row is defined by what is LEFT, so it has no rung to hand on.
+       · consumed by the next target-linked row that is priced and states a quantity.
+         A manual or at-market row in the middle is not part of the ladder and must not
+         inherit a rung; an 'open' row already claims everything remaining, so adding
+         the carry to it would count the same volume twice.
+       · left unconsumed at the end, which is correct: with no priced rung below it, the
+         volume is simply untargeted and the at-market closer takes it. That is the
+         Apr-27 case — the ladder stops at T4 and the rest goes to market.
+
+     Rows resolve IN ORDER, so the carry follows row order, exactly as "all open volume"
+     already does. A row sitting before the month's first priced column is a column the
+     month was never given (see FlexCore.requiredRaw) and carries nothing. */
+  const _ladderFrom = FlexCore.firstPricedTier(basket, m.month);
+  const _isRung = t => t && t.price_mode === 'target'
+    && (t.amount_type === 'percent' || t.amount_type === 'volume')
+    && _ladderFrom != null && t.price_tier >= _ladderFrom;
+  let addTot = 0, addCost = 0, running = 0, carry = 0;
   for (const t of list){
     const v = fxTTVolTotal(basket, m, t, running, baseTot);
     // An at-market row has no fixed price: it takes THIS month's market price, so one row
@@ -2903,8 +2928,14 @@ function fxTargetScenario(basket, m, necMap, trades){
     // two are the same idea — a price that belongs to the month rather than the row —
     // which is why one row can cover a whole season and still price each month.
     const px = fxTTRowPrice(basket, m, t);
-    if (!(v > 0) || px == null) continue;
-    addTot += v; addCost += v * px; running += v;
+    if (px == null){
+      if (_isRung(t) && v > 0) carry += v;   // blank column: its rung moves down the ladder
+      continue;
+    }
+    const vol = _isRung(t) ? v + carry : v;
+    if (_isRung(t)) carry = 0;
+    if (!(vol > 0)) continue;
+    addTot += vol; addCost += vol * px; running += vol;
   }
   if (!(addTot > 0)) return null;
   const newTot = addTot, newCost = addCost;
@@ -7824,7 +7855,8 @@ function fxTTTierPreview(b, r){
   }
   const lo = Math.min(...priced.map(x => +x.price)), hi = Math.max(...priced.map(x => +x.price));
   const gap = priced.length < span.length
-    ? ` <span style="color:#8a6d1f">(${priced.length} of ${span.length} months priced)</span>` : '';
+    ? ` <span style="color:#8a6d1f">(${priced.length} of ${span.length} months priced &mdash; `
+      + `the rest carry to the next priced column)</span>` : '';
   return lo === hi
     ? `${name} &middot; <b>${lo.toFixed(2)}</b>${gap}`
     : `${name} &middot; <b>${lo.toFixed(2)}&ndash;${hi.toFixed(2)}</b>${gap}`;

@@ -206,24 +206,50 @@
     };
   }
 
+  // The first column this month actually prices, or null for a month that prices none.
+  // WHERE A MONTH'S LADDER STARTS. Both the achieved ticks below and the Targeted WAP
+  // model in flex.html resolve blanks against this, so they cannot disagree about it.
+  function firstPriced(t) {
+    if (!t) return null;
+    for (var k = 1; k <= 8; k++) if (t['lower_t' + k] != null) return k;
+    return null;
+  }
+  function firstPricedTier(basket, monthKey) {
+    return firstPriced(((basket && basket.targets) || []).find(function (x) {
+      return x.month === monthKey;
+    }) || null);
+  }
+
   // Cumulative requirement for column `i` BEFORE the baseload cap.
   //
-  // `t` is the target row for the month under test, and it decides which columns count.
-  // A column that carries no price for THIS month asks nothing of it and is skipped
-  // entirely. Baskets routinely stagger their columns — the first two authorised for
-  // Oct-28 onwards, the next two advisory for the years before it — and billing a month
-  // for rungs it was never given is how a 100 th/d ladder came to demand 300 th/d in the
-  // first column a month actually uses. Each column keeps its own rule; blank columns
-  // contribute nothing. Omit `t` and the old month-agnostic sum is returned, which is
-  // what a caller asking "what would this column ask of a full row" wants.
+  // `t` is the target row for the month under test, and it decides where the ladder
+  // starts. THE LADDER IS CUMULATIVE: "up to 80% of baseload" is a level the position
+  // reaches by that column, not an increment bolted onto whatever sits priced below it.
+  //
+  // Two kinds of blank, and they mean different things (round 39):
+  //
+  //   LEADING  — the month prices nothing until column 3. Columns 1 and 2 were never
+  //              asked of it. Baskets routinely stagger like this: the first two
+  //              authorised for Oct-28 onwards, the next two advisory for the years
+  //              before. Billing a month for rungs it was never given is how a 100 th/d
+  //              ladder came to demand 300 th/d in the first column a month uses, so
+  //              the sum starts at the first priced column.
+  //   INTERIOR — the month prices 1, 2 and 4 but not 3. That is a rung inside a ladder
+  //              the month is already climbing: the volume T3 would have bought is
+  //              still intended, so it COUNTS and lands on T4. Until round 39 it was
+  //              dropped, and CCCH's Nov-26 T4 asked 55% of baseload instead of 75%.
+  //
+  // Each column keeps its own rule. Omit `t` and the month-agnostic sum from column 1
+  // is returned, which is what a caller asking "what would this column ask of a full
+  // row" wants.
   function requiredRaw(basket, i, base, t) {
     if (targetRule(basket, i).type === 'none') return null;
     if (t && t['lower_t' + i] == null) return null;
+    var from = t ? (firstPriced(t) || 1) : 1;
     var cum = 0;
-    for (var n = 1; n <= i; n++) {
+    for (var n = from; n <= i; n++) {
       var r = targetRule(basket, n);
       if (r.type === 'none') continue;
-      if (t && t['lower_t' + n] == null) continue;
       if (r.type === 'volume') {
         if (r.amount == null) return null;
         cum += r.amount;
@@ -1094,6 +1120,7 @@
     necMap: necMap, deliveredRate: deliveredRate,
     energyKwh: energyKwh, securedKwh: securedKwh, openKwh: openKwh, toKwh: toKwh,
     deliveredCost: deliveredCost, THERM_KWH: THERM_KWH,
+    firstPricedTier: firstPricedTier,
     stats: stats, positionsTotals: positionsTotals, seasonGroups: seasonGroups,
     // targets
     tierCount: tierCount, targetRule: targetRule, requiredRaw: requiredRaw,
@@ -1113,6 +1140,6 @@
     // BUMP THIS on every change to this file. It is how anyone tells which build a
     // browser actually has — the desk shows it, and it is the first thing to check when
     // the two portals disagree or a change appears not to have landed.
-    VERSION: '2026-10-05'
+    VERSION: '2026-10-12'
   };
 })(typeof window !== 'undefined' ? window : globalThis);
