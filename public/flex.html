@@ -1893,7 +1893,7 @@ button{transition:all .14s ease}
     <a class="fl-back" href="/">&larr; Back to the CES billing portal</a>
   </div>
 </div>
-<div id="fxModalWrap" onclick="if(event.target===this)fxCloseModal()"><div id="fxModal"></div></div>
+<div id="fxModalWrap"><div id="fxModal"></div></div>
 <div id="fxDrawer"><div class="hd"><span>&#128203; Live edit log</span><button onclick="fxToggleDrawer()">&#10005;</button></div><div class="bd" id="fxLogBody"></div></div>
 <div id="fxCursors"></div>
 
@@ -4446,6 +4446,14 @@ function renderGraphs(basket) {
 
 // ── DETAIL ────────────────────────────────────────────────────────
 function selectBasket(id) {
+  /* Round 42. Anything staged and not applied belongs to the basket you are leaving, and
+     goes back the way it was — the figures as well as the buffer. One toast covers both
+     tabs so switching away from a basket with edits on each does not fire two. */
+  if (id !== selectedId){
+    const _n = fxRevertPosBuf(true) + fxRevertTgtBuf(true);
+    if (_n) fxToast(_n + ' staged edit' + (_n > 1 ? 's were' : ' was')
+      + ' not applied, so ' + (_n > 1 ? 'they have' : 'it has') + ' been discarded', false);
+  }
   selectedId = id;
   tradeFilterMonth = '';
   const basket = BASKETS.find(b => b.id === id) || (DATA.archived||[]).find(b => b.id === id);
@@ -5126,7 +5134,9 @@ renderPositions = function(basket){
   _renderPositions(basket);
   if (!EDIT) return;
   const el = document.getElementById('tab-positions'); if(!el) return;
-  if (FX_PBUF_BID !== basket.id){ FX_PBUF = {}; FX_PBUF_ORIG = {}; FX_PBUF_BID = basket.id; }
+  // Backstop. selectBasket reverts on the way out; this catches any other route that
+  // lands the tab on a different basket while something is staged.
+  if (FX_PBUF_BID !== basket.id){ fxRevertPosBuf(); FX_PBUF_BID = basket.id; }
   const _pend = fxPosPending();
   const bar=document.createElement('div'); bar.className='fx-toolbar'; bar.style.marginTop='10px';
   bar.innerHTML=`<button class="fx-btn" onclick="fxExtendModal()">&#8628; Extend months</button>
@@ -5200,13 +5210,63 @@ async function fxSimSetMonth(commodity, monthIso, v){
    and a month edited twice keeps its ORIGINAL original. */
 let FX_PBUF = {}, FX_PBUF_ORIG = {}, FX_PBUF_BID = null;
 
+function fxBasketById(id){
+  return (BASKETS || []).find(b => b.id === id)
+      || ((DATA && DATA.archived) || []).find(b => b.id === id) || null;
+}
+
+/* The derived total, so the tab previews what Apply will actually produce rather than
+   showing a new baseload beside figures still built on the old one.
+
+   This is the view's own arithmetic, restated here. Checked against every row in
+   flex_positions on 13 Oct 2026 — 1,116 gas and 856 power, zero exceptions:
+     gas    baseload_vol_total = baseload_vol × days
+     power  baseload_vol_total = baseload_vol × days × 24      (MW → MWh)
+   Suite 17 pins both, so if the view ever stops agreeing the test says so rather than
+   the preview quietly drifting from the saved result. */
+function fxBaseTotal(basket, m, vol){
+  const d = +(m && m.days) || 0;
+  if (!(d > 0) || vol == null || isNaN(+vol)) return null;
+  return +vol * d * (FlexCore.isPower(basket) ? 24 : 1);
+}
+
+/* ROUND 42. Leaving a basket used to clear both stores, which forgot the ORIGINALS
+   without putting them back — so the typed figure stayed in the month object, looking
+   saved, with no Apply or Discard button left to act on it. Reverting is what clearing
+   was always meant to be. */
+function fxRevertPosBuf(quiet){
+  const n = Object.keys(FX_PBUF).length;
+  const b = FX_PBUF_BID == null ? null : fxBasketById(FX_PBUF_BID);
+  if (b) for (const mo in FX_PBUF_ORIG){
+    const m = (b.months || []).find(x => x.month === mo);
+    if (m) Object.assign(m, FX_PBUF_ORIG[mo]);
+  }
+  FX_PBUF = {}; FX_PBUF_ORIG = {}; FX_PBUF_BID = null;
+  if (n && !quiet) fxToast(n + ' staged month' + (n > 1 ? 's were' : ' was')
+    + ' not applied, so ' + (n > 1 ? 'they have' : 'it has') + ' been discarded', false);
+  return n;
+}
+
 function fxStageMonth(basket, m, field, v){
+  // Claim the buffer here rather than relying on the render to have done it. The render
+  // wrapper returns before its check when EDIT is off, so an unclaimed buffer staged
+  // into would be reverted by the very render this function calls at the end.
+  if (FX_PBUF_BID !== basket.id){ fxRevertPosBuf(true); FX_PBUF_BID = basket.id; }
   FX_PBUF_ORIG[m.month] = FX_PBUF_ORIG[m.month] || {};
   // First touch only: edit a cell twice and Discard must still reach the figure that was
   // there before you started, not the one you typed first.
   if (!(field in FX_PBUF_ORIG[m.month])) FX_PBUF_ORIG[m.month][field] = (field in m) ? m[field] : null;
   m[field] = v;
   FX_PBUF[m.month] = Object.assign(FX_PBUF[m.month] || {}, { [field]: v });
+
+  /* Round 42: keep the derived total in step. Recorded in _ORIG so Discard restores it,
+     and deliberately kept OUT of FX_PBUF — that is the patch sent to
+     flex_basket_months, and baseload_vol_total belongs to the view, not the table. */
+  if (field === 'baseload_vol'){
+    if (!('baseload_vol_total' in FX_PBUF_ORIG[m.month]))
+      FX_PBUF_ORIG[m.month].baseload_vol_total = ('baseload_vol_total' in m) ? m.baseload_vol_total : null;
+    m.baseload_vol_total = fxBaseTotal(basket, m, v);
+  }
   renderPositions(basket);
 }
 
@@ -5300,16 +5360,56 @@ async function fxRemoveEmptyTargetRows(){
 }
 
 // ── MODALS ───────────────────────────────────────────────────────
+/* ROUND 42. A click on the backdrop used to close the box outright and throw away
+   everything typed in it. On the trade editor, where the fields sit close to the edge,
+   one mis-click cost the whole entry. It now asks — but only when there is something to
+   lose, so an untouched box still closes on a click away and opening one to look at it
+   is not a commitment. Escape takes the same route; there was no keyboard exit before.
+
+   Dirtiness comes from the user's own input and change events, not from diffing the
+   fields. Several of these boxes repopulate themselves after a fetch — the Marex curve
+   preview, the import diffs — and a diff would read that as somebody typing. */
+let FX_MODAL_DIRTY = false;
+
 function fxModal(html){
   const w=document.getElementById('fxModalWrap');
   document.getElementById('fxModal').innerHTML=html;
+  FX_MODAL_DIRTY = false;
   w.style.display='flex';
+}
+function fxModalOpen(){
+  const w = document.getElementById('fxModalWrap');
+  return !!w && w.style.display === 'flex';
+}
+function fxModalRequestClose(){
+  if (FX_MODAL_DIRTY
+      && !confirm('Discard what you have entered in this box?')) return false;
+  fxCloseModal(); return true;
 }
 function fxCloseModal(){
   document.getElementById('fxModalWrap').style.display='none';
   document.getElementById('fxModal').innerHTML='';
+  FX_MODAL_DIRTY = false;
   if (fxDirty) fxScheduleReload();
 }
+
+/* Wired here rather than with an onclick attribute on the wrapper, for the reason
+   renderTargets gives: an attribute is HTML-decoded before it parses as JS. The box
+   element itself survives every innerHTML replacement, so one delegated listener on it
+   covers every pop-up the desk opens. */
+(function(){
+  const w = document.getElementById('fxModalWrap');
+  const box = document.getElementById('fxModal');
+  if (!w || !box) return;
+  w.addEventListener('click', e => { if (e.target === w) fxModalRequestClose(); });
+  box.addEventListener('input',  () => { FX_MODAL_DIRTY = true; });
+  box.addEventListener('change', () => { FX_MODAL_DIRTY = true; });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || !fxModalOpen()) return;
+    e.preventDefault();
+    fxModalRequestClose();
+  });
+})();
 function fxMErr(msg){const e=document.getElementById('fxMErr'); e.textContent=msg; e.style.display='block';}
 
 // trade add/edit
@@ -8356,7 +8456,24 @@ async function fxFullCurveImport(file){
 
 // ── TARGETS: staged batch editing (edit many, Apply once) ────────
 let FX_TBUF = {}, FX_TBUF_ORIG = {}, FX_TBUF_BID = null;
+
+/* Round 42, and the same bug as the Positions buffer above: a staged target price
+   survived a change of basket, so the ladder and the Targeted WAP model went on
+   reading a figure nobody had saved. */
+function fxRevertTgtBuf(quiet){
+  const n = Object.keys(FX_TBUF).length;
+  const b = FX_TBUF_BID == null ? null : fxBasketById(FX_TBUF_BID);
+  if (b) for (const mo in FX_TBUF_ORIG){
+    const t = (b.targets || []).find(x => x.month === mo);
+    if (t) Object.assign(t, FX_TBUF_ORIG[mo]);
+  }
+  FX_TBUF = {}; FX_TBUF_ORIG = {}; FX_TBUF_BID = null;
+  if (n && !quiet) fxToast(n + ' staged target month' + (n > 1 ? 's were' : ' was')
+    + ' not applied, so ' + (n > 1 ? 'they have' : 'it has') + ' been discarded', false);
+  return n;
+}
 function fxStageTarget(basket, t, patch){
+  if (FX_TBUF_BID !== basket.id){ fxRevertTgtBuf(true); FX_TBUF_BID = basket.id; }
   FX_TBUF_ORIG[t.month] = FX_TBUF_ORIG[t.month] || {};
   for(const k in patch){ if(!(k in FX_TBUF_ORIG[t.month])) FX_TBUF_ORIG[t.month][k] = (k in t) ? t[k] : null; }
   Object.assign(t, patch);
@@ -8386,7 +8503,7 @@ renderTargets = function(basket){ return fxKeepScroll(() => _fxRenderTargetsBody
 function _fxRenderTargetsBody(basket){
   _renderTargets(basket);
   const el=document.getElementById('tab-targets'); if(!el) return;
-  if(FX_TBUF_BID!==basket.id){ FX_TBUF={}; FX_TBUF_ORIG={}; FX_TBUF_BID=basket.id; }
+  if(FX_TBUF_BID!==basket.id){ fxRevertTgtBuf(); FX_TBUF_BID=basket.id; }
   const numT = fxTierCount(basket);
   // tier label headers: click the name to rename; in edit mode each header also carries an Auth/Adv chip that sets the WHOLE column at once (still staged until Apply). Per-cell chips remain for exceptions.
   const ths=el.querySelectorAll('thead th');
