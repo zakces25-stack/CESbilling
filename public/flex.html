@@ -1275,6 +1275,13 @@ td.fx-editable.fx-sim-edit:hover{ background:#f6f1ff; }
 .fx-da-seg{display:inline-flex;border:1px solid #d7dbe4;border-radius:8px;overflow:hidden}
 .fx-da-seg button{border:0;background:#fff;padding:5px 13px;font-size:12px;font-weight:700;color:#4b5563;cursor:pointer}
 .fx-da-seg button[aria-pressed="true"]{background:#1f2d4d;color:#fff}
+/* The cheaper fuel on the Latest Reading card, and the CHP banner under the cards.
+   Lime rather than amber: this is an opportunity to act on, not a fault to fix. */
+.fx-da-card .fig.fx-da-red{color:var(--negative-500,#c2453b)}
+.fx-da-chp{background:#f6faea;border:1px solid #d8e4a8;border-left:4px solid #9fbe1c;
+  border-radius:11px;padding:10px 14px;margin:0 0 14px}
+.fx-da-chp .t{font-size:13.5px;font-weight:800;color:#1f2d4d}
+.fx-da-chp .s{font-size:11.5px;color:#4b5563;margin-top:3px}
 
 .stat-card {
   background: var(--white);
@@ -1649,7 +1656,9 @@ body{background:linear-gradient(180deg,#f7f8fb 0%,#eef1f6 100%) fixed}
 /* cards & tables */
 .mini-card,.stat-card,.table-wrap,.extra-section{border-radius:13px!important;border-color:#e3e7ee!important;box-shadow:0 1px 2px rgba(22,35,63,.05),0 4px 14px rgba(22,35,63,.05)!important}
 .mini-card:hover{transform:translateY(-2px);box-shadow:0 6px 22px rgba(22,35,63,.13)!important;border-color:#c9d4a3!important}
-table:not(.extra-table):not(.fx-htable) thead th{background:#fbfcfe!important;border-bottom:1.5px solid #e3e7ee!important}
+/* .fx-da-table excluded in round 41: this rule's !important background was landing on
+   the Day Ahead header and leaving its white text on a near-white fill. */
+table:not(.extra-table):not(.fx-htable):not(.fx-da-table) thead th{background:#fbfcfe!important;border-bottom:1.5px solid #e3e7ee!important}
 .extra-table th{background:var(--navy-700)!important;color:#fff!important}
 #summary-row{display:none!important}
 table.fx-hide-cost th:nth-child(9),table.fx-hide-cost td:nth-child(9){display:none}
@@ -3613,12 +3622,63 @@ function fxDaFmtMonth(mk){
 // Prices carry up to 5 decimals in the source; 2 is what the desk reads by.
 function fxDaFmt(v){ return v == null ? '' : (+v).toFixed(2); }
 
-function fxDaCard(label, pick, sub){
+/* The first day in the table, dd/mm/yyyy, for the "Average since" header. Derived
+   rather than hardcoded so the label cannot go stale if earlier readings are imported. */
+function fxDaFirstDate(){
+  let first = null;
+  for (const c of ['gas', 'power']){
+    const rows = (DATA.da && DATA.da[c]) || [];
+    if (rows.length && (first == null || rows[0].d < first)) first = rows[0].d;
+  }
+  return first ? first.slice(8, 10) + '/' + first.slice(5, 7) + '/' + first.slice(0, 4) : '';
+}
+
+/* The gap, in the units the two prices are quoted in: gas p/th against power £/MWh.
+   Deliberately NOT converted to a common unit. A therms-to-MWh conversion would look
+   like the economic answer and is not one — CHP turns on engine efficiency, the value
+   of the recovered heat and the site's export terms, none of which the portal knows.
+   So this flags a divergence and names its direction; the economics stay with the
+   person reading it. */
+const FX_DA_CHP_GAP = 100;
+
+/* Fires on the latest date BOTH fuels have — power lands a day or two behind gas, and
+   comparing Monday's gas with Saturday's power is a gap you invented. `aligned` says
+   that date is also each fuel's own latest, which is the figure the card prints; only
+   then does the card go red. */
+function fxDaChp(){
+  const merged = fxDaMerged();
+  const ks = Object.keys(merged).filter(d => merged[d].gas != null && merged[d].power != null).sort();
+  if (!ks.length) return null;
+  const d = ks[ks.length - 1], G = merged[d].gas, P = merged[d].power;
+  const gap = G - P;
+  if (!(Math.abs(gap) >= FX_DA_CHP_GAP)) return null;
+  const g = fxDaStats('gas'), p = fxDaStats('power');
+  return { d: d, use: gap > 0 ? 'power' : 'gas', gap: Math.abs(gap),
+           aligned: !!(g && p && g.latestD === d && p.latestD === d) };
+}
+
+function fxDaChpBanner(){
+  const c = fxDaChp(); if (!c) return '';
+  const low  = c.use === 'gas' ? 'gas' : 'power';
+  const high = c.use === 'gas' ? 'power' : 'gas';
+  /* The day is named only when the two fuels' latest readings are out of step. With
+     them in step the banner is about the figures on the card beside it and saying so
+     is noise; out of step, the card is showing two different days and an undated
+     banner would be read as today. */
+  return '<div class="fx-da-chp">'
+    + '<div class="t">Combined Heat and Power Opportunity &mdash; ' + low
+    +   ' day-ahead price significantly below ' + high + '</div>'
+    + (c.aligned ? ''
+       : '<div class="s">As at ' + escape(fxDaFmtDate(c.d)) + ', the latest day both fuels have.</div>')
+    + '</div>';
+}
+
+function fxDaCard(label, pick, sub, red){
   const g = fxDaStats('gas'), p = fxDaStats('power');
   const half = (st, c) => {
     const v = st ? pick(st) : null;
     return '<div class="half"><div class="fuel">' + FX_DA_NAME[c] + '</div>'
-      + '<div class="fig">' + (v == null ? '&mdash;' : fxDaFmt(v))
+      + '<div class="fig' + (red === c ? ' fx-da-red' : '') + '">' + (v == null ? '&mdash;' : fxDaFmt(v))
       + ' <span class="unit">' + escape(FX_DA_UNIT[c]) + '</span></div>'
       + '<div class="sub">' + (st ? escape(sub(st)) : '') + '</div></div>';
   };
@@ -3627,11 +3687,15 @@ function fxDaCard(label, pick, sub){
 }
 
 function fxDaCards(){
+  const first = fxDaFirstDate();
+  const chp = fxDaChp();
   return '<div class="stats-row" style="margin-bottom:14px">'
-    + fxDaCard('Average, all data',  st => st.all,   st => st.allN + ' days')
-    + fxDaCard('This month to date', st => st.month, st => fxDaFmtMonth(st.monthK) + ' · ' + st.monthN + ' days')
-    + fxDaCard('Last 30 readings',   st => st.d30,   st => st.d30N + ' days')
-    + fxDaCard('Latest reading',     st => st.latest, st => fxDaFmtDate(st.latestD))
+    + fxDaCard(first ? 'Average since ' + first : 'Average, all data',
+                                       st => st.all,   st => st.allN + ' days')
+    + fxDaCard('Current Month To Date', st => st.month, st => fxDaFmtMonth(st.monthK) + ' · ' + st.monthN + ' days')
+    + fxDaCard('Latest 30-Day Average', st => st.d30,   st => st.d30N + ' days')
+    + fxDaCard('Latest Reading',        st => st.latest, st => fxDaFmtDate(st.latestD),
+               chp && chp.aligned ? chp.use : null)
     + '</div>';
 }
 
@@ -3667,6 +3731,7 @@ function fxRenderDayAhead(){
     +   '<div class="overview-title">Day Ahead</div>'
     +   '<div class="overview-sub">Daily cash-out prices · gas in p/th, power in £/MWh</div></div>'
     + fxDaCards()
+    + fxDaChpBanner()
     + '<div class="fx-toolbar" style="margin:0 0 12px;flex-wrap:wrap;gap:8px;align-items:center">'
     +   '<label style="margin:0;font-size:12.5px">Year</label>' + yearSel
     +   '<label style="margin:0 0 0 6px;font-size:12.5px">Chart</label>' + seg
@@ -3724,8 +3789,7 @@ function fxDaPaint(){
     const p = days.map(d => merged[d].power).filter(v => v != null);
     const open = FX_DA_OPEN.has(mk);
     rows += '<tr class="fx-da-mrow" data-mk="' + mk + '">'
-      + '<td><span class="caret">' + (open ? '▾' : '▸') + '</span> ' + fxDaFmtMonth(mk)
-      +   ' <span class="n">avg of ' + g.length + ' / ' + p.length + '</span></td>'
+      + '<td><span class="caret">' + (open ? '▾' : '▸') + '</span> ' + fxDaFmtMonth(mk) + '</td>'
       + '<td>' + (g.length ? fxDaFmt(fxDaMean(g)) : '—') + '</td>'
       + '<td>' + (p.length ? fxDaFmt(fxDaMean(p)) : '—') + '</td></tr>';
     if (!open) continue;
@@ -4084,7 +4148,9 @@ async function fxDaExport(){
       // midnight under BST lands at 23:00 the day before and every date reads one out.
       const row = ws.addRow([new Date(r.d + 'T12:00:00Z'), r.p]);
       row.getCell(1).numFmt = 'dd/mm/yyyy';
-      row.getCell(2).numFmt = '0.####';
+      // The point in an Excel mask is a literal: '0.####' prints "190." on a whole
+      // number. Per cell, so only genuine decimals carry one.
+      row.getCell(2).numFmt = Number.isInteger(r.p) ? '0' : '0.####';
     }
     ws.views = [{ state: 'frozen', ySplit: 1 }];
   }
@@ -4099,7 +4165,9 @@ async function fxDaExport(){
     const p = days.map(d => merged[d].power).filter(v => v != null);
     const row = ws.addRow([fxDaFmtMonth(mk), g.length ? fxDaMean(g) : null, g.length,
                                              p.length ? fxDaMean(p) : null, p.length]);
-    row.getCell(2).numFmt = '0.0000'; row.getCell(4).numFmt = '0.0000';
+    const avgFmt = v => (v == null || Number.isInteger(v)) ? '0' : '0.0000';
+    row.getCell(2).numFmt = avgFmt(g.length ? fxDaMean(g) : null);
+    row.getCell(4).numFmt = avgFmt(p.length ? fxDaMean(p) : null);
   }
   ws.views = [{ state: 'frozen', ySplit: 1 }];
 
