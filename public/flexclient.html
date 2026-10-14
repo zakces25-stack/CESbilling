@@ -786,8 +786,11 @@ input.cx-cell{width:100%;min-width:62px;font-family:var(--font-mono);font-size:v
     <button role="tab" id="tab-reports" aria-selected="false" onclick="cxTab('reports')">Reports</button>
     <!-- Round 44. Hidden until cxDaSync() finds day-ahead rows, which only arrive for a
          customer the desk has ticked. Hidden rather than absent so the tab order is
-         fixed in the markup rather than assembled at run time. -->
-    <button role="tab" id="tab-dayahead" aria-selected="false" hidden>Day Ahead</button>
+         fixed in the markup rather than assembled at run time.
+         The onclick is an attribute because its two siblings are, and a nav where two
+         buttons work one way and the third another is how one of them ends up with no
+         handler at all — which is exactly what shipped on 14 Oct and had to be fixed. -->
+    <button role="tab" id="tab-dayahead" aria-selected="false" hidden onclick="cxTab('dayahead')">Day Ahead</button>
   </nav>
 
   <section id="v-baskets" role="tabpanel" aria-labelledby="tab-baskets"></section>
