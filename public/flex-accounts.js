@@ -33,7 +33,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2026-10-07.1';
+  var VERSION = '2026-10-14.1';
   var FN_NAME = 'flex-client-admin';
   var PORTAL_URL = 'https://billcesgb.com/flex';
   var PORTAL_SHOWN = 'billcesgb.com/flex';
@@ -342,6 +342,45 @@
     }).sort(byName);
   }
   function catById(id) { var c = S.cat || []; for (var i = 0; i < c.length; i++) if (c[i].id === id) return c[i]; return null; }
+
+  /* ── WHAT A CUSTOMER MAY SEE (round 44) ───────────────────────────────────────
+     The five tabs that can be hidden, in the order the database's CHECK lists them.
+     Positions is not here and cannot be: the constraint rejects it, so every customer
+     with a basket has something to open.
+
+     Taken from FlexCore when it is there so the desk and the client portal cannot end
+     up with different ideas of what a tab is called. The literal list is the fallback
+     and is not decoration — this file is loaded by flex.html, and a browser holding a
+     cached older core would otherwise throw here and take the whole tab down, which is
+     precisely how round 43a broke the client portal. */
+  var HIDEABLE = [['trades', 'Trades'], ['seasons', 'Seasons'], ['targets', 'Targets'],
+                  ['graphs', 'Graphs'], ['sites', 'Sites']];
+
+  /* THE KEYS COME FROM HERE, THE LABELS COME FROM FlexCore.
+
+     Which five tabs may be hidden is the database's decision — the CHECK constraint on
+     flex_customer_baskets.hidden_tabs accepts these and nothing else — so taking the
+     list from the shared core would let a tab added there with client:true reach this
+     dialog, be ticked, and come back refused with a message about an array. What the
+     core is good for is what each tab is CALLED, so that the desk and the client portal
+     cannot end up naming the same tab differently.
+
+     Wrapped in try/catch and falling back to the labels above, because this file is
+     loaded by flex.html and a browser holding a cached older core must not throw here.
+     Round 43a was exactly that, in the other direction. */
+  function hideableTabs() {
+    var label = {};
+    try {
+      if (typeof FlexCore !== 'undefined' && FlexCore && typeof FlexCore.clientTabs === 'function')
+        FlexCore.clientTabs().forEach(function (t) { label[t.key] = t.label; });
+    } catch (e) {}
+    return HIDEABLE.map(function (p) { return [p[0], label[p[0]] || p[1]]; });
+  }
+  /* Seasons and Graphs are drawn in the customer's browser from Positions, which is
+     always shown, so hiding them is presentation. The other three stop at the database.
+     Said on the dialog, because "hidden" meaning two different things silently is how
+     someone ends up believing a customer could not have seen something. */
+  var SOFT_TABS = { seasons: 1, graphs: 1 };
   function findLogin(uid) {
     var gs = groupsOf(S.rows);
     for (var i = 0; i < gs.length; i++) {
@@ -1222,14 +1261,53 @@
      --------------------------------------------------------------------------------------- */
   async function openBaskets(cid) {
     // Start from the freshest list, so "what you started from" really is what is there now.
+    /* Started before the refresh below rather than after it: the two ask different
+       questions of the server and neither needs the other's answer, so queueing them
+       costs a round trip on every click of Edit baskets. */
+    var permP = rpc('flex_client_basket_tabs', { p_customer_id: cid });
     if (!S.at || Date.now() - S.at > 15000 || !S.cat) await refresh();
     var g = groupsOf(S.rows).filter(function (x) { return x.customer_id === cid; })[0];
     if (!g) { toast('That customer is no longer listed. Refresh the page.', false); return; }
     var E = { orig: (g.baskets || []).map(function (b) { return b.id; }).sort(), sel: null, dirty: false, err: '', conflict: false };
     E.sel = new Set(E.orig);
+
+    /* Round 44. What this customer may see, as it stands now. Read here rather than
+       carried on the account rows so the dialog opens on the truth even if two people
+       are in Client Accounts at once.
+
+       P.ok is the whole degrade story: false means round 44's SQL has not been run (or
+       this login may not read it), and then the section below is one sentence and the
+       save path never calls the new functions. Everything else in this dialog carries
+       on working, which is the point. */
+    var P = { ok: false, err: '', day: false, dayOrig: false, hid: {}, hidOrig: {} };
+    var pr = await permP;
+    if (pr.error) {
+      P.err = dbMessage(pr.error);
+    } else {
+      P.ok = true;
+      var pd = pr.data || {};
+      P.day = P.dayOrig = !!pd.day_ahead;
+      (pd.baskets || []).forEach(function (r) {
+        var list = (r.hidden_tabs || []).filter(function (k) { return k !== 'positions'; });
+        P.hid[r.basket_id] = new Set(list);
+        P.hidOrig[r.basket_id] = list.slice().sort().join(',');
+      });
+    }
+    /* A basket ticked in this dialog has no row yet, so it has no hidden list yet. The
+       database will give it the empty array, so that is what it starts as here — every
+       tab ticked, and nothing to send unless the user unticks one. */
+    function hidOf(id) {
+      if (!P.hid[id]) P.hid[id] = new Set();
+      return P.hid[id];
+    }
+    function hidKey(id) { return Array.from(hidOf(id)).sort().join(','); }
+    function hidWas(id) { return P.hidOrig[id] || ''; }
+
     openDialog({ title: 'Baskets for ' + g.company_name, wide: true, isDirty: function () { return E.dirty; } });
-    DLG.body.innerHTML = '<p class="fxa-lead">Tick the baskets <b>' + esc(g.company_name) + '</b> should see. '
-      + 'They see the change the next time their portal loads.</p><div id="fxaPick"></div>';
+    DLG.body.innerHTML = '<p class="fxa-lead">Tick the baskets <b>' + esc(g.company_name) + '</b> should see, '
+      + 'then untick anything within them this customer should not. '
+      + 'They see the change the next time their portal loads.</p>'
+      + '<div id="fxaPick"></div><div id="fxaPerm" class="fxa-perm"></div>';
     DLG.foot.innerHTML = '<div class="fxa-summary" id="fxaSum" aria-live="polite"></div>'
       + '<div class="fxa-err" id="fxaErr" role="alert" hidden></div>'
       + '<div class="fxa-btns"><button type="button" class="fx-btn fxa-btn" data-act="close">Cancel</button>'
@@ -1238,13 +1316,84 @@
       sel: E.sel, exclude: cid,
       key: function () { return keyOf(g.company_name); },
       label: function () { return g.company_name; },
-      onChange: function () { E.dirty = diff().changed; E.err = ''; E.conflict = false; state(); }
+      onChange: function () { paintPerm(); E.dirty = diff().changed; E.err = ''; E.conflict = false; state(); }
     });
     function diff() {
       var now = Array.from(E.sel).sort();
       var add = now.filter(function (x) { return E.orig.indexOf(x) < 0; });
       var rem = E.orig.filter(function (x) { return now.indexOf(x) < 0; });
-      return { now: now, add: add, rem: rem, changed: add.length + rem.length > 0 };
+      /* Only baskets that will still be shared after this save. Unticking a basket drops
+         its row, and with it its hidden list, so sending a permission for one on its way
+         out would be a write to a row that is about to cease to exist. */
+      var tabs = P.ok ? now.filter(function (id) { return hidKey(id) !== hidWas(id); }) : [];
+      var day = P.ok && P.day !== P.dayOrig;
+      return { now: now, add: add, rem: rem, tabs: tabs, day: day,
+               bk: add.length + rem.length > 0,
+               changed: add.length + rem.length + tabs.length > 0 || day };
+    }
+
+    /* One row per basket that will be shared, each with the five tick boxes. Repainted
+       whenever the picker changes, so a basket ticked above appears here at once with
+       everything on — the state it will have in the database a moment later. */
+    function paintPerm() {
+      var host = DLG && DLG.dlg.querySelector('#fxaPerm');
+      if (!host) return;
+      if (!P.ok) {
+        host.innerHTML = '<div class="fxa-perm-off">Per-tab permissions are not available yet'
+          + (P.err ? ': ' + esc(P.err) : '.')
+          + ' Baskets can still be shared and unshared here.</div>';
+        return;
+      }
+      var tabs = hideableTabs();
+      var ids = Array.from(E.sel).sort(function (a, b) {
+        var x = catById(a), y = catById(b);
+        return String((x && x.name) || a).localeCompare(String((y && y.name) || b));
+      });
+      var rows = ids.map(function (id) {
+        var bb = catById(id), h = hidOf(id);
+        return '<div class="fxa-prow"><div class="fxa-pname">' + esc((bb && bb.name) || id) + '</div>'
+          + '<div class="fxa-pboxes">'
+          + tabs.map(function (t) {
+              var on = !h.has(t[0]);
+              return '<label class="fxa-pbox' + (on ? '' : ' off') + '">'
+                + '<input type="checkbox" data-tab="' + esc(t[0]) + '" data-bid="' + esc(id) + '"'
+                + (on ? ' checked' : '') + '> <span>' + esc(t[1]) + '</span></label>';
+            }).join('')
+          + '</div></div>';
+      }).join('');
+
+      host.innerHTML = '<div class="fxa-perm-h">What they see inside each basket</div>'
+        + '<p class="fxa-perm-note">Everything is ticked by default. Untick to hide a tab from '
+        + esc(g.company_name) + ' on that basket only &mdash; other customers on the same basket are '
+        + 'unaffected. <b>Positions is always shown</b> and cannot be turned off. Trades, Targets and '
+        + 'Sites are also withheld by the database, so the data is not sent at all; Seasons and Graphs '
+        + 'are worked out from Positions in the browser, so unticking those hides the tab rather than '
+        + 'the figures behind it.</p>'
+        + (rows || '<div class="fxa-perm-off">No baskets ticked yet.</div>')
+        + '<div class="fxa-perm-h" style="margin-top:14px">Other tabs</div>'
+        + '<label class="fxa-pbox fxa-pday' + (P.day ? '' : ' off') + '">'
+        +   '<input type="checkbox" id="fxaDay"' + (P.day ? ' checked' : '') + '> '
+        +   '<span>Day Ahead &mdash; daily cash-out prices</span></label>'
+        + '<p class="fxa-perm-note">Off for everyone until ticked. It is one tab for the whole '
+        + 'account rather than per basket, because the prices are the market\'s and not this '
+        + 'customer\'s. The CHP opportunity banner stays on the desk and will get its own tick box.</p>';
+
+      // Array.prototype.forEach.call, as setBusy and the commodity segment already do:
+      // this file keeps to one way of walking a NodeList.
+      Array.prototype.forEach.call(host.querySelectorAll('input[data-tab]'), function (cb) {
+        cb.addEventListener('change', function () {
+          var h = hidOf(cb.getAttribute('data-bid'));
+          if (cb.checked) h.delete(cb.getAttribute('data-tab')); else h.add(cb.getAttribute('data-tab'));
+          var lab = cb.closest('.fxa-pbox'); if (lab) lab.classList.toggle('off', !cb.checked);
+          E.dirty = diff().changed; E.err = ''; E.conflict = false; state();
+        });
+      });
+      var dayEl = host.querySelector('#fxaDay');
+      if (dayEl) dayEl.addEventListener('change', function () {
+        P.day = dayEl.checked;
+        var lab = dayEl.closest('.fxa-pbox'); if (lab) lab.classList.toggle('off', !P.day);
+        E.dirty = diff().changed; E.err = ''; E.conflict = false; state();
+      });
     }
     function names(ids) { return ids.map(function (id) { var b = catById(id); return b ? b.name : id; }).join(', '); }
     function state() {
@@ -1253,6 +1402,20 @@
       if (!d.changed) lines.push('No changes yet.');
       if (d.add.length) lines.push('<span class="fxa-add">+ Will share ' + plural(d.add.length, 'basket') + ':</span> ' + esc(names(d.add)));
       if (d.rem.length) lines.push('<span class="fxa-rem">' + MINUS + ' Will stop sharing ' + plural(d.rem.length, 'basket') + ':</span> ' + esc(names(d.rem)));
+      /* Named rather than counted. "Permissions changed on 2 baskets" tells you nothing
+         you can check; the tab names tell you whether you ticked what you meant to. */
+      d.tabs.forEach(function (id) {
+        var h = Array.from(hidOf(id)).sort(), bb = catById(id);
+        var lbl = hideableTabs().filter(function (t) { return h.indexOf(t[0]) >= 0; })
+                                .map(function (t) { return t[1]; });
+        lines.push(h.length
+          ? '<span class="fxa-rem">' + MINUS + ' ' + esc((bb && bb.name) || id) + ':</span> will hide '
+            + esc(lbl.join(', '))
+          : '<span class="fxa-add">+ ' + esc((bb && bb.name) || id) + ':</span> every tab shown again');
+      });
+      if (d.day) lines.push(P.day
+        ? '<span class="fxa-add">+ Will share the Day Ahead tab</span>'
+        : '<span class="fxa-rem">' + MINUS + ' Will stop sharing the Day Ahead tab</span>');
       if (d.changed && !d.now.length) lines.push('<span class="fxa-warn-t">They will have nothing to see.</span>');
       if (anyCes(E.sel, E.orig)) lines.push('<span class="fxa-warn-t">Includes one of CES\'s own baskets.</span>');
       DLG.dlg.querySelector('#fxaSum').innerHTML = lines.join('<br>');
@@ -1272,23 +1435,68 @@
       if (!d.changed || DLG.busy) return;
       setBusy(true);
       b.textContent = 'Saving' + ELL;
-      var r = await rpc('flex_client_set_baskets', { p_customer_id: cid, p_basket_ids: d.now, p_expected: E.orig,
-        p_allow_internal: anyCes(E.sel, E.orig) });
-      if (!DLG) return;
+      /* Baskets first, permissions second, and in that order for a reason: a permission
+         is a column on the share row, so a basket ticked in this dialog has nowhere to
+         put one until its row exists. The first failure stops the run and says what did
+         land, because a half-saved dialog that claims success is worse than one that
+         admits it. */
+      var done = [];
+      if (d.bk) {
+        var r = await rpc('flex_client_set_baskets', { p_customer_id: cid, p_basket_ids: d.now, p_expected: E.orig,
+          p_allow_internal: anyCes(E.sel, E.orig) });
+        if (!DLG) return;
+        if (r.error) {
+          setBusy(false); b.textContent = 'Save changes';
+          E.conflict = r.error.code === '40001';
+          E.err = dbMessage(r.error);
+          state();
+          return;
+        }
+        // The shares are now what is on screen, so a retry after a later failure must not
+        // send the old list as "what I started from" and be told someone else moved it.
+        E.orig = d.now.slice();
+        done.push('baskets');
+      }
+
+      for (var i = 0; i < d.tabs.length; i++) {
+        var bid = d.tabs[i];
+        var tr = await rpc('flex_client_set_basket_tabs',
+          { p_customer_id: cid, p_basket_id: bid, p_hidden_tabs: Array.from(hidOf(bid)).sort() });
+        if (!DLG) return;
+        if (tr.error) {
+          setBusy(false); b.textContent = 'Save changes';
+          E.err = dbMessage(tr.error)
+            + (done.length ? ' The basket list was saved; the tab permissions were not.' : '');
+          state();
+          return;
+        }
+        P.hidOrig[bid] = hidKey(bid);
+        done.push('tabs');
+      }
+
+      if (d.day) {
+        var dr = await rpc('flex_client_set_day_ahead', { p_customer_id: cid, p_on: P.day });
+        if (!DLG) return;
+        if (dr.error) {
+          setBusy(false); b.textContent = 'Save changes';
+          E.err = dbMessage(dr.error)
+            + (done.length ? ' Everything else was saved; the Day Ahead tick box was not.' : '');
+          state();
+          return;
+        }
+        P.dayOrig = P.day;
+        done.push('day');
+      }
+
       setBusy(false);
       b.textContent = 'Save changes';
-      if (r.error) {
-        E.conflict = r.error.code === '40001';
-        E.err = dbMessage(r.error);
-        state();
-        return;
-      }
       E.dirty = false;
       closeDialog(true);
-      toast('Baskets saved for ' + g.company_name);
+      toast((done.indexOf('baskets') >= 0 ? 'Baskets saved for ' : 'Saved for ') + g.company_name);
       refresh();
     });
     picker.repaint();
+    paintPerm();
     state();
     focusIn('.fxa-pick-q');
   }
@@ -1598,6 +1806,22 @@
     '.fxa-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid #c3c9d4;border-radius:6px;padding:2px 2px 2px 6px;background:#fff;font-size:12px;color:var(--fxa-ink)}',
     '.fxa-chip button{border:0;background:none;font-size:15px;line-height:1;color:#4b5263;cursor:pointer;min-width:26px;min-height:26px;border-radius:4px}',
     '.fxa-chip button:hover{background:#eef0f4;color:var(--fxa-bad)}',
+    /* per-tab permissions (round 44) */
+    '.fxa-perm{margin-top:16px;border-top:1px solid var(--fxa-line);padding-top:14px}',
+    '.fxa-perm-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.45px;color:#4b5263;margin-bottom:6px}',
+    '.fxa-perm-note{margin:0 0 10px;font-size:12px;color:var(--fxa-muted);line-height:1.5}',
+    '.fxa-perm-off{font-size:12.5px;color:var(--fxa-muted);padding:8px 10px;background:#f8f9fb;border:1px solid var(--fxa-line);border-radius:8px}',
+    '.fxa-prow{display:grid;grid-template-columns:minmax(140px,1fr) minmax(0,2fr);gap:8px 14px;align-items:center;padding:7px 10px;border:1px solid var(--fxa-line);border-radius:8px;background:#fff}',
+    '.fxa-prow+.fxa-prow{margin-top:6px}',
+    '.fxa-pname{font-size:13px;font-weight:600;color:var(--fxa-ink);overflow-wrap:anywhere}',
+    '.fxa-pboxes{display:flex;flex-wrap:wrap;gap:4px 14px}',
+    '.fxa-pbox{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--fxa-ink);cursor:pointer;min-height:28px}',
+    '.fxa-pbox input{width:16px;height:16px;margin:0;accent-color:var(--fxa-navy)}',
+    /* An unticked box is a decision someone made, so it reads as one rather than as an
+       empty square the eye slides past. */
+    '.fxa-pbox.off span{color:var(--fxa-muted);text-decoration:line-through}',
+    '.fxa-pday{padding:7px 10px;border:1px solid var(--fxa-line);border-radius:8px;background:#fff}',
+    '@media (max-width:700px){.fxa-prow{grid-template-columns:1fr}}',
     /* done */
     '.fxa-done-lead{display:flex;gap:10px;align-items:flex-start;margin:0 0 14px;font-size:13.5px;line-height:1.5}',
     '.fxa-done-tick{display:inline-flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px;border-radius:50%;background:var(--fxa-ok);color:#fff;font-weight:800}',

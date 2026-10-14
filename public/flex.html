@@ -15,7 +15,7 @@
 <script src="flex-shared.js"></script>
 <!-- Client Accounts tab (create flex clients, share baskets, reset passwords). The ?v= must
      equal VERSION inside the file; tests/flex_accounts_render_test.js checks it. -->
-<script src="flex-accounts.js?v=2026-10-07.1"></script>
+<script src="flex-accounts.js?v=2026-10-14.1"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -9535,7 +9535,7 @@ window._fxTick = (t, n) => {
   (window._fxParts = window._fxParts || []).push(n.toLocaleString('en-GB') + ' ' + _fxTickNames[t]);
   el.textContent = window._fxParts.join(' · ');
 };
-// ── CLIENT ACCOUNTS ── lives in flex-accounts.js (7 Oct 2026) ────────────────────────
+// ── CLIENT ACCOUNTS ── lives in flex-accounts.js (7 Oct 2026; tick boxes 14 Oct) ──────
 // Round 34's read-only list moved there whole, plus + New customer, Edit baskets, Reset
 // password and Edit details. Every desk user sees the tab; the _42 database functions and
 // the flex-client-admin edge function check is_flex_team() themselves, so hiding the tab

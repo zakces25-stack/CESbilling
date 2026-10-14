@@ -120,6 +120,89 @@ nav.tabs button:hover{color:var(--ink)}
 nav.subtabs{margin-bottom:18px;border-bottom:1px solid var(--line)}
 nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
 
+/* ── Day Ahead (round 44) ───────────────────────────────────────────────────
+   Ported from the desk's stylesheet so a customer and the person they are on the
+   phone to are looking at the same table. The desk's CHP banner styles are NOT
+   brought over: no banner here, so no rules for one. */
+.cx-da-card{flex:1 1 210px;min-width:200px;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r-md);padding:11px 13px}
+.cx-da-card .lbl{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;
+  color:var(--ink-3);margin-bottom:7px}
+.cx-da-card .pair{display:flex;gap:10px}
+.cx-da-card .half{flex:1;min-width:0}
+.cx-da-card .fuel{font-size:10px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.4px}
+.cx-da-card .fig{font-size:17px;font-weight:700;color:var(--ink);line-height:1.25;white-space:nowrap;
+  font-variant-numeric:tabular-nums}
+.cx-da-card .unit{font-size:10.5px;color:var(--ink-3);font-weight:600}
+.cx-da-card .sub{font-size:10px;color:var(--ink-3);margin-top:1px}
+.cx-da-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+/* EVERY RULE BELOW IS SCOPED .cx-da-table AND CARRIES AN EXTRA STEP OF SPECIFICITY,
+   and that is not tidiness. This stylesheet already says, a few hundred lines down:
+
+     thead th:first-child      { background: var(--surface-2) }   (0,1,2)
+     th:first-child, td:first-child { background: var(--surface); position: sticky }
+     tbody tr:nth-child(even) td    { background: ... }
+
+   A plain `.cx-da-table th` is (0,1,1) and LOSES to the first of those whatever order
+   it is written in, so the Date heading would have come out white-on-near-white: round
+   41's bug, in the other portal, reached by a different route. Writing
+   `.cx-da-table thead th` (0,1,2) and `.cx-da-table thead th:first-child` (0,1,3) wins
+   on specificity rather than on position, which is the only kind of win that survives
+   someone moving the block. R4 measures it in a real browser, because jsdom has no
+   cascade worth the name and would have called the broken version fine. */
+.cx-da-table{width:100%;border-collapse:collapse;font-size:12px}
+.cx-da-table thead th{position:sticky;top:0;z-index:3;background:#1f2d4d;color:#fff;
+  font-size:11px;font-weight:700;text-align:right;padding:7px 10px;white-space:nowrap;
+  letter-spacing:0;text-transform:none;border-bottom:0}
+.cx-da-table thead th:first-child{text-align:left;background:#1f2d4d;color:#fff;left:0}
+.cx-da-table tbody td{padding:4px 10px;border-bottom:1px solid var(--line);text-align:right;
+  white-space:nowrap;font-size:11.5px;font-variant-numeric:tabular-nums}
+.cx-da-table tbody td:first-child{text-align:left;background:var(--surface)}
+/* The base stylesheet stripes every table. These rows are already banded by month, and
+   two banding schemes at once reads as a fault rather than as a pattern. */
+.cx-da-table tbody tr:nth-child(even) td{background:var(--surface)}
+.cx-da-table tbody tr.cx-da-day:nth-child(even) td{background:color-mix(in srgb, var(--surface-2) 45%, var(--surface))}
+/* A month header is a button: the whole row toggles, so there is no small target. */
+.cx-da-table tbody tr.cx-da-mrow td,
+.cx-da-table tbody tr.cx-da-mrow td:first-child{background:var(--surface-2);font-weight:700;
+  font-size:12px;cursor:pointer;border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  padding:6px 10px}
+.cx-da-table tbody tr.cx-da-mrow:hover td,
+.cx-da-table tbody tr.cx-da-mrow:hover td:first-child{background:var(--line)}
+.cx-da-mrow .caret{display:inline-block;width:11px;color:var(--ink-3)}
+/* A day the other fuel has not been entered for yet. Blank, not zero. */
+.cx-da-table .cx-da-miss{color:var(--ink-3);opacity:.55}
+.cx-da-wrap{max-height:62vh;overflow:auto;border:1px solid var(--line);border-radius:var(--r-md);
+  background:var(--surface)}
+.cx-da-chart{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);
+  padding:10px 12px;margin:0 0 14px;height:230px}
+.cx-da-seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.cx-da-seg button{border:0;background:var(--surface);padding:5px 13px;font-size:12px;font-weight:700;
+  color:var(--ink-2,#4b5563);cursor:pointer}
+.cx-da-seg button[aria-pressed="true"]{background:#1f2d4d;color:#fff}
+.cx-da-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 12px}
+.cx-da-bar label{margin:0;font-size:12.5px}
+/* ON PAPER. The portal's print stylesheet flips the palette to dark-on-white and
+   un-sticks the tables; this tab needs the same treatment, and it does not get it for
+   free because its colours are stated rather than taken from the theme variables.
+   The scroll box matters most: 62vh of a screen is no height at all on paper, and a
+   customer printing their prices would have got the first few weeks and no warning
+   that the rest had been cut off. Same fault the Positions table was fixed for. */
+@media print{
+  .cx-da-wrap{max-height:none !important;overflow:visible !important;border:1pt solid #ccc}
+  .cx-da-table thead th,
+  .cx-da-table thead th:first-child{position:static;background:#fff;color:#111;
+    border-bottom:1.5pt solid #333}
+  .cx-da-table tbody tr.cx-da-mrow td,
+  .cx-da-table tbody tr.cx-da-mrow td:first-child{background:#eee;color:#111}
+  .cx-da-table tbody td,
+  .cx-da-table tbody td:first-child{background:#fff;color:#111}
+  /* No control on a printed page does anything, and the fold state is already baked
+     into the rows underneath it. */
+  .cx-da-bar{display:none !important}
+  .cx-da-chart,.cx-da-card{break-inside:avoid}
+}
+
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:18px}
 .card{background:var(--surface);/*opaque over backdrop*/border:1px solid var(--line);border-radius:var(--r-md);
   padding:20px}
@@ -701,10 +784,15 @@ input.cx-cell{width:100%;min-width:62px;font-family:var(--font-mono);font-size:v
   <nav class="tabs" role="tablist" aria-label="Sections">
     <button role="tab" id="tab-baskets" aria-selected="true"  onclick="cxTab('baskets')">Baskets</button>
     <button role="tab" id="tab-reports" aria-selected="false" onclick="cxTab('reports')">Reports</button>
+    <!-- Round 44. Hidden until cxDaSync() finds day-ahead rows, which only arrive for a
+         customer the desk has ticked. Hidden rather than absent so the tab order is
+         fixed in the markup rather than assembled at run time. -->
+    <button role="tab" id="tab-dayahead" aria-selected="false" hidden>Day Ahead</button>
   </nav>
 
   <section id="v-baskets" role="tabpanel" aria-labelledby="tab-baskets"></section>
   <section id="v-reports" role="tabpanel" aria-labelledby="tab-reports" hidden></section>
+  <section id="v-dayahead" role="tabpanel" aria-labelledby="tab-dayahead" hidden></section>
 </div>
 
 <div id="toast" role="status" aria-live="polite"></div>
@@ -742,7 +830,10 @@ const CX = (() => {
 })();
 
 let D = { baskets:[], positions:{}, trades:{}, targets:{}, sites:{}, curve:{},
-           te:{gas:{},power:{}}, sim:{gas:{},power:{}}, necs:[], reports:[] };
+           te:{gas:{},power:{}}, sim:{gas:{},power:{}}, necs:[], reports:[],
+           // Round 44. Empty for every customer the desk has not ticked, because the
+           // view returns nothing to them — see cxDaHas().
+           da:{gas:[],power:[]} };
 let VIEW = 'baskets', OPEN = null, SUB = 'positions';
 const CHARTS = {};
 
@@ -914,7 +1005,7 @@ function bootMsg(html){ document.getElementById('bootTxt').innerHTML = html; }
 
 /* ── load ────────────────────────────────────────────────────────────── */
 async function load(){
-  const [bk,ps,tr,tg,st,cv,te,sm,nx,rp,me] = await Promise.all([
+  const [bk,ps,tr,tg,st,cv,te,sm,nx,rp,me,da] = await Promise.all([
     // select('*') rather than a column list, as every other client query here does: the
     // view is the security boundary, so naming columns adds nothing and means a column
     // added to the view — sort_order, in round 32 — needs an edit here as well.
@@ -929,7 +1020,14 @@ async function load(){
     CX.sb.from('flex_client_necs').select('basket_name,commodity,season,nec'),
     CX.sb.from('flex_reports').select('id,kind,title,period_label,report_date,body,pdf_path,pdf_name,pdf_size')
          .eq('published',true).order('report_date',{ascending:false}),
-    CX.sb.from('customers').select('customer_id,company_name').maybeSingle()
+    CX.sb.from('customers').select('customer_id,company_name').maybeSingle(),
+    // Round 44. Returns rows only for a customer whose day_ahead flag is on, and
+    // nothing at all for everyone else — so this one query is both the data and the
+    // permission. Deliberately NOT in the throw list below: on a deploy that lands
+    // before round 44's SQL has run the view does not exist yet, and a portal that
+    // goes blank for every customer over a tab most of them cannot see would be a
+    // poor trade. It degrades to the tab being absent, which is its off state anyway.
+    CX.sb.from('flex_client_da_prices').select('commodity,price_date,price').order('price_date')
   ]);
   for(const r of [bk,ps,tr,tg,st,cv,rp]) if(r.error) throw new Error(r.error.message);
   // A missing or unreadable overlay curve must never take the portal down — each one
@@ -992,6 +1090,21 @@ async function load(){
   D.reports = rp.data||[];
   if(me.error) console.warn('company name unavailable:', me.error.message);
   CX.company = (me.data && me.data.company_name) || '';
+
+  /* Day-ahead readings, ascending, one array per fuel — the same shape the desk keeps
+     in DATA.da, so the functions below are the desk's with the names changed. An error
+     here means the view is not there yet (or the customer cannot see it); either way
+     the answer is the same empty pair, and the tab stays hidden. */
+  if(da.error) console.warn('day-ahead prices unavailable:', da.error.message);
+  D.da = {gas:[], power:[]};
+  for(const r of (da.data||[])){
+    const k = r.commodity === 'power' ? 'power' : 'gas';
+    if(r.price_date != null && r.price != null)
+      D.da[k].push({ d:String(r.price_date).slice(0,10), p:+r.price });
+  }
+  // .order() sorts the view's rows as a whole; split by fuel each array must still be
+  // ascending on its own, and everything below indexes the last element as "latest".
+  for(const k of ['gas','power']) D.da[k].sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:0);
 }
 
 // A member of staff who lands here goes back to the broker portal rather than
@@ -1117,18 +1230,52 @@ function cxEditCell(cell, current, save){
 }
 
 /* ── nav ─────────────────────────────────────────────────────────────── */
+/* Day Ahead is NOT guarded here. It is guarded once, in cxDaSync, which render() runs
+   before it draws anything — so cxTab('dayahead') from a console sets VIEW, render()
+   puts it straight back, and nothing is painted in between. One gate rather than two:
+   a second one here would produce the same answer by a different route, which sounds
+   like safety and in practice means neither can be tested, because removing either
+   leaves the other doing the job. The data is gated in the database regardless. */
 function cxTab(v){
   VIEW=v;
-  for(const k of ['baskets','reports']){
-    document.getElementById('tab-'+k).setAttribute('aria-selected',String(k===v));
-    document.getElementById('v-'+k).hidden=(k!==v);
-  }
+  cxShowTab();
   render();
+}
+// The nav and panels, made to agree with VIEW. Split out because cxDaSync has to move
+// the customer off a tab mid-render, and calling cxTab from inside render() would
+// re-enter it.
+function cxShowTab(){
+  for(const k of ['baskets','reports','dayahead']){
+    const t = document.getElementById('tab-'+k), s = document.getElementById('v-'+k);
+    if(t) t.setAttribute('aria-selected',String(k===VIEW));
+    if(s) s.hidden=(k!==VIEW);
+  }
 }
 function render(){
   destroyCharts();
+  // Before anything is drawn, so the Day Ahead button can never be out of step with the
+  // data behind it. Done here rather than at each call site because there are four of
+  // them and the one somebody forgets is the one that shows a customer a tab they are
+  // not entitled to — or hides one they are.
+  cxDaSync();
   if(VIEW==='baskets') OPEN?renderBasket():renderBaskets();
   if(VIEW==='reports') renderReports();
+  if(VIEW==='dayahead') cxRenderDayAhead();
+}
+
+/* Shows or hides the Day Ahead button to match the data, and walks the customer off the
+   tab if the desk has just unticked them — so a permission taken away lands on the next
+   Refresh rather than at the next sign-in.
+
+   Called from render(), which is the one place every path goes through — a Refresh, a
+   tab click, a simulated price being saved. That makes it the single gate on this tab:
+   the button cannot be out of step with the data, and a customer sitting on the tab
+   when the desk unticks them is moved off it on their next Refresh rather than at their
+   next sign-in. */
+function cxDaSync(){
+  const t = document.getElementById('tab-dayahead');
+  if(t) t.hidden = !cxDaHas();
+  if(VIEW === 'dayahead' && !cxDaHas()){ VIEW = 'baskets'; cxShowTab(); }
 }
 function destroyCharts(){ for(const k in CHARTS){ try{CHARTS[k].destroy();}catch(e){} delete CHARTS[k]; } }
 
@@ -1391,11 +1538,343 @@ function renderBaskets(){
   }));
 }
 
+
+/* ── DAY AHEAD CASH-OUT PRICES (round 44, client) ────────────────────────────
+   The desk's Day Ahead tab, read-only, for the customers the desk has ticked.
+
+   WHERE THE PERMISSION LIVES. Not here. flex_client_da_prices returns rows only when
+   the signed-in customer's day_ahead flag is on and nothing at all otherwise, so "did
+   any rows come back" IS the permission — cxDaHas(). A customer without it has no
+   button, and gets an empty result rather than somebody's prices if they ask for the
+   view directly. A flag this page merely consulted would be a decoration.
+
+   WHAT IS DELIBERATELY NOT HERE.
+     · The CHP opportunity banner. Desk-only for now (Daniel, 14 Oct): it is coming to
+       the client portal as its own tick box, because not every customer has CHP and a
+       banner about plant they do not own is noise at best.
+     · Add a day, Import, and click-to-edit. The customer reads these prices; the desk
+       keeps them.
+
+   EVERYTHING ELSE IS THE DESK'S, ON PURPOSE. Same month grouping, same two decimals,
+   same "last 30 readings" window, same default year. A customer ringing the desk about
+   a figure has to be looking at the figure the desk is looking at, so these functions
+   are fxDa* with the names changed and the writing taken out rather than a second
+   implementation that could drift. If one of them changes on the desk, change it here.
+*/
+
+let CX_DA_YEAR = null;      // null = not yet chosen; resolves to the clock's year
+let CX_DA_SRC  = 'gas';     // chart only — the table always shows both fuels
+let CX_DA_OPEN = null;      // Set of 'YYYY-MM' month keys expanded in the table
+
+const CX_DA_UNIT = { gas:'p/th', power:'£/MWh' };
+const CX_DA_NAME = { gas:'Gas',  power:'Power' };
+
+function cxDaHas(){ return !!(((D.da||{}).gas||[]).length || ((D.da||{}).power||[]).length); }
+function cxDaRows(c){ return ((D.da||{})[c]) || []; }
+
+// Both series as one map keyed by date, so a day missing from one fuel is a blank cell
+// rather than a missing row. Power normally runs a day or two behind gas.
+function cxDaMerged(){
+  const out = {};
+  for(const c of ['gas','power']) for(const r of cxDaRows(c)) (out[r.d] = out[r.d] || {})[c] = r.p;
+  return out;
+}
+function cxDaYears(){
+  const ys = new Set();
+  for(const c of ['gas','power']) for(const r of cxDaRows(c)) ys.add(+r.d.slice(0,4));
+  return [...ys].sort((a,b)=>b-a);
+}
+/* Defaults to the CLOCK's year, clamped to a year the data has, so on 1 January the tab
+   moves on its own — falling back to the newest year present rather than an empty table. */
+function cxDaYear(){
+  const ys = cxDaYears();
+  if(!ys.length) return null;
+  if(CX_DA_YEAR != null && ys.includes(CX_DA_YEAR)) return CX_DA_YEAR;
+  const now = new Date().getFullYear();
+  return ys.includes(now) ? now : ys[0];
+}
+function cxDaMean(a){ return a.length ? a.reduce((x,y)=>x+y,0)/a.length : null; }
+
+/* The four card figures for one fuel. "Latest 30-day" is the last 30 READINGS, the
+   desk's choice — identical to 30 days while the history has no gaps, and still
+   meaningful if a day is ever missed. */
+function cxDaStats(c){
+  const rows = cxDaRows(c);
+  if(!rows.length) return null;
+  const last = rows[rows.length-1], mk = last.d.slice(0,7);
+  const cur = rows.filter(r=>r.d.slice(0,7)===mk).map(r=>r.p);
+  const win = rows.slice(-30).map(r=>r.p);
+  return { all:cxDaMean(rows.map(r=>r.p)), allN:rows.length,
+           month:cxDaMean(cur), monthK:mk, monthN:cur.length,
+           d30:cxDaMean(win), d30N:win.length,
+           latest:last.p, latestD:last.d };
+}
+const CX_DA_M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function cxDaFmtDate(iso){ return iso.slice(8,10)+' '+CX_DA_M[+iso.slice(5,7)-1]+' '+iso.slice(2,4); }
+function cxDaFmtMonth(mk){ return CX_DA_M[+mk.slice(5,7)-1]+'-'+mk.slice(2,4); }
+// Prices carry up to 5 decimals in the source; 2 is what the desk reads by.
+function cxDaFmt(v){ return v==null ? '' : (+v).toFixed(2); }
+// dd/mm/yyyy of the first day in the table, for the "Average since" heading. Derived so
+// the label cannot go stale when earlier readings are imported.
+function cxDaFirstDate(){
+  let first = null;
+  for(const c of ['gas','power']){
+    const rows = cxDaRows(c);
+    if(rows.length && (first==null || rows[0].d < first)) first = rows[0].d;
+  }
+  return first ? first.slice(8,10)+'/'+first.slice(5,7)+'/'+first.slice(0,4) : '';
+}
+
+function cxDaCard(label, pick, sub){
+  const g = cxDaStats('gas'), p = cxDaStats('power');
+  const half = (st,c)=>{
+    const v = st ? pick(st) : null;
+    return `<div class="half"><div class="fuel">${CX_DA_NAME[c]}</div>`
+      + `<div class="fig">${v==null?'&mdash;':cxDaFmt(v)} <span class="unit">${esc(CX_DA_UNIT[c])}</span></div>`
+      + `<div class="sub">${st?esc(sub(st)):''}</div></div>`;
+  };
+  return `<div class="cx-da-card"><div class="lbl">${esc(label)}</div>`
+    + `<div class="pair">${half(g,'gas')}${half(p,'power')}</div></div>`;
+}
+function cxDaCards(){
+  const first = cxDaFirstDate();
+  return '<div class="cx-da-row">'
+    + cxDaCard(first ? 'Average since '+first : 'Average, all data', st=>st.all,  st=>st.allN+' days')
+    + cxDaCard('Current Month To Date', st=>st.month,  st=>cxDaFmtMonth(st.monthK)+' · '+st.monthN+' days')
+    + cxDaCard('Latest 30-Day Average', st=>st.d30,    st=>st.d30N+' days')
+    + cxDaCard('Latest Reading',        st=>st.latest, st=>cxDaFmtDate(st.latestD))
+    + '</div>';
+}
+
+function cxRenderDayAhead(){
+  const el = document.getElementById('v-dayahead'); if(!el) return;
+  if(!cxDaHas()){ el.innerHTML=''; return; }
+  const years = cxDaYears(), yr = cxDaYear();
+  el.innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+      <h3 style="font-size:var(--t-head)">Day Ahead</h3>
+      <span class="muted" style="font-size:var(--t-base)">Daily cash-out prices · gas in p/th, power in £/MWh</span>
+    </div>
+    ${cxDaCards()}
+    <div class="cx-da-bar">
+      <label for="cxDaYear">Year</label>
+      <select id="cxDaYear" style="padding:5px 8px;font-size:12.5px">
+        ${years.map(y=>`<option value="${y}"${y===yr?' selected':''}>${y}</option>`).join('')}
+      </select>
+      <label style="margin-left:6px">Chart</label>
+      <span class="cx-da-seg" role="group" aria-label="Chart series">
+        ${['gas','power'].map(c=>`<button type="button" data-src="${c}" aria-pressed="${CX_DA_SRC===c}">${CX_DA_NAME[c]}</button>`).join('')}
+      </span>
+      <button class="gbtn" type="button" id="cxDaOpen">Expand all</button>
+      <button class="gbtn" type="button" id="cxDaShut">Collapse all</button>
+      <button class="gbtn dl" type="button" id="cxDaXl">&#8681; Export</button>
+      <span class="muted" style="font-size:11px">Click a month to open it</span>
+    </div>
+    <div class="cx-da-chart"><canvas id="cxDaChart"></canvas></div>
+    <div id="cxDaBody"></div>`;
+
+  /* Wired in JS rather than with onclick attributes. The rest of this page's top-level
+     buttons use attributes for historical reasons; new ones do not, because an attribute
+     is HTML-decoded before it parses as JS and because a handler attached here can be
+     exercised by a test through the same path a customer takes. */
+  const ys = document.getElementById('cxDaYear');
+  if(ys) ys.addEventListener('change', ()=>{ CX_DA_YEAR=+ys.value; CX_DA_OPEN=null; cxRenderDayAhead(); });
+  el.querySelectorAll('[data-src]').forEach(b=>b.addEventListener('click', ()=>{
+    CX_DA_SRC = b.dataset.src==='power' ? 'power' : 'gas'; cxRenderDayAhead();
+  }));
+  const oa = document.getElementById('cxDaOpen'), ca = document.getElementById('cxDaShut');
+  if(oa) oa.addEventListener('click', ()=>cxDaOpenAll(true));
+  if(ca) ca.addEventListener('click', ()=>cxDaOpenAll(false));
+  const xb = document.getElementById('cxDaXl');
+  if(xb) xb.addEventListener('click', ()=>cxDaExport());
+
+  cxDaPaint();
+}
+
+function cxDaOpenAll(open){
+  const yr = cxDaYear(); if(yr==null) return;
+  CX_DA_OPEN = new Set(open ? cxDaMonthsOf(yr) : []);
+  cxDaPaint();
+}
+function cxDaMonthsOf(yr){
+  const merged = cxDaMerged();
+  return [...new Set(Object.keys(merged).filter(d=>+d.slice(0,4)===yr).map(d=>d.slice(0,7)))]
+    .sort((a,b)=>a<b?1:-1);          // newest month first
+}
+function cxDaToggle(mk){
+  if(CX_DA_OPEN==null) CX_DA_OPEN=new Set();
+  if(CX_DA_OPEN.has(mk)) CX_DA_OPEN.delete(mk); else CX_DA_OPEN.add(mk);
+  cxDaPaint();
+}
+
+function cxDaPaint(){
+  const host = document.getElementById('cxDaBody'); if(!host) return;
+  const yr = cxDaYear(); if(yr==null) return;
+  const merged = cxDaMerged(), months = cxDaMonthsOf(yr);
+
+  /* Default: the current month open, everything else folded. Falls back to the newest
+     month in view when the clock's month is not in the chosen year, so an old year
+     still shows something rather than twelve closed rows. */
+  if(CX_DA_OPEN==null){
+    const nowK = new Date().toISOString().slice(0,7);
+    CX_DA_OPEN = new Set([months.includes(nowK) ? nowK : (months[0]||'')]);
+  }
+
+  let rows = '';
+  for(const mk of months){
+    const days = Object.keys(merged).filter(d=>d.slice(0,7)===mk).sort((a,b)=>a<b?1:-1);
+    const g = days.map(d=>merged[d].gas).filter(v=>v!=null);
+    const p = days.map(d=>merged[d].power).filter(v=>v!=null);
+    const open = CX_DA_OPEN.has(mk);
+    rows += `<tr class="cx-da-mrow" data-mk="${mk}">`
+      + `<td><span class="caret">${open?'▾':'▸'}</span> ${cxDaFmtMonth(mk)}</td>`
+      + `<td>${g.length?cxDaFmt(cxDaMean(g)):'—'}</td>`
+      + `<td>${p.length?cxDaFmt(cxDaMean(p)):'—'}</td></tr>`;
+    if(!open) continue;
+    for(const d of days){
+      const r = merged[d];
+      const cell = c => r[c]==null ? '<td class="cx-da-miss">—</td>' : `<td>${cxDaFmt(r[c])}</td>`;
+      rows += `<tr class="cx-da-day"><td>${cxDaFmtDate(d)}</td>${cell('gas')}${cell('power')}</tr>`;
+    }
+  }
+
+  host.innerHTML = '<div class="cx-da-wrap"><table class="cx-da-table">'
+    + '<thead><tr><th scope="col">Date</th><th scope="col">Gas (p/th)</th>'
+    +   '<th scope="col">Power (£/MWh)</th></tr></thead>'
+    + '<tbody>' + (rows || `<tr><td colspan="3">No readings in ${yr}.</td></tr>`) + '</tbody>'
+    + '</table></div>';
+
+  host.querySelectorAll('.cx-da-mrow').forEach(tr=>{
+    tr.addEventListener('click', ()=>cxDaToggle(tr.dataset.mk));
+  });
+
+  cxDaChart(yr);
+}
+
+/* One series, following the toggle. Gas is p/th and power is £/MWh, so putting both on
+   one axis would invite a comparison that means nothing — which is what the toggle is
+   for, rather than saving space. */
+function cxDaChart(yr){
+  const cv = document.getElementById('cxDaChart');
+  if(!cv || typeof Chart === 'undefined') return;
+  try{ if(CHARTS.da) CHARTS.da.destroy(); }catch(e){}
+  const c = CX_DA_SRC;
+  const rows = cxDaRows(c).filter(r=>+r.d.slice(0,4)===yr);
+  const colour = c==='gas' ? '#424378' : '#AAC91F';
+  CHARTS.da = new Chart(cv.getContext('2d'), {
+    type:'line',
+    data:{ labels:rows.map(r=>cxDaFmtDate(r.d)),
+      datasets:[{ label:CX_DA_NAME[c]+' ('+CX_DA_UNIT[c]+')', data:rows.map(r=>r.p),
+        borderColor:colour, backgroundColor:colour, borderWidth:1.8,
+        pointRadius:0, pointHitRadius:8, tension:0.12, fill:false }] },
+    options:{ responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{ legend:{ display:true, labels:{ boxWidth:12, font:{size:11} } },
+        tooltip:{ callbacks:{ label:ctx=>ctx.parsed.y.toFixed(2)+' '+CX_DA_UNIT[c] } } },
+      scales:{
+        // One label per fortnight or so — a tick per day is unreadable at any width.
+        x:{ ticks:{ maxTicksLimit:14, font:{size:10} } },
+        y:{ ticks:{ font:{size:10} },
+            title:{ display:true, text:CX_DA_UNIT[c], font:{size:10} } } } }
+  });
+}
+
+/* The desk's workbook, minus nothing: a customer who can see these prices can have the
+   file. Three sheets — one per fuel, then monthly averages — built the desk's way down
+   to the number masks, because the two files end up side by side on a call. */
+async function cxDaExport(){
+  const btn = document.getElementById('cxDaXl');
+  if(btn){ btn.disabled = true; btn.innerHTML = 'Preparing&hellip;'; }
+  try{
+    const XL = await loadExcelJs();
+    const wb = new XL.Workbook();
+    const NAVY = 'FF1F2D4D';
+    const head = (ws, cols)=>{
+      ws.getRow(1).values = cols.map(c=>c[0]);
+      ws.columns = cols.map(c=>({ width:c[1] }));
+      const r = ws.getRow(1);
+      r.font = { bold:true, color:{ argb:'FFFFFFFF' }, name:'Arial', size:10 };
+      r.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:NAVY } };
+      r.height = 20;
+    };
+    for(const c of ['gas','power']){
+      const ws = wb.addWorksheet(CX_DA_NAME[c]);
+      head(ws, [['Date',14], ['Day Ahead Cash Out Price ('+CX_DA_UNIT[c]+')',34]]);
+      for(const r of cxDaRows(c)){
+        // Midday UTC, never local midnight: ExcelJS converts to UTC on write, so a local
+        // midnight under BST lands at 23:00 the day before and every date reads one out.
+        const row = ws.addRow([new Date(r.d+'T12:00:00Z'), r.p]);
+        row.getCell(1).numFmt = 'dd/mm/yyyy';
+        // The point in an Excel mask is a literal: '0.####' prints "190." on a whole
+        // number. Per cell, so only genuine decimals carry one.
+        row.getCell(2).numFmt = Number.isInteger(r.p) ? '0' : '0.####';
+      }
+      ws.views = [{ state:'frozen', ySplit:1 }];
+    }
+    const ws = wb.addWorksheet('Monthly averages');
+    head(ws, [['Month',12], ['Gas (p/th)',14], ['Gas days',11],
+              ['Power (£/MWh)',16], ['Power days',12]]);
+    const merged = cxDaMerged();
+    const mks = [...new Set(Object.keys(merged).map(d=>d.slice(0,7)))].sort();
+    for(const mk of mks){
+      const days = Object.keys(merged).filter(d=>d.slice(0,7)===mk);
+      const g = days.map(d=>merged[d].gas).filter(v=>v!=null);
+      const p = days.map(d=>merged[d].power).filter(v=>v!=null);
+      const ga = g.length?cxDaMean(g):null, pa = p.length?cxDaMean(p):null;
+      const row = ws.addRow([cxDaFmtMonth(mk), ga, g.length, pa, p.length]);
+      const avgFmt = v => (v==null||Number.isInteger(v)) ? '0' : '0.0000';
+      row.getCell(2).numFmt = avgFmt(ga);
+      row.getCell(4).numFmt = avgFmt(pa);
+    }
+    ws.views = [{ state:'frozen', ySplit:1 }];
+    xlSave(await wb.xlsx.writeBuffer(), 'Day Ahead Cash Out Prices - '+xlStamp()+'.xlsx');
+    toast('Workbook downloaded');
+  }catch(e){
+    console.error('day-ahead export', e);
+    toast('The spreadsheet could not be prepared. Please try again.');
+  }finally{
+    if(btn){ btn.disabled = false; btn.innerHTML = '&#8681; Export'; }
+  }
+}
+
 /* ── basket detail ───────────────────────────────────────────────────── */
 // The tab list lives in flex-shared.js. Adding a tab there with client:true is all it
 // takes for it to appear here as well as on the desk; desk-only tabs (notes, admin) are
 // client:false and never reach this page.
 const SUBS = FlexCore.clientTabs().map(t=>[t.key,t.label]);
+
+/* ── WHAT THIS CUSTOMER SEES OF THIS BASKET (round 44) ───────────────────────
+   flex_client_baskets.hidden_tabs is a text[] of tab keys the desk has hidden for this
+   customer on this basket. Positions is never in it — the database CHECK will not admit
+   it — so a basket always has something to show.
+
+   It exists to make a shared basket safe. On a group basket every customer sees the
+   same rows, which for Sites means one customer reading another's meter list. Until the
+   desk can filter that by company, hiding the tab for the customers who should not have
+   it is the honest answer rather than the comfortable one.
+
+   TRADES, TARGETS and SITES are enforced in the database as well: their row functions
+   return nothing for a hidden tab, so this is presentation over a real gate. SEASONS and
+   GRAPHS cannot be — both are computed in this page from Positions, which is always
+   shown — so for those two this IS the gate. Said plainly here because the difference
+   matters if anyone is ever asked what a customer could have seen.
+
+   An older view with no hidden_tabs column, or a basket loaded before round 44's SQL,
+   reads as the empty array: every tab shown, exactly as the portal behaved yesterday. */
+function cxHiddenOf(b){
+  const h = b && b.hidden_tabs;
+  return Array.isArray(h) ? h.filter(x => x !== 'positions') : [];
+}
+function cxSubsFor(b){
+  const h = cxHiddenOf(b);
+  return h.length ? SUBS.filter(([k]) => h.indexOf(k) < 0) : SUBS;
+}
+/* The tab that should be open. SUB survives a Refresh, so a tab taken away while the
+   customer was sitting on it would otherwise render as an empty section. */
+function cxSubFor(b){
+  const subs = cxSubsFor(b);
+  return subs.some(([k]) => k === SUB) ? SUB : (subs[0] ? subs[0][0] : 'positions');
+}
 
 /* opts.keepScroll is passed by anything that re-renders in place — a filter change, a
    simulated price being saved. Without it every tick of a season checkbox scrolled the
@@ -1408,6 +1887,7 @@ function renderBasket(opts){
   const keep = !!(opts && opts.keepScroll);
   const y = keep ? (window.scrollY || window.pageYOffset || 0) : 0;
   const b=D.baskets.find(x=>x.id===OPEN); if(!b){renderBaskets();return;}
+  SUB=cxSubFor(b);
   const isP=b.commodity==='power';
   const S=statsOf(applyFilters(monthsOf(b.id)), b);
   // Offered whenever there is anything to put in the file. A basket with neither months
@@ -1431,7 +1911,7 @@ function renderBasket(opts){
         <div class="s">${esc(c.sub)}</div></div>`).join('')}
     </div>
     <nav class="tabs subtabs" role="tablist" aria-label="Basket detail">
-      ${SUBS.map(([k,l])=>`<button role="tab" data-sub="${k}" aria-selected="${k===SUB}">${l}</button>`).join('')}
+      ${cxSubsFor(b).map(([k,l])=>`<button role="tab" data-sub="${k}" aria-selected="${k===SUB}">${l}</button>`).join('')}
     </nav>
     <div id="subview"></div>`;
   document.getElementById('backBtn').addEventListener('click',()=>{OPEN=null;render();});
@@ -1448,6 +1928,13 @@ function renderSub(){
   destroyCharts();
   const b=D.baskets.find(x=>x.id===OPEN); if(!b) return;
   const host=document.getElementById('subview'); if(!host) return;
+  /* Checked here as well as in the nav above. renderSub is reachable with a SUB the nav
+     never offered — a Refresh that lands after the desk hides a tab, or anything that
+     sets SUB directly — and "the button is gone" is not the same as "the tab is gone". */
+  if(cxHiddenOf(b).indexOf(SUB) >= 0){
+    host.innerHTML='<div class="empty">This section is not shown for your account.</div>';
+    return;
+  }
   const R = {positions:subPositions,trades:subTrades,seasons:subSeasons,
              targets:subTargets,graphs:subGraphs,sites:subSites}[SUB];
   // The tab list comes from flex-shared.js, so a tab can be added there and reach this
@@ -1937,6 +2424,10 @@ function xlSave(buf, name){
 // sheets now rather than two, so the old "positions and trades" name undersold it.
 function xlStamp(){ const d=new Date(), p=n=>String(n).padStart(2,'0');
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
+/* Tab key → the worksheet xlWorkbook names for it. Graphs is absent on purpose: it is
+   drawn from Positions and has no sheet, so there is nothing to remove for it. */
+const CX_XL_SHEET = { trades:'Trades', seasons:'Seasons', targets:'Targets', sites:'Sites' };
+
 function xlFileName(b){
   const safe=String(b.name||'Basket').replace(/[\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim();
   return safe+' - portfolio '+xlStamp()+'.xlsx';
@@ -1962,6 +2453,17 @@ async function cxDownloadXlsx(b){
       note:cxXlNote(),
       desk:false                       // drops Next Target, Upper Alert and the NEC terms
     });
+    /* A tab the desk has hidden must not arrive as a sheet either. Without this the
+       permission is cosmetic: the customer cannot see Sites on screen and downloads the
+       whole site list a click later. Removed after the build rather than by asking
+       xlWorkbook not to make them, so flex-shared.js is untouched this round and an
+       older cached copy of it behaves identically here.
+       Graphs has no sheet of its own, so it is not in the map. */
+    for(const k of cxHiddenOf(b)){
+      const nm = CX_XL_SHEET[k];
+      const ws = nm && wb.getWorksheet(nm);
+      if(ws) wb.removeWorksheet(ws.id);
+    }
     xlSave(await wb.xlsx.writeBuffer(), xlFileName(b));
     toast('Spreadsheet downloaded');
   }catch(e){
