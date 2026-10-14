@@ -543,7 +543,78 @@ function _skFyList(){ var set={}; _SK.eff.forEach(function(k){ set[_fyStartOf(k.
 function _skSaleContribKwh(s){ return (Number(s.aq_kwh)||0) * ((Number(s.term_months)||12)/12); }
 function _thisMonthKey(){ return new Date().toISOString().slice(0,7)+'-01'; }  // UTC basis, same as desktop
 
+/* ── Contracts signed + days worked (14 Oct 2026). Same rules as sales.html: blank stays NULL
+   ("not entered"), days are pre-filled with England & Wales working days, and a month can be
+   confirmed from its 22nd with both figures saved (confirm_broker_month, _46/_47). ── */
+var _SK_OUTPUT_FROM = '2026-10-01';
+// From https://www.gov.uk/bank-holidays.json (fetched 14 Oct 2026). Add the next year when published.
+var _SK_EW_BANK_HOLIDAYS = [
+  '2025-01-01','2025-04-18','2025-04-21','2025-05-05','2025-05-26','2025-08-25','2025-12-25','2025-12-26',
+  '2026-01-01','2026-04-03','2026-04-06','2026-05-04','2026-05-25','2026-08-31','2026-12-25','2026-12-28',
+  '2027-01-01','2027-03-26','2027-03-29','2027-05-03','2027-05-31','2027-08-30','2027-12-27','2027-12-28',
+  '2028-01-03','2028-04-14','2028-04-17','2028-05-01','2028-05-29','2028-08-28','2028-12-25','2028-12-26'
+];
+function _skWorkingDays(periodKey){
+  var y = +String(periodKey || '').slice(0, 4), m = +String(periodKey || '').slice(5, 7);
+  if (!(m >= 1 && m <= 12) || y < 2025 || y > 2028) return null;
+  var hol = {}; _SK_EW_BANK_HOLIDAYS.forEach(function(d){ hol[d] = 1; });
+  var last = new Date(Date.UTC(y, m, 0)).getUTCDate(), n = 0;
+  for (var d = 1; d <= last; d++) {
+    var dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    if (dow === 0 || dow === 6) continue;
+    if (hol[y + '-' + (m < 10 ? '0' + m : m) + '-' + (d < 10 ? '0' + d : d)]) continue;
+    n++;
+  }
+  return n;
+}
+function _skLondonToday(){
+  var p = {};
+  new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(new Date()).forEach(function(x){ p[x.type] = x.value; });
+  return { y: +p.year, m: +p.month, d: +p.day };
+}
+function _skOutputProblem(rec){
+  var c = rec.deals_won, d = rec.days_worked;
+  if (c != null && (c < 0 || Math.floor(c) !== c)) return 'Contracts signed must be a whole number (0 or more).';
+  if (d != null && (d < 0 || d > 31 || Math.round(d * 2) !== d * 2)) return 'Days worked must be between 0 and 31, in whole or half days (e.g. 20.5).';
+  return null;
+}
+function _skConfirmProblem(key, row){
+  var t = _skLondonToday(), cur = t.y + '-' + (t.m < 10 ? '0' + t.m : t.m) + '-01';
+  var lbl = _skPeriodLabel(key);
+  if (key > cur || (key === cur && t.d < 22)) {
+    var mn = new Date(key + 'T00:00:00').toLocaleDateString('en-GB', { month: 'long' });
+    return lbl + ' has not finished yet, so it cannot be confirmed. You can confirm it from 22 ' + mn + '. If you meant last month, pick it first.';
+  }
+  if (key >= _SK_OUTPUT_FROM && row && (row.deals_won == null || row.days_worked == null))
+    return 'Enter your contracts signed and days worked for ' + lbl + ' and Save, then confirm.';
+  return null;
+}
+function _skConfirmSummary(row){
+  if (!row || (row.deals_won == null && row.days_worked == null)) return '';
+  return 'Contracts signed: ' + (row.deals_won == null ? 'not entered' : row.deals_won)
+    + '   Days worked: ' + (row.days_worked == null ? 'not entered' : row.days_worked) + '\n\n';
+}
+function _appDaysPrefill(row, confirmed){
+  var el = document.getElementById('f_days_worked'), h = document.getElementById('fh_days_worked');
+  if (!el) return;
+  var wd = _skWorkingDays(_entryKey), lbl = _skPeriodLabel(_entryKey);
+  var stored = !!(row && row.days_worked != null);
+  var blank = String(el.value || '').trim() === '';
+  if (!confirmed && !stored && blank && wd != null && !_restoredDraft) {
+    _setField('f_days_worked', wd, true);
+    if (h) h.textContent = 'Pre-filled with the ' + wd + ' working days in ' + lbl + '. Change it if you had leave, then Save.';
+  } else if (h) {
+    h.textContent = (confirmed && !stored) ? ('Not recorded for ' + lbl + '.')
+      : (wd != null ? ('Half days as .5. Working days in ' + lbl + ': ' + wd + '.') : 'Half days as .5');
+  }
+}
+
 var _SK_FIELDS = [
+  // Contracts signed + days worked (14 Oct 2026). Optional 5th element: nullable fields keep
+  // NULL for "not entered" and show a real 0 (see _setField keepZero / _fValOrNull).
+  ['deals_won', 'Contracts signed', '#', 'Count each contract, not each DocuSign envelope. 0 if none.', { nullable: true, int: true }],
+  ['days_worked', 'Days worked', 'days', 'Half days as .5', { nullable: true }],
   ['billing_total', 'Billing total', '£', 'Annual equivalent — include consultancy / direct £'],
   ['long_term_total', 'Long term total', '£', ''],
   ['consultancy', 'Consultancy / direct sales', '£', 'Shared saving, metering, fixed fees — recorded, included in billing total'],
@@ -561,6 +632,7 @@ var _SK_FIELDS = [
   ['lost_kwh', 'Lost kWh', 'kWh', '']
 ];
 var _SECTIONS = [
+  { title: 'Your month', fields: ['deals_won','days_worked'] },
   { title: 'Billing', fields: ['billing_total','long_term_total','consultancy','total_kwh'] },
   { title: 'New business', fields: ['new_business_gbp','new_business_kwh','nb_organic_gbp','nb_organic_kwh','nb_recommendation_gbp','nb_recommendation_kwh','nb_prospecting_gbp','nb_prospecting_kwh'] },
   { title: 'Losses', fields: ['lost_customers','lost_meters','lost_kwh'] }
@@ -857,6 +929,13 @@ function _defaultEntryKey(){
   // current month if it's in the selected FY, else the FY's latest non-future month
   var cur = _thisMonthKey(), months = _fyMonths(_skFy()).filter(function(p){ return p <= cur; });
   if (!months.length) months = [_fyMonths(_skFy())[0]];
+  // 14 Oct 2026: before the 22nd the month being finished is LAST month, so open on that.
+  // On 1 Oct two brokers landed on October and confirmed September's figures into it.
+  if (_skLondonToday().d < 22) {
+    var _y = +cur.slice(0, 4), _m = +cur.slice(5, 7) - 1; if (_m < 1) { _m = 12; _y--; }
+    var _prev = _y + '-' + (_m < 10 ? '0' + _m : _m) + '-01';
+    if (months.indexOf(_prev) >= 0) return _prev;
+  }
   return months.indexOf(cur) >= 0 ? cur : months[months.length - 1];
 }
 function renderAll(){
@@ -923,8 +1002,8 @@ function buildEntryForm(){
         var f = _SK_FIELDS.filter(function(x){ return x[0] === fk; })[0];
         var unit = f[2], hint = f[3];
         return '<div class="frow"><label for="f_' + f[0] + '">' + f[1] +
-          (hint ? '<small>' + hint + '</small>' : '') + '</label>' +
-          '<div class="in"><input type="text" inputmode="decimal" enterkeyhint="next" id="f_' + f[0] + '" placeholder="0" autocomplete="off" oninput="entryChanged()" onblur="fmtField(this)" onfocus="unfmtField(this)"><span class="unit">' + unit + '</span></div></div>';
+          (hint ? '<small id="fh_' + f[0] + '">' + hint + '</small>' : '') + '</label>' +
+          '<div class="in"><input type="text" inputmode="' + ((f[4] && f[4].int) ? 'numeric' : 'decimal') + '" enterkeyhint="next" id="f_' + f[0] + '" placeholder="' + ((f[4] && f[4].nullable) ? '' : '0') + '" autocomplete="off" oninput="entryChanged()" onblur="fmtField(this)" onfocus="unfmtField(this)"><span class="unit">' + unit + '</span></div></div>';
       }).join('') + '</div>';
   }).join('');
 }
@@ -939,6 +1018,13 @@ function _fVal(id){
   var raw = (el.dataset.raw != null && document.activeElement !== el) ? el.dataset.raw : el.value;
   return _parseNum(raw);
 }
+function _fValOrNull(id){
+  var el = document.getElementById(id); if (!el) return null;
+  var raw = (el.dataset.raw != null && document.activeElement !== el) ? el.dataset.raw : el.value;
+  raw = String(raw == null ? '' : raw).trim();
+  if (raw === '' || !/[0-9]/.test(raw)) return null;
+  return _parseNum(raw);
+}
 function fmtField(el){
   var t = el.value.trim();
   // empty or no digits at all -> clear (same as desktop's parseFloat->NaN path)
@@ -948,15 +1034,15 @@ function fmtField(el){
   el.value = v.toLocaleString('en-GB', { maximumFractionDigits: 2 });
 }
 function unfmtField(el){ if (el.dataset.raw != null && el.dataset.raw !== '') el.value = el.dataset.raw; else if (el.value) el.value = String(el.value).replace(/,/g, ''); }
-function _setField(id, v){
+function _setField(id, v, keepZero){
   var el = document.getElementById(id); if (!el) return;
-  if (v == null || v === 0) { el.value = ''; el.dataset.raw = ''; }
+  if (v == null || v === '' || isNaN(Number(v)) || (Number(v) === 0 && !keepZero)) { el.value = ''; el.dataset.raw = ''; }
   else { el.dataset.raw = String(v); el.value = Number(v).toLocaleString('en-GB', { maximumFractionDigits: 2 }); }
 }
 function loadEntry(){
   if (!document.getElementById('f_billing_total')) buildEntryForm();
   var row = _SK.kpis.filter(function(k){ return k.rep_id === _SK.myRepId && k.period === _entryKey; })[0] || null;
-  _SK_FIELDS.forEach(function(f){ _setField('f_' + f[0], row ? row[f[0]] : null); });
+  _SK_FIELDS.forEach(function(f){ _setField('f_' + f[0], row ? row[f[0]] : null, !!(f[4] && f[4].nullable)); });
   document.getElementById('f_lost_reason').value = (row && row.lost_reason) || '';
   cocSet(row ? row.customers_of_concern : null);
   _dirty = false; _restoredDraft = false;
@@ -982,6 +1068,7 @@ function loadEntry(){
   var lb = document.getElementById('lockBar');
   lb.classList.toggle('on', confirmed);
   if (confirmed) lb.innerHTML = '🔒 Confirmed as your final total for ' + _skPeriodLabel(_entryKey) + ' on ' + new Date(row.confirmed_at).toLocaleDateString('en-GB') + ' — these figures are locked. Contact CES admin if something must change.';
+  _appDaysPrefill(row, confirmed);
   _setEntryEnabled(!confirmed);
   updateLive();
 }
@@ -1023,11 +1110,11 @@ function _draftKey(){ return 'cesSalesApp:draft:' + (_SK.myRepId || 'x') + ':' +
 function saveDraft(){
   if (!_dirty || !_SK.myRepId) return;
   var d = { t: Date.now(), fields: {}, lost_reason: document.getElementById('f_lost_reason').value, coc: cocGet() };
-  _SK_FIELDS.forEach(function(f){ d.fields[f[0]] = _fVal('f_' + f[0]); });
+  _SK_FIELDS.forEach(function(f){ d.fields[f[0]] = (f[4] && f[4].nullable) ? _fValOrNull('f_' + f[0]) : _fVal('f_' + f[0]); });
   try { localStorage.setItem(_draftKey(), JSON.stringify(d)); } catch(e){}
 }
 function applyDraft(d){
-  _SK_FIELDS.forEach(function(f){ _setField('f_' + f[0], d.fields ? d.fields[f[0]] : null); });
+  _SK_FIELDS.forEach(function(f){ _setField('f_' + f[0], d.fields ? d.fields[f[0]] : null, !!(f[4] && f[4].nullable)); });
   document.getElementById('f_lost_reason').value = d.lost_reason || '';
   cocSet(d.coc);
 }
@@ -1087,7 +1174,7 @@ function _cocFilled(val){
 /* ── save + confirm (same semantics as bxSaveMine / bxConfirmMonth) ── */
 function _readEntry(){
   var rec = { rep_id: _SK.myRepId, period: _entryKey, updated_at: new Date().toISOString() };
-  _SK_FIELDS.forEach(function(f){ rec[f[0]] = _fVal('f_' + f[0]); });
+  _SK_FIELDS.forEach(function(f){ rec[f[0]] = (f[4] && f[4].nullable) ? _fValOrNull('f_' + f[0]) : _fVal('f_' + f[0]); });
   var lr = document.getElementById('f_lost_reason').value.trim();
   rec.lost_reason = lr ? lr : null;
   rec.customers_of_concern = cocGet();
@@ -1102,6 +1189,7 @@ async function saveMine(){
   var _conf = _SK.kpis.filter(function(x){ return x.rep_id === _SK.myRepId && x.period === _entryKey && x.confirmed_at; })[0];
   if (_conf) { toast('You confirmed ' + _skPeriodLabel(_entryKey) + ' as final — figures are locked. Contact CES admin.', true); return; }
   var rec = _readEntry();
+  var _op = _skOutputProblem(rec); if (_op) { toast(_op, true); return; }
   if (((Number(rec.lost_customers)||0) > 0 || (Number(rec.lost_meters)||0) > 0) && !rec.lost_reason) {
     toast('You entered lost customers/meters — add a short reason why.', true);
     document.getElementById('f_lost_reason').focus();
@@ -1134,9 +1222,11 @@ async function confirmMonth(){
   var row = _SK.kpis.filter(function(x){ return x.rep_id === _SK.myRepId && x.period === _entryKey; })[0];
   if (!row) { toast('Save your figures for ' + lbl + ' first, then confirm.', true); return; }
   if (_dirty) { toast('You have unsaved changes — Save first, then confirm.', true); return; }
+  var _cfp = _skConfirmProblem(_entryKey, row); if (_cfp) { toast(_cfp, true); return; }
   if (!_cocFilled(row.customers_of_concern)) { toast('Before confirming ' + lbl + ': add at least one customer of concern (with the customer’s name) and Save — or tick “No customers of concern”.', true); return; }
   var _pre = _skCommission(_skEffRow(_SK.myRepId, _entryKey) || row, _skCompFor(_SK.myRepId, _entryKey));
   if (!confirm('Confirm ' + lbl + ' as your FINAL figures?\n\n'
+    + _skConfirmSummary(row)
     + (_pre ? 'Commission locked in: ' + _skMoney(_pre.commission) + '\n\n' : '')
     + 'After confirming you will NOT be able to change them — only CES admin can. Your commission is recorded as it stands today and will not change afterwards, even if the rates are changed later.\n\n'
     + 'Once every broker has confirmed, the month-end report is generated and emailed to management automatically.')) return;

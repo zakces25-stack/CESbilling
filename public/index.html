@@ -2364,12 +2364,14 @@
               <div style="display:flex;gap:8px;align-items:center;">
                 <select id="meReportMonth" onchange="renderMonthEndReport()" style="width:auto;"></select>
                 <button class="btn-secondary" style="padding:7px 12px;" onclick="downloadMonthEndReport()">⬇ Download Excel</button>
+                <button class="btn-secondary" id="meDeckBtn" style="padding:7px 12px;" onclick="downloadBrokerDeck(document.getElementById('meReportMonth').value)">Download PowerPoint</button>
               </div>
             </div>
             <p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Auto-built once every active rep has <b>confirmed</b> their figures for that month. <span style="color:#b5340f;font-weight:700;">Red</span> = a month-on-month drop over 15%, or average contract uplift below 0.6p/kWh. When complete, the Excel report + AI analysis is emailed automatically to the recipients below (next 8am run).</p>
             <div id="meReportStatus" style="margin-bottom:10px;"></div>
             <div id="meReportBody" style="overflow-x:auto;"></div>
           </div>
+          <div class="form-card" id="meActHost" style="margin-top:16px;"></div>
           <div class="form-card" style="margin-top:16px;max-width:680px;">
             <h3 style="font-size:14px;font-weight:800;margin-bottom:6px;">Month-end report recipients</h3>
             <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px;">The automated Excel + AI report is emailed to everyone on this list once all brokers have confirmed. Add as many executives as needed. If the list is empty, it falls back to pricingteam@cesgb.com as a safety net.</p>
@@ -2897,7 +2899,8 @@
     // ───── WHICH PORTAL IS THIS LOGIN FOR? ─────
     // One rule for every front door, evaluated in the database (my_portals(), migration
     // _40): billing needs a customer whose portal_scope includes 'billing'; sales needs a
-    // broker; pricing and cot need their team flags; a flex-only client gets 'flexclient';
+    // broker or an exec_view (Company view) login, migration _41; pricing and cot need their
+    // team flags; a flex-only client gets 'flexclient';
     // an admin gets everything. The page-side derivation below is the SAME rule, used only
     // if the function is unreachable, so a deploy that lands the page before the migration
     // cannot lock everyone out — and cannot let anyone extra in either.
@@ -2913,7 +2916,7 @@
       if (profile.is_admin || (profile.customer_id && scope.indexOf('carbon') >= 0)) out.push('carbon');
       if (profile.customer_id && scope.indexOf('flex') >= 0) out.push('flexclient');
       if (profile.is_admin || profile.role === 'flex' || profile.flex_team || profile.flex_reports_admin) out.push('flex');
-      if (profile.is_admin || profile.role === 'broker') out.push('sales');
+      if (profile.is_admin || profile.role === 'broker' || profile.exec_view) out.push('sales');
       if (profile.is_admin || profile.pricing_team) out.push('pricing');
       if (profile.is_admin || profile.cot_team) out.push('cot');
       return out;
@@ -5736,6 +5739,10 @@
     // / broker_comp (private: own + admin only, enforced by RLS).
     var _SK = { reps: [], kpis: [], sales: [], salesTeam: [], eff: [], notes: [], targets: {}, projects: [], projEntries: [], activity: [], newBiz: [], compByRep: {}, compPlans: {}, myRepId: null };
     var _SK_FIELDS = [
+      // Contracts signed + days worked (14 Oct 2026): the two figures only the broker knows.
+      // NULL means "not entered", so these two never fall back to 0 (see _skReadEntry).
+      ['deals_won', 'Contracts signed this month', { step:'1', min:'0', nullable:true, hint:true }],
+      ['days_worked', 'Days worked this month', { step:'0.5', min:'0', max:'31', nullable:true, hint:true }],
       ['billing_total', 'Billing total (£, annual equivalent — include consultancy / direct £)'],
       ['long_term_total', 'Long term total (£)'],
       ['consultancy', 'Consultancy / direct sales (£) · shared saving, metering, fixed fees — recorded, included in billing total'],
@@ -5826,6 +5833,803 @@
     function _skPeriodLabel(p){ if(!p) return ''; var d = new Date(p + 'T00:00:00'); return d.toLocaleDateString('en-GB', { month:'short', year:'numeric' }); }
     function _skMonthKey(id){ var v = (document.getElementById(id)||{}).value; return v ? v + '-01' : null; }
     function _skFlash(id, msg){ var e = document.getElementById(id); if(!e) return; e.textContent = msg; e.style.display = 'block'; setTimeout(function(){ e.style.display = 'none'; }, 2500); }
+    // ── Broker output figures (14 Oct 2026, Adam's month-end merge) ────────────────────────
+    // Contracts signed and days worked come from the broker's own month-end form. Calls, talk
+    // time, emails, computer activity and DocuSign envelopes come from the systems into
+    // broker_activity, each stamped with where it came from (broker_activity.sources, _45).
+    // A missing figure is NULL and shows as a dash: "not recorded" is never shown as zero.
+    var _SK_OUTPUT_FROM = '2026-10-01';   // contracts + days required to confirm from this month (_47)
+    var _SK_SECTIONS = {
+      deals_won: ['Your month', 'Contracts signed and days worked. Both are needed before the month can be confirmed.'],
+      billing_total: ['Billing, new business and losses', '']
+    };
+    function _skSectionHtml(key){
+      var s = _SK_SECTIONS[key]; if(!s) return '';
+      return '<div class="form-group sk-entry-section" style="grid-column:1/-1;margin:8px 0 2px;">'
+        + '<div style="font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--navy);">' + s[0] + '</div>'
+        + (s[1] ? '<div style="font-size:11.5px;color:var(--muted);margin-top:2px;">' + s[1] + '</div>' : '') + '</div>';
+    }
+    // England & Wales bank holidays, from https://www.gov.uk/bank-holidays.json (fetched 14 Oct 2026).
+    // Months outside these years get no working-days pre-fill rather than a wrong one: add the
+    // next year here when gov.uk publishes it.
+    var _SK_EW_BANK_HOLIDAYS = [
+      '2025-01-01','2025-04-18','2025-04-21','2025-05-05','2025-05-26','2025-08-25','2025-12-25','2025-12-26',
+      '2026-01-01','2026-04-03','2026-04-06','2026-05-04','2026-05-25','2026-08-31','2026-12-25','2026-12-28',
+      '2027-01-01','2027-03-26','2027-03-29','2027-05-03','2027-05-31','2027-08-30','2027-12-27','2027-12-28',
+      '2028-01-03','2028-04-14','2028-04-17','2028-05-01','2028-05-29','2028-08-28','2028-12-25','2028-12-26'
+    ];
+    function _skWorkingDays(periodKey){
+      var y = +String(periodKey || '').slice(0, 4), m = +String(periodKey || '').slice(5, 7);
+      if(!(m >= 1 && m <= 12) || y < 2025 || y > 2028) return null;
+      var hol = {}; _SK_EW_BANK_HOLIDAYS.forEach(function(d){ hol[d] = 1; });
+      var last = new Date(Date.UTC(y, m, 0)).getUTCDate(), n = 0;
+      for(var d = 1; d <= last; d++){
+        var dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+        if(dow === 0 || dow === 6) continue;
+        if(hol[y + '-' + (m < 10 ? '0' + m : m) + '-' + (d < 10 ? '0' + d : d)]) continue;
+        n++;
+      }
+      return n;
+    }
+    // Today in London as {y, m, d}, so the page and confirm_broker_month() agree on the date.
+    function _skLondonToday(){
+      var p = {};
+      new Intl.DateTimeFormat('en-GB', { timeZone:'Europe/London', year:'numeric', month:'2-digit', day:'2-digit' })
+        .formatToParts(new Date()).forEach(function(x){ p[x.type] = x.value; });
+      return { y:+p.year, m:+p.month, d:+p.day };
+    }
+    // Hints under the two fields. On the broker's own unconfirmed month a blank days box is
+    // pre-filled with the working days, so the broker only changes it for leave.
+    function _skDaysHint(prefix, key, row, prefill){
+      var el = document.getElementById(prefix + 'days_worked'); if(!el) return;
+      var hint = document.getElementById(prefix + 'days_worked_hint');
+      var ct = document.getElementById(prefix + 'deals_won_hint');
+      var wd = key ? _skWorkingDays(key) : null, lbl = key ? _skPeriodLabel(key) : '';
+      var confirmed = !!(row && row.confirmed_at);
+      var stored = !!(row && row.days_worked != null && row.days_worked !== '');
+      el.placeholder = (wd != null) ? String(wd) : '';
+      var filled = false;
+      if(prefill && !confirmed && !stored && wd != null && String(el.value) === ''){ el.value = wd; filled = true; }
+      if(hint){
+        hint.textContent = (wd == null) ? ''
+          : filled ? ('Pre-filled with the ' + wd + ' working days in ' + lbl + ' (weekends and bank holidays taken out). Change it if you had leave or worked part days, then Save.')
+          : (confirmed && !stored) ? ('Not recorded for ' + lbl + '.')
+          : ('Working days in ' + lbl + ': ' + wd + '.');
+      }
+      if(ct){
+        var cStored = !!(row && row.deals_won != null && row.deals_won !== '');
+        ct.textContent = (confirmed && !cStored) ? ('Not recorded for ' + lbl + '.')
+          : 'One DocuSign envelope can hold several contracts: count the contracts. Enter 0 if none.';
+      }
+    }
+    // A problem with the two broker-entered figures, or null. Mirrors the database checks.
+    function _skOutputProblem(rec){
+      var c = rec.deals_won, d = rec.days_worked;
+      if(c != null && (c < 0 || Math.floor(c) !== c)) return 'Contracts signed must be a whole number (0 or more).';
+      if(d != null && (d < 0 || d > 31 || Math.round(d * 2) !== d * 2)) return 'Days worked must be between 0 and 31, in whole or half days (e.g. 20.5).';
+      return null;
+    }
+    // Why a month cannot be confirmed yet, or null. The same rules confirm_broker_month() enforces.
+    function _skConfirmProblem(key, row){
+      var t = _skLondonToday(), cur = t.y + '-' + (t.m < 10 ? '0' + t.m : t.m) + '-01';
+      var lbl = _skPeriodLabel(key);
+      if(key > cur || (key === cur && t.d < 22)){
+        var mn = new Date(key + 'T00:00:00').toLocaleDateString('en-GB', { month:'long' });
+        return lbl + ' has not finished yet, so it cannot be confirmed. You can confirm it from 22 ' + mn + '. If you meant last month, pick it first.';
+      }
+      if(key >= _SK_OUTPUT_FROM && row && (row.deals_won == null || row.days_worked == null))
+        return 'Enter your contracts signed and days worked for ' + lbl + ' and Save, then confirm.';
+      return null;
+    }
+    function _skConfirmSummary(row){
+      if(!row || (row.deals_won == null && row.days_worked == null)) return '';
+      return 'Contracts signed: ' + (row.deals_won == null ? 'not entered' : row.deals_won)
+        + '   Days worked: ' + (row.days_worked == null ? 'not entered' : row.days_worked) + '\n\n';
+    }
+    // Every output figure for one broker over a set of months. Counts are summed; computer
+    // activity is weighted by Teramind work time when every month carries it, else averaged.
+    function _skOutputFor(repId, months){
+      var set = {}; (months || []).forEach(function(p){ set[p] = 1; });
+      var o = { days:null, contracts:null, env:null, calls:null, talk:null, emails:null, idle:null, work:null, activity:null, billing:0, hasBilling:false };
+      function add(key, v){ if(v == null || v === '') return; v = Number(v); if(isNaN(v)) return; o[key] = (o[key] == null ? 0 : o[key]) + v; }
+      // A month marked "excluded" for a broker is left out, as the month-end report leaves it out.
+      (_SK.kpis || []).forEach(function(k){ if(k.rep_id !== repId || !set[k.period] || k.excluded) return; add('days', k.days_worked); add('contracts', k.deals_won); });
+      (_SK.eff || []).forEach(function(k){ if(k.rep_id === repId && set[k.period] && !k.excluded){ o.billing += Number(k.billing_total) || 0; o.hasBilling = true; } });
+      var aN = 0, aSum = 0, wN = 0, wSum = 0, wTot = 0;
+      (_SK.activity || []).forEach(function(a){
+        if(a.rep_id !== repId || !set[String(a.period).slice(0, 10)]) return;
+        add('calls', a.calls); add('talk', a.talk_time_sec); add('emails', a.emails);
+        add('env', a.docusign_envelopes); add('idle', a.idle_sec); add('work', a.work_sec);
+        if(a.activity_pct != null && a.activity_pct !== ''){
+          var p = Number(a.activity_pct), w = Number(a.work_sec) || 0;
+          aN++; aSum += p;
+          if(w > 0){ wN++; wSum += p * w; wTot += w; }
+        }
+      });
+      if(aN) o.activity = (wN === aN && wTot > 0) ? wSum / wTot : aSum / aN;
+      return o;
+    }
+    function _skTeamActivity(outs){
+      var n = 0, s = 0, wn = 0, ws = 0, wt = 0;
+      (outs || []).forEach(function(o){ if(o.activity == null) return; n++; s += o.activity; if(o.work > 0){ wn++; ws += o.activity * o.work; wt += o.work; } });
+      if(!n) return null;
+      return (wn === n && wt > 0) ? ws / wt : s / n;
+    }
+    function _skHm(sec){
+      if(sec == null) return null;
+      sec = Math.round(Number(sec) || 0);
+      var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+      return h + ':' + (m < 10 ? '0' + m : m);
+    }
+    function _skDash(){ return '<span style="color:var(--muted);">&mdash;</span>'; }
+    function _skOutCell(v, kind){
+      if(v == null) return _skDash();
+      if(kind === 'hm') return _skHm(v);
+      if(kind === 'pct') return Number(v).toFixed(1) + '%';
+      if(kind === 'money') return _skMoney(v);
+      if(kind === 'days') return (Math.round(Number(v) * 2) / 2).toLocaleString('en-GB', { maximumFractionDigits:1 });
+      return _skNum(v, 0);
+    }
+    // Where each system-fed figure in these months came from, one line per metric and source.
+    var _SK_ACT_LABELS = { calls:'Calls', talk_time_sec:'Talk time', emails:'Emails sent', activity_pct:'Computer activity', idle_sec:'Idle time', docusign_envelopes:'DocuSign envelopes' };
+    function _skOutputSources(months){
+      var set = {}; (months || []).forEach(function(p){ set[p] = 1; });
+      var who = {}; (_SK.reps || []).forEach(function(r){ if(r.profile_id) who[r.profile_id] = _skShortName(r.name); });
+      var seen = {}, out = [];
+      (_SK.activity || []).forEach(function(a){
+        if(!set[String(a.period).slice(0, 10)] || !a.sources) return;
+        Object.keys(a.sources).forEach(function(k){
+          if(!_SK_ACT_LABELS[k] || a[k] == null) return;
+          var s = a.sources[k] || {};
+          var cov = '';
+          if(s.days){
+            var f1 = s.first ? new Date(s.first + 'T00:00:00').toLocaleDateString('en-GB', { day:'numeric', month:'short' }) : '';
+            var f2 = s.last ? new Date(s.last + 'T00:00:00').toLocaleDateString('en-GB', { day:'numeric', month:'short' }) : '';
+            cov = ', ' + s.days + ' day' + (s.days === 1 ? '' : 's') + ' loaded' + (f1 ? ' (' + f1 + (f2 && f2 !== f1 ? ' to ' + f2 : '') + ')' : '');
+          }
+          var line = (s.source || 'source not recorded') + (s.file ? ' (' + s.file + ')' : '') + cov
+            + (s.at ? ', loaded ' + new Date(s.at).toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', timeZone:'Europe/London' }) : '')
+            + (s.by ? ' by ' + (who[s.by] || 'CES admin') : '');
+          var key = k + '|' + line; if(seen[key]) return; seen[key] = 1;
+          out.push({ metric:_SK_ACT_LABELS[k], line:line });
+        });
+      });
+      out.sort(function(a, b){ return a.metric < b.metric ? -1 : (a.metric > b.metric ? 1 : 0); });
+      return out;
+    }
+    // ── Teramind monthly export -> broker_activity ──
+    // Reads the Productivity export: "Employee", "Input Rate: Activity", "Work Time: Time (s)",
+    // "Work Time: Idle Time (s)". The "(s)" columns actually hold h:mm:ss with hours past 24.
+    // Headers are matched EXACTLY (a substring match once picked the wrong column elsewhere in
+    // this portal). The month comes from the file name and must be one whole calendar month.
+    var _tmPending = null;
+    function _tmSplitCsv(text){
+      var rows = [], row = [], f = '', q = false;
+      for(var i = 0; i < text.length; i++){
+        var ch = text.charAt(i);
+        if(q){
+          if(ch === '"'){ if(text.charAt(i + 1) === '"'){ f += '"'; i++; } else q = false; }
+          else f += ch;
+        }
+        else if(ch === '"') q = true;
+        else if(ch === ','){ row.push(f); f = ''; }
+        else if(ch === '\n' || ch === '\r'){
+          if(ch === '\r' && text.charAt(i + 1) === '\n') i++;
+          row.push(f); rows.push(row); row = []; f = '';
+        }
+        else f += ch;
+      }
+      if(f !== '' || row.length){ row.push(f); rows.push(row); }
+      return rows.filter(function(r){ return r.some(function(c){ return String(c).trim() !== ''; }); });
+    }
+    function _tmDur(v){
+      v = String(v == null ? '' : v).trim(); if(v === '') return null;
+      var m = /^(\d+):([0-5]\d):([0-5]\d)$/.exec(v);
+      if(m) return (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]);
+      if(/^\d+$/.test(v)) return +v;
+      return NaN;
+    }
+    function _tmPct(v){
+      v = String(v == null ? '' : v).trim(); if(v === '') return null;
+      var m = /^(\d+(?:\.\d+)?)\s*%?$/.exec(v); if(!m) return NaN;
+      var n = +m[1];
+      return (n >= 0 && n <= 100) ? Math.round(n * 100) / 100 : NaN;
+    }
+    function _tmPeriodFromName(name){
+      var s = String(name || ''), m, a, b;
+      if((m = /(\d{4})-(\d{2})-(\d{2})\s*-\s*(\d{4})-(\d{2})-(\d{2})/.exec(s))){ a = [+m[1], +m[2], +m[3]]; b = [+m[4], +m[5], +m[6]]; }
+      else if((m = /(\d{4})(\d{2})(\d{2})\s+(\d{4})(\d{2})(\d{2})/.exec(s))){ a = [+m[1], +m[2], +m[3]]; b = [+m[4], +m[5], +m[6]]; }
+      else return { period:null, error:null, note:'The file name does not say which dates it covers.' };
+      function lbl(x){ return new Date(Date.UTC(x[0], x[1] - 1, x[2])).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric', timeZone:'UTC' }); }
+      var last = new Date(Date.UTC(a[0], a[1], 0)).getUTCDate();
+      if(a[0] !== b[0] || a[1] !== b[1] || a[2] !== 1 || b[2] !== last){
+        return { period:null, note:null, error:(a.join('-') === b.join('-')
+            ? 'This export covers ' + lbl(a) + ' only.'
+            : 'This export covers ' + lbl(a) + ' to ' + lbl(b) + ', which is not one whole month.')
+          + ' In Teramind, set the dates to the 1st and the last day of the month, export again and drop that file here.' };
+      }
+      var t = _skLondonToday();
+      if(b[0] * 10000 + b[1] * 100 + b[2] >= t.y * 10000 + t.m * 100 + t.d)
+        return { period:null, note:null, error:'That month is not over yet, so its Teramind figures are not final. Export it once the month has ended.' };
+      return { period:a[0] + '-' + (a[1] < 10 ? '0' + a[1] : a[1]) + '-01', error:null, note:null };
+    }
+    function _tmParse(text, fileName, reps){
+      var out = { rows:[], others:0, missing:[], error:null, period:null, note:null, hasIdle:false, hasWork:false };
+      var t = String(text || '');
+      if(t.charCodeAt(0) === 0xFEFF) t = t.slice(1);
+      var grid = _tmSplitCsv(t);
+      if(grid.length < 2){ out.error = 'That file is empty or is not a CSV export.'; return out; }
+      var H = grid[0].map(function(h){ return String(h || '').trim().replace(/\s+/g, ' ').toLowerCase(); });
+      var cE = H.indexOf('employee'), cA = H.indexOf('input rate: activity');
+      var cI = H.indexOf('work time: idle time (s)'), cW = H.indexOf('work time: time (s)');
+      if(cE < 0 || cA < 0){ out.error = 'This is not the Teramind Productivity export: it needs the columns "Employee" and "Input Rate: Activity".'; return out; }
+      out.hasIdle = cI >= 0; out.hasWork = cW >= 0;
+      var pr = _tmPeriodFromName(fileName);
+      if(pr.error){ out.error = pr.error; return out; }
+      out.period = pr.period; out.note = pr.note;
+      var byEmail = _actAliasMap(reps);
+      var seen = {};
+      for(var i = 1; i < grid.length; i++){
+        var row = grid[i];
+        var em = (/([A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/.exec(String(row[cE] || '')) || [])[1];
+        em = em ? em.toLowerCase() : '';
+        var rep = byEmail[em];
+        if(!rep){ out.others++; continue; }
+        if(seen[rep.id]){ out.error = rep.name + ' appears twice in this file. Export it again and check.'; return out; }
+        seen[rep.id] = 1;
+        var act = _tmPct(row[cA]);
+        var idle = out.hasIdle ? _tmDur(row[cI]) : null, work = out.hasWork ? _tmDur(row[cW]) : null;
+        if(act !== null && isNaN(act)){ out.error = 'Could not read the activity figure for ' + rep.name + ' ("' + row[cA] + '").'; return out; }
+        if(idle !== null && isNaN(idle)){ out.error = 'Could not read the idle time for ' + rep.name + ' ("' + row[cI] + '").'; return out; }
+        if(work !== null && isNaN(work)){ out.error = 'Could not read the work time for ' + rep.name + ' ("' + row[cW] + '").'; return out; }
+        out.rows.push({ rep:rep, email:em, activity_pct:act, idle_sec:idle, work_sec:work });
+      }
+      (reps || []).forEach(function(r){ if(r.active !== false && !seen[r.id]) out.missing.push(r); });
+      if(!out.rows.length) out.error = 'None of the brokers are in this file. Check it is the all-employees export.';
+      return out;
+    }
+    // ── Activity files: one place to drop the month's files (14 Oct 2026) ──────────────────
+    // Teramind Productivity export (CSV)         -> broker_activity, one month per file
+    // Claude's 8x8 outbound call report (XLSX)   -> broker_activity_days, one row per broker per day
+    // Outbound email CSVs (summary / weekly tidy / per-message trace) -> broker_activity_days
+    // broker_activity_days rebuilds the month totals server-side (_48), so a day loaded twice
+    // replaces itself. People and extensions map through sales_reps.activity_aliases.
+    var _actPending = {};
+    function _actAliasMap(reps){
+      var m = {};
+      (reps || []).forEach(function(r){
+        if(r.active === false) return;
+        var ids = (r.activity_aliases || []).slice();
+        if(r.email) ids.push(r.email);
+        ids.forEach(function(x){ x = String(x || '').trim().toLowerCase(); if(x) m[x] = r; });
+      });
+      return m;
+    }
+    function _actIsoDate(s){
+      var m = /(\d{4})-(\d{2})-(\d{2})/.exec(String(s == null ? '' : s)); if(!m) return null;
+      var d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+      return (d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3]) ? (m[1] + '-' + m[2] + '-' + m[3]) : null;
+    }
+    // A duration as written by the report ("00:19:48", hours can pass 24), an Excel time cell
+    // (re-saved files turn into Dates on the 1899-12-30 epoch or day fractions), or seconds.
+    function _actHms(v){
+      if(v == null || v === '') return null;
+      if(v instanceof Date) return Math.round((v.getTime() - Date.UTC(1899, 11, 30)) / 1000);
+      if(typeof v === 'number') return v < 1 ? Math.round(v * 86400) : Math.round(v);
+      var d = _tmDur(v);
+      return d;
+    }
+    function _actCell(c){
+      var v = c ? c.value : null;
+      if(v && typeof v === 'object' && !(v instanceof Date)){
+        if(v.richText) return v.richText.map(function(t){ return t.text; }).join('');
+        if(v.result !== undefined) return v.result;
+        if(v.text !== undefined) return v.text;
+      }
+      return v;
+    }
+    function _actRows(ws){
+      var out = [];
+      ws.eachRow({ includeEmpty:true }, function(row, n){
+        var a = []; row.eachCell({ includeEmpty:true }, function(c, col){ a[col - 1] = _actCell(c); });
+        out[n - 1] = a;
+      });
+      for(var i = 0; i < out.length; i++) if(!out[i]) out[i] = [];
+      return out;
+    }
+    async function _act8x8(file, aliasMap){
+      var wb = new ExcelJS.Workbook();
+      try { await wb.xlsx.load(await file.arrayBuffer()); }
+      catch(e){ return { kind:'8x8', error:'Could not open this workbook.' }; }
+      var sum = wb.getWorksheet('Summary');
+      if(!sum) return null;
+      var rows = _actRows(sum);
+      var title = String((rows[0] || [])[0] == null ? '' : rows[0][0]).trim();
+      var tm = /^Outbound calls by extension - (\d{4}-\d{2}-\d{2})(?: to (\d{4}-\d{2}-\d{2}))?$/.exec(title);
+      if(!tm) return { kind:'8x8', error:'It has a Summary sheet, but not the title of the 8x8 outbound call report.' };
+      var d1 = _actIsoDate(tm[1]), d2 = tm[2] ? _actIsoDate(tm[2]) : d1;
+      if(!d1 || !d2 || d2 < d1) return { kind:'8x8', error:'The report title has an impossible date.' };
+      var out = { kind:'8x8', days:[], unknown:[], first:d1, last:d2 }, seen = {};
+      function read(grid, fixedDay){
+        var hi = -1, H = null;
+        for(var i = 0; i < grid.length; i++){
+          var r = (grid[i] || []).map(function(x){ return String(x == null ? '' : x).trim().toLowerCase(); });
+          if(r.indexOf('extension') >= 0 && r.indexOf('outbound calls') >= 0){ hi = i; H = r; break; }
+        }
+        if(hi < 0) return 'no Extension / Outbound Calls header';
+        var cE = H.indexOf('extension'), cC = H.indexOf('outbound calls'), cT = H.indexOf('total talk time (h:m:s)'),
+            cK = H.indexOf('total call time (h:m:s)'), cD = H.indexOf('date');
+        if(cT < 0) return 'no "Total Talk Time (h:m:s)" column';
+        if(!fixedDay && cD < 0) return 'no Date column';
+        for(var j = hi + 1; j < grid.length; j++){
+          var row = grid[j] || [], ext = String(row[cE] == null ? '' : row[cE]).trim();
+          if(!ext || /^total$/i.test(ext)) continue;
+          var day = fixedDay || _actIsoDate(row[cD]);
+          if(!day) return 'a row for ' + ext + ' has no readable date';
+          if(day < d1 || day > d2) return 'a row for ' + ext + ' is dated ' + day + ', outside the report';
+          var calls = Number(row[cC]);
+          if(!(calls >= 0) || Math.floor(calls) !== calls) return 'the call count for ' + ext + ' is not a whole number';
+          var talk = _actHms(row[cT]);
+          if(talk == null || isNaN(talk) || talk < 0) return 'the talk time for ' + ext + ' is unreadable';
+          var callt = cK >= 0 ? _actHms(row[cK]) : null;
+          if(callt != null && (isNaN(callt) || callt < 0)) callt = null;
+          var rep = aliasMap[ext.toLowerCase()];
+          if(!rep){ if(out.unknown.indexOf(ext) < 0) out.unknown.push(ext); continue; }
+          var key = rep.id + '|' + day;
+          if(seen[key]) return ext + ' appears twice for ' + day;
+          seen[key] = 1;
+          out.days.push({ rep:rep, day:day, calls:calls, talk_time_sec:talk, call_time_sec:callt });
+        }
+        return null;
+      }
+      var err;
+      if(d1 === d2) err = read(rows, d1);
+      else {
+        var daily = wb.getWorksheet('Daily');
+        if(!daily) return { kind:'8x8', error:'It covers ' + d1 + ' to ' + d2 + ' but has no "Daily" sheet, so it cannot be split into days. Load the daily reports instead.' };
+        err = read(_actRows(daily), null);
+      }
+      if(err) return { kind:'8x8', error:'Could not read this 8x8 report: ' + err + '.' };
+      if(!out.days.length) return { kind:'8x8', error:'None of the extensions in this report belong to a broker.' };
+      return out;
+    }
+    // The three CSVs the outbound mail trace writes. Each covers every sender on its days, so a
+    // broker missing from a covered day sent nothing that day and gets 0, not a gap.
+    function _actEmailCsv(text, fileName, aliasMap, reps){
+      var t = String(text || ''); if(t.charCodeAt(0) === 0xFEFF) t = t.slice(1);
+      var grid = _tmSplitCsv(t); if(!grid.length) return null;
+      var H = grid[0].map(function(h){ return String(h || '').trim().toLowerCase(); });
+      var cS = H.indexOf('sender'), cM = H.indexOf('messages'), cD = H.indexOf('date'), cR = H.indexOf('receiveduk'), cI = H.indexOf('messageid');
+      var mode = (cS >= 0 && cM >= 0 && cD >= 0) ? 'tidy' : (cS >= 0 && cM >= 0) ? 'summary' : (cS >= 0 && cI >= 0 && cR >= 0) ? 'trace' : null;
+      if(!mode) return null;
+      var fileDay = _actIsoDate((/(\d{4}-\d{2}-\d{2})/.exec(String(fileName || '')) || [])[1]);
+      if((mode === 'summary' || mode === 'trace') && !fileDay)
+        return { kind:'email', error:'The file name must carry its date, e.g. CES_Outbound_Summary_2026-09-15.csv.' };
+      var counts = {}, others = {}, ids = {};
+      for(var i = 1; i < grid.length; i++){
+        var row = grid[i], sender = String(row[cS] || '').trim().toLowerCase();
+        if(!sender) continue;
+        var day = mode === 'tidy' ? _actIsoDate(row[cD]) : fileDay;
+        if(!day) return { kind:'email', error:'Row ' + (i + 1) + ' has no readable date.' };
+        var n;
+        if(mode === 'trace'){
+          var mid = String(row[cI] || '').trim(); if(!mid) continue;
+          if(ids[day + '|' + mid]) continue;
+          ids[day + '|' + mid] = 1; n = 1;
+        } else {
+          n = Number(String(row[cM]).replace(/,/g, ''));
+          if(!(n >= 0) || Math.floor(n) !== n) return { kind:'email', error:'Row ' + (i + 1) + ' has a message count that is not a whole number.' };
+        }
+        counts[day] = counts[day] || {};
+        var rep = aliasMap[sender];
+        if(!rep){ others[sender] = 1; continue; }
+        counts[day][rep.id] = (counts[day][rep.id] || 0) + n;
+      }
+      var days = Object.keys(counts).sort();
+      if(!days.length) return { kind:'email', error:'There are no messages in this file.' };
+      var withMail = (reps || []).filter(function(r){
+        return r.active !== false && ((r.activity_aliases || []).some(function(a){ return String(a).indexOf('@') > 0; }) || r.email);
+      });
+      var out = { kind:'email', mode:mode, days:[], others:Object.keys(others).length, first:days[0], last:days[days.length - 1] };
+      days.forEach(function(day){
+        withMail.forEach(function(r){ out.days.push({ rep:r, day:day, emails:counts[day][r.id] || 0 }); });
+      });
+      return out;
+    }
+    async function _actReadFile(f, reps, aliasMap){
+      var name = f.name || 'file';
+      try {
+        if(/\.xlsx$/i.test(name)){
+          if(typeof ExcelJS === 'undefined' || !ExcelJS.Workbook) return { file:name, error:'The Excel engine is still loading. Try again in a moment.' };
+          var x = await _act8x8(f, aliasMap);
+          if(!x) return { file:name, error:'Not a file this page reads (no "Summary" sheet).' };
+          x.file = name; return x;
+        }
+        if(/\.csv$/i.test(name)){
+          var text = await f.text();
+          var first = _tmSplitCsv((text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text).split(/\r?\n/)[0] || '')[0] || [];
+          var H = first.map(function(h){ return String(h || '').trim().replace(/\s+/g, ' ').toLowerCase(); });
+          if(H.indexOf('employee') >= 0 && H.indexOf('input rate: activity') >= 0){
+            var p = _tmParse(text, name, reps);
+            if(p.error) return { file:name, kind:'teramind', error:p.error };
+            if(!p.period) return { file:name, kind:'teramind', error:(p.note || '') + ' Keep the dates Teramind puts in the name, e.g. "... 2026-09-01 - 2026-09-30.csv".' };
+            p.kind = 'teramind'; p.file = name; return p;
+          }
+          var e = _actEmailCsv(text, name, aliasMap, reps);
+          if(e){ e.file = name; return e; }
+          return { file:name, error:'Not a file this page reads.' };
+        }
+        return { file:name, error:'Only .csv and .xlsx files are read here.' };
+      } catch(err){ return { file:name, error:'Could not read this file.' }; }
+    }
+    function _actPlan(results){
+      var plan = { calls:{}, emails:{}, teramind:[], errors:[], notes:[], files:{ calls:[], emails:[], teramind:[] } };
+      results.forEach(function(r){
+        if(r.error){ plan.errors.push(r.file + ': ' + r.error); return; }
+        if(r.kind === 'teramind'){
+          if(plan.teramind.some(function(x){ return x.period === r.period; })){ plan.errors.push(r.file + ': a second Teramind export for ' + _skPeriodLabel(r.period) + ' in this drop.'); return; }
+          plan.teramind.push(r); plan.files.teramind.push(r.file);
+          if(r.others) plan.notes.push(r.file + ': ' + r.others + ' other staff in the file ignored.');
+          if(r.missing && r.missing.length) plan.notes.push(r.file + ': not in the file: ' + r.missing.map(function(x){ return _skShortName(x.name); }).join(', ') + ' (not monitored by Teramind, or missing from the export).');
+          return;
+        }
+        var bucket = (r.kind === '8x8') ? plan.calls : plan.emails, clash = null;
+        r.days.forEach(function(d){ var k = d.rep.id + '|' + d.day; if(bucket[k]) clash = d.day; });
+        if(clash){ plan.errors.push(r.file + ': ' + clash + ' is already in another ' + (r.kind === '8x8' ? '8x8 report' : 'email file') + ' in this drop, so this file was left out.'); return; }
+        r.days.forEach(function(d){ bucket[d.rep.id + '|' + d.day] = Object.assign({ file:r.file }, d); });
+        if(r.unknown && r.unknown.length) plan.notes.push(r.file + ': not linked to a broker, ignored: ' + r.unknown.join(', ') + '.');
+        if(r.others) plan.notes.push(r.file + ': ' + r.others + ' other sender' + (r.others === 1 ? '' : 's') + ' ignored.');
+        plan.files[r.kind === '8x8' ? 'calls' : 'emails'].push(r.file);
+      });
+      return plan;
+    }
+    function _actPreviewHtml(prefix, plan){
+      var months = {};
+      Object.keys(plan.calls).forEach(function(k){ months[plan.calls[k].day.slice(0, 7) + '-01'] = 1; });
+      Object.keys(plan.emails).forEach(function(k){ months[plan.emails[k].day.slice(0, 7) + '-01'] = 1; });
+      plan.teramind.forEach(function(t){ months[t.period] = 1; });
+      var keys = Object.keys(months).sort();
+      var reps = (_SK.reps || []).filter(function(r){ return r.active !== false; });
+      var html = '';
+      keys.forEach(function(m){
+        var inM = function(d){ return d.day.slice(0, 7) + '-01' === m; };
+        var cDays = {}, eDays = {};
+        Object.keys(plan.calls).forEach(function(k){ var d = plan.calls[k]; if(inM(d)) cDays[d.day] = 1; });
+        Object.keys(plan.emails).forEach(function(k){ var d = plan.emails[k]; if(inM(d)) eDays[d.day] = 1; });
+        var tm = plan.teramind.filter(function(t){ return t.period === m; })[0];
+        var rows = reps.map(function(r){
+          var c = null, talk = null, cd = 0, e = null, ed = 0;
+          Object.keys(plan.calls).forEach(function(k){ var d = plan.calls[k]; if(d.rep.id === r.id && inM(d)){ c = (c || 0) + d.calls; talk = (talk || 0) + d.talk_time_sec; cd++; } });
+          Object.keys(plan.emails).forEach(function(k){ var d = plan.emails[k]; if(d.rep.id === r.id && inM(d)){ e = (e || 0) + d.emails; ed++; } });
+          var t = tm ? tm.rows.filter(function(x){ return x.rep.id === r.id; })[0] : null;
+          if(c == null && e == null && !t) return '';
+          return '<tr><td>' + escapeHtml(_skShortName(r.name)) + '</td>'
+            + '<td class="num">' + (c == null ? _skDash() : _skNum(c, 0) + ' <span style="color:var(--muted);font-size:11px;">(' + cd + 'd)</span>') + '</td>'
+            + '<td class="num">' + (talk == null ? _skDash() : _skHm(talk)) + '</td>'
+            + '<td class="num">' + (e == null ? _skDash() : _skNum(e, 0) + ' <span style="color:var(--muted);font-size:11px;">(' + ed + 'd)</span>') + '</td>'
+            + '<td class="num">' + (t && t.activity_pct != null ? t.activity_pct.toFixed(2) + '%' : _skDash()) + '</td></tr>';
+        }).join('');
+        var wd = _skWorkingDays(m), nC = Object.keys(cDays).length, nE = Object.keys(eDays).length;
+        var cover = [];
+        if(nC) cover.push('8x8 reports for ' + nC + ' day' + (nC === 1 ? '' : 's') + (wd != null ? ' (' + wd + ' working days in the month)' : ''));
+        if(nE) cover.push('email counts for ' + nE + ' day' + (nE === 1 ? '' : 's'));
+        if(tm) cover.push('Teramind for the whole month');
+        html += '<div style="margin-top:12px;"><div style="font-weight:800;font-size:13px;">' + escapeHtml(_skPeriodLabel(m)) + '</div>'
+          + '<div style="font-size:12px;color:var(--muted);margin:2px 0 6px;">In this drop: ' + escapeHtml(cover.join('; ')) + '. A day already loaded is replaced, never added twice.</div>'
+          + '<div style="overflow-x:auto;"><table class="sk-table" id="' + prefix + 'ActTable-' + m + '"><tr><th>Broker</th><th class="num">Calls (days)</th><th class="num">Talk time</th><th class="num">Emails (days)</th><th class="num">Computer activity</th></tr>' + rows + '</table></div></div>';
+      });
+      if(plan.errors.length) html += '<div style="margin-top:10px;color:#b5340f;font-weight:700;font-size:12.5px;">' + plan.errors.map(function(e){ return '<div>' + escapeHtml(e) + '</div>'; }).join('') + '</div>';
+      if(plan.notes.length) html += '<div style="margin-top:8px;color:var(--muted);font-size:12px;">' + plan.notes.map(function(e){ return '<div>' + escapeHtml(e) + '</div>'; }).join('') + '</div>';
+      var nothing = !keys.length;
+      html += nothing ? '<p style="color:#b5340f;font-weight:700;margin-top:10px;">Nothing in these files can be saved.</p>'
+        : '<button type="button" class="btn-primary" id="' + prefix + 'ActSaveBtn" style="width:auto;padding:10px 18px;margin-top:12px;" onclick="actSave(\'' + prefix + '\')">Save these figures</button>';
+      return html;
+    }
+    function _actCardHtml(prefix){
+      return '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Load this month\'s activity files</h3>'
+        + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:10px;">Choose any of these, as many as you like, in one go: the Teramind Productivity export for the whole month (CSV), Claude\'s 8x8 outbound call reports (one per day, or a whole month), and the outbound email CSVs (daily summary, weekly tidy or per-message trace). A day loaded again replaces itself, so nothing is ever counted twice. You will see the figures before anything is saved.</p>'
+        + '<input type="file" multiple id="' + prefix + 'ActFile" accept=".csv,.xlsx" onchange="actPick(\'' + prefix + '\', this)">'
+        + '<div id="' + prefix + 'ActPreview"></div>';
+    }
+    async function actPick(prefix, input){
+      var box = document.getElementById(prefix + 'ActPreview'); if(!box) return;
+      delete _actPending[prefix];
+      var files = input && input.files ? [].slice.call(input.files) : [];
+      if(!files.length){ box.innerHTML = ''; return; }
+      box.innerHTML = '<p style="color:var(--muted);margin-top:10px;">Reading ' + files.length + ' file' + (files.length === 1 ? '' : 's') + '...</p>';
+      var reps = _SK.reps || [], map = _actAliasMap(reps), results = [];
+      for(var i = 0; i < files.length; i++) results.push(await _actReadFile(files[i], reps, map));
+      var plan = _actPlan(results);
+      _actPending[prefix] = { plan:plan };
+      box.innerHTML = _actPreviewHtml(prefix, plan);
+    }
+    function _actFileLabel(arr){
+      if(!arr.length) return null;
+      var s = arr.length === 1 ? arr[0] : (arr.length + ' files: ' + arr.slice().sort()[0] + ' to ' + arr.slice().sort()[arr.length - 1]);
+      return s.slice(0, 200);
+    }
+    async function actSave(prefix){
+      var P = _actPending[prefix]; if(!P) return;
+      var plan = P.plan, btn = document.getElementById(prefix + 'ActSaveBtn');
+      if(btn){ btn.disabled = true; btn.textContent = 'Saving...'; }
+      var done = [], failed = [], lastMonth = null;
+      var calls = Object.keys(plan.calls).map(function(k){
+        var d = plan.calls[k], o = { rep_id:d.rep.id, day:d.day, calls:d.calls, talk_time_sec:d.talk_time_sec };
+        if(d.call_time_sec != null) o.call_time_sec = d.call_time_sec;
+        if(!lastMonth || d.day > lastMonth) lastMonth = d.day;
+        return o;
+      });
+      var emails = Object.keys(plan.emails).map(function(k){
+        var d = plan.emails[k];
+        if(!lastMonth || d.day > lastMonth) lastMonth = d.day;
+        return { rep_id:d.rep.id, day:d.day, emails:d.emails };
+      });
+      if(calls.length){
+        var r1 = await sb.rpc('record_broker_activity_days', { p_rows:calls, p_source:'8x8 outbound call report', p_file:_actFileLabel(plan.files.calls) });
+        if(r1.error) failed.push('8x8 calls: ' + (r1.error.message || 'not saved')); else done.push(calls.length + ' broker-days of 8x8 calls');
+      }
+      if(emails.length){
+        var r2 = await sb.rpc('record_broker_activity_days', { p_rows:emails, p_source:'Outbound email trace', p_file:_actFileLabel(plan.files.emails) });
+        if(r2.error) failed.push('Emails: ' + (r2.error.message || 'not saved')); else done.push(emails.length + ' broker-days of emails');
+      }
+      for(var i = 0; i < plan.teramind.length; i++){
+        var t = plan.teramind[i];
+        var rows = t.rows.map(function(r){ var o = { rep_id:r.rep.id, activity_pct:r.activity_pct }; if(t.hasIdle) o.idle_sec = r.idle_sec; if(t.hasWork) o.work_sec = r.work_sec; return o; });
+        var r3 = await sb.rpc('record_broker_activity', { p_period:t.period, p_rows:rows, p_source:'Teramind monthly export', p_file:t.file });
+        if(r3.error) failed.push('Teramind ' + _skPeriodLabel(t.period) + ': ' + (r3.error.message || 'not saved'));
+        else { done.push('Teramind for ' + _skPeriodLabel(t.period)); if(!lastMonth || t.period > lastMonth) lastMonth = t.period; }
+      }
+      try { logAction('load_activity_files', null, { calls:calls.length, emails:emails.length, teramind:plan.teramind.map(function(t){ return t.period; }), files:plan.files }); } catch(e){}
+      delete _actPending[prefix];
+      var inp = document.getElementById(prefix + 'ActFile'); if(inp) inp.value = '';
+      await salesFetchAll();
+      if(typeof _leadActFillMonths === 'function' && document.getElementById('leadActMonth')){
+        _leadActFillMonths();
+        var sel = document.getElementById('leadActMonth');
+        if(sel && lastMonth && !failed.length) sel.value = lastMonth.slice(0, 7) + '-01';
+        renderLeadActivity();
+      }
+      var box = document.getElementById(prefix + 'ActPreview');
+      if(box) box.innerHTML = (done.length ? '<p style="color:#2f7d4f;font-weight:700;margin-top:10px;">Saved: ' + escapeHtml(done.join('; ')) + '.</p>' : '')
+        + (failed.length ? '<p style="color:#b5340f;font-weight:700;margin-top:6px;">Not saved: ' + escapeHtml(failed.join('; ')) + '</p>' : '');
+    }
+    // ── Monthly broker report (PowerPoint), built from the portal (14 Oct 2026) ───────────────
+    // The shape Rob Stead used to build by hand each month: a month leaderboard, one slide per
+    // measure across the half-year, a quarter leaderboard, then where every number came from.
+    // A broker with no figure for a measure shows N/A and is never ranked as if it were zero.
+    var _DECK_LIB = 'https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js';
+    var _DECK_C = { bg:'1E2A5A', card:'2A3770', line:'3B4A8C', lime:'9BC53D', white:'FFFFFF', soft:'C9CEE3', muted:'8E96B8', amber:'F2C94C' };
+    var _DECK_SERIES = ['9BC53D', '4FC3F7', 'F2C94C', 'EF7D5B', 'B39DDB', '80CBC4'];
+    var _DECK_MEASURES = [
+      { key:'activity', title:'Computer Activity', sub:'Monthly percentage activity by broker (Teramind)', fmt:'pct', agg:'mean', word:'computer activity', boardSub:'average', qSub:'monthly average' },
+      { key:'calls', title:'External Outbound Calls', sub:'Monthly external calls by broker (8x8)', fmt:'int', agg:'sum', word:'external calls', boardSub:'total', qSub:'total to date' },
+      { key:'emails', title:'Emails Sent', sub:'Monthly emails sent by broker', fmt:'int', agg:'sum', word:'emails sent', boardSub:'total', qSub:'total to date' },
+      { key:'billing', title:'Monthly Revenue', sub:'Monthly revenue (billing total) by broker', fmt:'money', agg:'sum', word:'revenue', boardSub:'total', qSub:'total to date' },
+      { key:'contracts', title:'Contracts Signed', sub:'Monthly contracts signed by broker', fmt:'int', agg:'sum', word:'contracts signed', boardSub:'total', qSub:'total to date' }
+    ];
+    function _deckLoadLib(){
+      if(window.PptxGenJS) return Promise.resolve();
+      if(window._deckLibP) return window._deckLibP;
+      window._deckLibP = new Promise(function(res, rej){
+        var s = document.createElement('script');
+        s.src = _DECK_LIB;
+        s.onload = function(){ if(window.PptxGenJS) res(); else { window._deckLibP = null; rej(new Error('PptxGenJS did not load')); } };
+        s.onerror = function(){ window._deckLibP = null; rej(new Error('Could not load ' + _DECK_LIB)); };
+        document.head.appendChild(s);
+      });
+      return window._deckLibP;
+    }
+    function _deckMon(p){
+      var m = +String(p).slice(5, 7), y = String(p).slice(2, 4);
+      return ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][m - 1] + '-' + y;
+    }
+    function _deckMonthName(p){ return new Date(p + 'T00:00:00').toLocaleDateString('en-GB', { month:'long', year:'numeric' }); }
+    function _deckFmt(v, fmt){
+      if(v == null) return 'N/A';
+      if(fmt === 'pct') return Number(v).toFixed(2) + '%';
+      if(fmt === 'money') return _skMoney(v);
+      return _skNum(v, 0);
+    }
+    function _deckVal(o, key){
+      if(key === 'billing') return o.hasBilling ? o.billing : null;
+      return o[key] == null ? null : o[key];
+    }
+    function _deckName(r){ return String(_skShortName(r.name) || r.name).split(' ')[0].toUpperCase(); }
+    function _deckJoin(a){ return a.length <= 1 ? (a[0] || '') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1]; }
+    // Ranked entries for one measure: recorded values high to low, then N/A.
+    function _deckRank(entries){
+      var have = entries.filter(function(e){ return e.v != null; }).sort(function(a, b){ return b.v - a.v; });
+      var none = entries.filter(function(e){ return e.v == null; });
+      return { have:have, none:none };
+    }
+    function _deckTakeaway(meas, label, entries){
+      var R = _deckRank(entries);
+      if(!R.have.length) return 'No ' + meas.word + ' recorded for ' + label + '.';
+      var top = R.have[0], level = R.have.filter(function(e){ return e.v === top.v; });
+      var s = (level.length > 1)
+        ? _deckJoin(level.map(function(e){ return e.name; })) + ' are level on ' + meas.word + ' in ' + label + ' (' + _deckFmt(top.v, meas.fmt) + ')'
+        : top.name + ' leads ' + meas.word + ' in ' + label + ' with ' + _deckFmt(top.v, meas.fmt);
+      var rest = R.have.slice(level.length);
+      if(rest.length) s += ', ahead of ' + _deckJoin(rest.map(function(e){ return e.name + ' (' + _deckFmt(e.v, meas.fmt) + ')'; }));
+      s += '.';
+      if(R.none.length) s += ' Not recorded: ' + _deckJoin(R.none.map(function(e){ return e.name; })) + '.';
+      return s;
+    }
+    // Everything the deck shows, from the same _skOutputFor the portal tables use.
+    function _deckData(key){
+      var y = +key.slice(0, 4), m = +key.slice(5, 7);
+      var h0 = m <= 6 ? 1 : 7, half = [];
+      for(var i = 0; i < 6; i++){ var mm = h0 + i; half.push(y + '-' + (mm < 10 ? '0' + mm : mm) + '-01'); }
+      var q0 = Math.floor((m - 1) / 3) * 3 + 1, quarter = [];
+      for(var j = 0; j < 3; j++){ var qm = q0 + j; var qk = y + '-' + (qm < 10 ? '0' + qm : qm) + '-01'; if(qk <= key) quarter.push(qk); }
+      var upTo = half.filter(function(p){ return p <= key; });
+      var reps = (_SK.reps || []).filter(function(r){ return r.active !== false; });
+      var cells = {};   // rep.id -> period -> output
+      reps.forEach(function(r){ cells[r.id] = {}; half.forEach(function(p){ cells[r.id][p] = _skOutputFor(r.id, [p]); }); });
+      // brokers with anything at all in the months so far
+      reps = reps.filter(function(r){
+        return upTo.some(function(p){ var o = cells[r.id][p]; return _DECK_MEASURES.some(function(ms){ return _deckVal(o, ms.key) != null; }) || o.days != null; });
+      });
+      return { key:key, half:half, quarter:quarter, upTo:upTo, reps:reps, cells:cells, q:Math.floor((m - 1) / 3) + 1, year:y };
+    }
+    function _deckQuarterVal(D, rep, meas){
+      var vals = D.quarter.map(function(p){ return _deckVal(D.cells[rep.id][p], meas.key); }).filter(function(v){ return v != null; });
+      if(!vals.length) return null;
+      var sum = vals.reduce(function(a, b){ return a + b; }, 0);
+      return meas.agg === 'mean' ? sum / vals.length : sum;
+    }
+    function _deckBoard(slide, D, entriesFor, subFor, y0){
+      var w = 2.35, gap = 0.12, x0 = 0.55;
+      _DECK_MEASURES.forEach(function(meas, i){
+        var x = x0 + i * (w + gap), R = _deckRank(entriesFor(meas));
+        slide.addShape('roundRect', { x:x, y:y0, w:w, h:2.75, fill:{ color:_DECK_C.card }, line:{ color:_DECK_C.line, width:1 }, rectRadius:0.08 });
+        slide.addText([
+          { text:meas.title + ':', options:{ bold:true, color:_DECK_C.lime, fontSize:12, breakLine:true } },
+          { text:subFor(meas), options:{ color:_DECK_C.lime, fontSize:10 } }
+        ], { x:x + 0.12, y:y0 + 0.1, w:w - 0.24, h:0.6, fontFace:'Arial', valign:'top', margin:0 });
+        var lines = [], n = 0;
+        R.have.forEach(function(e){ n++; lines.push({ text:n + '   ' + e.name + '   ' + _deckFmt(e.v, meas.fmt), options:{ color:_DECK_C.white, bold:true, fontSize:12, breakLine:true } }); });
+        R.none.forEach(function(e){ lines.push({ text:'-   ' + e.name + '   N/A', options:{ color:_DECK_C.muted, fontSize:11, breakLine:true } }); });
+        if(!lines.length) lines.push({ text:'Nothing recorded', options:{ color:_DECK_C.muted, fontSize:11 } });
+        slide.addText(lines, { x:x + 0.12, y:y0 + 0.8, w:w - 0.24, h:1.85, fontFace:'Arial', valign:'top', margin:0, paraSpaceAfter:6 });
+      });
+    }
+    async function _deckLogo(){
+      try {
+        var resp = await fetch('/ces_logo.png'); if(!resp.ok) return null;
+        var blob = await resp.blob();
+        var data = await new Promise(function(res, rej){ var fr = new FileReader(); fr.onload = function(){ res(fr.result); }; fr.onerror = rej; fr.readAsDataURL(blob); });
+        var dims = await new Promise(function(res){ var im = new Image(); im.onload = function(){ res([im.naturalWidth, im.naturalHeight]); }; im.onerror = function(){ res(null); }; im.src = data; });
+        return dims ? { data:data, w:dims[0], h:dims[1] } : null;
+      } catch(e){ return null; }
+    }
+    async function downloadBrokerDeck(key){
+      if(!key || key === '__all__') key = _skPeriods()[0];
+      if(!key){ safeAlert('There are no monthly figures yet, so there is nothing to report.', null); return; }
+      key = String(key).slice(0, 7) + '-01';
+      try { await _deckLoadLib(); }
+      catch(e){ safeAlert('Could not load the PowerPoint engine. Check your connection and try again.', e); return; }
+      try {
+        var D = _deckData(key), label = _deckMonthName(key), short = _deckMon(key);
+        if(!D.reps.length){ safeAlert('Nothing is recorded for ' + label + ' yet, so there is nothing to report.', null); return; }
+        var names = D.reps.map(_deckName), logo = await _deckLogo();
+        var pptx = new PptxGenJS();
+        pptx.layout = 'LAYOUT_WIDE';
+        pptx.author = 'CES sales portal'; pptx.company = 'Commercial Energy Solutions';
+        pptx.title = 'Broker Performance Comparison - ' + label;
+        var pageNo = 0;
+        function base(){
+          var s = pptx.addSlide(); pageNo++;
+          s.background = { color:_DECK_C.bg };
+          if(logo) s.addImage({ data:logo.data, x:12.05, y:0.2, w:1.0, h:1.0 * logo.h / logo.w });
+          s.addText(String(pageNo).padStart(2, '0'), { x:12.4, y:7.0, w:0.6, h:0.3, fontFace:'Arial', fontSize:10, color:_DECK_C.muted, align:'right', margin:0 });
+          return s;
+        }
+        var monthEntries = function(meas){ return D.reps.map(function(r){ return { name:_deckName(r), v:_deckVal(D.cells[r.id][key], meas.key) }; }); };
+
+        // 1. the month
+        var s1 = base();
+        s1.addText('Broker Performance Comparison - ' + label, { x:0.5, y:0.3, w:11.4, h:0.6, fontFace:'Arial', fontSize:28, bold:true, color:_DECK_C.white, margin:0 });
+        s1.addText(_deckJoin(names) + ' performance summary for ' + short + ' (single month).', { x:0.55, y:1.0, w:11, h:0.3, fontFace:'Arial', fontSize:12, color:_DECK_C.soft, margin:0 });
+        s1.addText('LEADER BOARD:', { x:0.55, y:1.3, w:4, h:0.3, fontFace:'Arial', fontSize:12, bold:true, underline:true, color:_DECK_C.white, margin:0 });
+        _deckBoard(s1, D, monthEntries, function(meas){ return label.split(' ')[0] + ' ' + meas.boardSub; }, 1.7);
+        var wd = _skWorkingDays(key);
+        s1.addText('DAYS WORKED IN ' + label.split(' ')[0].toUpperCase(), { x:0.55, y:4.7, w:8, h:0.3, fontFace:'Arial', fontSize:11, bold:true, color:_DECK_C.lime, margin:0 });
+        s1.addText('Days worked by each broker in ' + short + (wd != null ? ' (' + wd + ' UK working days in the month).' : '.'), { x:0.55, y:5.0, w:11, h:0.3, fontFace:'Arial', fontSize:10, color:_DECK_C.soft, margin:0 });
+        D.reps.forEach(function(r, i){
+          var o = D.cells[r.id][key], x = 0.55 + i * 2.45;
+          s1.addText(_deckName(r), { x:x, y:5.45, w:2.3, h:0.3, fontFace:'Arial', fontSize:11, bold:true, color:_DECK_C.soft, margin:0 });
+          s1.addText(o.days == null ? 'N/A' : String(o.days), { x:x, y:5.8, w:2.3, h:0.55, fontFace:'Arial', fontSize:26, bold:true, color:o.days == null ? _DECK_C.muted : _DECK_C.white, margin:0 });
+        });
+        s1.addText('Single-month view for ' + short + '. N/A means not recorded and is never ranked as zero. Where every figure comes from is on the last slide.',
+          { x:0.55, y:6.75, w:11.5, h:0.3, fontFace:'Arial', fontSize:9, italic:true, color:_DECK_C.muted, margin:0 });
+
+        // 2-6. one slide per measure across the half-year
+        _DECK_MEASURES.forEach(function(meas){
+          var s = base();
+          s.addText('BROKER MONTHLY COMPARISON', { x:0.5, y:0.3, w:8, h:0.3, fontFace:'Arial', fontSize:12, bold:true, color:_DECK_C.lime, margin:0 });
+          s.addText(meas.title, { x:0.5, y:0.62, w:10, h:0.55, fontFace:'Arial', fontSize:26, bold:true, color:_DECK_C.white, margin:0 });
+          s.addText(meas.sub, { x:0.5, y:1.15, w:10, h:0.3, fontFace:'Arial', fontSize:12, color:_DECK_C.soft, margin:0 });
+          var series = D.reps.map(function(r){
+            return { name:_deckName(r), labels:D.half.map(_deckMon),
+                     values:D.half.map(function(p){ var v = (p <= key) ? _deckVal(D.cells[r.id][p], meas.key) : null; return v == null ? 0 : (meas.fmt === 'pct' ? v / 100 : v); }) };
+          });
+          s.addChart('bar', series, {
+            x:0.5, y:1.6, w:7.7, h:3.55, barDir:'col', barGrouping:'clustered', chartColors:_DECK_SERIES.slice(0, series.length),
+            showLegend:true, legendPos:'b', legendColor:_DECK_C.white, legendFontSize:10,
+            catAxisLabelColor:_DECK_C.white, catAxisLabelFontSize:10, valAxisLabelColor:_DECK_C.white, valAxisLabelFontSize:9,
+            valAxisLabelFormatCode:(meas.fmt === 'pct' ? '0%' : (meas.fmt === 'money' ? '£#,##0' : '#,##0')),
+            valGridLine:{ color:_DECK_C.line, style:'solid', size:0.5 }, catGridLine:{ style:'none' },
+            plotArea:{ fill:{ color:_DECK_C.bg } }
+          });
+          s.addShape('roundRect', { x:8.45, y:1.6, w:4.35, h:2.2, fill:{ color:_DECK_C.card }, line:{ color:_DECK_C.line, width:1 }, rectRadius:0.08 });
+          s.addText([
+            { text:'KEY TAKEAWAY', options:{ bold:true, color:_DECK_C.lime, fontSize:12, breakLine:true } },
+            { text:_deckTakeaway(meas, label, monthEntries(meas)), options:{ color:_DECK_C.white, fontSize:12 } }
+          ], { x:8.6, y:1.72, w:4.05, h:1.95, fontFace:'Arial', valign:'top', margin:0, paraSpaceAfter:6 });
+          s.addText('Bars are zero where nothing is recorded; the table says N/A.', { x:8.45, y:3.95, w:4.35, h:0.3, fontFace:'Arial', fontSize:9, italic:true, color:_DECK_C.muted, margin:0 });
+          var hdr = [{ text:'Month', options:{ bold:true, color:_DECK_C.lime } }];
+          D.reps.forEach(function(r){ hdr.push({ text:_deckName(r), options:{ bold:true, color:_DECK_C.lime } }); hdr.push({ text:'Days worked', options:{ bold:true, color:_DECK_C.lime } }); });
+          var rows = [hdr];
+          D.half.forEach(function(p){
+            var row = [{ text:_deckMon(p), options:{ bold:true } }];
+            D.reps.forEach(function(r){
+              var o = D.cells[r.id][p], fut = p > key;
+              row.push({ text:fut ? '-' : _deckFmt(_deckVal(o, meas.key), meas.fmt) });
+              row.push({ text:fut ? '-' : (o.days == null ? 'N/A' : String(o.days)) });
+            });
+            rows.push(row);
+          });
+          var cw = (12.3 - 1.0) / (D.reps.length * 2), colW = [1.0];
+          D.reps.forEach(function(){ colW.push(cw); colW.push(cw); });
+          s.addTable(rows, { x:0.5, y:5.3, w:12.3, colW:colW, fontFace:'Arial', fontSize:9, color:_DECK_C.white, fill:{ color:_DECK_C.card },
+                             border:{ type:'solid', pt:0.5, color:_DECK_C.line }, align:'center', valign:'middle', rowH:0.22 });
+        });
+
+        // 7. the quarter so far
+        var s7 = base(), qLab = 'Q' + D.q + ' ' + D.year, qMonths = D.quarter.map(_deckMon);
+        s7.addText('Broker Quarterly Performance Comparison - ' + qLab, { x:0.5, y:0.3, w:11.4, h:0.6, fontFace:'Arial', fontSize:28, bold:true, color:_DECK_C.white, margin:0 });
+        s7.addText(_deckJoin(names) + ' performance summary across ' + qMonths[0] + (qMonths.length > 1 ? ' to ' + qMonths[qMonths.length - 1] : '') + ' (' + qLab + ' to date).',
+          { x:0.55, y:1.0, w:11, h:0.3, fontFace:'Arial', fontSize:12, color:_DECK_C.soft, margin:0 });
+        s7.addText('LEADER BOARD:', { x:0.55, y:1.3, w:4, h:0.3, fontFace:'Arial', fontSize:12, bold:true, underline:true, color:_DECK_C.white, margin:0 });
+        _deckBoard(s7, D, function(meas){ return D.reps.map(function(r){ return { name:_deckName(r), v:_deckQuarterVal(D, r, meas) }; }); },
+          function(meas){ return 'Q' + D.q + ' ' + meas.qSub; }, 1.7);
+        s7.addText('UK WORKING DAYS BY MONTH', { x:0.55, y:4.7, w:8, h:0.3, fontFace:'Arial', fontSize:11, bold:true, color:_DECK_C.lime, margin:0 });
+        D.quarter.forEach(function(p, i){
+          var w2 = _skWorkingDays(p);
+          s7.addText(_deckMon(p), { x:0.55 + i * 2.45, y:5.1, w:2.3, h:0.3, fontFace:'Arial', fontSize:11, bold:true, color:_DECK_C.soft, margin:0 });
+          s7.addText(w2 == null ? '-' : String(w2), { x:0.55 + i * 2.45, y:5.45, w:2.3, h:0.55, fontFace:'Arial', fontSize:26, bold:true, color:_DECK_C.white, margin:0 });
+        });
+        s7.addText('Quarter to date. Computer activity is the average of the monthly figures; everything else is the total. N/A means not recorded.',
+          { x:0.55, y:6.75, w:11.5, h:0.3, fontFace:'Arial', fontSize:9, italic:true, color:_DECK_C.muted, margin:0 });
+
+        // 8. where every number came from
+        var s8 = base();
+        s8.addText('Where these figures come from', { x:0.5, y:0.3, w:11, h:0.6, fontFace:'Arial', fontSize:26, bold:true, color:_DECK_C.white, margin:0 });
+        var reps0 = (_SK.reps || []).filter(function(r){ return r.active !== false; });
+        var confd = reps0.filter(function(r){ return (_SK.kpis || []).some(function(k){ return k.rep_id === r.id && k.period === key && (k.confirmed_at || k.excluded); }); });
+        var waiting = reps0.filter(function(r){ return confd.indexOf(r) < 0; });
+        var src = _skOutputSources([key]), lines = [];
+        function bullet(t){ lines.push({ text:t, options:{ bullet:true, color:_DECK_C.white, fontSize:12, breakLine:true } }); }
+        bullet('Revenue: the billing total each broker entered on their month-end form. '
+          + (waiting.length
+              ? 'Not confirmed yet for ' + label + ': ' + _deckJoin(waiting.map(function(r){ return _skShortName(r.name); })) + ', so this report is a DRAFT.'
+              : 'Every broker has confirmed ' + label + ' as final.'));
+        bullet('Contracts signed and days worked: entered by each broker on the month-end form. Contracts are counted per contract, not per DocuSign envelope; days are pre-filled with UK working days and changed for leave.');
+        if(src.length) src.forEach(function(x){ bullet(x.metric + ': ' + x.line + '.'); });
+        else bullet('Calls, emails and computer activity: nothing loaded for ' + label + '.');
+        bullet('External calls are calls made on 8x8 (desk phone or 8x8 app). Calls from a personal mobile are not in 8x8, so they are not here.');
+        bullet('Computer activity is Teramind\'s figure for the whole month (Input Rate: Activity), not an average of daily downloads.');
+        bullet('N/A means the figure was not recorded. It is never counted or ranked as zero.');
+        s8.addText(lines, { x:0.55, y:1.2, w:11.6, h:5.2, fontFace:'Arial', valign:'top', margin:0, paraSpaceAfter:8 });
+        s8.addText('Built from the CES sales portal on ' + new Date().toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', timeZone:'Europe/London' })
+          + (currentUser && currentUser.name ? ' by ' + currentUser.name : '') + '.', { x:0.55, y:6.75, w:11.5, h:0.3, fontFace:'Arial', fontSize:9, italic:true, color:_DECK_C.muted, margin:0 });
+
+        var fileName = 'CES Broker Performance ' + _skPeriodLabel(key).replace(/\s/g, '-') + '.pptx';
+        await pptx.writeFile({ fileName:fileName });
+        try { logAction('download_broker_deck', null, { period:key }); } catch(e){}
+      } catch(e){ safeAlert('Could not build the PowerPoint report. Please try again.', e); }
+    }
     // ── Commission plans are DATE-EFFECTIVE ────────────────────────────────────
     // broker_comp holds one row per (rep_id, valid_from). valid_from is
     // inclusive, valid_to is EXCLUSIVE, valid_to null means currently in force.
@@ -5972,7 +6776,12 @@
       var _ovWatch = { billing_total:1, consultancy:1, total_kwh:1 };
       return _SK_FIELDS.map(function(f){
         var hook = (withOverride && _ovWatch[f[0]]) ? ' oninput="_skOverrideHint(\'' + prefix + '\')"' : '';
-        return '<div class="form-group"><label>' + f[1] + '</label><input type="number" step="any" id="' + prefix + f[0] + '"' + hook + '></div>';
+        var o = f[2] || {};
+        return _skSectionHtml(f[0]) + '<div class="form-group"><label>' + f[1] + '</label><input type="number" step="' + (o.step || 'any') + '"'
+          + (o.min != null ? ' min="' + o.min + '"' : '') + (o.max != null ? ' max="' + o.max + '"' : '')
+          + ' id="' + prefix + f[0] + '"' + hook + '>'
+          + (o.hint ? '<div id="' + prefix + f[0] + '_hint" style="font-size:11.5px;color:var(--muted);margin-top:5px;line-height:1.4;"></div>' : '')
+          + '</div>';
       }).join('')
       + (withOverride ? '<div class="form-group"><label>Avg commission override (p/kWh) <span style="font-weight:600;color:var(--muted);text-transform:none;">&mdash; leave blank to calculate</span></label><input type="number" step="0.01" min="0" id="' + prefix + 'uplift_override' + '" placeholder="calculated" oninput="_skOverrideHint(\'' + prefix + '\')"><div id="' + prefix + 'uplift_hint" style="font-size:11.5px;font-weight:700;margin-top:5px;line-height:1.4;"></div></div>' : '')
       + (skipNotes ? '' : '<div class="form-group" style="grid-column:1/-1"><label>Notes</label><input type="text" id="' + prefix + 'notes"></div>');
@@ -5987,7 +6796,17 @@
     }
     function _skReadEntry(prefix, repId, key){
       var rec = { rep_id:repId, period:key, updated_at:new Date().toISOString() };
-      _SK_FIELDS.forEach(function(f){ rec[f[0]] = parseFloat(document.getElementById(prefix + f[0]).value) || 0; });
+      _SK_FIELDS.forEach(function(f){
+        var el = document.getElementById(prefix + f[0]);
+        if(f[2] && f[2].nullable){
+          // Blank stays NULL ("not entered"); 0 is a real answer.
+          var raw = String(el.value == null ? '' : el.value).trim();
+          var num = raw === '' ? null : parseFloat(raw);
+          rec[f[0]] = (num == null || isNaN(num)) ? null : num;
+        } else {
+          rec[f[0]] = parseFloat(el.value) || 0;
+        }
+      });
       var ovEl = document.getElementById(prefix + 'uplift_override');
       if(ovEl) rec.uplift_override = (ovEl.value === '' || ovEl.value == null) ? null : (parseFloat(ovEl.value) || 0);
       var nEl = document.getElementById(prefix + 'notes'); if(nEl) rec.notes = nEl.value || null; // omitted when the form has no Notes field (broker uses the dedicated notes card)
@@ -6075,6 +6894,7 @@
     // ── Admin: commission editor + KPI entry + leaderboard ──
     async function loadSalesAdmin(){
       await salesFetchAll();
+      var _ah = document.getElementById('meActHost'); if(_ah && !_ah.dataset.ready){ _ah.innerHTML = _actCardHtml('me'); _ah.dataset.ready = '1'; }
       var ef = document.getElementById('skEntryFields'); if(ef) ef.innerHTML = _skEntryFieldsHtml('sk_', false, true);
       _skFillRepSelect('skKpiRep');
       var kp = document.getElementById('skKpiPeriod'); if(kp) kp.value = _skDefaultMonth();
@@ -6241,8 +7061,10 @@
       return { dataUrl: cv.toDataURL('image/png'), w:w, h:h };
     }
     // Build the styled Excel workbook (formatted KPI table + red flags + embedded charts + team-trend sheet).
-    async function downloadMonthEndReport(){
-      var sel=document.getElementById('meReportMonth'); var key=sel? sel.value : null; if(!key) return;
+    async function downloadMonthEndReport(forKey){
+      // The Company view passes its own month; the admin Month-End Report tab reads its select.
+      var sel=document.getElementById('meReportMonth');
+      var key=(typeof forKey==='string' && forKey) ? forKey : (sel? sel.value : null); if(!key) return;
       if(typeof ExcelJS==='undefined' || !ExcelJS.Workbook){ safeAlert('The Excel engine is still loading — please try again in a moment.', null); return; }
       try{
         var prev=_mePrevKey(key), mlab=_skPeriodLabel(key), plab=_skPeriodLabel(prev);
@@ -6344,6 +7166,40 @@
         var arow=ws2.lastRow.number+2;
         tImgs.forEach(function(im,i){ var id=wb.addImage({base64:im.dataUrl,extension:'png'}); ws2.addImage(id,{tl:{col:0,row:arow+i*17}, ext:{width:im.w,height:im.h}}); });
 
+        // ── Activity & output sheet (14 Oct 2026): the work-output figures, sources underneath ──
+        var AO=[['Broker',24],['Days worked',10],['Contracts signed',11],['DocuSign envelopes',12],['Calls (8x8)',10],['Talk time (h:mm)',11],['Emails sent',10],['Computer activity',11],['Idle (h:mm)',10],['Billing',13],['Billing per day worked',13],['Contracts per day worked',13]];
+        var AOF=[null,'0.0','#,##0','#,##0','#,##0','[h]:mm','#,##0','0.0%','[h]:mm',fmtOf({fmt:'money'}),fmtOf({fmt:'money'}),'0.00'];
+        var ws3=wb.addWorksheet('Activity & output', {views:[{showGridLines:false}]});
+        ws3.mergeCells(1,1,1,AO.length);
+        var t3=ws3.getCell(1,1); t3.value='Activity & output - '+mlab; t3.font={bold:true,size:15,color:{argb:WHITE}}; t3.fill={type:'pattern',pattern:'solid',fgColor:{argb:NAVY}}; t3.alignment={horizontal:'left',vertical:'middle'}; ws3.getRow(1).height=26;
+        ws3.mergeCells(2,1,2,AO.length);
+        var s3=ws3.getCell(2,1); s3.value='A blank cell means not recorded, never zero. Where each column came from is listed under the table.'; s3.font={size:10.5,italic:true,color:{argb:'FF4A4E5C'}};
+        ws3.addRow([]);
+        var h3=ws3.addRow(AO.map(function(c){ return c[0]; }));
+        h3.height=32; h3.eachCell(function(cell,col){ cell.font={bold:true,color:{argb:WHITE},size:10.5}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:NAVY}}; cell.alignment={horizontal: col===1?'left':'right', vertical:'middle', wrapText:true}; cell.border={bottom:thin}; });
+        var aoOuts=[];
+        reps.forEach(function(r){
+          var o=_skOutputFor(r.id,[key]); aoOuts.push(o);
+          var row=ws3.addRow([r.name, o.days, o.contracts, o.env, o.calls, o.talk==null?null:o.talk/86400, o.emails, o.activity==null?null:o.activity/100, o.idle==null?null:o.idle/86400, o.billing, o.days?o.billing/o.days:null, (o.days && o.contracts!=null)?o.contracts/o.days:null]);
+          row.getCell(1).font={bold:true}; row.getCell(1).alignment={horizontal:'left'};
+          AOF.forEach(function(f,i){ if(f){ var c=row.getCell(i+1); c.numFmt=f; c.alignment={horizontal:'right'}; } });
+          row.eachCell({includeEmpty:true}, function(cell){ cell.border={bottom:thin}; });
+        });
+        function aoSum(k){ var v=null; aoOuts.forEach(function(o){ if(o[k]!=null) v=(v==null?0:v)+o[k]; }); return v; }
+        var aoD=aoSum('days'), aoC=aoSum('contracts'), aoT=aoSum('talk'), aoI=aoSum('idle'), aoB=aoOuts.reduce(function(s,o){ return s+o.billing; },0), aoA=_skTeamActivity(aoOuts);
+        // Per-day rates only over brokers whose days (and contracts) are recorded, so a gap never inflates them.
+        var aoBD=0, aoDB=0, aoCD=0, aoDC=0;
+        aoOuts.forEach(function(o){ if(o.days){ aoBD+=o.billing; aoDB+=o.days; if(o.contracts!=null){ aoCD+=o.contracts; aoDC+=o.days; } } });
+        var tr3=ws3.addRow(['Team', aoD, aoC, aoSum('env'), aoSum('calls'), aoT==null?null:aoT/86400, aoSum('emails'), aoA==null?null:aoA/100, aoI==null?null:aoI/86400, aoB, aoDB?aoBD/aoDB:null, aoDC?aoCD/aoDC:null]);
+        tr3.eachCell({includeEmpty:true}, function(cell,col){ cell.font={bold:true}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:TOTBG}}; cell.border={top:{style:'medium',color:{argb:NAVY}}}; if(col>1){ cell.alignment={horizontal:'right'}; if(AOF[col-1]) cell.numFmt=AOF[col-1]; } });
+        AO.forEach(function(c,i){ ws3.getColumn(i+1).width=c[1]; });
+        ws3.addRow([]);
+        ws3.addRow(['Where each figure came from']).getCell(1).font={bold:true};
+        ws3.addRow(['Days worked and contracts signed: entered by each broker on their month-end form'+(missing.length?' (not every broker has confirmed yet, so these may still change)':'')+'.']);
+        var aoSrc=_skOutputSources([key]);
+        if(aoSrc.length) aoSrc.forEach(function(s){ ws3.addRow([s.metric+': '+s.line]); });
+        else ws3.addRow(['No calls, emails, Teramind or DocuSign figures loaded for '+mlab+'.']);
+        ws3.addRow(['DocuSign envelopes are a cross-check on contracts signed: one envelope can hold several contracts.']);
         var buf=await wb.xlsx.writeBuffer();
         _downloadBlob(buf, 'CES Sales KPIs '+mlab.replace(/\s/g,'-')+'.xlsx');
         try{ logAction('download_month_end_report', currentUser && currentUser.customerId, { period:key }); }catch(_e){}
@@ -6450,12 +7306,14 @@
       var key = _skMonthKey('skKpiPeriod');
       var k = _SK.kpis.filter(function(x){ return x.rep_id === repId && x.period === key; })[0];
       _skFillEntry('sk_', k);
+      _skDaysHint('sk_', key, k, false);
     }
     async function skSaveKpi(){
       var repId = document.getElementById('skKpiRep').value;
       var key = _skMonthKey('skKpiPeriod');
       if(!repId || !key){ safeAlert('Pick a rep and a month.', null); return; }
       var rec = _skReadEntry('sk_', repId, key);
+      var _op = _skOutputProblem(rec); if(_op){ safeAlert(_op, null); return; }
       var ovWarn = _skOverrideWarning(rec);
       if(ovWarn && !window.confirm(ovWarn)) return;
       var resp = await sb.from('broker_kpis').upsert(rec, { onConflict:'rep_id,period' });
@@ -6516,6 +7374,7 @@
       var rawK = _SK.myRepId ? _SK.kpis.filter(function(x){ return x.rep_id === _SK.myRepId && x.period === key; })[0] : null;
       var effK = _SK.myRepId ? _skEffRow(_SK.myRepId, key) : null;
       _skFillEntry('bx_', rawK);              // entry form edits the manually-typed base only
+      _skDaysHint('bx_', key, rawK, true);   // pre-fills days on the broker's own unconfirmed month
       var _lr = document.getElementById('bx_lost_reason'); if(_lr) _lr.value = (rawK && rawK.lost_reason) || '';
       bxCocSet(rawK && rawK.customers_of_concern);
       renderMoneyDashboard(key, effK);        // dashboards/commission read the sales-inclusive figure
@@ -6551,16 +7410,18 @@
       var lbl = _skPeriodLabel(key);
       var row = _SK.kpis.filter(function(x){ return x.rep_id === _SK.myRepId && x.period === key; })[0];
       if(!row){ safeAlert('Save your figures for ' + lbl + ' first, then confirm.', null); return; }
+      var _cfp = _skConfirmProblem(key, row); if(_cfp){ safeAlert(_cfp, null); return; }
       if(!_cocFilled(row.customers_of_concern)){ safeAlert('Before confirming ' + lbl + ', please complete “Customers of concern” and Save — add at least one account and reason, or tick “No customers of concern”.', null); return; }
       var _pre = _skCommission(_skEffRow(_SK.myRepId, key) || row, _skCompFor(_SK.myRepId, key));
       if(!confirm('Confirm ' + lbl + ' as your FINAL figures?\n\n'
+        + _skConfirmSummary(row)
         + (_pre ? 'Commission locked in: ' + _skMoney(_pre.commission) + ' (plus base ' + _skMoney(_pre.base) + ') = ' + _skMoney(_pre.total) + '\n\n' : '')
         + 'After confirming you will NOT be able to change them \u2014 only CES admin can. Your commission is recorded as it stands today and will not change afterwards, even if the rates are changed later.\n\n'
         + 'Once every broker has confirmed, the month-end report is generated and emailed to management automatically.')) return;
       // confirm_broker_month() sets confirmed_at AND freezes the commission in a
       // single statement, so a month can never end up confirmed but un-frozen.
       var resp = await sb.rpc('confirm_broker_month', { p_period: key });
-      if(resp.error){ safeAlert('Could not confirm your figures.', resp.error); return; }
+      if(resp.error){ safeAlert('Could not confirm your figures.' + (resp.error.message ? '\n\n' + resp.error.message : ''), resp.error); return; }
       logAction('confirm_month', null, { period: key });
       await salesFetchAll();
       brokerRenderMine();
@@ -6987,6 +7848,7 @@
       var rec = _skReadEntry('bx_', _SK.myRepId, key);
       var lrEl = document.getElementById('bx_lost_reason'); rec.lost_reason = (lrEl && lrEl.value.trim()) ? lrEl.value.trim() : null;
       rec.customers_of_concern = bxCocGet();
+      var _op = _skOutputProblem(rec); if(_op){ safeAlert(_op, null); return; }
       if(((Number(rec.lost_customers)||0) > 0 || (Number(rec.lost_meters)||0) > 0) && !rec.lost_reason){ safeAlert('You entered lost customers/meters — please add a short reason why they were lost.', null); if(lrEl && lrEl.focus) lrEl.focus(); return; }
       var resp = await sb.from('broker_kpis').upsert(rec, { onConflict:'rep_id,period' });
       if(resp.error){ safeAlert('Could not save your figures.', resp.error); return; }
@@ -7646,6 +8508,7 @@
         svg+='<text x="'+(W-padR+8)+'" y="'+(y+4)+'" text-anchor="start" font-size="10" fill="#2f7d4f" font-family="JetBrains Mono">'+shortM(rMax*g/4)+'</text>';
       }
       function bar(x, v, vmax, col, lblCol, label){
+        if(v == null) return '<text x="'+(x+(bw-3)/2)+'" y="'+(padT+ih-4)+'" text-anchor="middle" font-size="9.5" fill="#7a7e8c" font-family="Manrope">n/a</text>';
         var h=(v/vmax)*ih, yb=padT+ih-h;
         return '<rect x="'+x+'" y="'+yb+'" width="'+(bw-3)+'" height="'+h+'" rx="2" fill="'+col+'"/>' +
                '<text x="'+(x+(bw-3)/2)+'" y="'+(yb-4)+'" text-anchor="middle" font-size="10" font-weight="700" fill="'+lblCol+'" font-family="Manrope">'+label+'</text>';
@@ -7664,28 +8527,32 @@
       var warn = document.getElementById('bxAnalyticsLinkWarn'); if(warn) warn.innerHTML = _SK.myRepId ? '' : '<div class="card" style="border-left:3px solid #b5840a;margin-bottom:14px;">Your sales profile isn’t linked yet, so analytics are unavailable. Contact CES.</div>';
       if(!_SK.myRepId){ host.innerHTML = ''; return; }
       var comp = _SK.compByRep[_SK.myRepId];
-      var act = (_SK.activity||[]).filter(function(a){ return a.rep_id === _SK.myRepId; }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
+      var act = (_SK.activity||[]).filter(function(a){ return a.rep_id === _SK.myRepId && (a.calls != null || a.emails != null); }).sort(function(a,b){ return a.period < b.period ? -1 : 1; });
       if(!act.length){ host.innerHTML = '<div class="card"><p class="sk-empty">No calls/emails data loaded yet — CES uploads this from the work-output report.</p></div>'; return; }
       var rows = act.map(function(a){
         var eff = _skEffRow(_SK.myRepId, a.period);
         var rev = eff ? (Number(eff.billing_total)||0) : 0;
         var _ec = eff ? _skCommission(eff, _skCompFor(eff.rep_id, eff.period)) : null;
         var comm = _ec ? _ec.commission : 0;
-        return { label:_skPeriodLabel(a.period), calls:Number(a.calls)||0, emails:Number(a.emails)||0, rev:rev, comm:comm };
+        return { label:_skPeriodLabel(a.period), calls:(a.calls==null?null:Number(a.calls)), emails:(a.emails==null?null:Number(a.emails)), rev:rev, comm:comm };
       });
-      var tCalls=rows.reduce(function(s,r){return s+r.calls;},0), tEmails=rows.reduce(function(s,r){return s+r.emails;},0);
+      // A month whose calls or emails were not recorded is left out of that figure's totals
+      // and correlation (14 Oct 2026: broker_activity figures are NULL until loaded, never 0).
+      var cR=rows.filter(function(r){return r.calls!=null;}), eR=rows.filter(function(r){return r.emails!=null;});
+      var tCalls=cR.reduce(function(s,r){return s+r.calls;},0), tEmails=eR.reduce(function(s,r){return s+r.emails;},0);
       var tRev=rows.reduce(function(s,r){return s+r.rev;},0), tComm=rows.reduce(function(s,r){return s+r.comm;},0);
-      var perCall=tCalls?tRev/tCalls:0, perEmail=tEmails?tRev/tEmails:0, commPerCall=tCalls?tComm/tCalls:0;
-      var rCall=_pearson(rows.map(function(r){return r.calls;}), rows.map(function(r){return r.rev;}));
-      var rEmail=_pearson(rows.map(function(r){return r.emails;}), rows.map(function(r){return r.rev;}));
+      var cRev=cR.reduce(function(s,r){return s+r.rev;},0), eRev=eR.reduce(function(s,r){return s+r.rev;},0), cComm=cR.reduce(function(s,r){return s+r.comm;},0);
+      var perCall=tCalls?cRev/tCalls:0, perEmail=tEmails?eRev/tEmails:0, commPerCall=tCalls?cComm/tCalls:0;
+      var rCall=_pearson(cR.map(function(r){return r.calls;}), cR.map(function(r){return r.rev;}));
+      var rEmail=_pearson(eR.map(function(r){return r.emails;}), eR.map(function(r){return r.rev;}));
       var combo=_skComboChart(rows);
       function card(l,v,s){ return '<div class="stat-card"><div class="stat-label">'+l+'</div><div class="stat-value">'+v+'</div><div class="stat-foot" style="font-size:11px;color:var(--muted);margin-top:4px;">'+s+'</div></div>'; }
       function corr(r, what){ if(r==null) return 'Not enough data to correlate '+what+' with revenue yet.'; return 'A <b>'+_corrWord(r)+'</b> correlation ('+(r>=0?'+':'')+r.toFixed(2)+') between your <b>'+what+'</b> and revenue.'; }
       host.innerHTML =
         '<div class="card" style="margin-bottom:16px;"><p style="font-size:12.5px;color:var(--muted);margin:0;">Your calls and emails month-on-month against the revenue and commission you produced ('+rows[0].label+' – '+rows[rows.length-1].label+'). Private to you.</p></div>' +
         '<div class="card" style="margin-bottom:16px;"><div class="stats-row">' +
-          card('Total calls', _skNum(tCalls,0), 'over '+rows.length+' months') +
-          card('Total emails', _skNum(tEmails,0), 'over '+rows.length+' months') +
+          card('Total calls', _skNum(tCalls,0), 'over '+cR.length+' month'+(cR.length===1?'':'s')+' recorded') +
+          card('Total emails', _skNum(tEmails,0), 'over '+eR.length+' month'+(eR.length===1?'':'s')+' recorded') +
           card('Revenue', _skMoney(tRev), _skMoney(perCall)+'/call · '+_skMoney(perEmail)+'/email') +
           card('Commission', _skMoney(tComm), _skMoney(commPerCall)+' per call') +
         '</div></div>' +
@@ -7784,7 +8651,7 @@
         '<div class="section-head"><h2>Team admin</h2></div>'
         + '<div class="admin-tabs" id="leadTabs">'
           + '<button class="admin-tab active" id="leadTabBtn-overview" onclick="leadTab(\'overview\')">Overview</button>'
-          + '<button class="admin-tab" id="leadTabBtn-activity" onclick="leadTab(\'activity\')">Calls &amp; emails</button>'
+          + '<button class="admin-tab" id="leadTabBtn-activity" onclick="leadTab(\'activity\')">Activity &amp; output</button>'
         + '</div>'
         + '<div class="bx-pane active" id="leadPane-overview">'
         + '<div class="card" style="margin-bottom:16px;border-left:3px solid #b5340f;">'
@@ -7814,14 +8681,16 @@
         + '</div>'
         + '</div>'
         + '<div class="bx-pane" id="leadPane-activity">'
-          + '<div class="card">'
-            + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Calls &amp; emails by broker</h3>'
-            + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Every broker\'s recorded call and email volume for the month. Read-only &mdash; these come from the phone system and mail logs, not from figures brokers enter themselves.</p>'
-            + '<div class="sk-entry-grid sk-entry-vert" style="margin-bottom:6px;">'
-              + '<div class="form-group"><label>Month</label><select id="leadActMonth" onchange="renderLeadActivity()"></select></div>'
+          + '<div class="card" style="margin-bottom:16px;">'
+            + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Activity &amp; output by broker</h3>'
+            + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Days worked and contracts signed are entered by each broker on their month-end form. Calls and talk time come from 8x8, emails from the mail logs, computer activity from Teramind and envelopes from DocuSign. A dash means not recorded, never zero. Where every figure came from is listed under the table.</p>'
+            + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px;">'
+              + '<div class="form-group" style="margin:0;"><label>Month</label><select id="leadActMonth" onchange="renderLeadActivity()"></select></div>'
+              + '<button type="button" class="btn-secondary" id="leadDeckBtn" style="padding:9px 14px;" onclick="downloadBrokerDeck(document.getElementById(\'leadActMonth\').value)">Download the monthly report (PowerPoint)</button>'
             + '</div>'
             + '<div id="leadActBody"></div>'
           + '</div>'
+          + '<div class="card" id="leadActCard">' + _actCardHtml('lead') + '</div>'
         + '</div>';
       var ef=document.getElementById('leadEntryFields'); if(ef) ef.innerHTML=_skEntryFieldsHtml('lead_', true, true);
       var lm=document.getElementById('leadMonth'); if(lm && !lm.value) lm.value=new Date().toISOString().slice(0,7);
@@ -7841,8 +8710,12 @@
       if(name==='activity'){ _leadActFillMonths(); renderLeadActivity(); }
     }
     function _leadActPeriods(){
-      var seen={};
+      // A month appears once anything is recorded for it: a system figure in broker_activity,
+      // or contracts / days entered by an active broker.
+      var seen={}, live={};
+      (_SK.reps||[]).forEach(function(r){ if(r.active!==false) live[r.id]=1; });
       (_SK.activity||[]).forEach(function(a){ if(a.period) seen[String(a.period).slice(0,10)]=1; });
+      (_SK.kpis||[]).forEach(function(k){ if(k.period && live[k.rep_id] && (k.days_worked!=null || k.deals_won!=null)) seen[String(k.period).slice(0,10)]=1; });
       return Object.keys(seen).sort().reverse();
     }
     function _leadActFillMonths(){
@@ -7857,37 +8730,62 @@
     }
     function renderLeadActivity(){
       var body=document.getElementById('leadActBody'); if(!body) return;
-      var acts=(_SK.activity||[]);
-      if(!acts.length){
-        body.innerHTML='<p class="sk-empty" style="margin:0;">No call or email figures have been recorded yet, so there is nothing to show.</p>';
+      var ps=_leadActPeriods();
+      if(!ps.length){
+        body.innerHTML='<p class="sk-empty" style="margin:0;">Nothing has been recorded yet, so there is nothing to show.</p>';
         return;
       }
-      var ps=_leadActPeriods();
       var sel=document.getElementById('leadActMonth');
       var pick=(sel && sel.value) ? sel.value : ps[0];
-      var all=(pick==='__all__');
+      var all=(pick==='__all__'), months=all ? ps.slice() : [pick];
       var reps=(_SK.reps||[]).filter(function(r){ return r.active!==false; });
-      var rows=reps.map(function(r){
-        var mine=acts.filter(function(a){ return a.rep_id===r.id && (all || String(a.period).slice(0,10)===pick); });
-        var c=0, e=0;
-        mine.forEach(function(a){ c+=Number(a.calls)||0; e+=Number(a.emails)||0; });
-        return { name:r.name, has:mine.length>0, months:mine.length, calls:c, emails:e };
+      var rows=reps.map(function(r){ return { rep:r, o:_skOutputFor(r.id, months) }; });
+      // Billing per day for the team only counts brokers whose days are recorded, so a broker
+      // with billing but no days does not inflate the rate.
+      var T={ days:null, contracts:null, env:null, calls:null, talk:null, emails:null, idle:null, billing:0, bDays:0, dDays:0 };
+      rows.forEach(function(x){
+        ['days','contracts','env','calls','talk','emails','idle'].forEach(function(k){ if(x.o[k]!=null) T[k]=(T[k]==null?0:T[k])+x.o[k]; });
+        T.billing+=x.o.billing;
+        if(x.o.days){ T.bDays+=x.o.billing; T.dDays+=x.o.days; }
       });
-      var tC=0, tE=0, missing=0;
-      rows.forEach(function(x){ if(x.has){ tC+=x.calls; tE+=x.emails; } else { missing++; } });
-      var span=all?3:2;
-      var th='<tr><th>Broker</th><th class="num">Calls</th><th class="num">Emails</th>'+(all?'<th class="num">Months recorded</th>':'')+'</tr>';
+      T.activity=_skTeamActivity(rows.map(function(x){ return x.o; }));
+      function flag(o){
+        return (o.contracts!=null && o.env!=null && o.contracts<o.env)
+          ? ' style="background:#fdf3e7;color:#8a5a00;font-weight:700;" title="Fewer contracts entered than contract envelopes completed in DocuSign from this broker\'s own login. Worth a look."'
+          : '';
+      }
+      var th='<tr><th>Broker</th><th class="num">Days worked</th><th class="num">Contracts signed</th>'
+        + '<th class="num" title="Completed contract envelopes sent from the broker\'s own DocuSign login. One envelope can hold several contracts, so this is a cross-check, not the figure.">DocuSign envelopes</th>'
+        + '<th class="num">Calls</th><th class="num">Talk time</th><th class="num">Emails</th><th class="num">Computer activity</th><th class="num">Idle</th><th class="num">Billing</th><th class="num">Billing per day</th></tr>';
       var tb=rows.map(function(x){
-        if(!x.has) return '<tr><td>'+escapeHtml(x.name)+'</td><td colspan="'+span+'" style="color:#b5340f;font-weight:700;">&mdash; no data recorded &mdash;</td></tr>';
-        return '<tr><td>'+escapeHtml(x.name)+'</td><td class="num">'+_skNum(x.calls,0)+'</td><td class="num">'+_skNum(x.emails,0)+'</td>'
-             + (all?'<td class="num">'+x.months+'</td>':'') + '</tr>';
+        var o=x.o;
+        return '<tr><td>'+escapeHtml(_skShortName(x.rep.name))+'</td>'
+          + '<td class="num">'+_skOutCell(o.days,'days')+'</td>'
+          + '<td class="num"'+flag(o)+'>'+_skOutCell(o.contracts)+'</td>'
+          + '<td class="num">'+_skOutCell(o.env)+'</td>'
+          + '<td class="num">'+_skOutCell(o.calls)+'</td>'
+          + '<td class="num">'+_skOutCell(o.talk,'hm')+'</td>'
+          + '<td class="num">'+_skOutCell(o.emails)+'</td>'
+          + '<td class="num">'+_skOutCell(o.activity,'pct')+'</td>'
+          + '<td class="num">'+_skOutCell(o.idle,'hm')+'</td>'
+          + '<td class="num">'+_skMoney(o.billing)+'</td>'
+          + '<td class="num">'+(o.days?_skMoney(o.billing/o.days):_skDash())+'</td></tr>';
       }).join('');
-      var tf='<tr class="sk-total"><td>Team total</td><td class="num">'+_skNum(tC,0)+'</td><td class="num">'+_skNum(tE,0)+'</td>'+(all?'<td></td>':'')+'</tr>';
-      body.innerHTML='<div style="overflow-x:auto;"><table class="sk-table">'+th+tb+tf+'</table></div>'
-        + '<p style="font-size:11.5px;color:var(--muted);margin:8px 0 0;">'
-        + 'Latest month on record: <strong>'+escapeHtml(_skPeriodLabel(ps[0]))+'</strong>.'
-        + (missing ? ' '+missing+' broker'+(missing>1?'s have':' has')+' nothing recorded '+(all?'in any month':'for this month')+' &mdash; treat that as missing data, not zero activity.' : '')
-        + '</p>';
+      var tf='<tr class="sk-total"><td>Team</td>'
+        + '<td class="num">'+_skOutCell(T.days,'days')+'</td><td class="num">'+_skOutCell(T.contracts)+'</td><td class="num">'+_skOutCell(T.env)+'</td>'
+        + '<td class="num">'+_skOutCell(T.calls)+'</td><td class="num">'+_skOutCell(T.talk,'hm')+'</td><td class="num">'+_skOutCell(T.emails)+'</td>'
+        + '<td class="num">'+_skOutCell(T.activity,'pct')+'</td><td class="num">'+_skOutCell(T.idle,'hm')+'</td>'
+        + '<td class="num">'+_skMoney(T.billing)+'</td><td class="num">'+(T.dDays?_skMoney(T.bDays/T.dDays):_skDash())+'</td></tr>';
+      var src=_skOutputSources(months);
+      body.innerHTML='<div style="overflow-x:auto;"><table class="sk-table" id="leadActTable">'+th+tb+tf+'</table></div>'
+        + '<div id="leadActSources" style="font-size:11.5px;color:var(--muted);margin:10px 0 0;line-height:1.55;">'
+        + '<div style="font-weight:700;">Where these figures come from</div>'
+        + '<div>Days worked and contracts signed: entered by each broker on their month-end form.</div>'
+        + (src.length
+            ? src.map(function(s){ return '<div>'+escapeHtml(s.metric)+': '+escapeHtml(s.line)+'</div>'; }).join('')
+            : '<div>No calls, emails, Teramind or DocuSign figures loaded for '+(all?'these months':escapeHtml(_skPeriodLabel(pick)))+' yet.</div>')
+        + '<div style="margin-top:4px;">A dash means not recorded, never zero.'+(all?' Computer activity across several months is weighted by Teramind work time.':'')+'</div>'
+        + '</div>';
     }
     // ── Company view (CEO, read-only) ──
     // Its own screen rather than a dressed-up leaderboard: aggregate the company first,
@@ -7905,6 +8803,11 @@
         + fys.map(function(fy){ return '<option value="fy:'+fy+'">'+_ceoFyLabel(fy)+'</option>'; }).join('') + '</optgroup>';
       if(ps.length) opts += '<optgroup label="Single month">'
         + ps.map(function(p){ return '<option value="'+p+'">'+escapeHtml(_skPeriodLabel(p))+'</option>'; }).join('') + '</optgroup>';
+      // Month-end reports: the same workbook the admin Month-End Report tab builds, for any
+      // month with figures. downloadMonthEndReport only reads _SK, so this writes nothing.
+      var rptOpts = ps.length
+        ? ps.map(function(p){ return '<option value="'+p+'">'+escapeHtml(_skPeriodLabel(p))+'</option>'; }).join('')
+        : '<option value="">&mdash; no figures yet &mdash;</option>';
       host.innerHTML =
         '<div class="section-head"><h2>Company view</h2></div>'
         + '<div class="card" style="margin-bottom:16px;">'
@@ -7914,8 +8817,42 @@
             + '</select></div>'
           + '</div>'
         + '</div>'
+        + '<div class="card" id="ceoReportCard" style="margin-bottom:16px;">'
+          + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Month-end reports</h3>'
+          + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">The month-end Excel for any month: every broker\'s figures, the red flags and the charts.</p>'
+          + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">'
+            + '<div class="form-group" style="margin:0;"><label for="ceoReportMonth">Month</label>'
+              + '<select id="ceoReportMonth" onchange="renderCeoReportStatus()">'+rptOpts+'</select></div>'
+            + '<button type="button" class="btn-secondary" id="ceoReportBtn" style="padding:9px 14px;"'
+              + ' onclick="downloadMonthEndReport(document.getElementById(\'ceoReportMonth\').value)"'+(ps.length?'':' disabled')+'>⬇ Download Excel</button>'
+            + '<button type="button" class="btn-secondary" id="ceoDeckBtn" style="padding:9px 14px;"'
+              + ' onclick="downloadBrokerDeck(document.getElementById(\'ceoReportMonth\').value)"'+(ps.length?'':' disabled')+'>Download PowerPoint</button>'
+          + '</div>'
+          + '<div id="ceoReportStatus" style="font-size:12.5px;margin-top:10px;"></div>'
+        + '</div>'
         + '<div id="ceoBody"></div>';
       renderCeoBody();
+      renderCeoReportStatus();
+    }
+    // Whether the chosen month is final. The workbook prints DRAFT or COMPLETE by this same
+    // rule (confirmed_at on every active rep), so the line and the file cannot disagree.
+    function renderCeoReportStatus(){
+      var el=document.getElementById('ceoReportStatus'); if(!el) return;
+      var key=(document.getElementById('ceoReportMonth')||{}).value;
+      if(!key){ el.innerHTML=''; return; }
+      var reps=(_SK.reps||[]).filter(function(r){ return r.active!==false; });
+      if(!reps.length){ el.innerHTML='<span style="color:#b5340f;font-weight:700;">The broker list did not load, so this month\'s status is unknown. Please refresh the page.</span>'; return; }
+      var waiting=reps.filter(function(r){
+        return !(_SK.kpis||[]).some(function(k){ return k.rep_id===r.id && k.period===key && k.confirmed_at; });
+      });
+      var done=reps.length-waiting.length;
+      el.innerHTML = waiting.length
+        ? '<span style="color:#8a5a00;font-weight:700;">'+done+' of '+reps.length+' brokers confirmed.</span> '
+          + '<span>The download is marked DRAFT until '
+          + escapeHtml(waiting.map(function(r){ return _skShortName(r.name); }).join(', '))
+          + (waiting.length===1?' confirms.':' confirm.')+'</span>'
+        : '<span style="color:#2f7d4f;font-weight:700;">All '+reps.length+' brokers confirmed.</span> '
+          + '<span>This is the final report for '+escapeHtml(_skPeriodLabel(key))+'.</span>';
     }
     function _ceoIsFy(pick){ return String(pick||'').indexOf('fy:')===0; }
     function _ceoFyOf(pick){ return Number(String(pick).slice(3)); }
@@ -8060,15 +8997,17 @@
         return (Number(agg[b.id]&&agg[b.id].billing_total)||0) - (Number(agg[a.id]&&agg[a.id].billing_total)||0);
       });
       var rows=reps.map(function(r){
-        var a=agg[r.id]||{}, act=_ceoActivity(r.id,months), kwh=Number(a.total_kwh)||0, ce=Number(a._contract_eff)||0;
-        return { rep:r, a:a, act:act, kwh:kwh, rate:kwh?(ce/kwh*100):0, billing:Number(a.billing_total)||0 };
+        var a=agg[r.id]||{}, out=_skOutputFor(r.id,months), kwh=Number(a.total_kwh)||0, ce=Number(a._contract_eff)||0;
+        return { rep:r, a:a, out:out, kwh:kwh, rate:kwh?(ce/kwh*100):0, billing:Number(a.billing_total)||0 };
       });
-      var tCalls=0,tEmails=0,anyAct=false;
-      rows.forEach(function(x){ if(x.act.has){ tCalls+=x.act.calls; tEmails+=x.act.emails; anyAct=true; } });
+      var TO={ contracts:null, days:null, calls:null, emails:null };
+      rows.forEach(function(x){ ['contracts','days','calls','emails'].forEach(function(k){ if(x.out[k]!=null) TO[k]=(TO[k]==null?0:TO[k])+x.out[k]; }); });
+      TO.activity=_skTeamActivity(rows.map(function(x){ return x.out; }));
+      var ceoSrc=_skOutputSources(months);
       out+='<div class="card" style="margin-bottom:16px;">'
         + '<h3 style="font-size:14px;font-weight:800;margin-bottom:10px;">Every broker, every figure &mdash; '+scope+'</h3>'
         + '<div style="overflow-x:auto;"><table class="sk-table">'
-        + '<tr><th>Broker</th><th class="num">Billing</th><th class="num">New biz &pound;</th><th class="num">New biz kWh</th><th class="num">Total kWh</th><th class="num">Avg comm p/kWh</th><th class="num">Lost custs</th><th class="num">Lost kWh</th><th class="num">Calls</th><th class="num">Emails</th></tr>'
+        + '<tr><th>Broker</th><th class="num">Billing</th><th class="num">New biz &pound;</th><th class="num">New biz kWh</th><th class="num">Total kWh</th><th class="num">Avg comm p/kWh</th><th class="num">Lost custs</th><th class="num">Lost kWh</th><th class="num">Contracts</th><th class="num">Days</th><th class="num">Calls</th><th class="num">Emails</th><th class="num">Activity</th></tr>'
         + rows.map(function(x){
             return '<tr><td>'+escapeHtml(_skShortName(x.rep.name))+'</td>'
               + '<td class="num">'+_skMoney(x.billing)+'</td>'
@@ -8078,12 +9017,18 @@
               + '<td class="num">'+(x.kwh?x.rate.toFixed(2):'&mdash;')+(_skHasOverride(x.a)?'<span title="Set manually by the Head of Sales" style="color:#8a5a00;font-weight:800;">&nbsp;*</span>':'')+'</td>'
               + '<td class="num">'+_skNum(x.a.lost_customers,0)+'</td>'
               + '<td class="num">'+_skNum(x.a.lost_kwh,0)+'</td>'
-              + '<td class="num">'+(x.act.has?_skNum(x.act.calls,0):'<span style="color:var(--muted);">&mdash;</span>')+'</td>'
-              + '<td class="num">'+(x.act.has?_skNum(x.act.emails,0):'<span style="color:var(--muted);">&mdash;</span>')+'</td></tr>';
+              + '<td class="num">'+_skOutCell(x.out.contracts)+'</td>'
+              + '<td class="num">'+_skOutCell(x.out.days,'days')+'</td>'
+              + '<td class="num">'+_skOutCell(x.out.calls)+'</td>'
+              + '<td class="num">'+_skOutCell(x.out.emails)+'</td>'
+              + '<td class="num">'+_skOutCell(x.out.activity,'pct')+'</td></tr>';
           }).join('')
-        + '<tr class="sk-total"><td>Team total</td><td class="num">'+_skMoney(T.billing)+'</td><td class="num">'+_skMoney(T.nb)+'</td><td class="num">'+_skNum(T.nbKwh,0)+'</td><td class="num">'+_skNum(T.kwh,0)+'</td><td class="num">'+rate.toFixed(2)+'</td><td class="num">'+_skNum(T.lostC,0)+'</td><td class="num">'+_skNum(T.lostKwh,0)+'</td><td class="num">'+(anyAct?_skNum(tCalls,0):'&mdash;')+'</td><td class="num">'+(anyAct?_skNum(tEmails,0):'&mdash;')+'</td></tr>'
+        + '<tr class="sk-total"><td>Team total</td><td class="num">'+_skMoney(T.billing)+'</td><td class="num">'+_skMoney(T.nb)+'</td><td class="num">'+_skNum(T.nbKwh,0)+'</td><td class="num">'+_skNum(T.kwh,0)+'</td><td class="num">'+rate.toFixed(2)+'</td><td class="num">'+_skNum(T.lostC,0)+'</td><td class="num">'+_skNum(T.lostKwh,0)+'</td>'
+        + '<td class="num">'+_skOutCell(TO.contracts)+'</td><td class="num">'+_skOutCell(TO.days,'days')+'</td><td class="num">'+_skOutCell(TO.calls)+'</td><td class="num">'+_skOutCell(TO.emails)+'</td><td class="num">'+_skOutCell(TO.activity,'pct')+'</td></tr>'
         + '</table></div>'
-        + (anyAct?'':'<p style="font-size:11.5px;color:var(--muted);margin:8px 0 0;">No call or email figures recorded for this period.</p>')
+        + '<p style="font-size:11.5px;color:var(--muted);margin:8px 0 0;line-height:1.55;">Contracts and days are entered by each broker. '
+        + (ceoSrc.length ? escapeHtml(ceoSrc.map(function(s){ return s.metric+': '+s.line; }).join('. '))+'. ' : 'No call, email or Teramind figures loaded for this period. ')
+        + 'A dash means not recorded, never zero.</p>'
         + _ceoExcludedNote(months)
         + '</div>';
 
@@ -8220,6 +9165,7 @@
       var key=mo? mo+'-01' : null;
       var row=(rep&&key)? (_SK.kpis||[]).filter(function(k){ return k.rep_id===rep && k.period===key; })[0] : null;
       _skFillEntry('lead_', row);
+      _skDaysHint('lead_', key, row, false);
       var lr=document.getElementById('lead_lost_reason'); if(lr) lr.value=(row && row.lost_reason)||'';
       var msg=document.getElementById('leadMsg');
       if(row && row.confirmed_at && msg){ msg.textContent='Note: that broker confirmed these figures as final. As Head of Sales you can still amend them — any change is recorded against your login.'; msg.style.display='block'; msg.style.background='#fdf3e7'; msg.style.color='#8a5a00'; }
@@ -8232,6 +9178,7 @@
       if(!mo){ safeAlert('Pick a month.', null); return; }
       var key=mo+'-01';
       var rec=_skReadEntry('lead_', rep, key);
+      var _op=_skOutputProblem(rec); if(_op){ safeAlert(_op, null); return; }
       var lr=document.getElementById('lead_lost_reason'); rec.lost_reason=(lr && lr.value.trim())? lr.value.trim() : null;
       if(((Number(rec.lost_customers)||0)>0 || (Number(rec.lost_meters)||0)>0) && !rec.lost_reason){ safeAlert('You entered lost customers/meters — please add the reason why.', null); if(lr && lr.focus) lr.focus(); return; }
       var ovWarn=_skOverrideWarning(rec);
