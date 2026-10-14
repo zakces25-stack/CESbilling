@@ -1006,6 +1006,45 @@ async function cxSignOut(){
 }
 function bootMsg(html){ document.getElementById('bootTxt').innerHTML = html; }
 
+/* ── fetching more than a page of rows ────────────────────────────────────────
+   PostgREST answers with at most 1,000 rows and says nothing about the rest — no
+   error, no flag, just a short list. Every other query on this page is comfortably
+   under that: the largest customer's Positions is 216 rows, Trades 242, Targets 150,
+   Sites 135, and the curves are tens. So a plain .select() has been right everywhere
+   until now.
+
+   Day Ahead is not like them. It is not per customer — it is the whole market history,
+   3,388 readings since Feb 2022 and two more every working day — so it crossed 1,000
+   in July 2023 and a plain query stops dead on 8 July 2023. That is exactly what
+   shipped on 14 Oct: the tab worked, the cards and the chart were right for the data
+   they had, and the data silently stopped three years ago.
+
+   So this pages in blocks of 1,000 until a short block says there is no more, which is
+   what the desk's own _fetchAll has always done for the same table. ORDERING BY TWO
+   COLUMNS MATTERS: price_date alone is not unique — there is a gas row and a power row
+   for each day — and an unstable sort across page boundaries drops and duplicates rows
+   at the seam.
+
+   Returns the same { data, error } shape as a plain query so it drops straight into
+   the Promise.all above, errors and all. */
+async function cxFetchAll(table, cols, orderCols){
+  const out = [];
+  for(let from = 0; ; from += 1000){
+    let q = CX.sb.from(table).select(cols).range(from, from + 999);
+    for(const oc of orderCols) q = q.order(oc, { ascending: true });
+    const { data, error } = await q;
+    if(error) return { data: null, error };
+    const page = data || [];
+    out.push(...page);
+    if(page.length < 1000) break;
+    // A stop, not a safety blanket: at two readings a day this is over sixty years of
+    // history, so reaching it means something is wrong and looping forever in a
+    // customer's browser is the worst way to find that out.
+    if(out.length >= 100000) break;
+  }
+  return { data: out, error: null };
+}
+
 /* ── load ────────────────────────────────────────────────────────────── */
 async function load(){
   const [bk,ps,tr,tg,st,cv,te,sm,nx,rp,me,da] = await Promise.all([
@@ -1030,7 +1069,9 @@ async function load(){
     // before round 44's SQL has run the view does not exist yet, and a portal that
     // goes blank for every customer over a tab most of them cannot see would be a
     // poor trade. It degrades to the tab being absent, which is its off state anyway.
-    CX.sb.from('flex_client_da_prices').select('commodity,price_date,price').order('price_date')
+    //
+    // PAGED, unlike every other query on this page. See cxFetchAll.
+    cxFetchAll('flex_client_da_prices', 'commodity,price_date,price', ['price_date', 'commodity'])
   ]);
   for(const r of [bk,ps,tr,tg,st,cv,rp]) if(r.error) throw new Error(r.error.message);
   // A missing or unreadable overlay curve must never take the portal down — each one
