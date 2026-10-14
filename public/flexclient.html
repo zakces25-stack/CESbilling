@@ -1653,6 +1653,31 @@ function cxWireHScroll(host){
   requestAnimationFrame(fit);
 }
 
+/* ROUND 43a. Never call a brand-new FlexCore function from this page without a way
+   through when the core is a version behind.
+
+   On 14 Oct this page shipped calling FlexCore.clientCols(), added to flex-shared.js in
+   the same round. Any browser holding the previous core threw
+   "FlexCore.clientCols is not a function" inside the template literal below, so
+   host.innerHTML was never assigned and the Positions and Trades tabs were simply empty.
+   .htaccess forces flex-shared.js to no-cache, which is what makes a lag unlikely — not
+   impossible. A push and a deploy are not atomic, Cloudflare sits in front of both, and
+   an already-open page re-fetches nothing.
+
+   The hiding rule is therefore applied through FlexCore when it is available and from
+   the copy below when it is not. The copy duplicates CLIENT_HIDE.screen on purpose: the
+   alternatives are a blank tab or a customer seeing desk-only columns. Suite 05 asserts
+   the two match, so they cannot drift apart quietly. */
+const CX_HIDE_FALLBACK = { positions: { nt: 1, ua: 1 }, trades: { cost: 1 } };
+function cxCols(table, cols){
+  try {
+    if (typeof FlexCore !== 'undefined' && FlexCore && typeof FlexCore.clientCols === 'function')
+      return FlexCore.clientCols('screen', table, cols);
+  } catch (e) {}
+  const h = CX_HIDE_FALLBACK[table];
+  return h ? (cols || []).filter(c => !h[c.key]) : (cols || []);
+}
+
 function subPositions(b,host){
   const bk = deskBasket(b);
   const all = monthsOf(b.id);
@@ -1663,7 +1688,7 @@ function subPositions(b,host){
   host.innerHTML=`
     ${cxFilterBarHtml(b,'pos')}
     ${rows.length ? '<div class="hscroll noprint" aria-hidden="true"><i></i></div><div class="posscroll">' + FlexCore.buildTable(
-        FlexCore.clientCols('screen', 'positions', FlexCore.POSITIONS(bk)), rows,
+        cxCols('positions', FlexCore.POSITIONS(bk)), rows,
         { nec: FlexCore.necMap(bk, D.necs), mktPrice: (m)=>cxMktPrice(b,m) },
         { totals: FlexCore.positionsTotals(rows, bk, FlexCore.necMap(bk, D.necs)),
           rowClass: (m)=> m.month===now ? 'cur' : '',
@@ -1770,7 +1795,7 @@ function subTrades(b,host){
   // this table — the Cost column since 14 Oct. Everything shown is shown the desk's way:
   // the volume and strike are to the same precision, so the two tie back.
   host.innerHTML = bar + (rows.length
-    ? FlexCore.buildTable(FlexCore.clientCols('screen', 'trades', FlexCore.TRADES(deskBasket(b))), rows, {}, {
+    ? FlexCore.buildTable(cxCols('trades', FlexCore.TRADES(deskBasket(b))), rows, {}, {
         cellClass:(c,t)=> (c.key==='vol' && t.volume!=null && t.volume<0) ? 'neg' : ''
       })
     : '<div class="empty">No trades cover that month.</div>');
