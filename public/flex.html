@@ -7395,7 +7395,7 @@ function fxNormRange(ws){ if(ws && ws['!ref']){ try{ const r=XLSX.utils.decode_r
    here was hand-written and had already drifted from the Positions tab — it never
    carried Delivered rate, and the desk and the customer were handing out two different
    files for the same basket. Now both portals call FlexCore.xlWorkbook and differ by
-   exactly the four columns in FlexCore.XL_DESK_ONLY.
+   exactly what FlexCore.CLIENT_HIDE.sheet drops for the customer.
 
    Five sheets: Positions, Trades, Seasons, Targets, Sites. Graphs stay on the portal.
 

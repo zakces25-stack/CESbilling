@@ -820,18 +820,45 @@
        · Every month, whatever the Positions filters are set to. Filters are shared across
          baskets, so honouring them could hand over a file that looks complete and is not.
        · Month and dates are real dates, so Excel sorts them by date, not A to Z.
-       · What the two portals drop differs, and only that: see XL_DESK_ONLY.            */
+       · What the two portals drop differs, and only that: see CLIENT_HIDE.sheet.       */
 
-  // Desk-only columns, by spec key. The customer's workbook drops these four and is
-  // otherwise identical to the desk's — Dan's 17 Sep decision for the target columns,
-  // and the customer's own Sites tab has never shown the NEC terms.
-  //   nt / ua  Next Target, Upper Alert  (POSITIONS, and ua on TARGETS)
-  //   nec      NEC unit rate             (SITES)
-  //   necsc    NEC standing charge       (SITES)
-  // nec and necsc left here on purpose although SITES no longer emits them: an older
-  // cached copy of a portal can still hand those keys in, and a filter that stops
-  // recognising a column is how one quietly comes back on a customer's workbook.
-  var XL_DESK_ONLY = { nt: 1, ua: 1, nec: 1, necsc: 1 };
+  /* WHAT THE CUSTOMER DOES NOT SEE — by surface, then table, then column key.
+     Both the on-screen tables and the workbook read this one map.
+
+     It is one map for a reason. Until 14 Oct the rule lived only in the workbook
+     builder, as a flat list of keys, and both portals rendered their TABLES from the
+     unfiltered specs — so the 17 Sep decision held for the file a customer downloaded
+     and not for the page they were looking at, for two months, with nothing to notice
+     it. A rule in one place cannot be half-applied.
+
+     Two differences between screen and sheet are deliberate (Daniel, 14 Oct):
+       targets.ua   the client's Targets TAB keeps Upper Alert. Their workbook has never
+                    carried it and is left as it was.
+       trades.cost  hidden on the client's Trades TAB. The workbook still carries it.
+     Written side by side so it is clear they are intended rather than an oversight.
+
+     nec / necsc stay under sites although SITES no longer emits them: an older cached
+     portal can still hand those keys in, and a filter that stops recognising a column is
+     how one quietly comes back on a customer's workbook. */
+  var CLIENT_HIDE = {
+    screen: {
+      positions: { nt: 1, ua: 1 },      // Next Target, Upper Alert
+      trades:    { cost: 1 }            // Cost (£)
+    },
+    sheet: {
+      positions: { nt: 1, ua: 1 },
+      targets:   { ua: 1 },
+      sites:     { nec: 1, necsc: 1 }
+    }
+  };
+
+  /* Filter a column spec for the customer. `where` is 'screen' or 'sheet', `table` the
+     spec's own name. An unlisted table is returned untouched. */
+  function clientCols(where, table, cols) {
+    var h = (CLIENT_HIDE[where] || {})[table];
+    if (!h) return cols;
+    return (cols || []).filter(function (c) { return !h[c.key]; });
+  }
 
   var XL_NAVY = 'FF1F2D4D', XL_CUR = 'FFFDF3CF', XL_TOT = 'FFEEF1F6', XL_HAIR = 'FFE0E3EC';
   var XL_BLANK = /^(?:|-|—|£-)$/;              // how the tables print "no value"
@@ -983,8 +1010,8 @@
      o = { XL, basket, trades, sites, necRows, ctx, name, stamp, note, desk }           */
   function xlWorkbook(o) {
     var bk = o.basket, desk = !!o.desk;
-    var keep = function (cols) {
-      return desk ? cols : cols.filter(function (c) { return !XL_DESK_ONLY[c.key]; });
+    var keep = function (table, cols) {
+      return desk ? cols : clientCols('sheet', table, cols);
     };
     var months = (bk.months || []).slice();
     var nm = necMap(bk, o.necRows || []);
@@ -995,7 +1022,7 @@
     wb.created = new Date();
     wb.title = o.name + ' - portfolio';
 
-    xlSheet(wb, 'Positions', keep(POSITIONS(bk)), months, ctx, {
+    xlSheet(wb, 'Positions', keep('positions', POSITIONS(bk)), months, ctx, {
       dates: { month: { get: function (m) { return m.month; }, fmt: 'mmm-yy' } },
       totals: positionsTotals(months, bk, nm),
       mark: function (m) { return m.month === nowMonth(); },
@@ -1003,7 +1030,10 @@
       empty: 'No position data for this basket.',
       title: o.name + ' - positions', stamp: stamp });
 
-    xlSheet(wb, 'Trades', TRADES(bk), o.trades || [], {}, {
+    /* Through keep() like the rest, so adding a rule for it later is a one-line change
+       to CLIENT_HIDE rather than a change here. CLIENT_HIDE.sheet has no `trades` entry,
+       so today this drops nothing and both workbooks still carry trade Cost. */
+    xlSheet(wb, 'Trades', keep('trades', TRADES(bk)), o.trades || [], {}, {
       dates: { date: { get: function (t) { return t.date; }, fmt: 'dd mmm yy' } },
       empty: 'No trades recorded for this basket.',
       title: o.name + ' - trades', stamp: stamp });
@@ -1014,13 +1044,13 @@
 
     // visibleTargets, so the file shows the tradable months the tab shows rather than
     // reintroducing the settled ones the tab deliberately drops.
-    xlSheet(wb, 'Targets', keep(TARGETS(bk)), visibleTargets(bk), ctx, {
+    xlSheet(wb, 'Targets', keep('targets', TARGETS(bk)), visibleTargets(bk), ctx, {
       dates: { month: { get: function (t) { return t.month; }, fmt: 'mmm-yy' } },
       mark: function (t) { return t.month === nowMonth(); },
       empty: 'No targets set for this basket.',
       title: o.name + ' - targets', stamp: stamp });
 
-    xlSheet(wb, 'Sites', keep(SITES(bk)), o.sites || [], {}, {
+    xlSheet(wb, 'Sites', keep('sites', SITES(bk)), o.sites || [], {}, {
       dates: { start: { get: function (s) { return s.contract_start; }, fmt: 'dd mmm yy' },
                end:   { get: function (s) { return s.contract_end;   }, fmt: 'dd mmm yy' } },
       empty: 'No sites recorded against this basket.',
@@ -1133,13 +1163,13 @@
     SITES: SITES,
     // spreadsheet — both portals build their workbook from xlWorkbook and nothing else
     xlWorkbook: xlWorkbook, xlSheet: xlSheet, xlText: xlText, xlNum: xlNum,
-    XL_DESK_ONLY: XL_DESK_ONLY, XL_ROUND_NOTE: XL_ROUND_NOTE,
+    CLIENT_HIDE: CLIENT_HIDE, clientCols: clientCols, XL_ROUND_NOTE: XL_ROUND_NOTE,
     normTrade: normTrade, fmtDate: fmtDate,
     TABS: TABS, clientTabs: clientTabs, TARGETS_TABLE_CLASS: TARGETS_TABLE_CLASS,
     pctCell: pctCell, buildTable: buildTable,
     // BUMP THIS on every change to this file. It is how anyone tells which build a
     // browser actually has — the desk shows it, and it is the first thing to check when
     // the two portals disagree or a change appears not to have landed.
-    VERSION: '2026-10-12'
+    VERSION: '2026-10-14'
   };
 })(typeof window !== 'undefined' ? window : globalThis);
