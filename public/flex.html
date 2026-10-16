@@ -808,7 +808,49 @@ body {
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
+  /* Round 45. Collapsing is a width change rather than display:none, because the layout
+     is a flexbox — #main is flex:1 — so the space is handed over and taken back by the
+     same mechanism, and it can be animated. The eye loses its place on a 2,170px table
+     if the whole thing jumps. */
+  transition: width .18s ease, min-width .18s ease;
 }
+body.fx-rail-off #sidebar { width: 0; min-width: 0; }
+
+/* The handle that collapses it, and the only way back.
+
+   position:fixed, NOT absolute inside #sidebar: the sidebar is overflow:hidden, so a
+   child sitting over its edge is clipped the moment the width reaches zero — the button
+   would vanish along with the thing it exists to restore, leaving a page reload as the
+   only way out. Fixed takes it out of that box altogether.
+
+   Open, it sits on the sidebar's right edge and reads as part of it. Collapsed, it slides
+   to the screen edge and pokes out over the main panel's 28px gutter, so it covers
+   nothing. Same transition as the sidebar, so the two move together. */
+#fxRailBtn {
+  position: fixed;
+  top: 16px;
+  left: 248px;
+  z-index: 60;
+  width: 26px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-left: 0;
+  border-radius: 0 7px 7px 0;
+  background: var(--navy-700, #1f2d4d);
+  color: rgba(255,255,255,0.85);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 2px 0 8px rgba(3,8,26,.25);
+  transition: left .18s ease, background .15s, color .15s;
+}
+#fxRailBtn:hover { background: var(--green-500, #aecb2a); color: var(--navy-900, #0f1930); }
+#fxRailBtn:focus-visible { outline: 2px solid var(--green-500, #aecb2a); outline-offset: 2px; }
+body.fx-rail-off #fxRailBtn { left: 0; }
 
 #sidebar-header {
   padding: 20px 16px 12px;
@@ -1933,6 +1975,15 @@ button{transition:all .14s ease}
   <div id="basket-list"></div>
 </div>
 
+<!-- Round 45. Collapses the basket list, for screen space and so a customer list is not
+     on screen while someone presents from this desk. Deliberately OUTSIDE #sidebar — that
+     element is overflow:hidden, and a handle inside it would be clipped away at zero width
+     together with the only means of bringing the sidebar back. 11-sidebar.js asserts it
+     stays a sibling. -->
+<button id="fxRailBtn" type="button" aria-expanded="true" aria-controls="sidebar"
+        aria-label="Hide the basket list" title="Hide the basket list"
+        onclick="fxRailToggle()">&#10094;</button>
+
 <!-- MAIN PANEL -->
 <div id="main">
   <div id="main-inner">
@@ -2021,6 +2072,60 @@ button{transition:all .14s ease}
 </div>
 
 <script>
+/* ── THE SIDEBAR RAIL (round 45) ──────────────────────────────────────────────
+   Two reasons for it: screen space on a 1366-wide laptop, where the Positions table is
+   2,170px and 1,142px of it is off-screen; and not having a list of flex customers on
+   screen when someone presents from this desk.
+
+   What it does NOT do, so nobody is surprised: the Portfolio tab lists every basket by
+   name as a card, and hiding this rail does not touch that. Dan's call on 16 Oct — a
+   presentation starts with a basket already open and stays in it.
+
+   The state is remembered per browser, like the market-source toggle. Not per user and
+   not in the database: it is a preference about this screen, and a presenter's laptop
+   should still be collapsed the next morning.
+
+   APPLIED HERE, at the top of the script, rather than in flexStart(): this block is in
+   the same parser pass as the markup above it, so a browser that has it collapsed never
+   paints the sidebar at all. Anything later shows it for a frame and then yanks it away.
+   fxRailApply() is called twice on purpose — once now for the paint, once from the
+   toggle. */
+const FX_RAIL_KEY = 'fx-rail-off';
+let FX_RAIL_OFF = false;
+try { FX_RAIL_OFF = localStorage.getItem(FX_RAIL_KEY) === '1'; } catch (e) {}
+
+function fxRailApply(){
+  // Guarded because this runs during parse: on the real page <body> exists by now, but
+  // anything that evaluates this script on its own must not throw.
+  if (!document.body) return;
+  document.body.classList.toggle('fx-rail-off', FX_RAIL_OFF);
+  const b = document.getElementById('fxRailBtn');
+  if (!b) return;
+  // The chevron points the way the click will move the sidebar.
+  b.innerHTML = FX_RAIL_OFF ? '&#10095;' : '&#10094;';
+  b.setAttribute('aria-expanded', FX_RAIL_OFF ? 'false' : 'true');
+  const label = FX_RAIL_OFF ? 'Show the basket list' : 'Hide the basket list';
+  b.setAttribute('aria-label', label);
+  b.setAttribute('title', label);
+}
+
+function fxRailToggle(){
+  FX_RAIL_OFF = !FX_RAIL_OFF;
+  try { localStorage.setItem(FX_RAIL_KEY, FX_RAIL_OFF ? '1' : '0'); } catch (e) {}
+  fxRailApply();
+  /* Nothing on this page caches a width — the one measurement taken anywhere is read at
+     click time, when a cell editor opens — and Chart.js 4 watches its own container with
+     a ResizeObserver. This event is for anything that listens by habit rather than
+     because something is known to need it, and it is fired AFTER the transition so a
+     listener measures the width the sidebar ended at rather than one in the middle of
+     the slide. */
+  clearTimeout(fxRailToggle._t);
+  fxRailToggle._t = setTimeout(function () {
+    try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+  }, 220);
+}
+fxRailApply();
+
 // ── DATA ─────────────────────────────────────────────────────────
 // ── LIVE DATA — Supabase flex_* tables + flex_positions engine view ──
 let DATA = null;
