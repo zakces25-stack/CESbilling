@@ -15,7 +15,7 @@
 <script src="flex-shared.js"></script>
 <!-- Client Accounts tab (create flex clients, share baskets, reset passwords). The ?v= must
      equal VERSION inside the file; tests/flex_accounts_render_test.js checks it. -->
-<script src="flex-accounts.js?v=2026-10-14.1"></script>
+<script src="flex-accounts.js?v=2026-10-27.1"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -4000,10 +4000,21 @@ function fxDaBadPrice(v){
   if (v >= 10000) return 'That looks like a typo — over 10,000';
   return null;
 }
+/* TWO days, not one (round 46). Gas is priced before the weekend: on a Friday both
+   Saturday's and Sunday's gas cash-out are already published, and the old +1 rule
+   refused Sunday as "in the future" — which is what Daniel meant by not being able to
+   add them, rather than anything to do with entering one fuel on its own. That has
+   always been allowed; see the box's own wording.
+
+   Two is the number asked for and the number the market gives you: the furthest ahead
+   anyone enters is Sunday, on a Friday. Wider would start accepting typos in the year.
+   The database allows anything to 2050, so this limit lives here and only here. */
+const FX_DA_AHEAD_DAYS = 2;
 function fxDaBadDate(d){
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d || '')) return 'Pick a date';
-  const t = new Date(); t.setDate(t.getDate() + 1);
-  if (d > t.toISOString().slice(0, 10)) return 'That date is in the future';
+  const t = new Date(); t.setDate(t.getDate() + FX_DA_AHEAD_DAYS);
+  if (d > t.toISOString().slice(0, 10))
+    return 'That is more than ' + FX_DA_AHEAD_DAYS + ' days ahead';
   if (d < '2022-01-01') return 'Before the series starts (24 Feb 2022)';
   return null;
 }
@@ -5246,6 +5257,7 @@ renderPositions = function(basket){
   const bar=document.createElement('div'); bar.className='fx-toolbar'; bar.style.marginTop='10px';
   bar.innerHTML=`<button class="fx-btn" onclick="fxExtendModal()">&#8628; Extend months</button>
     <button class="fx-btn" onclick="fxBulkBaseloadModal()">&#8687; Bulk baseload update</button>
+    <button class="fx-btn danger" onclick="fxTrimModal()">&#128465; Delete months</button>
     <span style="font-size:11px;color:#6b7280">Mkt price is always live from Market Curves (month &rarr; season) and cannot be edited here &middot; baseload edits stage until you Apply</span>`
     + (_pend ? ` <button class="fx-btn" style="background:var(--green-500);color:var(--navy-900);font-weight:800" onclick="fxApplyPositions(currentBasket)">&#10003; Apply ${_pend} month${_pend>1?'s':''}</button> <button class="fx-btn danger" onclick="fxDiscardPositions(currentBasket)">Discard</button>` : '');
   el.appendChild(bar);
@@ -7410,13 +7422,81 @@ function fxExtendModal(){
   <div class="fx-grid">
     <div class="fx-field"><label>Extend up to (month)</label><input id="fE_until" type="month"></div>
     <div class="fx-field"><label>Baseload for new months</label>
-      <select id="fE_mode"><option value="copy">Copy last month (${b.months[b.months.length-1].baseload_vol??'—'})</option><option value="value">Set a value…</option><option value="blank">Leave blank</option></select></div>
+      <select id="fE_mode" onchange="fxExtendPreview()"><option value="copy">Copy last month (${b.months[b.months.length-1].baseload_vol??'—'})</option><option value="year">Copy the same month a year earlier</option><option value="value">Set a value…</option><option value="blank">Leave blank</option></select></div>
     <div class="fx-field"><label>Value (if set)</label><input id="fE_val" type="number" step="any"></div>
   </div>
+  <div id="fE_note" style="font-size:11.5px;color:#4b5563;margin:4px 0 0"></div>
   <div class="fx-err" id="fxMErr"></div>
   <div class="fx-modal-foot"><button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
   <button class="fx-btn green" onclick="fxExtendSave()">Add months</button></div>`);
+  const u = document.getElementById('fE_until');
+  if (u) u.addEventListener('change', fxExtendPreview);
 }
+
+/* Which baseload each new month would get, and why. Separated from the save so the box
+   can say what it is about to do BEFORE you press the button — the whole point of the
+   "copy a year earlier" option is that it quietly does something different when the
+   history is too short, and doing that silently is how you end up with a year of
+   positions nobody can account for. */
+function fxExtendPlan(b, untilISO, mode, val){
+  const have = {};                       // month key → baseload, as it stands today
+  for (const m of b.months) have[m.month] = m.baseload_vol;
+  const last = b.months[b.months.length - 1];
+  const out = [];
+  let d = new Date(last.month + 'T00:00:00Z');
+  while (true){
+    d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
+    const iso = d.toISOString().slice(0, 10);
+    if (iso > untilISO) break;
+    let v = null, from = null;
+    if (mode === 'copy') { v = last.baseload_vol; from = 'last month'; }
+    else if (mode === 'value') v = val;
+    else if (mode === 'year'){
+      /* Step back a year at a time until a month of the same name turns up. A basket
+         that started in January has no previous November at all, so the search runs out
+         and the month falls back to the copy-last-month default rather than being left
+         blank — Daniel's call on 27 Oct, said out loud in the note below. */
+      let probe = new Date(Date.UTC(d.getUTCFullYear() - 1, d.getUTCMonth(), 1));
+      while (probe.toISOString().slice(0, 10) >= b.months[0].month){
+        const k = probe.toISOString().slice(0, 10);
+        if (have[k] != null){ v = have[k]; from = k; break; }
+        probe = new Date(Date.UTC(probe.getUTCFullYear() - 1, probe.getUTCMonth(), 1));
+      }
+      if (v == null){ v = last.baseload_vol; from = 'last month (no earlier ' + fxMonthName(iso) + ')'; }
+    }
+    // A month added in this same run can be the source for one a year later, so the
+    // chain continues rather than stopping at the edge of the existing history.
+    have[iso] = v;
+    out.push({ month: iso, v: v, from: from });
+  }
+  return out;
+}
+function fxMonthName(iso){
+  return ['January','February','March','April','May','June','July','August','September',
+          'October','November','December'][+iso.slice(5,7) - 1];
+}
+function fxExtendPreview(){
+  const el = document.getElementById('fE_note'); if (!el) return;
+  const b = currentBasket, u = (document.getElementById('fE_until') || {}).value,
+        mode = (document.getElementById('fE_mode') || {}).value;
+  if (!b || !u || mode !== 'year'){ el.innerHTML = ''; return; }
+  const plan = fxExtendPlan(b, u + '-01', 'year', null);
+  if (!plan.length){ el.innerHTML = ''; return; }
+  const exact = plan.filter(r => r.from && /^\d{4}-/.test(r.from)
+                                 && +r.from.slice(0,4) === +r.month.slice(0,4) - 1);
+  const older = plan.filter(r => r.from && /^\d{4}-/.test(r.from)
+                                 && +r.from.slice(0,4) !== +r.month.slice(0,4) - 1);
+  const none  = plan.filter(r => !r.from || !/^\d{4}-/.test(r.from));
+  const bits = [];
+  if (exact.length) bits.push(plural(exact.length, 'month') + ' from the same month a year earlier');
+  if (older.length) bits.push('<b>' + plural(older.length, 'month') + ' from further back</b> ('
+      + older.slice(0, 3).map(r => fmtMonth(r.month) + ' &larr; ' + fmtMonth(r.from)).join(', ')
+      + (older.length > 3 ? ', …' : '') + ') &mdash; the basket does not go back a full year for those');
+  if (none.length)  bits.push('<b>' + plural(none.length, 'month') + ' copied from the last month instead</b>, '
+      + 'because the basket has never had that month');
+  el.innerHTML = bits.join('. ') + '.';
+}
+function plural(n, word){ return n + ' ' + word + (n === 1 ? '' : 's'); }
 async function fxExtendSave(){
   const b=currentBasket;
   const until=document.getElementById('fE_until').value;
@@ -7425,18 +7505,136 @@ async function fxExtendSave(){
   const last=b.months[b.months.length-1];
   if(untilISO<=last.month) return fxMErr('That is not after the current final month.');
   const mode=document.getElementById('fE_mode').value;
-  const val=mode==='copy'?last.baseload_vol:(mode==='value'?fxNum(document.getElementById('fE_val').value):null);
-  const rows=[];
-  let d=new Date(last.month+'T00:00:00Z');
-  while(true){
-    d=new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth()+1, 1));
-    const iso=d.toISOString().slice(0,10);
-    if(iso>untilISO) break;
-    rows.push({basket_id:b.id, month:iso, days:fxDaysIn(iso), season:fxSeason(iso), baseload_vol:val, updated_by:FLEX.user});
-  }
+  const val=mode==='value'?fxNum(document.getElementById('fE_val').value):null;
+  // One planner for the preview and the save, so the box cannot promise one thing and
+  // write another.
+  const rows=fxExtendPlan(b, untilISO, mode, val).map(r=>({
+    basket_id:b.id, month:r.month, days:fxDaysIn(r.month), season:fxSeason(r.month),
+    baseload_vol:r.v, updated_by:FLEX.user}));
   if(!rows.length) return fxMErr('Nothing to add.');
   if(await fxWrite(FLEX.sb.from('flex_basket_months').insert(rows), rows.length+' months added')) fxCloseModal();
 }
+/* ── DELETING MONTHS OFF THE END (round 46) ──────────────────────────────────
+   Rare — a customer leaving a basket part-way through — and irreversible, so the box is
+   built around what it is about to destroy rather than around the date box.
+
+   THE PART WORTH READING. flex_targets and flex_reconciliation are keyed on
+   (basket_id, month) with NO foreign key to flex_basket_months. Delete a month and
+   those rows stay behind: invisible, counted by nothing, and waiting to reattach
+   themselves if that month is ever recreated. Every one of the 1,972 basket months has
+   a reconciliation row. So the delete takes all three, and the confirmation says so.
+
+   TRADES ARE DIFFERENT and are not deleted. They are keyed on start and end dates, not
+   on months, so nothing breaks when the months under them go — the trade simply stops
+   having anything to cover, and the basket's secured volume changes with no line to
+   explain it. That is a judgement call about a real deal, so the box names the trades
+   and leaves them alone. */
+function fxTrimModal(){
+  const b=currentBasket; if(!b||!b.months.length) return;
+  if(!EDIT) return fxToast('Turn on Edit first', false);
+  const last=b.months[b.months.length-1].month, first=b.months[0].month;
+  fxModal(`<h3>Delete months &mdash; ${escape(b.name)}</h3>
+  <p style="font-size:12.5px;color:#4b5563">This basket runs <b>${fmtMonth(first)}</b> to <b>${fmtMonth(last)}</b>.
+  Give the month it should now END on; everything after it is deleted. This cannot be undone.</p>
+  <div class="fx-grid">
+    <div class="fx-field"><label>Basket now ends (month)</label><input id="fT_end" type="month"></div>
+  </div>
+  <div id="fT_prev" style="margin-top:10px"></div>
+  <div class="fx-err" id="fxMErr"></div>
+  <div class="fx-modal-foot"><button class="fx-btn" onclick="fxCloseModal()">Cancel</button>
+  <button class="fx-btn danger" id="fT_go" style="display:none" onclick="fxTrimCommit()">Delete these months</button></div>`);
+  const e=document.getElementById('fT_end');
+  if(e) e.addEventListener('change', fxTrimPreview);
+}
+
+// What would go, counted from the data on screen. Shown before the button appears, so
+// the button is never the first time you learn what it does.
+function fxTrimPlan(b, endISO){
+  const months=b.months.filter(m=>m.month>endISO);
+  const keys=new Set(months.map(m=>m.month));
+  const tg=(b.targets||[]).filter(t=>keys.has(t.month));
+  const withVol=months.filter(m=>(+m.secured_vol||0)>0);
+  /* A trade overlaps if any part of its period falls after the new end. Dates, not
+     months, because that is how a trade is stored — and `t.end`, not `t.end_date`:
+     these are the SHAPED trades hanging off currentBasket, which FlexCore.normTrade
+     renames on the way in. Reading end_date here found nothing and quietly reported
+     that no trades were affected, which on this box is the worst possible lie. */
+  const endOfEnd=fxMonthEndISO(endISO);
+  const trades=(b.trades||[]).filter(t=>t.end && String(t.end).slice(0,10)>endOfEnd);
+  return { months, targets:tg, withVol, trades };
+}
+function fxMonthEndISO(monthISO){
+  const d=new Date(monthISO+'T00:00:00Z');
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth()+1, 0)).toISOString().slice(0,10);
+}
+function fxTrimPreview(){
+  const host=document.getElementById('fT_prev'), go=document.getElementById('fT_go');
+  const b=currentBasket, v=(document.getElementById('fT_end')||{}).value;
+  if(!host) return;
+  if(go) go.style.display='none';
+  if(!b||!v){ host.innerHTML=''; return; }
+  const endISO=v+'-01';
+  if(endISO<b.months[0].month){ host.innerHTML='<div class="fx-err" style="display:block">That is before the basket starts. To remove it entirely, archive the basket instead.</div>'; return; }
+  const p=fxTrimPlan(b, endISO);
+  if(!p.months.length){ host.innerHTML='<div style="font-size:12.5px;color:#4b5563">Nothing after '+escape(fmtMonth(endISO))+' — there is nothing to delete.</div>'; return; }
+  const warn=[];
+  if(p.withVol.length) warn.push('<b>'+plural(p.withVol.length,'month')+' of those still carry secured volume</b> ('
+    + p.withVol.slice(0,4).map(m=>escape(fmtMonth(m.month))).join(', ') + (p.withVol.length>4?', …':'') + ')');
+  if(p.targets.length) warn.push('<b>'+plural(p.targets.length,'target ladder')+'</b> will be deleted with them');
+  if(p.months.length)  warn.push('<b>'+plural(p.months.length,'reconciliation row')+'</b> will be deleted with them');
+  if(p.trades.length)  warn.push('<b>'+plural(p.trades.length,'trade')+' run past '+escape(fmtMonth(endISO))
+    + '</b> (' + p.trades.slice(0,4).map(t=>escape(t.ref||t.counterparty||'trade')).join(', ')
+    + (p.trades.length>4?', …':'') + '). Those are NOT deleted — they would be left covering months that no longer exist, '
+    + 'and the basket\'s secured volume will move. Deal with them first unless you mean it');
+  host.innerHTML='<div style="border:1px solid #f0c8c2;background:#fdf3f1;border-radius:8px;padding:10px 12px;font-size:12.5px;line-height:1.55">'
+    + '<div style="font-weight:800;color:#8c2f26;margin-bottom:4px">'+escape(plural(p.months.length,'month'))+' will be deleted: '
+    + escape(fmtMonth(p.months[0].month)) + (p.months.length>1 ? ' to ' + escape(fmtMonth(p.months[p.months.length-1].month)) : '') + '</div>'
+    + (warn.length ? '<ul style="margin:6px 0 0;padding-left:18px">'+warn.map(w=>'<li>'+w+'</li>').join('')+'</ul>'
+                   : '<div>No targets, trades or secured volume are affected.</div>')
+    + '</div>';
+  if(go) go.style.display='';
+}
+
+async function fxTrimCommit(){
+  const b=currentBasket, v=(document.getElementById('fT_end')||{}).value;
+  if(!b||!v) return fxMErr('Pick the month the basket should end on.');
+  const endISO=v+'-01';
+  const p=fxTrimPlan(b, endISO);
+  if(!p.months.length) return fxMErr('There is nothing after that month to delete.');
+
+  /* Two confirmations, and the second one asks you to type. The first is the usual
+     guard; the second exists because this is the only control on the desk that destroys
+     a customer's history, and a dialog you can dismiss with the space bar is not a
+     guard against doing it to the wrong basket. */
+  const bits=[plural(p.months.length,'month')];
+  if(p.targets.length) bits.push(plural(p.targets.length,'target ladder'));
+  bits.push(plural(p.months.length,'reconciliation row'));
+  if(!confirm('Delete ' + bits.join(', ') + ' from "' + b.name + '"?\n\n'
+      + 'Everything after ' + fmtMonth(endISO) + ' goes. This cannot be undone.'
+      + (p.withVol.length ? '\n\n' + plural(p.withVol.length,'month') + ' of those still carry secured volume.' : '')
+      + (p.trades.length ? '\n' + plural(p.trades.length,'trade') + ' run past that month and will be left behind.' : ''))) return;
+  const typed=prompt('This is irreversible. Type the basket name to confirm:\n\n' + b.name);
+  if(typed==null) return;
+  if(String(typed).trim() !== String(b.name).trim()) return fxMErr('That is not the basket name. Nothing was deleted.');
+
+  const keys=p.months.map(m=>m.month);
+  // Months last: if a later delete fails, what is left behind is a month with no ladder
+  // rather than a ladder with no month, and the first of those is visible on the tab.
+  for(const [table, label] of [['flex_targets','target ladders'],
+                               ['flex_reconciliation','reconciliation rows'],
+                               ['flex_basket_months','months']]){
+    const { error } = await FLEX.sb.from(table).delete().eq('basket_id', b.id).in('month', keys);
+    if(error){
+      console.error('trim ' + table, error);
+      return fxMErr('Deleting the ' + label + ' failed: ' + (error.message || 'unknown error')
+        + '. Nothing further was attempted — tell me what this says.');
+    }
+  }
+  fxToast(plural(p.months.length,'month') + ' deleted from ' + b.name);
+  fxCloseModal();
+  fxScheduleReload();
+}
+
 function fxBulkBaseloadModal(){
   const b=currentBasket; if(!b) return;
   fxModal(`<h3>Bulk baseload update — ${escape(b.name)}</h3>
@@ -8196,7 +8394,50 @@ function fxFullCurveMid(commodity, monthKey, seasonLabel, stored, nowKey, manual
    Both boundaries are still derived rather than stored: nowKey comes from the clock and
    manualFrom from the furthest season Marex has sent, so both roll forward on their own
    as months deliver and as the curve is extended. */
+/* ── THE DELIVERING MONTH IS NOT TYPED ANY MORE (round 46) ───────────────────
+   The current month is day-ahead, not forward — which is why Marex drop it and why it
+   has always been hand-kept. What was being typed into it, every day, was the mean of
+   the day-ahead readings on the tab next door: checked over the 18 months to Sep-26,
+   35 of 36 month/fuel figures matched the computed average exactly, the odd one out
+   being gas Mar-26, 0.165 adrift after a correction that never made it across.
+
+   So a trigger on flex_da_prices now maintains it (round 46 SQL), and these two
+   functions grey the cell out to match. THE TWO RULES MUST AGREE. If this file thinks a
+   month is typeable while the database thinks it owns it, the figure saves, looks
+   right, and is overwritten by the next day's reading with nothing to show for it —
+   the same silent-overwrite the imported months are greyed out to prevent.
+
+     database:  flex_da_drives_month(month, today)   in 46-step2-apply.sql
+     here:      fxDaDrivesMonth(monthKey)            below
+
+   The five days are for the roll. October 2026 ends on a Saturday: Saturday's gas is
+   entered on the Friday, but Saturday's POWER is not published until Monday — after
+   the month has turned. Without the window October would be frozen a day short for
+   ever. Four of the next twelve month-ends fall at a weekend. */
+function fxDaDrivesMonth(monthKey){
+  const now = new Date();
+  if (monthKey === fxNowMonth()) return true;
+  return monthKey === fxPrevMonth() && now.getDate() <= 5;
+}
+/* The mean of this month's readings, to 3dp — the same figure, from the same rows, as
+   flex_da_month_avg() in the database. Null when the month has no readings, so a month
+   the series does not cover stays hand-kept rather than being blanked. */
+function fxDaMonthAvg(commodity, monthKey){
+  const rows = ((DATA && DATA.da && DATA.da[commodity]) || [])
+    .filter(r => r.d.slice(0, 7) === monthKey.slice(0, 7));
+  if (!rows.length) return null;
+  return Math.round((rows.reduce((a, r) => a + r.p, 0) / rows.length) * 1000) / 1000;
+}
+
 function fxCurveRegion(commodity, monthKey, seasonLabel, nowKey, manualFrom){
+  /* Before the settled test, because the month just gone is settled by date and still
+     driven by Day Ahead for five more days. Checked per fuel: power can be a day behind
+     gas, and a month with no readings for this fuel stays yours. */
+  if (fxDaDrivesMonth(monthKey)) {
+    const avg = fxDaMonthAvg(commodity, monthKey);
+    if (avg != null)
+      return { key:'dayahead', label:'day ahead', cls:'live', live: avg, editable:false };
+  }
   if (monthKey < nowKey)
     return { key:'settled', label:'settled', cls:'hist', live:null, editable:true };
   const inWindow = (monthKey > nowKey && monthKey < manualFrom);
@@ -8252,7 +8493,9 @@ async function fxRenderFullCurve(){
         ? (rg.key === 'gap'
             ? ' style="color:#a4560f" title="Inside the imported window, but the live curve does not price this month — it is yours to maintain until the import covers it. Edit it in Settled/Manual periods."'
             : ' title="Stored figure — edit it in Settled/Manual periods at the top of this tab"')
-        : ' style="color:#5b6472" title="From the live Marex curve (read-only)"'
+        : (rg.key === 'dayahead'
+            ? ' style="color:#5b6472" title="The average of this month\'s day-ahead readings, maintained automatically from the Day Ahead tab (read-only)"'
+            : ' style="color:#5b6472" title="From the live Marex curve (read-only)"')
       }>${v!=null?(+v).toFixed(2):'—'}</td>`;
   const rows=months.map(k=>{ const m=byM[k];
     // Per commodity, because a partial import can leave one fuel priced and the other not.
@@ -8260,7 +8503,13 @@ async function fxRenderFullCurve(){
     const rp = fxCurveRegion('power', k, m.season, nowKey, manualFrom);
     // The badge describes the MONTH, which is a date question; the cells describe each
     // fuel, which is a "did the curve actually price it" question.
-    const dateRegion = k < nowKey ? { label:'settled', cls:'hist' }
+    /* Round 46: the badge follows the fuels rather than the date alone, because the
+       delivering month is no longer "manual" — it is maintained from Day Ahead, and a
+       badge saying otherwise is the one thing on screen telling you to go and type into
+       a cell that cannot be typed into. */
+    const dateRegion = (rg.key === 'dayahead' || rp.key === 'dayahead')
+                       ? { label:'day ahead', cls:'live' }
+                     : k < nowKey ? { label:'settled', cls:'hist' }
                      : (k > nowKey && k < manualFrom) ? { label:'imported', cls:'live' }
                      : { label:'manual', cls:'man' };
     const src = `<span class="fx-src ${dateRegion.cls}">${dateRegion.label}</span>`;
@@ -8349,7 +8598,9 @@ async function fxHistModal(fuel){
     const valueCell = rg.editable
       ? `<td><input class="fx-hist-cell" style="width:95px" data-month="${k}"
            data-orig="${cur != null ? cur : ''}" value="${cur != null ? cur : ''}"></td>`
-      : `<td style="text-align:right;color:#5b6472" title="The live Marex curve prices this month. It is refreshed twice a day, so anything typed here would be overwritten.">${rg.live != null ? (+rg.live).toFixed(2) : '—'}</td>`;
+      : `<td style="text-align:right;color:#5b6472" title="${rg.key === 'dayahead'
+            ? 'The average of this month\'s day-ahead readings, kept up to date automatically. Anything typed here would be overwritten the next time a price is entered on the Day Ahead tab.'
+            : 'The live Marex curve prices this month. It is refreshed twice a day, so anything typed here would be overwritten.'}">${rg.live != null ? (+rg.live).toFixed(2) : '—'}</td>`;
 
     return `<tr data-region="${rg.key}">
       <td>${escape(fmtMonth(k))}</td>
@@ -8361,7 +8612,8 @@ async function fxHistModal(fuel){
   const counts = keys.reduce((o, k) => { const r = region(k).key; o[r] = (o[r] || 0) + 1; return o; }, {});
   fxModal(`<h3>Settled &amp; manual periods &mdash; ${fuel} (${unit})</h3>
   <p style="font-size:12px;color:#4b5563;margin:0 0 6px">The stored curve: the settled past, and the hand-kept tail beyond the furthest imported season.
-  <b>Months the live Marex curve prices are greyed and cannot be typed into</b> &mdash; the twice-daily import would overwrite them.</p>
+  <b>Months the live Marex curve prices are greyed and cannot be typed into</b> &mdash; the twice-daily import would overwrite them.
+  <b>The delivering month is greyed too</b> &mdash; it is the average of its day-ahead readings now, kept up to date as you enter them, and it becomes yours again a few days into the next month.</p>
   <p style="font-size:11.5px;color:#6b7280;margin:0 0 6px"><b>Season</b> fills the editable months of that season in one go; it is a shortcut, not a stored value, so edit any month afterwards and the month wins.
   Saving moves the Positions tab as soon as the reload finishes &mdash; these figures are what a basket marks against wherever the live curve is silent.</p>
   <div class="fx-toolbar" style="margin:0 0 6px;gap:8px;align-items:center">
@@ -9710,9 +9962,11 @@ async function fxRenderClientReports(){
     </div>
     <div class="fx-toolbar" style="margin:0 0 12px;flex-wrap:wrap">
       <button class="fx-btn green" onclick="fxRepNew()">&#43; New report</button>
+      <!-- Round 46: the customer roll-call is gone. It named every client with a portal
+           login and grew by a line with each one, which is a list nobody needed on a page
+           about reports and a list nobody wants on screen while presenting. The sentence
+           about publishing stays — that one answers a question people actually ask. -->
       <span style="font-size:11.5px;color:#6b7280;flex-basis:100%;margin-top:4px">
-        ${_fxRepCusts.length} customer${_fxRepCusts.length===1?'':'s'} set up for the client portal:
-        ${escape(_fxRepCusts.map(c=>c.company_name+' ('+c.basket_count+')').join(' · ')) || 'none yet'}.
         Only <b>published</b> reports are visible to the client.</span>
     </div>
     ${rows ? `<div style="overflow-x:auto"><table class="extra-table"><thead><tr>

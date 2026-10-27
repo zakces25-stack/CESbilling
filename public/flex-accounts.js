@@ -33,7 +33,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2026-10-14.1';
+  var VERSION = '2026-10-27.1';
   var FN_NAME = 'flex-client-admin';
   var PORTAL_URL = 'https://billcesgb.com/flex';
   var PORTAL_SHOWN = 'billcesgb.com/flex';
@@ -621,7 +621,12 @@
     if (!l.user_id) {
       return '<tr><td colspan="5" class="fxa-muted">No login for this customer</td><td>' + badge + '</td><td></td></tr>';
     }
-    var made = esc(dateOnly(l.created_at)) + (l.created_by ? '<span class="fxa-by">by ' + esc(l.created_by) + '</span>' : '');
+    /* Round 46: the "by …" line is gone. Every login created since the New customer form
+       shipped carries the name of whoever ran it, which on this desk is almost always the
+       same person, so the column printed "by Dan Reeves" down its whole length and said
+       nothing. The name is still stored on the row and still in the edit log — it is only
+       off the table. */
+    var made = esc(dateOnly(l.created_at));
     var acts = !l.manage_problem
       ? '<button type="button" class="fx-btn fxa-btn fxa-sm" data-act="reset" data-uid="' + esc(l.user_id) + '">Reset password</button>'
         + '<button type="button" class="fx-btn fxa-btn fxa-sm" data-act="details" data-uid="' + esc(l.user_id) + '">Edit details</button>'
