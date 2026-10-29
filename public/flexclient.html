@@ -1523,26 +1523,32 @@ function cxWireSrcBar(el){
    conclusion on a contract that is half delivered.
 
    One pass rather than two calls, so the two totals can never be computed from
-   different row sets. */
+   different row sets.
+
+   ROUND 47a: this returns COVER AND NOTHING ELSE. It used to compute a secured WAP
+   and an MtM total as well — the WAP was printed on the card beside figures that
+   FlexCore.stats produced differently, and the MtM was never read at all. A second
+   implementation of a figure that already has one is how the card came to show MWh
+   where every other screen showed MW. The three figures now come from statsOf();
+   what is left here is the one thing stats does not do, which is split the basket
+   at the current month.
+
+   Cover is a RATIO, so it is computed on the energy totals for both fuels — the
+   rate-versus-total question that governs the printed volumes does not arise. */
 function coverOf(rows){
   const from=nowMonth();
-  let base=0,sec=0,wsum=0,mtm=0;        // whole basket: every month
+  let base=0,sec=0;                     // whole basket: every month
   let fBase=0,fSec=0;                   // forward: this month on
   for(const r of rows||[]){
     if(!r.month) continue;
     const b=+(r.baseload_vol_total||0), s=+(r.secured_vol_total||0);
     base+=b; sec+=s;
-    // A month with volume but no price carries no information about the average
-    // paid, so it is left out of the WAP rather than dragging it toward zero.
-    if(r.secured_wap!=null) wsum+=s*(+r.secured_wap);
-    mtm+=+(r.mtm_cost||0);
     if(String(r.month).slice(0,10)>=from){ fBase+=b; fSec+=s; }
   }
-  return {base,sec,mtm,
+  return {base,sec,
     pct:     base  ? sec  / base  : null,    // whole-basket cover
     fwdBase: fBase, fwdSec: fSec,
-    fwdPct:  fBase ? fSec / fBase : null,    // forward cover
-    wap:     sec   ? wsum / sec   : null};
+    fwdPct:  fBase ? fSec / fBase : null};   // forward cover
 }
 
 /* Mirrors FlexCore-era sortBaskets on the desk. Not in flex-shared.js because the desk's
@@ -1555,8 +1561,29 @@ function cxSortBaskets(arr){
     rank(a) - rank(b) || ces(a) - ces(b) || String(a.name||'').localeCompare(String(b.name||'')));
 }
 
+/* ROUND 47a — THE FIGURES COME FROM FlexCore.stats, NOT FROM THIS FILE.
+
+   The three figures below used to be printed from coverOf()'s own sums, with a unit
+   label written here by hand. For a gas basket that happened to agree with every
+   other screen. For a POWER basket it did not: this card printed the MWh energy
+   total while the Positions tab, the Seasons tab and the eight stat cards inside
+   the basket all print the MW rate. Two different quantities under two different
+   units, for the same basket, one click apart.
+
+   It had been that way since the card was written; round 47 made the figures
+   whole-basket, which multiplied them by the length of the contract and made the
+   mismatch impossible to miss. Fixed by removing the second implementation rather
+   than by correcting the label: the card now asks statsOf() — the SAME call the
+   detail view makes — so the number and the unit convention are decided in one
+   place for both. Suite 24 asserts the two screens agree, which is the assertion
+   that was missing. */
 function basketCard(b){
-  const c=coverOf(D.positions[b.id]); const isP=b.commodity==='power';
+  const rows = monthsOf(b.id);          // normalised and re-marked, as the detail view sees them
+  const S = statsOf(rows, b);           // the detail view's own eight cards
+  const c = coverOf(rows);              // the two cover percentages, and only those
+  const isP = b.commodity === 'power';
+  // By key rather than by position: the order of the stat cards is FlexCore's to change.
+  const fig = k => { const x = S.cards.find(y => y.key === k); return x ? x.value : '—'; };
   return `<article class="card clickable" data-fuel="${isP?'power':'gas'}">
       <h3><button type="button" class="stretch" data-basket="${esc(b.id)}">${esc(b.name)}</button></h3>
       <span class="tag ${isP?'power':'gas'}">${isP?'Electricity':'Gas'}</span>
@@ -1571,11 +1598,11 @@ function basketCard(b){
           <span class="pc">${pct(c.fwdPct)}</span></div>
       </div>
       <div class="stats">
-        <div class="stat"><div class="k">Secured</div><div class="v">${n0(c.sec)}</div>
-          <div class="u">${isP?'MWh':'therms'}</div></div>
-        <div class="stat"><div class="k">Forecast</div><div class="v">${n0(c.base)}</div>
-          <div class="u">${isP?'MWh':'therms'}</div></div>
-        <div class="stat"><div class="k">Secured WAP</div><div class="v">${n2(c.wap)}</div>
+        <div class="stat"><div class="k">Secured</div><div class="v">${fig('sec')}</div>
+          <div class="u">${isP?'MW':'therms'}</div></div>
+        <div class="stat"><div class="k">Forecast</div><div class="v">${fig('base')}</div>
+          <div class="u">${isP?'MW':'therms'}</div></div>
+        <div class="stat"><div class="k">Secured WAP</div><div class="v">${fig('wap')}</div>
           <div class="u">${esc(b.unit_price||'')}</div></div>
       </div>
       <span class="cardgo">Open basket ${ICON_ARROW}</span>
