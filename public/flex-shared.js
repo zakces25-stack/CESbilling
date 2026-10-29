@@ -1102,8 +1102,16 @@
     // scope="col" always: the client portal is the one a customer with a screen reader
     // will open, and it costs the desk nothing. opts.caption is likewise the client's —
     // it explains the units below the headings without changing them.
+    /* data-k on the HEADING as well as the cell (round 47a). The cells have carried it
+       since round 18 for exactly this reason — see the note below — but the headings
+       did not, which left a stylesheet no way to name a column except by counting.
+       flex.html hid the trades Cost column with `th:nth-child(9)`, and when round 47
+       removed the Product column Cost became the eighth, the rule stopped matching,
+       and a column the desk had deliberately hidden appeared. A selector that counts
+       is a selector that breaks the next time a spec changes. */
     var head = cols.map(function (c) {
-      return '<th scope="col" class="' + (ALIGN[c.align] || '') + '">' + c.head + '</th>';
+      return '<th scope="col" class="' + (ALIGN[c.align] || '')
+           + '" data-k="' + esc(c.key) + '">' + c.head + '</th>';
     }).join('');
 
     var body = rows.map(function (r) {
@@ -1176,6 +1184,6 @@
     // BUMP THIS on every change to this file. It is how anyone tells which build a
     // browser actually has — the desk shows it, and it is the first thing to check when
     // the two portals disagree or a change appears not to have landed.
-    VERSION: '2026-10-28'
+    VERSION: '2026-10-29'
   };
 })(typeof window !== 'undefined' ? window : globalThis);

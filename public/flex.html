@@ -1703,7 +1703,13 @@ body{background:linear-gradient(180deg,#f7f8fb 0%,#eef1f6 100%) fixed}
 table:not(.extra-table):not(.fx-htable):not(.fx-da-table) thead th{background:#fbfcfe!important;border-bottom:1.5px solid #e3e7ee!important}
 .extra-table th{background:var(--navy-700)!important;color:#fff!important}
 #summary-row{display:none!important}
-table.fx-hide-cost th:nth-child(9),table.fx-hide-cost td:nth-child(9){display:none}
+/* BY KEY, NOT BY POSITION (round 47a). This read `th:nth-child(9)` until round 47
+   removed the Product column from the trades spec — Cost became the eighth, the rule
+   matched nothing, and a column the desk hides on purpose appeared on screen. Every
+   heading and cell now carries data-k, so the column is named rather than counted and
+   a future change to the spec cannot move this rule onto the wrong column or off the
+   right one. Measured in tests/render/R7. */
+table.fx-hide-cost th[data-k="cost"],table.fx-hide-cost td[data-k="cost"]{display:none}
 tr.fx-row-hedged td{background:#e3f2df!important}
 tr.fx-row-current td{background:#fdf3cf!important}
 .fx-note-card{background:#fff;border:1px solid #e3e7ee;border-radius:12px;padding:14px 16px;margin-bottom:10px;box-shadow:0 1px 3px rgba(22,35,63,.05)}
