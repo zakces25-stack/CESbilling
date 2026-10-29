@@ -2347,7 +2347,20 @@ function fxBuildData(){
 
 let BASKETS = null;
 const TODAY = new Date().toISOString().slice(0,10);
+/* The 1st of NEXT month. This is the TRADING boundary: the forward curve starts
+   next month, because the delivering month is no longer quotable. It is used for
+   which months can still be covered, which targets are still live, and which
+   months a new trade or a curve edit may touch.
+
+   It is NOT the boundary for "is this month history". A month being delivered is
+   not history — it is the one you are standing in — which is why "Hide historic
+   months" uses FIRST_OF_MONTH below instead. The two were the same constant until
+   round 47, and the tick box hid the current month along with the settled ones. */
 const CUTOFF = (()=>{const d=new Date();return new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,1)).toISOString().slice(0,10);})();
+/* The 1st of THIS month — where history ends and the delivering month begins.
+   The client portal has always drawn the line here (its nowMonth()), which is why
+   the two portals disagreed about what the same tick box did. */
+const FIRST_OF_MONTH = (()=>{const d=new Date();return new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),1)).toISOString().slice(0,10);})();
 
 // ── FORMAT HELPERS ───────────────────────────────────────────────
 function fmtMonth(s) {
@@ -2770,7 +2783,14 @@ function getFilteredMonths(basket) {
   }
   if (posFilterFrom) months = months.filter(m => m.month >= posFilterFrom);
   if (posFilterTo)   months = months.filter(m => m.month <= posFilterTo);
-  if (posHideHistoric) months = months.filter(m => m.month >= CUTOFF);
+  /* FIRST_OF_MONTH, not CUTOFF (round 47). "Hide historic months" means hide what
+     is behind you; the month being delivered is not behind you. With CUTOFF the
+     desk hid the current month too, so ticking the box made the month you were
+     actually trading disappear — and the client portal, which has always used the
+     1st of this month, disagreed with the desk about what the same tick box did.
+     Only this line moves: CUTOFF's five other uses are all about the forward
+     curve, where "next month" is correct. */
+  if (posHideHistoric) months = months.filter(m => m.month >= FIRST_OF_MONTH);
   return months;
 }
 
@@ -5544,7 +5564,6 @@ function fxTradeModal(dbId){
     <div class="fx-field"><label>Deal type</label><select id="fT_deal"><option${t&&t.deal_type==='Sell'?'':' selected'}>Buy</option><option${t&&t.deal_type==='Sell'?' selected':''}>Sell</option></select></div>
     <div class="fx-field"><label>Volume (${vu})</label><input id="fT_vol" type="number" step="any" value="${t?Math.abs(t.volume):''}"></div>
     <div class="fx-field"><label>Strike (${pu})</label><input id="fT_strike" type="number" step="any" value="${t?t.strike:''}"></div>
-    <div class="fx-field"><label>Product</label><input id="fT_prod" value="${t?escape(t.product||'Baseload'):'Baseload'}"></div>
   </div>
   <div class="fx-err" id="fxMErr"></div>
   <div class="fx-modal-foot">
@@ -5562,9 +5581,17 @@ async function fxSaveTrade(dbId){
   if(strike==null) return fxMErr('Strike is required.');
   const startD=start+'-01', endD=fxMonthEnd(end+'-01');
   if(endD<startD) return fxMErr('End month is before start month.');
+  /* ROUND 47: product is no longer typed. It is still WRITTEN, as 'Baseload', so
+     the column keeps a value and the existing rows stay meaningful — every one of
+     them already says Baseload, which is why the field was removed. Dropping it
+     from the payload instead would leave new rows null beside old rows that are
+     not, for no gain. On an EDIT the saved value is carried through untouched, so
+     a hand-set product on an old trade is not quietly rewritten by someone opening
+     the box to correct a strike. */
   const row={ basket_id: currentBasket.id, trade_date: g('fT_date'), trade_ref: g('fT_ref')||null,
     counterparty: g('fT_cp')||null, start_date: startD, end_date: endD,
-    volume: deal==='Sell'?-Math.abs(vol):Math.abs(vol), product: g('fT_prod')||'Baseload',
+    volume: deal==='Sell'?-Math.abs(vol):Math.abs(vol),
+    product: (dbId ? ((currentBasket.trades||[]).find(x=>x.db_id===dbId)||{}).product : null) || 'Baseload',
     strike: strike, deal_type: deal, updated_by: FLEX.user };
   const q = dbId ? FLEX.sb.from('flex_trades').update(row).eq('id', dbId)
                  : FLEX.sb.from('flex_trades').insert(row);
@@ -5586,7 +5613,7 @@ function fxBulkTradesModal(){
     match the columns by name rather than guessing at their order.</p>
     <button class="fx-btn" onclick="fxBulkTradesTemplate()">&#10515; Download template</button>
   </div>
-  <p style="font-size:12px;color:#4b5563;margin:0 0 8px">Columns: <b>Trade Date | Trade Ref | Counterparty | Start | End | Volume (${escape(vu)}) | Product | Strike (${escape(pu)}) | Buy/Sell</b>.
+  <p style="font-size:12px;color:#4b5563;margin:0 0 8px">Columns: <b>Trade Date | Trade Ref | Counterparty | Start | End | Volume (${escape(vu)}) | Strike (${escape(pu)}) | Buy/Sell</b>.
   Periods may be written <b>Oct-26</b> or as full dates; an end written as a month is taken as the last day of it.
   Sells may use a negative volume or the word Sell.</p>
   <textarea id="fB_paste" placeholder="Paste the rows from the template here, heading row included..."></textarea>
@@ -5612,7 +5639,9 @@ const FX_BULK_HEADS = [
   ['Start',        12, 'First month of the period.'],
   ['End',          12, 'Last month. Written as a month, it means the whole of that month.'],
   ['Volume',       14, null],   // unit filled in per basket
-  ['Product',      14, 'Baseload unless it is something else.'],
+  // ROUND 47: Product removed. Every trade on the book is Baseload, so the column
+  // asked for a value nobody varies. An old template still pastes in — the parser
+  // matches on heading name, so a Product column simply finds no field to fill.
   ['Strike',       14, null],   // unit filled in per basket
   ['Buy/Sell',     10, 'Buy or Sell. A negative volume is read as a Sell either way.']
 ];
@@ -5691,7 +5720,18 @@ const FX_BULK_ALIAS = {
   start:'start', 'start date':'start', from:'start',
   end:'end', 'end date':'end', to:'end',
   volume:'vol', vol:'vol', quantity:'vol', qty:'vol',
-  product:'prod',
+  /* ROUND 47: the 'product' alias is GONE, and that is safe because this map works
+     by NAME. An old template still pastes in correctly: its Product heading simply
+     matches nothing and that column is ignored, while Strike is still found by its
+     own name wherever it sits. Header-row detection needs date, start, end and
+     volume, all of which an old sheet still has, so the row is still recognised as
+     headings and never falls through to the positional fallback.
+
+     This was first written the other way round, keeping the alias with a comment
+     claiming it protected old sheets. The mutation run removed the alias and every
+     assertion still passed — which is how the claim turned out to be false. The
+     positional fallback is where an old sheet is actually at risk, and that is
+     handled by width, below. */
   strike:'strike', 'strike price':'strike', price:'strike',
   'buy/sell':'deal', type:'deal', 'deal type':'deal', deal:'deal', direction:'deal', 'buy sell':'deal'
 };
@@ -5740,8 +5780,13 @@ function fxBulkParse(){
       r={ref:c[0],date:c[1],cp:c[3],start:c[4],end:c[5],vol:c[6],prod:c[7],strike:c[8],deal:c[9]};
     } else if(c.length>=11 && looksDate(c[2])){  // older annex paste, with Column1
       r={ref:c[0],date:c[2],cp:c[4],start:c[5],end:c[6],vol:c[7],prod:c[8],strike:c[9],deal:c[10]};
-    } else if(c.length>=9){                      // simple grid
+    } else if(c.length>=9){                      // simple grid, WITH the old Product column
       r={date:c[0],ref:c[1],cp:c[2],start:c[3],end:c[4],vol:c[5],prod:c[6],strike:c[7],deal:c[8]};
+    } else if(c.length>=8){                      // simple grid, round-47 template
+      // Eight columns, no Product. Checked AFTER the nine-column case so an old
+      // paste is still read the old way rather than having its Strike taken as a
+      // Product — the positional fallback can only tell the two apart by width.
+      r={date:c[0],ref:c[1],cp:c[2],start:c[3],end:c[4],vol:c[5],strike:c[6],deal:c[7]};
     } else continue;
     const vol=fxNum(r.vol);
     const deal=/sell/i.test(r.deal||'')||(vol!=null&&vol<0)?'Sell':'Buy';
@@ -5767,11 +5812,11 @@ function fxBulkPreview(){
     if(b1||b2||b3||b4) bad++;
     return `<tr><td${b1?' class="bad"':''}>${r.trade_date||'??'}</td><td>${escape(r.trade_ref||'')}</td><td>${escape(r.counterparty||'')}</td>
       <td${b2?' class="bad"':''}>${r.start_date||'??'} → ${r.end_date||'??'}</td>
-      <td${b3?' class="bad"':''}>${r.volume!=null?r.volume:'??'}</td><td>${escape(r.product||'')}</td>
+      <td${b3?' class="bad"':''}>${r.volume!=null?r.volume:'??'}</td>
       <td${b4?' class="bad"':''}>${r.strike!=null?r.strike:'??'}</td><td>${r.deal_type}</td></tr>`;
   }).join('');
   document.getElementById('fB_prev').innerHTML=`<div class="fx-preview"><table>
-    <thead><tr><th>Date</th><th>Ref</th><th>Counterparty</th><th>Period</th><th>Vol</th><th>Product</th><th>Strike</th><th>Type</th></tr></thead>
+    <thead><tr><th>Date</th><th>Ref</th><th>Counterparty</th><th>Period</th><th>Vol</th><th>Strike</th><th>Type</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
     <div style="font-size:12px;margin-top:6px;color:${bad?'#8b2015':'#0f6e56'};font-weight:600">${fxBulkRows.length} rows parsed${bad?` — ${bad} with problems (fix the paste and re-preview)`:' — all valid'}</div>
     <div style="font-size:11.5px;margin-top:3px;color:#6b7280">${fxBulkMode==='headings'
@@ -5860,6 +5905,11 @@ async function fxNewBasketTemplate(){
    'NECs — non-energy cost per season (p/kWh). Season e.g. S-27, W-27.'
   ].forEach((t,i)=>{ const r=ins.addRow([t]); if(i===0) r.getCell(1).font={bold:true,size:14,color:{argb:'FF12324F'}}; else if(/^[A-Z]{3,} —/.test(t)) r.getCell(1).font={bold:true,color:{argb:'FF12324F'}}; });
   const mo=wb.addWorksheet('Months'); mo.columns=[{header:'Month',width:12},{header:'Baseload ('+vol+')',width:20},{header:'Market Price ('+price+')',width:22},{header:'Days',width:8},{header:'Season',width:10}]; style(mo);
+  /* Product STAYS on this sheet, although round 47 took it off the Trades tab, both
+     reporting workbooks and the trade-entry form. This workbook is not a report —
+     it is the basket's backup-and-restore format, read back by fxImportBasket, and
+     a column dropped here is a column lost on every restore. The reporting columns
+     live in FlexCore.TRADES; this list is deliberately separate from it. */
   const tr=wb.addWorksheet('Trades'); tr.columns=[{header:'Trade Ref',width:14},{header:'Trade Date',width:12},{header:'Counterparty',width:18},{header:'Start Date',width:12},{header:'End Date',width:12},{header:'Volume ('+vol+')',width:16},{header:'Product',width:14},{header:'Strike Price ('+price+')',width:20},{header:'Deal Type',width:10}]; style(tr);
   const tg=wb.addWorksheet('Targets'); const tc=[{header:'Month',width:12}]; for(let i=1;i<=8;i++) tc.push({header:'T'+i,width:8}); tc.push({header:'Upper Alert',width:12}); for(let i=1;i<=8;i++) tc.push({header:'T'+i+' Kind',width:12}); tg.columns=tc; style(tg);
   const si=wb.addWorksheet('Sites'); si.columns=[{header:'Customer',width:28},{header:'MPAN/MPRN',width:20},{header:'Contract Start',width:14},{header:'Contract End',width:14},{header:'NEC Unit Rate (p/kWh)',width:20},{header:'NEC Standing Charge (p/day)',width:24}]; style(si);

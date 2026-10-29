@@ -303,6 +303,13 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
 .barrow{display:flex;align-items:center;gap:12px}
 .barrow .pc{font-family:var(--font-mono);font-size:var(--t-fig);font-weight:600;min-width:78px;
   text-align:right;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+/* Round 47: two bars, because whole-basket cover and forward cover answer
+   different questions and a card showing one of them unlabelled was being read
+   as the other. The second fill takes the blue rather than the lime so the two
+   are separable at a glance — but the colour is never the only signal: each bar
+   carries its own written heading and its own percentage beside it. */
+.bar>i.fwd{background:var(--info-500)}
+.covers .stat .k{display:block}
 
 /* ── Stat header + filter bar ───────────────────────────────────────── */
 /* Eight across on one line, always. auto-fit with a 152px minimum needed
@@ -957,6 +964,16 @@ const money = v => v==null||v===''?'—':'£'+Math.round(+v).toLocaleString('en-
 const pct = v => v==null?'—':((+v)*100).toFixed(1)+'%';
 const barW = v => v==null?0:Math.max(0,Math.min(100,(+v)*100)).toFixed(1);
 
+/* One design token, resolved. Chart.js is handed a colour string rather than a
+   stylesheet, so a series colour cannot be written as var(--…) in CSS and has to
+   be read out here. Returns '' when there is no cascade to read — a test harness,
+   or a token that has been renamed — and every caller carries a literal fallback,
+   so a chart is never drawn with no colour at all. */
+function cxCssVar(name){
+  try { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  catch(e){ return ''; }
+}
+
 // A percentage alone doesn't tell a client whether it is good. The word carries
 // the meaning so it survives greyscale and colour-blindness; colour only backs
 // it up. Thresholds are descriptive, not advice.
@@ -1489,20 +1506,43 @@ function cxWireSrcBar(el){
 }
 
 /* ── basket list ─────────────────────────────────────────────────────── */
-// Forward cover = secured vs baseload from the current month on. Settled months
-// are excluded: "how covered am I" means ahead, not behind.
+/* TWO MEASURES, COMPUTED IN ONE PASS (round 47).
+
+   Until this round the whole card was forward-only: every figure on it counted
+   from the current month on, and settled months were skipped entirely. That
+   answers "how covered am I from here", which is the right question for the bar
+   and the wrong one for the three figures beneath it. A customer six months into
+   a two-year contract read a Secured figure that excluded everything already
+   delivered and a Secured WAP that excluded every price they had actually paid —
+   so the number on the card did not match the number on their own records, and
+   neither was wrong; they were answering different questions without saying so.
+
+   So the three figures are now WHOLE BASKET — every month on the contract,
+   settled included — and the cover is shown BOTH ways, each labelled, because the
+   two genuinely differ and a customer reading only one of them draws the wrong
+   conclusion on a contract that is half delivered.
+
+   One pass rather than two calls, so the two totals can never be computed from
+   different row sets. */
 function coverOf(rows){
   const from=nowMonth();
-  let base=0,sec=0,wsum=0,mtm=0;
+  let base=0,sec=0,wsum=0,mtm=0;        // whole basket: every month
+  let fBase=0,fSec=0;                   // forward: this month on
   for(const r of rows||[]){
     if(!r.month) continue;
-    if(String(r.month).slice(0,10)<from) continue;
     const b=+(r.baseload_vol_total||0), s=+(r.secured_vol_total||0);
     base+=b; sec+=s;
+    // A month with volume but no price carries no information about the average
+    // paid, so it is left out of the WAP rather than dragging it toward zero.
     if(r.secured_wap!=null) wsum+=s*(+r.secured_wap);
     mtm+=+(r.mtm_cost||0);
+    if(String(r.month).slice(0,10)>=from){ fBase+=b; fSec+=s; }
   }
-  return {base,sec,mtm,pct:base?sec/base:null,wap:sec?wsum/sec:null};
+  return {base,sec,mtm,
+    pct:     base  ? sec  / base  : null,    // whole-basket cover
+    fwdBase: fBase, fwdSec: fSec,
+    fwdPct:  fBase ? fSec / fBase : null,    // forward cover
+    wap:     sec   ? wsum / sec   : null};
 }
 
 /* Mirrors FlexCore-era sortBaskets on the desk. Not in flex-shared.js because the desk's
@@ -1520,13 +1560,15 @@ function basketCard(b){
   return `<article class="card clickable" data-fuel="${isP?'power':'gas'}">
       <h3><button type="button" class="stretch" data-basket="${esc(b.id)}">${esc(b.name)}</button></h3>
       <span class="tag ${isP?'power':'gas'}">${isP?'Electricity':'Gas'}</span>
-      <div style="margin-top:16px">
-        <div class="stat" style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
-          <span class="k">Forward cover</span>
-        </div>
+      <div class="covers" style="margin-top:16px">
+        <div class="stat"><span class="k">Whole basket cover</span></div>
         <div class="barrow" style="margin-top:7px">
           <div class="bar" style="flex:1"><i style="width:${barW(c.pct)}%"></i></div>
           <span class="pc">${pct(c.pct)}</span></div>
+        <div class="stat" style="margin-top:13px"><span class="k">Forward cover</span></div>
+        <div class="barrow" style="margin-top:7px">
+          <div class="bar" style="flex:1"><i class="fwd" style="width:${barW(c.fwdPct)}%"></i></div>
+          <span class="pc">${pct(c.fwdPct)}</span></div>
       </div>
       <div class="stats">
         <div class="stat"><div class="k">Secured</div><div class="v">${n0(c.sec)}</div>
@@ -1804,7 +1846,17 @@ function cxDaChart(yr){
   try{ if(CHARTS.da) CHARTS.da.destroy(); }catch(e){}
   const c = CX_DA_SRC;
   const rows = cxDaRows(c).filter(r=>+r.d.slice(0,4)===yr);
-  const colour = c==='gas' ? '#424378' : '#AAC91F';
+  /* ROUND 47: the gas series was the desk's dark navy, #424378, which measures
+     1.66:1 against this page's #1b2540 panels — WCAG asks 3:1 of a graphical
+     object, and a 1.8px line at 1.66:1 is close to invisible. The desk's panels
+     are white, where the same navy is fine; this page's are not, which is why the
+     two portals now differ here on purpose rather than by oversight.
+
+     --info-500 is the palette's own light blue and measures 8.47:1 on the same
+     panel. Taken from the stylesheet rather than written as a hex, so a change to
+     the palette carries here instead of leaving one colour behind. Measured in
+     tests/render/R3. */
+  const colour = c==='gas' ? (cxCssVar('--info-500') || '#7fd0e8') : '#AAC91F';
   CHARTS.da = new Chart(cv.getContext('2d'), {
     type:'line',
     data:{ labels:rows.map(r=>cxDaFmtDate(r.d)),

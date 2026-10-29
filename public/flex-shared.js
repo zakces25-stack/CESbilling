@@ -768,7 +768,13 @@
         value: function (t) { return fmtMonth(t.start) + ' &rarr; ' + fmtMonth(t.end); } },
       { key: 'vol',  head: 'Vol (' + vu + ')', align: 'right',
         value: function (t) { return fmtVolC(t.volume, power); } },
-      { key: 'prod', head: 'Product', align: 'left', value: function (t) { return esc(t.product || ''); } },
+      /* ROUND 47: the Product column is gone. Every trade on the book says
+         "Baseload" — it was a field with one value, taking a column's width on two
+         screens and two spreadsheets to tell nobody anything. flex_trades.product
+         is NOT dropped: the data stays, normTrade still carries it, and the column
+         can come back by restoring one line here if a shaped product is ever
+         traded. Removing it here removes it from the desk table, the customer's
+         table and both workbooks at once, which is the point of the shared spec. */
       { key: 'strike', head: 'Strike (' + pu + ')', align: 'right',
         value: function (t) { return t.strike != null ? t.strike.toFixed(2) : '-'; } },
       { key: 'type', head: 'Type', align: 'center', value: function (t) { return esc(t.deal_type || ''); } },
@@ -1170,6 +1176,6 @@
     // BUMP THIS on every change to this file. It is how anyone tells which build a
     // browser actually has — the desk shows it, and it is the first thing to check when
     // the two portals disagree or a change appears not to have landed.
-    VERSION: '2026-10-14'
+    VERSION: '2026-10-28'
   };
 })(typeof window !== 'undefined' ? window : globalThis);
