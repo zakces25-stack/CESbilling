@@ -1338,6 +1338,7 @@
           <div class="nav-item active" data-page="reports">Bill Validation Reports</div>
           <div class="nav-item" data-page="sites">Site List</div>
           <div class="nav-item" data-page="hhd">Half-Hourly Data</div>
+          <div class="nav-item" data-page="cost" id="navCost" style="display:none;">Estimated Running Cost</div>
           <div class="nav-item" data-page="compare">Consumption and cost comparison</div>
           <div class="nav-item" data-page="usage">Carbon Reporting</div>
           <div class="nav-item" data-page="league">League Table</div>
@@ -1614,6 +1615,29 @@
           </div>
         </div>
 
+        <!-- Estimated Running Cost (_52 + _52f, 3 Nov 2026). The menu item stays hidden until hh_cost_estimate()
+             says this login may see it: customers once switched on (Customers tab), admins always (marked as a preview). -->
+        <div class="dash-section" data-page="cost" style="display:none;">
+          <div class="section-head">
+            <h2 id="hhcTitle">Estimated Running Cost</h2>
+            <div class="section-meta"><span id="hhcSub"></span></div>
+          </div>
+          <section id="hhcCard" class="hhc-card" style="display:none;" aria-labelledby="hhcTitle">
+            <div class="hhc-tools">
+              <span id="hhcPreview" class="hhc-preview" hidden>Admin preview: not visible to this customer yet</span>
+              <div class="hhd-quick" role="group" aria-label="Month">
+                <button type="button" id="hhcMonth0" class="active" aria-pressed="true" hidden onclick="hhcSetMonth(0)">This month</button>
+                <button type="button" id="hhcMonth1" aria-pressed="false" hidden onclick="hhcSetMonth(1)">Last month</button>
+              </div>
+              <div id="hhcSiteWrap" class="hhc-sitepick" hidden>
+                <label for="hhcSite">Site</label>
+                <div class="hhd-select"><select id="hhcSite" onchange="hhcSetSite(this.value)"></select></div>
+              </div>
+            </div>
+            <div id="hhcBody" aria-live="polite"></div>
+          </section>
+        </div>
+
         <div class="dash-section" data-page="hhd" style="display:none;">
           <style>
             .hhd-controls{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;margin-bottom:6px;}
@@ -1663,16 +1687,19 @@
             .hhd-nodata{color:var(--muted);font-style:italic;padding:20px;text-align:center;}
             .hhd-legend{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:8px;flex-wrap:wrap;}
             .hhd-legend .sw{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:middle;}
-            /* Estimated running cost (_52, 3 Nov 2026). Secondary text uses --text-2 (#4a4e5c, 8.28:1 on white);
-               the portal's --muted (#7a7e8c) measures 4.05:1, under AA. Projection line #5f73a6 = 4.68:1 (lime was 2.06:1). */
+            /* Estimated running cost (_52 + _52f, 3 Nov 2026): its own section + a summary strip on this page.
+               Secondary text uses --text-2 (#4a4e5c, 8.28:1 on white); the portal's --muted (#7a7e8c) measures 4.05:1, under AA. */
+            .dash-section[data-page="cost"] .section-meta{color:var(--text-2);}  /* the portal's section-meta grey measured 3.62:1 here */
             .hhc-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px;margin:0 0 18px;}
-            .hhc-card [hidden]{display:none !important;}  /* .hhc-preview sets display, which would beat the hidden attribute */
-            .hhc-head{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px 16px;margin-bottom:14px;}
-            .hhc-title{margin:0;font-size:17px;font-weight:800;color:#1f3864;letter-spacing:-.2px;}
-            .hhc-subtitle{font-size:13px;color:var(--text-2);margin-top:3px;}
-            .hhc-tools{margin-left:auto;display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+            .hhc-card [hidden],.hhc-strip [hidden]{display:none !important;}  /* classes that set display would otherwise beat the hidden attribute */
+            .hhc-tools{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;margin-bottom:14px;}
             .hhc-preview{display:inline-block;padding:4px 10px;border-radius:6px;background:#fdf0d2;color:#5c3d00;font-size:12.5px;font-weight:700;}
-            .hhc-card .hhd-quick button:focus-visible,.hhc-more:focus-visible,.hhc-sites summary:focus-visible{outline:2px solid #1f3864;outline-offset:2px;}
+            .hhc-sitepick{display:flex;flex-direction:column;gap:5px;min-width:0;}
+            .hhc-sitepick label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-2);font-weight:700;}
+            .hhc-sitepick .hhd-select select{min-width:240px;max-width:420px;}
+            .hhc-card .hhd-quick button:focus-visible,.hhc-more:focus-visible,.hhc-strip-btn:focus-visible{outline:2px solid #1f3864;outline-offset:2px;}
+            .hhc-cover{margin:0 0 12px;padding:10px 14px;border-left:4px solid #1f3864;background:#eef3fb;border-radius:0 8px 8px 0;color:#1f2a44;font-size:14px;line-height:1.5;}
+            .hhc-cover strong{color:#1f3864;}
             .hhc-figs{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;}
             .hhc-fig{border:1px solid #e8ebf1;border-radius:10px;padding:13px 15px;background:#f7f8fb;}
             .hhc-fig-main{background:#fff;border-color:#1f3864;}
@@ -1691,37 +1718,46 @@
             @media(min-width:1100px){.hhc-grid{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);}}
             .hhc-h4{margin:0 0 8px;font-size:14px;font-weight:700;color:#1f3864;}
             .hhc-canvas{position:relative;height:250px;}
-            .hhc-legend{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;font-size:12.5px;color:var(--text-2);margin-top:6px;}
-            .hhc-legend .k{display:inline-block;width:22px;height:0;border-top:3px solid #1f3864;margin-right:-8px;vertical-align:middle;}
-            .hhc-legend .k-proj{border-top:2px dashed #5f73a6;}
             .hhc-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;}
             .hhc-table caption{text-align:left;font-size:14px;font-weight:700;color:#1f3864;padding:0 0 8px;}
             .hhc-table th,.hhc-table td{padding:7px 8px;border-bottom:1px solid #edf0f4;font-size:13.5px;text-align:left;vertical-align:top;color:var(--text);}
             .hhc-table thead th{font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-2);font-weight:700;border-bottom:1.5px solid #dfe3ea;}
+            .hhc-table thead .hhc-unit{text-transform:none;letter-spacing:0;font-weight:600;}
             .hhc-table tbody th{font-weight:600;}
             .hhc-table .num{text-align:right;white-space:nowrap;}
             .hhc-table tfoot th,.hhc-table tfoot td{border-bottom:none;}
             .hhc-table tr.sub th,.hhc-table tr.sub td{font-weight:700;border-top:1.5px solid #dfe3ea;}
             .hhc-table tr.tot th,.hhc-table tr.tot td{font-weight:800;color:#1f3864;border-top:2px solid #1f3864;}
-            .hhc-sites{margin-top:16px;border-top:1px solid #edf0f4;padding-top:12px;}
-            .hhc-sites>summary{cursor:pointer;font-size:14px;font-weight:700;color:#1f3864;padding:4px 0;}
-            .hhc-scroll{overflow-x:auto;margin-top:8px;position:relative;}  /* relative: the sr-only header is absolute and otherwise escapes the scroller, pushing the page sideways */
+            .hhc-sites{margin-top:18px;border-top:1px solid #edf0f4;padding-top:14px;}
+            .hhc-scroll{overflow-x:auto;position:relative;}  /* relative: the sr-only header is absolute and otherwise escapes the scroller, pushing the page sideways */
             .hhc-sitetable{min-width:640px;}
             .hhc-site .nm{display:block;font-weight:700;color:var(--text);}
             .hhc-site .mp{display:block;font-family:'JetBrains Mono',monospace;font-size:12px;color:#5b6170;font-weight:500;margin-top:2px;}
             .hhc-site .kw{display:block;font-size:12px;color:var(--text-2);font-weight:500;}
             .hhc-flags{margin:6px 0 0;padding-left:16px;font-size:12.5px;font-weight:500;color:#7a5010;line-height:1.45;}
+            .hhc-shared{margin:0 0 10px;font-size:13px;}
+            .hhc-shared strong{font-weight:700;}
             .hhc-more{padding:5px 10px;border:1px solid #c9d0dc;border-radius:6px;background:#fff;color:#1f3864;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;min-height:30px;}
             .hhc-more:hover{border-color:#1f3864;background:#f2f5fa;}
-            .hhc-work>td{background:#f7f8fb;padding:10px 12px;}
-            .hhc-mini th,.hhc-mini td{font-size:13px;padding:5px 6px;}
+            .hhc-detail{margin:0 0 12px;padding:12px 14px;border:1px solid #e8ebf1;border-radius:10px;background:#f7f8fb;}
+            .hhc-detail-hd{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;justify-content:space-between;}
+            .hhc-detail .nm{font-weight:800;color:#1f3864;font-size:15px;}
+            .hhc-detail .mp{font-size:12.5px;color:var(--text-2);margin-top:2px;}
             .hhc-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
-            .hhc-excl-h{margin:14px 0 4px;font-size:13px;font-weight:700;color:var(--text);}
+            .hhc-excl-h{margin:18px 0 6px;}
             .hhc-excl{margin:0;padding-left:18px;font-size:13px;color:var(--text-2);line-height:1.5;}
             .hhc-foot{margin:14px 0 0;font-size:12.5px;color:var(--text-2);line-height:1.5;}
             .hhc-empty{font-size:14px;color:var(--text-2);margin:4px 0 8px;}
             .hhc-err{margin:0 0 10px;padding:8px 12px;border-radius:6px;background:#fbeaea;color:#8b2015;font-size:13px;font-weight:600;}
-            @media(max-width:600px){.hhc-card{padding:14px;}.hhc-tools{margin-left:0;}.hhc-fig .val{font-size:26px;}.hhc-canvas{height:210px;}}
+            .hhc-strip{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:0 0 16px;padding:12px 16px;background:#fff;border:1px solid #e5e7eb;border-left:4px solid #1f3864;border-radius:10px;font-size:14px;color:#1f2a44;line-height:1.45;}
+            .hhc-strip b{color:#1f3864;}
+            .hhc-strip-txt{flex:1 1 320px;min-width:0;}
+            .hhc-strip-btn{padding:8px 14px;border:1px solid #1f3864;border-radius:8px;background:#1f3864;color:#fff;font:inherit;font-size:13px;font-weight:700;cursor:pointer;min-height:36px;}
+            .hhc-strip-btn:hover{background:#2a4a80;border-color:#2a4a80;}
+            @media(max-width:600px){.hhc-card{padding:14px;}.hhc-fig .val{font-size:26px;}.hhc-canvas{height:210px;}.hhc-sitepick{width:100%;}.hhc-sitepick .hhd-select select{min-width:0;width:100%;max-width:100%;}.hhc-strip-txt{flex-basis:100%;}
+              /* phone: site, cost and Show fit without scrolling sideways; "Rates from" is on each site's own view */
+              .hhc-sitetable{min-width:0;}.hhc-sitetable th:nth-child(3),.hhc-sitetable td:nth-child(3){display:none;}
+              .hhc-sitetable thead th.num{white-space:normal;}.hhc-sitetable th,.hhc-sitetable td{padding-left:5px;padding-right:5px;}}
             /* Pre-existing (zip 40): the Site dropdown sized itself to its longest option and pushed this page 21px sideways at 390px. */
             @media(max-width:600px){.hhd-controls .filter-block{min-width:0;max-width:100%;}.hhd-select{display:block;max-width:100%;}.hhd-select select{min-width:0;width:100%;max-width:100%;}}
           </style>
@@ -1733,23 +1769,8 @@
           <div id="hhdEmpty" style="display:none;"><div class="empty-state">No half-hourly data available for your account yet.</div></div>
 
           <div id="hhdMain" style="display:none;">
-            <!-- Estimated running cost (_52). Hidden until hh_cost_estimate() says this login may see it. -->
-            <section id="hhcCard" class="hhc-card" style="display:none;" aria-labelledby="hhcTitle">
-              <div class="hhc-head">
-                <div>
-                  <h3 id="hhcTitle" class="hhc-title">Estimated running cost</h3>
-                  <div id="hhcSub" class="hhc-subtitle"></div>
-                </div>
-                <div class="hhc-tools">
-                  <span id="hhcPreview" class="hhc-preview" hidden>Admin preview: not visible to this customer yet</span>
-                  <div class="hhd-quick" role="group" aria-label="Month">
-                    <button type="button" id="hhcMonth0" class="active" aria-pressed="true" hidden onclick="hhcSetMonth(0)">This month</button>
-                    <button type="button" id="hhcMonth1" aria-pressed="false" hidden onclick="hhcSetMonth(1)">Last month</button>
-                  </div>
-                </div>
-              </div>
-              <div id="hhcBody" aria-live="polite"></div>
-            </section>
+            <!-- Estimated running cost summary (_52f). Filled by hhcProbe(); the breakdown is its own section in the menu. -->
+            <div id="hhcStrip" class="hhc-strip" style="display:none;" role="region" aria-label="Estimated running cost"></div>
             <div class="hhd-controls">
               <div class="filter-block"><label>Site</label><div class="hhd-select"><select id="hhdSite" onchange="hhdSiteChange()"></select></div></div>
               <div class="filter-block"><label>From</label><input type="text" id="hhdFrom" class="hhd-date hhd-datepick" placeholder="Start date"></div>
@@ -3923,6 +3944,7 @@
     }
     async function loadDash() {
       const cid = currentUser.customerId;
+      try { hhcProbe().catch(function (e) { console.error('hhcProbe', e); }); } catch (e) { console.error('hhcProbe', e); }   // Estimated Running Cost menu item (_52f): its own request
       var _aw = document.getElementById('asstWrap'); if (_aw) _aw.style.display = (currentUser && currentUser._impersonating) ? 'none' : 'block';
       document.getElementById('dashClientName').textContent = currentUser.name;
       document.getElementById('welcomeH').textContent = 'Welcome back, ' + currentUser.name + '.';
@@ -9486,8 +9508,9 @@
     }
 
     // ───── ADMIN: RUNNING-COST ESTIMATE SWITCH (_52) ─────
-    // customers.hh_cost_estimate decides whether the customer sees the estimate on their
-    // Half-Hourly Data page. Admins (incl. Open portal) always see it, marked as a preview.
+    // customers.hh_cost_estimate decides whether the customer sees the Estimated Running Cost
+    // section (and its summary on the Half-Hourly Data page). Admins (incl. Open portal) always
+    // see it, marked as a preview.
     async function custEstimateToggle(cid, on){
       var r = await sb.from('customers').update({ hh_cost_estimate: !!on }).eq('customer_id', cid).select('customer_id, hh_cost_estimate');
       if (r.error || !r.data || !r.data.length) {
@@ -9526,8 +9549,8 @@
                  enabled without a hand-written SQL update. loadProfileAndRoute
                  reads portal_scope to bounce flex-only customers to flexclient. -->
             <label style="font-size:12px;font-weight:600;cursor:pointer;" title="Flex trading desk client portal. They also need at least one basket shared with them on the flex desk."><input type="checkbox" ${(c.portal_scope||[]).indexOf('flex')>=0?'checked':''} onchange="custScopeToggle('${escapeHtml(c.customer_id)}','flex',this.checked)"> Flex</label>
-            <!-- Running-cost estimate on their Half-Hourly Data page (_52): a per-customer switch, not a portal. -->
-            <div style="margin-top:6px;"><label style="font-size:12px;font-weight:600;cursor:pointer;" title="Show the estimated running cost on their Half-Hourly Data page. You see it through Open portal either way, marked as a preview."><input type="checkbox" ${c.hh_cost_estimate?'checked':''} onchange="custEstimateToggle('${escapeHtml(c.customer_id)}',this.checked)"> Cost estimate</label></div>
+            <!-- Estimated Running Cost section in their portal (_52): a per-customer switch, not a portal. -->
+            <div style="margin-top:6px;"><label style="font-size:12px;font-weight:600;cursor:pointer;" title="Show the Estimated Running Cost section in their portal, with a summary on their Half-Hourly Data page. You see it through Open portal either way, marked as a preview."><input type="checkbox" ${c.hh_cost_estimate?'checked':''} onchange="custEstimateToggle('${escapeHtml(c.customer_id)}',this.checked)"> Cost estimate</label></div>
           </td>
           <td>
             ${c.has_logo
@@ -11090,6 +11113,7 @@
         n.classList.toggle('active', n.dataset.page === page);
       });
       if (page === 'hhd') { try { hhdOpen(); } catch (e) { console.error(e); } }
+      if (page === 'cost') { try { hhcOpen(); } catch (e) { console.error(e); } }
     }
     document.addEventListener('click', e => {
       const navItem = e.target.closest('#dashPage .sidebar-nav .nav-item[data-page]');
@@ -11117,7 +11141,7 @@
       var _cid = (currentUser && currentUser.customerId) || null;
       if(_hhd.init && _hhd.cid === _cid) return;
       _hhd = { init:true, cid:_cid, sites:[], rows:[], from:null, to:null, profile:null, totals:null };
-      try { _hhcHide(); } catch (e) {}   // never show one account's estimate to another
+      try { var _hs = document.getElementById('hhcStrip'); if (_hs && _hhc.cid !== _cid) { _hs.style.display = 'none'; _hs.innerHTML = ''; } } catch (e) {}   // never show one account's estimate to another
       _ccxChartLib();
       var cid=_cid;
       try{
@@ -11139,7 +11163,7 @@
         sites.forEach(function(s){ if(s.last_ingested){ var t=new Date(s.last_ingested).getTime(); if(!maxIng||t>maxIng.t) maxIng={t:t,iso:s.last_ingested}; } });
         var fb=document.getElementById('hhdFresh');
         if(fb){ if(maxIng){ var dt=new Date(maxIng.iso); fb.textContent='Last updated on '+dt.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})+' at '+dt.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',hour12:false}); } else { fb.textContent=''; } }
-        hhcLoad(0);   // running-cost estimate (_52): its own request, does not hold up the charts
+        hhcProbe().then(_hhcRenderStrip).catch(function(e){ console.error('hhcProbe', e); });   // running-cost summary (_52f): its own request, does not hold up the charts
         await hhdLoad();
       }catch(e){ console.error('hhdOpen',e); }
     }
@@ -11335,15 +11359,22 @@
     }
 
     // ═════════════════════════════════════════════════════════════════════
-    //  ESTIMATED RUNNING COST (HHD x latest validated invoice)  [_52, 3 Nov 2026]
+    //  ESTIMATED RUNNING COST (half-hourly readings x latest validated rates)  [_52 + _52f, 3 Nov 2026]
     // ═════════════════════════════════════════════════════════════════════
-    // Everything is worked out in Postgres by hh_cost_estimate(customer, month), which
-    // checks who is asking: a customer only gets figures once customers.hh_cost_estimate
-    // is switched on (Customers tab); an admin, including through "Open portal", always
-    // does and the card says it is a preview. The page only formats what comes back.
-    // Money is shown to the nearest pound (it is an estimate), rates to two decimals,
-    // capacity in p/kVA/month (house rule), standing in p/day, units in p/kWh.
-    var _hhc = { cid:null, cache:{}, idx:0, months:null, chart:null, seq:0, data:null };
+    // Its own section in the left-hand menu ("Estimated Running Cost"), plus a one-line summary
+    // on the Half-Hourly Data page. Everything is worked out in Postgres by
+    // hh_cost_estimate(customer, month); the page shows its 'actual' block only:
+    //   - usage is the half-hourly readings Stark has actually sent. Nothing is projected and
+    //     days with missing readings are NOT filled in (CES decision, 3 Nov 2026);
+    //   - standing, capacity and other daily charges run up to the latest reading;
+    //   - 'coverage' lists the meters on the customer's bills that this does not include, so the
+    //     page says plainly that it covers the half-hourly sites only.
+    // Who sees it is the server's decision: a customer gets {enabled:false} until
+    // customers.hh_cost_estimate is switched on (Customers tab); an admin, including through
+    // "Open portal", always gets figures and the page says it is a preview.
+    // Units: p/kWh, standing p/day, capacity p/kVA/month (house rule). Money to the nearest
+    // pound, except a single site's working, which is shown to the penny.
+    var _hhc = { cid:null, cache:{}, idx:0, months:null, chart:null, seq:0, data:null, site:'all', probe:null };
     var HHC_LINE_LABEL = {
       day:'Energy, day units', night:'Energy, night units', unit:'Energy', standing:'Standing charges',
       capacity:'Capacity (kVA)', rab:'RAB pass-through', data:'Data collection (DC/DA)',
@@ -11351,13 +11382,15 @@
     };
     var HHC_LINE_ORDER = ['day','night','unit','standing','capacity','rab','data','reactive','other','ccl'];
 
-    function _hhcGBP(n){
-      if (n == null || isNaN(Number(n))) return '\u2013';
-      var v = Math.round(Number(n));
-      return (v < 0 ? '\u2212\u00a3' : '\u00a3') + Math.abs(v).toLocaleString('en-GB');
+    function _hhcMoney(n, dp){
+      if (n == null || isNaN(Number(n))) return '–';
+      var v = Number(n), d = dp || 0;
+      if (!d) v = Math.round(v);
+      return (v < 0 ? '−£' : '£') + Math.abs(v).toLocaleString('en-GB', { minimumFractionDigits: d, maximumFractionDigits: d });
     }
+    function _hhcGBP(n){ return _hhcMoney(n, 0); }
     function _hhcNum(n, dp){
-      if (n == null || isNaN(Number(n))) return '\u2013';
+      if (n == null || isNaN(Number(n))) return '–';
       return Number(n).toLocaleString('en-GB', { minimumFractionDigits: dp || 0, maximumFractionDigits: dp || 0 });
     }
     function _hhcDay(iso){ if(!iso) return ''; var d = new Date(String(iso).slice(0,10) + 'T00:00:00'); return d.toLocaleDateString('en-GB', { day:'numeric', month:'short' }); }
@@ -11365,99 +11398,183 @@
     function _hhcMonthName(iso, withYear){ var d = new Date(String(iso).slice(0,10) + 'T00:00:00'); return d.toLocaleDateString('en-GB', withYear ? { month:'long', year:'numeric' } : { month:'long' }); }
     function _hhcOtherLabel(kind){ return kind === 'fixed_and_passthrough' ? 'Capacity and other charges' : 'Other charges'; }
     function _hhcLineLabel(ln){ return ln.code === 'other' ? _hhcOtherLabel(ln.kind) : (HHC_LINE_LABEL[ln.code] || ln.code); }
+    function _hhcJoin(parts){ return parts.length < 2 ? (parts[0] || '') : parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1]; }
+    function _hhcPlural(n, one, many){ return n + ' ' + (n === 1 ? one : many); }
+
+    // Consecutive dates as ranges: ['2026-10-02'..'2026-10-13'] -> ['2–13 Oct']
+    function _hhcRanges(dates){
+      var ds = (dates || []).map(function(x){ return String(x).slice(0,10); }).sort(), out = [], i = 0;
+      while (i < ds.length) {
+        var j = i;
+        while (j + 1 < ds.length && _hhdAddDays(ds[j], 1) === ds[j + 1]) j++;
+        out.push(i === j ? _hhcDay(ds[i]) : String(Number(ds[i].slice(8, 10))) + '–' + _hhcDay(ds[j]));
+        i = j + 1;
+      }
+      return out;
+    }
 
     // How each line was priced, in the units CES quotes in.
-    function _hhcWorking(ln, useProj){
-      var q = useProj ? ln.qty_proj : ln.qty_mtd;
+    function _hhcWorking(ln){
+      var q = ln.qty;
       switch (ln.code) {
         case 'day': case 'night': case 'unit': case 'rab': case 'ccl': {
           var s = _hhcNum(q, 0) + ' kWh at ' + _hhcNum(ln.rate, (ln.code === 'ccl' || ln.code === 'rab') ? 3 : 2) + 'p/kWh';
-          if (ln.code === 'rab' && ln.rate_mwh != null) s += ' (\u00a3' + _hhcNum(ln.rate_mwh, 2) + '/MWh billed)';
+          if (ln.code === 'rab' && ln.rate_mwh != null) s += ' (£' + _hhcNum(ln.rate_mwh, 2) + '/MWh billed)';
           return s;
         }
         case 'capacity':
-          return _hhcNum(ln.kva, 0) + ' kVA at ' + _hhcNum(ln.rate_month, 2) + 'p/kVA/month, ' + q + ' day' + (q === 1 ? '' : 's');
+          return _hhcNum(ln.kva, 0) + ' kVA at ' + _hhcNum(ln.rate_month, 2) + 'p/kVA/month, ' + _hhcPlural(q, 'day', 'days');
         default:
-          return q + ' day' + (q === 1 ? '' : 's') + ' at ' + _hhcNum(ln.rate, 2) + 'p/day';
+          return _hhcPlural(q, 'day', 'days') + ' at ' + _hhcNum(ln.rate, 2) + 'p/day';
       }
     }
 
     // Plain-English notes for each code the server attaches. Admin-only codes return null for customers.
-    function _hhcFlagText(f, admin, d){
+    function _hhcFlagText(f, admin){
       switch (f && f.code) {
         case 'contract_ended': return 'The contract on record ended ' + _hhcDayLong(f.date) + '. Rates are from the last invoice, so current rates may differ.';
         case 'new_contract': return 'New ' + (f.supplier || '') + ' contract from ' + _hhcDayLong(f.start) + ': priced at the contract rates until its first invoice is validated.';
         case 'no_invoice_yet': return 'No validated invoice yet: priced at the contract rates.';
         case 'pass_through_unknown': return 'Pass-through charges such as data collection are not included until an invoice under this contract is validated.';
-        case 'april_reset': return 'Network charges change every April. This uses last year\u2019s rates until April\u2019s invoice is validated.';
-        case 'profile_last_year': return 'Too little recent meter data, so the rest of the month follows the same month last year.';
-        case 'no_profile': return 'Not enough meter data to project the rest of the month for this site.';
+        case 'april_reset': return 'Network charges change every April. This uses last year’s rates until April’s invoice is validated.';
         case 'missing_days': {
-          // only name the date when readings have actually stopped, not on a month that is just patchy
-          var stopped = f.last_data && d && d.as_of && String(f.last_data) < String(d.as_of);
-          return f.n + ' day' + (f.n === 1 ? '' : 's') + ' of meter data missing' + (stopped ? ' (no readings since ' + _hhcDayLong(f.last_data) + ')' : '') + '. Missing days are estimated from the site\u2019s usual use.';
+          var r = _hhcRanges(f.dates), n = Number(f.n) || r.length;
+          return 'Readings missing or incomplete on ' + _hhcPlural(n, 'day', 'days')
+            + (r.length ? ' (' + r.slice(0, 4).join(', ') + (r.length > 4 ? ' and others' : '') + ')' : '')
+            + '. Only the readings received are counted, so usage on ' + (n === 1 ? 'that day' : 'those days') + ' is under-stated.';
         }
-        case 'estimated_days': return f.n + ' day' + (f.n === 1 ? '' : 's') + ' of meter data are estimated readings.';
-        case 'summary_rates': return admin ? 'Admin: the invoice summary has no itemised charges, so capacity and pass-through show as one line. Reports tab \u2192 Refresh charge detail.' : null;
-        case 'unitemised_ignored': return admin ? 'Admin: \u00a3' + _hhcNum(f.amount, 2) + ' on the last invoice could not be itemised and is left out.' : null;
+        case 'estimated_days': return _hhcPlural(Number(f.n) || 0, 'day', 'days') + ' of readings are marked as estimated by the meter data provider.';
+        case 'summary_rates': return admin ? 'Admin: the invoice summary has no itemised charges, so capacity and pass-through show as one line. Reports tab → Refresh charge detail.' : null;
+        case 'unitemised_ignored': return admin ? 'Admin: £' + _hhcNum(f.amount, 2) + ' on the last invoice could not be itemised and is left out.' : null;
         case 'rate_sanity': return admin ? 'Admin: an implausible ' + f.field + ' value (' + f.value + ') on the source was ignored.' : null;
         default: return null;
       }
     }
     var HHC_FLAG_ORDER = ['new_contract','no_invoice_yet','contract_ended','april_reset','pass_through_unknown',
-      'missing_days','profile_last_year','no_profile','estimated_days','summary_rates','unitemised_ignored','rate_sanity'];
+      'missing_days','estimated_days','summary_rates','unitemised_ignored','rate_sanity'];
     function _hhcFlagRank(f){ var i = HHC_FLAG_ORDER.indexOf(f && f.code); return i < 0 ? 99 : i; }
+    function _hhcNotes(s, admin){
+      return (s.flags || []).slice().sort(function(a, b){ return _hhcFlagRank(a) - _hhcFlagRank(b); })
+        .map(function(f){ return _hhcFlagText(f, admin); }).filter(Boolean);
+    }
     function _hhcSource(s){
-      if (s.basis === 'contract') return (s.supplier || 'Contract') + ' contract' + (s.contract_start ? ' from ' + _hhcDay(s.contract_start) + ' ' + String(s.contract_start).slice(0,4) : '');
+      if (s.basis === 'contract') return (s.supplier || 'Contract') + ' contract' + (s.contract_start ? ' from ' + _hhcDayLong(s.contract_start) : '');
       if (s.source_month) return _hhcMonthName(s.source_month, true) + ' invoice';
       return 'Latest invoice';
     }
-    function _hhcExcludedText(x){
+    function _hhcExcludedText(x, monthName){
       var why = x.basis === 'flex'
         ? 'flexible contract, priced from the wholesale market each month, so it is not estimated here'
-        : 'no validated invoice or contract rates on file yet';
+        : x.basis === 'no_data'
+          ? 'no meter readings for ' + monthName + (x.last_data ? ' (last reading ' + _hhcDayLong(x.last_data) + ')' : '')
+          : 'no validated invoice or contract rates on file yet';
       return (x.site || x.mpan) + ' (' + x.mpan + '): ' + why + '.';
     }
 
-    function _hhcHide(){ var c = document.getElementById('hhcCard'); if (c) c.style.display = 'none'; }
+    function _hhcReset(cid){
+      if (_hhc.chart) { try { _hhc.chart.destroy(); } catch (e) {} }
+      _hhc = { cid:cid, cache:{}, idx:0, months:null, chart:null, seq:0, data:null, site:'all', probe:null };
+      var nav = document.getElementById('navCost'); if (nav) nav.style.display = 'none';
+      var strip = document.getElementById('hhcStrip'); if (strip) { strip.style.display = 'none'; strip.innerHTML = ''; }
+      var body = document.getElementById('hhcBody'); if (body) body.innerHTML = '';
+      var card = document.getElementById('hhcCard'); if (card) card.style.display = 'none';
+      // the header controls too: the site picker holds the previous account's site names
+      var sub = document.getElementById('hhcSub'); if (sub) sub.textContent = '';
+      var pv = document.getElementById('hhcPreview'); if (pv) pv.hidden = true;
+      ['hhcMonth0', 'hhcMonth1'].forEach(function(id){ var b = document.getElementById(id); if (b) b.hidden = true; });
+      var sel = document.getElementById('hhcSite'); if (sel) sel.innerHTML = '';
+      var sw = document.getElementById('hhcSiteWrap'); if (sw) sw.hidden = true;
+    }
+    // The menu item shows when there is a half-hourly site to talk about: any for an admin
+    // preview; for a customer, any that is not a flex supply (those are never estimated).
+    function _hhcAvailable(d){
+      if (!d || d._error || !d.enabled) return false;
+      var A = d.actual || {}, sites = A.sites || [], excl = A.excluded || [];
+      if (d.admin_preview) return sites.length + excl.length > 0;
+      return sites.length + excl.filter(function(x){ return x.basis !== 'flex'; }).length > 0;
+    }
 
-    async function hhcLoad(idx){
-      var cid = _hhd && _hhd.cid;
-      var card = document.getElementById('hhcCard'), body = document.getElementById('hhcBody');
-      if (!cid || !card || !body) return;
-      if (_hhc.cid !== cid) {           // never carry an estimate across accounts
-        if (_hhc.chart) { try { _hhc.chart.destroy(); } catch (e) {} }
-        _hhc = { cid:cid, cache:{}, idx:0, months:null, chart:null, seq:0, data:null };
-      }
-      _hhc.idx = idx || 0;
-      var key = 'm' + _hhc.idx;
-      var seq = ++_hhc.seq;
-      if (_hhc.cache[key]) { hhcRender(_hhc.cache[key]); return; }
+    async function _hhcFetch(idx){
+      var cid = _hhc.cid, key = 'm' + idx;
+      if (_hhc.cache[key]) return _hhc.cache[key];
       var pMonth = null;
-      if (_hhc.idx === 1) {
-        if (!_hhc.months) return;
-        pMonth = _hhc.months[1];
-      }
-      if (_hhc.data) { body.setAttribute('aria-busy', 'true'); body.style.opacity = '0.55'; }
+      if (idx === 1) { if (!_hhc.months) return null; pMonth = _hhc.months[1]; }
       var r;
       try { r = await sb.rpc('hh_cost_estimate', { p_customer_id: cid, p_month: pMonth }); }
       catch (e) { r = { error: e }; }
-      if (seq !== _hhc.seq || _hhc.cid !== cid) return;   // a newer request or another account won
+      if (_hhc.cid !== cid) return null;                 // another account took over meanwhile
+      if (!r || r.error) { console.error('hh_cost_estimate', r && r.error); return { _error: true }; }
+      var d = r.data;
+      if (d && d.months) _hhc.months = d.months;
+      if (d && d.enabled) _hhc.cache[key] = d;
+      return d;
+    }
+
+    // Called by loadDash() for every account the dashboard opens: decides whether the menu
+    // item and the Half-Hourly Data summary appear. One request; cheap when switched off.
+    function hhcProbe(){
+      var cid = (currentUser && currentUser.customerId) || null;
+      if (_hhc.cid !== cid) _hhcReset(cid);
+      if (!cid || cid === '__admin__') return Promise.resolve(null);
+      if (_hhc.probe) return _hhc.probe;
+      _hhc.probe = _hhcFetch(0).then(function(d){
+        if (_hhc.cid !== cid) return null;
+        var ok = _hhcAvailable(d);
+        var nav = document.getElementById('navCost'); if (nav) nav.style.display = ok ? '' : 'none';
+        _hhcRenderStrip(ok ? d : null);
+        if (d && d._error) _hhc.probe = null;            // let the next visit try again
+        return ok ? d : null;
+      });
+      return _hhc.probe;
+    }
+
+    // The section itself (showCustomerPage('cost')).
+    async function hhcOpen(){
+      var cid = (currentUser && currentUser.customerId) || null;
+      if (_hhc.cid !== cid) _hhcReset(cid);
+      var card = document.getElementById('hhcCard'), body = document.getElementById('hhcBody');
+      if (!card || !body) return;
+      card.style.display = '';
+      if (!_hhc.data) body.innerHTML = '<p class="hhc-empty" role="status">Loading the running cost…</p>';
+      await hhcProbe();
+      return hhcLoad(_hhc.idx || 0);
+    }
+
+    async function hhcLoad(idx){
+      var cid = _hhc.cid, body = document.getElementById('hhcBody');
+      if (!cid || !body) return;
+      var prev = _hhc.idx;
+      _hhc.idx = idx || 0;
+      var seq = ++_hhc.seq;
+      var d = _hhc.cache['m' + _hhc.idx];
+      if (!d) {
+        if (_hhc.data) { body.setAttribute('aria-busy', 'true'); body.style.opacity = '0.55'; }
+        d = await _hhcFetch(_hhc.idx);
+      }
+      if (seq !== _hhc.seq || _hhc.cid !== cid) return;  // a newer request or another account won
       body.removeAttribute('aria-busy'); body.style.opacity = '';
-      if (r.error) {
-        console.error('hh_cost_estimate', r.error);
-        if (!_hhc.data) { _hhcHide(); return; }
-        body.insertAdjacentHTML('afterbegin', '<p class="hhc-err" role="status">The estimate could not be refreshed just now. Please try again later.</p>');
+      if (!d || d._error) {
+        var msg = '<p class="hhc-err" role="status">The running cost could not be loaded just now. Please try again later.</p>';
+        if (_hhc.data) { _hhc.idx = prev; body.insertAdjacentHTML('afterbegin', msg); } else body.innerHTML = msg;
         return;
       }
-      var d = r.data;
-      if (!d || !d.enabled) { _hhcHide(); return; }
-      if (!d.admin_preview && !(d.totals && d.totals.sites_estimated > 0)) { _hhcHide(); return; }
-      if (d.months) _hhc.months = d.months;
-      _hhc.cache[key] = d;
+      if (!d.enabled) { body.innerHTML = '<p class="hhc-empty">The estimated running cost is not available for this account.</p>'; return; }
       hhcRender(d);
     }
     function hhcSetMonth(idx){ if (idx === _hhc.idx && _hhc.data) return; hhcLoad(idx); }
+    function hhcSetSite(v){ _hhc.site = v || 'all'; if (_hhc.data) hhcRender(_hhc.data); }
+
+    // One line on the Half-Hourly Data page; the breakdown lives in the section.
+    function _hhcRenderStrip(d){
+      var el = document.getElementById('hhcStrip'); if (!el) return;
+      var A = d && d.actual, n = A && A.totals ? Number(A.totals.sites) || 0 : 0;
+      if (!d || !n) { el.style.display = 'none'; el.innerHTML = ''; return; }
+      el.innerHTML = (d.admin_preview ? '<span class="hhc-preview">Admin preview</span>' : '')
+        + '<span class="hhc-strip-txt"><b>Estimated running cost so far this month: ' + _hhcGBP(A.totals.net) + '</b> excl. VAT, from meter readings to '
+        + escapeHtml(_hhcDay(d.as_of)) + ' at ' + _hhcPlural(n, 'half-hourly site', 'half-hourly sites') + '. An estimate, not a bill.</span>'
+        + '<button type="button" class="hhc-strip-btn" onclick="showCustomerPage(\'cost\')">See the breakdown</button>';
+      el.style.display = '';
+    }
 
     function hhcRender(d){
       _hhc.data = d;
@@ -11465,184 +11582,224 @@
       if (!card || !body) return;
       card.style.display = '';
       var admin = !!d.admin_preview || !!(currentUser && currentUser._impersonating);
-      var t = d.totals || {}, sites = d.sites || [], excl = d.excluded || [];
+      var A = d.actual || {};
+      var sites = (A.sites || []).slice().sort(function(a, b){ return String(a.site || a.mpan).localeCompare(String(b.site || b.mpan)); });
+      var excl = A.excluded || [];
       var complete = !!d.complete;
       var monthName = _hhcMonthName(d.month), monthLong = _hhcMonthName(d.month, true);
+      var de = Number(d.days_elapsed) || 0, dm = Number(d.days_in_month) || 30;
+      if (_hhc.site !== 'all' && !sites.some(function(s){ return s.mpan === _hhc.site; })) _hhc.site = 'all';
+      var one = _hhc.site === 'all' ? null : sites.filter(function(s){ return s.mpan === _hhc.site; })[0];
 
-      // header: subtitle, preview badge, month buttons
+      // header: subtitle, preview badge, month buttons, site picker
       var sub = document.getElementById('hhcSub');
-      if (sub) sub.textContent = 'Half-hourly electricity \u00b7 ' + monthLong + ' \u00b7 '
-        + (t.sites_estimated || 0) + ' site' + (t.sites_estimated === 1 ? '' : 's') + ' estimated';
+      if (sub) sub.textContent = 'Half-hourly electricity · ' + monthLong + (complete ? '' : ' so far');
       var pv = document.getElementById('hhcPreview'); if (pv) pv.hidden = !d.admin_preview;
-      var mb = [document.getElementById('hhcMonth0'), document.getElementById('hhcMonth1')];
-      if (_hhc.months) {
-        mb.forEach(function(b, i){ if (!b) return;
-          b.textContent = _hhcMonthName(_hhc.months[i]) + (i === 0 ? ' so far' : '');
-          b.classList.toggle('active', i === _hhc.idx);
-          b.setAttribute('aria-pressed', i === _hhc.idx ? 'true' : 'false');
-          b.hidden = false; });
+      if (_hhc.months) [document.getElementById('hhcMonth0'), document.getElementById('hhcMonth1')].forEach(function(b, i){
+        if (!b) return;
+        b.textContent = _hhcMonthName(_hhc.months[i]) + (i === 0 ? ' so far' : '');
+        b.classList.toggle('active', i === _hhc.idx);
+        b.setAttribute('aria-pressed', i === _hhc.idx ? 'true' : 'false');
+        b.hidden = false;
+      });
+      var sel = document.getElementById('hhcSite'), selWrap = document.getElementById('hhcSiteWrap');
+      if (sel) {
+        sel.innerHTML = '<option value="all">All sites (' + sites.length + ')</option>'
+          + sites.map(function(s){ return '<option value="' + escapeHtml(s.mpan) + '">' + escapeHtml((s.site || s.mpan) + ' · ' + s.mpan) + '</option>'; }).join('');
+        sel.value = _hhc.site;
       }
+      if (selWrap) selWrap.hidden = sites.length < 2;
 
-      if (!(t.sites_estimated > 0)) {
-        body.innerHTML = '<p class="hhc-empty">None of these supplies can be estimated yet.</p>'
-          + (excl.length ? '<ul class="hhc-excl">' + excl.map(function(x){ return '<li>' + escapeHtml(_hhcExcludedText(x)) + '</li>'; }).join('') + '</ul>' : '');
+      var h = _hhcCoverageHtml(d, sites, excl, one);
+      if (!sites.length) {
+        h += '<p class="hhc-empty">' + (de > 0
+          ? 'None of these supplies can be worked out for ' + escapeHtml(monthName) + '.'
+          : 'No meter readings for ' + escapeHtml(monthName) + ' yet. They usually arrive a day behind.') + '</p>';
+        h += _hhcNotIncludedHtml(d, excl);
+        body.innerHTML = h;
+        if (_hhc.chart) { try { _hhc.chart.destroy(); } catch (e) {} _hhc.chart = null; }
         return;
       }
+      if (one) h += _hhcSiteDetailHtml(one, admin);
 
-      var asOf = d.as_of, de = Number(d.days_elapsed) || 0, dm = Number(d.days_in_month) || 30;
-      var dataNote = de > 0 ? 'Meter data to ' + _hhcDay(asOf) + ' \u00b7 day ' + de + ' of ' + dm : 'No meter data for ' + monthName + ' yet';
-      var h = '';
-
-      // headline figures, excl. VAT first (CES decision 3 Nov 2026), incl. VAT underneath
+      var T = one ? { net: one.net, vat: one.vat, gross: one.gross, kwh: one.kwh } : (A.totals || {});
+      var range = de > 0 ? (de === 1 ? _hhcDay(d.month) : '1–' + _hhcDay(d.as_of)) : '';
       h += '<div class="hhc-figs">';
-      if (!complete) {
-        h += '<div class="hhc-fig"><div class="lab">So far this month</div>'
-           + '<div class="val">' + _hhcGBP(t.net_mtd) + ' <small>excl. VAT</small></div>'
-           + '<div class="sub">' + _hhcGBP(t.gross_mtd) + ' incl. VAT \u00b7 ' + _hhcNum(t.kwh_mtd) + ' kWh' + (de > 0 ? ' \u00b7 1\u2013' + _hhcDay(asOf) : '') + '</div></div>';
-        h += '<div class="hhc-fig hhc-fig-main"><div class="lab">Estimate for ' + escapeHtml(monthName) + '</div>'
-           + '<div class="val">' + _hhcGBP(t.net_proj) + ' <small>excl. VAT</small></div>'
-           + '<div class="sub">' + _hhcGBP(t.gross_proj) + ' incl. VAT \u00b7 about ' + _hhcNum(t.kwh_proj) + ' kWh</div></div>';
-      } else {
-        h += '<div class="hhc-fig hhc-fig-main"><div class="lab">Estimate for ' + escapeHtml(monthName) + '</div>'
-           + '<div class="val">' + _hhcGBP(t.net_proj) + ' <small>excl. VAT</small></div>'
-           + '<div class="sub">' + _hhcGBP(t.gross_proj) + ' incl. VAT \u00b7 ' + _hhcNum(t.kwh_proj) + ' kWh</div></div>';
+      h += '<div class="hhc-fig hhc-fig-main"><div class="lab">' + (complete ? escapeHtml(monthName) + ' running cost' : 'Running cost so far') + (range ? ' · ' + range : '') + '</div>'
+         + '<div class="val">' + _hhcGBP(T.net) + ' <small>excl. VAT</small></div>'
+         + '<div class="sub">' + _hhcGBP(T.gross) + ' incl. VAT · ' + _hhcNum(T.kwh) + ' kWh measured</div></div>';
+      if (complete) {
         // the validated invoices for the same month, once CES has published them
-        var billed = d.billed || {}, bGross = 0, eGross = 0, nB = 0;
-        sites.forEach(function(s){ var b = billed[s.mpan]; if (b && b.gross != null) { bGross += Number(b.gross); eGross += Number(s.gross_proj) || 0; nB++; } });
+        var billed = d.billed || {}, bGross = 0, eGross = 0, nB = 0, pool = one ? [one] : sites;
+        pool.forEach(function(s){ var b = billed[s.mpan]; if (b && b.gross != null) { bGross += Number(b.gross); eGross += Number(s.gross) || 0; nB++; } });
         if (nB > 0) {
           var diff = eGross ? (bGross - eGross) / eGross * 100 : 0;
           h += '<div class="hhc-fig"><div class="lab">Validated invoices</div>'
              + '<div class="val">' + _hhcGBP(bGross) + ' <small>incl. VAT</small></div>'
-             + '<div class="sub">' + nB + ' of ' + sites.length + ' sites \u00b7 the estimate for those sites was ' + _hhcGBP(eGross) + ' (' + (diff >= 0 ? '+' : '\u2212') + _hhcNum(Math.abs(diff), 1) + '% difference)</div></div>';
+             + '<div class="sub">' + (one ? 'This site' : nB + ' of ' + pool.length + ' sites') + ' · this page worked out ' + _hhcGBP(eGross) + ' (' + (diff >= 0 ? '+' : '−') + _hhcNum(Math.abs(diff), 1) + '% difference)</div></div>';
         } else {
           h += '<div class="hhc-fig"><div class="lab">Validated invoices</div>'
              + '<div class="val hhc-val-muted">Not yet</div>'
-             + '<div class="sub">CES adds the comparison here once ' + escapeHtml(monthName) + '\u2019s invoices are validated.</div></div>';
+             + '<div class="sub">CES adds the comparison here once ' + escapeHtml(monthName) + '’s invoices are validated.</div></div>';
         }
+      } else if (de > 0) {
+        h += '<div class="hhc-fig"><div class="lab">Average per day so far</div>'
+           + '<div class="val">' + _hhcGBP((Number(T.net) || 0) / de) + ' <small>excl. VAT</small></div>'
+           + '<div class="sub">' + _hhcNum((Number(T.kwh) || 0) / de) + ' kWh a day over ' + _hhcPlural(de, 'day', 'days') + '</div></div>';
       }
       h += '</div>';
       var pct = Math.max(0, Math.min(100, Math.round(de / dm * 100)));
-      h += '<div class="hhc-prog"><div class="hhc-bar" role="progressbar" aria-label="Days of ' + escapeHtml(monthName) + ' with meter data" aria-valuemin="0" aria-valuemax="' + dm + '" aria-valuenow="' + de + '"><span style="width:' + pct + '%"></span></div>'
-         + '<div class="hhc-prog-txt">' + escapeHtml(dataNote) + (t.projection_partial ? ' \u00b7 projection incomplete for some sites' : '') + '</div></div>';
+      h += '<div class="hhc-prog"><div class="hhc-bar" role="progressbar" aria-label="Days of ' + escapeHtml(monthName) + ' with meter readings" aria-valuemin="0" aria-valuemax="' + dm + '" aria-valuenow="' + de + '"><span style="width:' + pct + '%"></span></div>'
+         + '<div class="hhc-prog-txt">' + (de > 0 ? 'Meter readings to ' + escapeHtml(_hhcDay(d.as_of)) + ' · day ' + de + ' of ' + dm : 'No meter readings for ' + escapeHtml(monthName) + ' yet') + '</div></div>';
 
       // the disclaimer: always visible, never behind a toggle
       h += '<div class="hhc-note" role="note"><strong>This is an estimate, not a bill.</strong> '
-         + 'It is worked out from your half-hourly meter readings and the rates on your latest validated invoice, so the amount your supplier charges will differ. '
-         + 'Please do not rely on it as the figure you will pay; use it only as a rough guide to what the month may cost.</div>';
+         + 'It uses only the half-hourly meter readings received ' + (complete ? 'for ' + escapeHtml(monthName) : 'so far') + ' and the rates on your latest validated invoice (or a newer contract), so the amount your supplier charges will differ. '
+         + 'Days with missing readings are not filled in. Please use it only as a rough guide to what the month is costing, not as the figure you will pay.</div>';
 
-      // chart + breakdown
       h += '<div class="hhc-grid">';
       h += '<div class="hhc-chartbox"><h4 class="hhc-h4">Running total, excl. VAT</h4>'
-         + '<div class="hhc-canvas"><canvas id="hhcChart" role="img" aria-label="' + escapeHtml(_hhcChartSummary(d)) + '"></canvas></div>'
-         + '<div class="hhc-legend" aria-hidden="true"><span class="k k-act"></span>Measured so far<span class="k k-proj"></span>Expected for the month</div></div>';
-      h += '<div class="hhc-tablebox">' + _hhcBreakdownTable(d) + '</div>';
+         + '<div class="hhc-canvas"><canvas id="hhcChart" role="img" aria-label="' + escapeHtml(_hhcChartSummary(d, T)) + '"></canvas></div></div>';
+      h += '<div class="hhc-tablebox">' + _hhcBreakdownTable(one ? one.lines : (A.totals && A.totals.lines), T, one, sites) + '</div>';
       h += '</div>';
 
-      // by site
-      h += '<details class="hhc-sites"' + (sites.length <= 3 ? ' open' : '') + '><summary>By site (' + sites.length + ')</summary>'
-         + '<div class="hhc-scroll">' + _hhcSitesTable(d, admin) + '</div>';
-      if (excl.length) h += '<p class="hhc-excl-h">Not included</p><ul class="hhc-excl">' + excl.map(function(x){ return '<li>' + escapeHtml(_hhcExcludedText(x)) + '</li>'; }).join('') + '</ul>';
-      h += '</details>';
-
-      h += '<p class="hhc-foot">How it is worked out: each site\u2019s half-hourly kWh (night is 00:00 to 07:00) at the unit rates on its latest validated invoice, '
-         + 'plus standing, capacity and pass-through charges by the day and Climate Change Levy at ' + _hhcNum(d.ccl_p_kwh, 3) + 'p/kWh. '
-         + 'The rest of the month follows each site\u2019s last 28 days of use, with weekdays, Saturdays and Sundays kept separate. '
-         + 'Covers half-hourly electricity only. Rounded to the nearest pound.</p>';
+      if (!one) {
+        h += '<div class="hhc-sites"><h4 class="hhc-h4">Cost per site</h4>' + _hhcSitesTable(d, sites, admin) + '</div>';
+        h += _hhcNotIncludedHtml(d, excl);
+      }
+      h += '<p class="hhc-foot">How it is worked out: each site’s half-hourly kWh as received (night is 00:00 to 07:00) at the unit rates on its latest validated invoice or newer contract, '
+         + 'plus standing, capacity and other daily charges up to the latest reading, and Climate Change Levy at ' + _hhcNum(d.ccl_p_kwh, 3) + 'p/kWh. '
+         + 'Nothing is estimated for days without readings. Covers half-hourly electricity only. Rounded to the nearest pound.</p>';
 
       body.innerHTML = h;
-      _hhcDrawChart(d);
+      _hhcDrawChart(d, one);
     }
 
-    function _hhcChartSummary(d){
-      var t = d.totals || {};
-      return 'Running total excluding VAT: ' + _hhcGBP(t.net_mtd) + ' measured' + (d.as_of ? ' to ' + _hhcDay(d.as_of) : '')
-        + ', about ' + _hhcGBP(t.net_proj) + ' expected for the month.';
+    function _hhcCoverageHtml(d, sites, excl, one){
+      if (one) return '<p class="hhc-cover" role="note"><strong>Showing one site: ' + escapeHtml(one.site || one.mpan) + '.</strong> Choose “All sites” to see the total for every site.</p>';
+      var n = sites.length, cov = d.coverage || null, parts = [];
+      if (cov) {
+        var oe = (cov.other_elec || []).length, g = Number(cov.gas) || 0, w = Number(cov.water) || 0;
+        if (oe) parts.push(_hhcPlural(oe, 'other electricity meter', 'other electricity meters'));
+        if (g) parts.push(_hhcPlural(g, 'gas supply', 'gas supplies'));
+        if (w) parts.push(_hhcPlural(w, 'water supply', 'water supplies'));
+      }
+      var t = '<strong>This covers ' + _hhcPlural(n, 'site', 'sites') + ' only: your half-hourly electricity supplies.</strong>';
+      if (parts.length) t += ' Not included: ' + _hhcJoin(parts) + ' on your bills' + (excl.length ? ', plus ' + _hhcPlural(excl.length, 'half-hourly site', 'half-hourly sites') + ' listed below' : '') + '.';
+      else if (excl.length) t += ' ' + _hhcPlural(excl.length, 'half-hourly site is', 'half-hourly sites are') + ' not included (listed below).';
+      else if (!cov) t += ' Gas, water and any other meters are not included.';
+      return '<p class="hhc-cover" role="note">' + t + '</p>';
     }
 
-    function _hhcBreakdownTable(d){
-      var t = d.totals || {}, complete = !!d.complete;
+    function _hhcNotIncludedHtml(d, excl){
+      var monthName = _hhcMonthName(d.month), cov = d.coverage || {}, de = Number(d.days_elapsed) || 0, items = [];
+      (excl || []).forEach(function(x){ if (x.basis === 'no_data' && !de) return; items.push(_hhcExcludedText(x, monthName)); });
+      (cov.other_elec || []).forEach(function(m){ items.push((m.site || m.mpan) + ' (' + m.mpan + '): no half-hourly meter readings for this supply.'); });
+      var g = Number(cov.gas) || 0, w = Number(cov.water) || 0;
+      if (g) items.push(_hhcPlural(g, 'gas supply', 'gas supplies') + ': gas is not covered.');
+      if (w) items.push(_hhcPlural(w, 'water supply', 'water supplies') + ': water is not covered.');
+      if (!items.length) return '';
+      return '<h4 class="hhc-h4 hhc-excl-h">Not included</h4><ul class="hhc-excl">' + items.map(function(t){ return '<li>' + escapeHtml(t) + '</li>'; }).join('') + '</ul>';
+    }
+
+    function _hhcSiteDetailHtml(s, admin){
+      var notes = _hhcNotes(s, admin);
+      return '<div class="hhc-detail"><div class="hhc-detail-hd"><div><div class="nm">' + escapeHtml(s.site || s.mpan) + '</div>'
+        + '<div class="mp">' + escapeHtml(s.mpan) + (s.supplier ? ' · ' + escapeHtml(s.supplier) : '') + ' · rates: ' + escapeHtml(_hhcSource(s)) + '</div></div>'
+        + '<button type="button" class="hhc-more" data-hhc-site="all">Back to all sites</button></div>'
+        + (notes.length ? '<ul class="hhc-flags">' + notes.map(function(t){ return '<li>' + escapeHtml(t) + '</li>'; }).join('') + '</ul>' : '')
+        + '</div>';
+    }
+
+    function _hhcChartSummary(d, T){
+      return 'Running total excluding VAT: ' + _hhcGBP(T.net) + (d.as_of ? ' from meter readings to ' + _hhcDay(d.as_of) : '') + '.';
+    }
+
+    function _hhcBreakdownTable(lines, T, one, sites){
+      var rows = (lines || []).slice().sort(function(a, b){ return HHC_LINE_ORDER.indexOf(a.code) - HHC_LINE_ORDER.indexOf(b.code); });
+      var hasCap = rows.some(function(l){ return l.code === 'capacity'; });
       var otherKind = null;
-      (d.sites || []).forEach(function(s){ (s.lines || []).forEach(function(l){ if (l.code === 'other' && (!otherKind || l.kind === 'fixed_and_passthrough')) otherKind = l.kind; }); });
-      var lines = (t.lines || []).slice().sort(function(a, b){ return HHC_LINE_ORDER.indexOf(a.code) - HHC_LINE_ORDER.indexOf(b.code); });
-      var hasCap = lines.some(function(l){ return l.code === 'capacity'; });
-      var vatM = t.vat_mtd, vatP = t.vat_proj;
-      var h = '<table class="hhc-table"><caption>Breakdown by charge, in pounds</caption><thead><tr><th scope="col">Charge</th>'
-        + (complete ? '' : '<th scope="col" class="num">So far</th>') + '<th scope="col" class="num">' + (complete ? 'Estimate' : 'Month estimate') + '</th></tr></thead><tbody>';
-      lines.forEach(function(l){
+      (one ? [one] : (sites || [])).forEach(function(s){ (s.lines || []).forEach(function(l){ if (l.code === 'other' && (!otherKind || l.kind === 'fixed_and_passthrough')) otherKind = l.kind; }); });
+      var dp = one ? 2 : 0, cs = one ? ' colspan="2"' : '';
+      var h = '<table class="hhc-table"><caption>' + (one ? 'How this site is worked out' : 'Breakdown by charge') + '</caption><thead><tr><th scope="col">Charge</th>'
+        + (one ? '<th scope="col">Basis</th>' : '') + '<th scope="col" class="num">Amount</th></tr></thead><tbody>';
+      rows.forEach(function(l){
         // "Capacity and other charges" next to an itemised "Capacity (kVA)" line reads as double counting
-        var label = l.code === 'other' ? (hasCap ? 'Other charges' : _hhcOtherLabel(otherKind)) : (HHC_LINE_LABEL[l.code] || l.code);
-        h += '<tr><th scope="row">' + escapeHtml(label) + '</th>' + (complete ? '' : '<td class="num">' + _hhcGBP(l.mtd) + '</td>') + '<td class="num">' + _hhcGBP(l.proj) + '</td></tr>';
+        var label = l.code === 'other' ? (hasCap ? 'Other charges' : _hhcOtherLabel(l.kind || otherKind)) : (HHC_LINE_LABEL[l.code] || l.code);
+        h += '<tr><th scope="row">' + escapeHtml(label) + '</th>' + (one ? '<td>' + escapeHtml(_hhcWorking(l)) + '</td>' : '') + '<td class="num">' + _hhcMoney(l.amount, dp) + '</td></tr>';
       });
       h += '</tbody><tfoot>'
-        + '<tr class="sub"><th scope="row">Total excl. VAT</th>' + (complete ? '' : '<td class="num">' + _hhcGBP(t.net_mtd) + '</td>') + '<td class="num">' + _hhcGBP(t.net_proj) + '</td></tr>'
-        + '<tr><th scope="row">VAT</th>' + (complete ? '' : '<td class="num">' + _hhcGBP(vatM) + '</td>') + '<td class="num">' + _hhcGBP(vatP) + '</td></tr>'
-        + '<tr class="tot"><th scope="row">Total incl. VAT</th>' + (complete ? '' : '<td class="num">' + _hhcGBP(t.gross_mtd) + '</td>') + '<td class="num">' + _hhcGBP(t.gross_proj) + '</td></tr>'
+        + '<tr class="sub"><th scope="row"' + cs + '>Total excl. VAT</th><td class="num">' + _hhcMoney(T.net, dp) + '</td></tr>'
+        + '<tr><th scope="row"' + cs + '>VAT' + (one ? ' at ' + _hhcNum(one.vat_pct, 0) + '%' : '') + '</th><td class="num">' + _hhcMoney(T.vat, dp) + '</td></tr>'
+        + '<tr class="tot"><th scope="row"' + cs + '>Total incl. VAT</th><td class="num">' + _hhcMoney(T.gross, dp) + '</td></tr>'
         + '</tfoot></table>';
       return h;
     }
 
-    function _hhcSitesTable(d, admin){
-      var complete = !!d.complete, billed = d.billed || {};
-      var sites = (d.sites || []).slice().sort(function(a, b){ return (Number(b.net_proj) || 0) - (Number(a.net_proj) || 0); });
-      var cols = complete ? 4 : 5;
-      var h = '<table class="hhc-table hhc-sitetable"><caption>Each site, in pounds excl. VAT</caption><thead><tr>'
-        + '<th scope="col">Site</th>' + (complete ? '' : '<th scope="col" class="num">So far</th>')
-        + '<th scope="col" class="num">' + (complete ? 'Estimate' : 'Month estimate') + '</th><th scope="col">Rates from</th><th scope="col"><span class="hhc-sr">Details</span></th></tr></thead><tbody>';
-      sites.forEach(function(s, i){
-        var notes = (s.flags || []).slice().sort(function(a, b){ return _hhcFlagRank(a) - _hhcFlagRank(b); })
-          .map(function(f){ return _hhcFlagText(f, admin, d); }).filter(Boolean);
-        var b = billed[s.mpan];
-        var id = 'hhcRow' + i;
+    // A note that applies to several sites is said once above the table, naming them, rather
+    // than repeated under every row (a new contract on four meters read as eight bullet lines).
+    function _hhcShortName(s){ return String(s.site || s.mpan).split(',')[0].trim(); }
+    function _hhcSitesTable(d, sites, admin){
+      var complete = !!d.complete, billed = d.billed || {}, A = d.actual || {};
+      var rows = sites.slice().sort(function(a, b){ return (Number(b.net) || 0) - (Number(a.net) || 0); });
+      var bySite = {}, noteSites = {}, order = [];
+      rows.forEach(function(s){
+        bySite[s.mpan] = _hhcNotes(s, admin);
+        bySite[s.mpan].forEach(function(t){ if (!noteSites[t]) { noteSites[t] = []; order.push(t); } noteSites[t].push(_hhcShortName(s)); });
+      });
+      var shared = order.filter(function(t){ return noteSites[t].length >= 2; });
+      var pre = shared.length ? '<ul class="hhc-flags hhc-shared">' + shared.map(function(t){
+        var ns = noteSites[t];
+        return '<li><strong>' + escapeHtml(ns.length === rows.length ? 'All sites' : _hhcJoin(ns)) + ':</strong> ' + escapeHtml(t) + '</li>';
+      }).join('') + '</ul>' : '';
+      var h = '<table class="hhc-table hhc-sitetable"><caption class="hhc-sr">Cost per site, in pounds excl. VAT</caption><thead><tr>'
+        + '<th scope="col">Site</th><th scope="col" class="num">' + (complete ? 'Cost' : 'Cost so far') + ' <span class="hhc-unit">excl. VAT</span></th>'
+        + '<th scope="col">Rates from</th><th scope="col"><span class="hhc-sr">Show on its own</span></th></tr></thead><tbody>';
+      rows.forEach(function(s){
+        var notes = bySite[s.mpan].filter(function(t){ return shared.indexOf(t) < 0; }), b = billed[s.mpan];
         h += '<tr class="hhc-site">'
-          + '<th scope="row"><span class="nm">' + escapeHtml(s.site || s.mpan) + '</span><span class="mp">' + escapeHtml(s.mpan) + (s.supplier ? ' \u00b7 ' + escapeHtml(s.supplier) : '') + '</span>'
-          + (notes.length ? '<ul class="hhc-flags">' + notes.map(function(n){ return '<li>' + escapeHtml(n) + '</li>'; }).join('') + '</ul>' : '') + '</th>'
-          + (complete ? '' : '<td class="num">' + _hhcGBP(s.net_mtd) + '<span class="kw">' + _hhcNum(s.kwh_mtd) + ' kWh</span></td>')
-          + '<td class="num">' + _hhcGBP(s.net_proj) + '<span class="kw">' + _hhcNum(s.kwh_proj) + ' kWh</span>'
+          + '<th scope="row"><span class="nm">' + escapeHtml(s.site || s.mpan) + '</span><span class="mp">' + escapeHtml(s.mpan) + (s.supplier ? ' · ' + escapeHtml(s.supplier) : '') + '</span>'
+          + (notes.length ? '<ul class="hhc-flags">' + notes.map(function(t){ return '<li>' + escapeHtml(t) + '</li>'; }).join('') + '</ul>' : '') + '</th>'
+          + '<td class="num">' + _hhcGBP(s.net) + '<span class="kw">' + _hhcNum(s.kwh) + ' kWh</span>'
           + (b && b.gross != null ? '<span class="kw">invoiced ' + _hhcGBP(b.gross) + ' incl. VAT</span>' : '') + '</td>'
           + '<td>' + escapeHtml(_hhcSource(s)) + '</td>'
-          + '<td><button type="button" class="hhc-more" aria-expanded="false" aria-controls="' + id + '" data-hhc-row="' + id + '">Working</button></td>'
-          + '</tr>'
-          + '<tr class="hhc-work" id="' + id + '" hidden><td colspan="' + cols + '">' + _hhcWorkingTable(s, complete) + '</td></tr>';
+          + '<td><button type="button" class="hhc-more" data-hhc-site="' + escapeHtml(s.mpan) + '" aria-label="Show ' + escapeHtml(s.site || s.mpan) + ' on its own">Show</button></td>'
+          + '</tr>';
       });
-      h += '</tbody></table>';
-      return h;
+      h += '</tbody><tfoot><tr class="tot"><th scope="row">All ' + _hhcPlural(rows.length, 'site', 'sites') + '</th><td class="num">' + _hhcGBP(A.totals && A.totals.net) + '</td><td colspan="2"></td></tr></tfoot></table>';
+      return pre + '<div class="hhc-scroll">' + h + '</div>';
     }
 
-    function _hhcWorkingTable(s, complete){
-      var h = '<table class="hhc-table hhc-mini"><caption class="hhc-sr">How ' + escapeHtml(s.site || s.mpan) + ' is worked out</caption><thead><tr><th scope="col">Charge</th><th scope="col">' + (complete ? 'Basis' : 'Basis for the month') + '</th><th scope="col" class="num">' + (complete ? 'Estimate' : 'Month estimate') + '</th></tr></thead><tbody>';
-      (s.lines || []).forEach(function(l){
-        h += '<tr><th scope="row">' + escapeHtml(_hhcLineLabel(l)) + '</th><td>' + escapeHtml(_hhcWorking(l, true)) + '</td><td class="num">\u00a3' + _hhcNum(l.proj, 2) + '</td></tr>';
-      });
-      h += '<tr class="sub"><th scope="row">Total excl. VAT</th><td>VAT at ' + _hhcNum(s.vat_pct, 0) + '%: \u00a3' + _hhcNum(s.vat_proj, 2) + '</td><td class="num">\u00a3' + _hhcNum(s.net_proj, 2) + '</td></tr>';
-      h += '</tbody></table>';
-      return h;
-    }
-
-    function _hhcDrawChart(d){
+    function _hhcDrawChart(d, one){
       if (_hhc.chart) { try { _hhc.chart.destroy(); } catch (e) {} _hhc.chart = null; }
-      var days = d.daily || [];
-      if (!days.length) return;
+      var A = d.actual || {}, dm = Number(d.days_in_month) || 30;
+      var vals = one ? (one.daily || []) : (A.daily || []).map(function(x){ return Number(x.net) || 0; });
+      // A token, not just the data object: picking a site re-renders the SAME month, so two draws
+      // can be waiting on the chart library at once and the older one must not win the canvas.
+      var tok = _hhc.drawTok = (_hhc.drawTok || 0) + 1;
+      if (!vals.length) return;
       _ccxChartLib().then(function(ok){
-        if (!ok || !window.Chart || _hhc.data !== d) return;
+        if (!ok || !window.Chart || _hhc.data !== d || _hhc.drawTok !== tok) return;
         var el = document.getElementById('hhcChart'); if (!el) return;
-        var labels = [], act = [], proj = [], ca = 0, cp = 0;
-        days.forEach(function(x){
-          labels.push(_hhcDay(x.d));
-          cp += Number(x.proj) || 0; proj.push(Math.round(cp));
-          if (x.act != null) { ca += Number(x.act) || 0; act.push(Math.round(ca)); } else act.push(null);
-        });
+        if (_hhc.chart) { try { _hhc.chart.destroy(); } catch (e) {} _hhc.chart = null; }
+        try { var prior = Chart.getChart && Chart.getChart(el); if (prior) prior.destroy(); } catch (e) {}
+        var labels = [], data = [], c = 0, m0 = String(d.month).slice(0, 10);
+        for (var i = 0; i < dm; i++) {
+          labels.push(_hhcDay(_hhdAddDays(m0, i)));
+          if (i < vals.length) { c += Number(vals[i]) || 0; data.push(Math.round(c)); } else data.push(null);
+        }
         var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         _hhc.chart = new Chart(el, {
           type: 'line',
           data: { labels: labels, datasets: [
-            { label: 'Measured so far', data: act, borderColor: '#1f3864', backgroundColor: 'rgba(31,56,100,.10)', fill: true, borderWidth: 2.5, pointRadius: 0, tension: 0.15, spanGaps: false },
-            { label: 'Expected for the month', data: proj, borderColor: '#5f73a6', borderDash: [6, 4], borderWidth: 2, pointRadius: 0, fill: false, tension: 0.15 }
+            { label: 'Running total', data: data, borderColor: '#1f3864', backgroundColor: 'rgba(31,56,100,.10)', fill: true,
+              borderWidth: 2.5, pointRadius: vals.length < 4 ? 3 : 0, pointBackgroundColor: '#1f3864', tension: 0.15, spanGaps: false }
           ]},
           options: { responsive: true, maintainAspectRatio: false, animation: reduce ? false : { duration: 250 }, events: [],
             interaction: { mode: 'index', intersect: false },
             plugins: { legend: { display: false },
               tooltip: _hhdTip({ title: function(it){ return it.length ? it[0].label : ''; },
-                                 label: function(c){ return c.parsed.y == null ? '' : c.dataset.label + ': ' + _hhcGBP(c.parsed.y); } }) },
+                                 label: function(c){ return c.parsed.y == null ? '' : 'Running total: ' + _hhcGBP(c.parsed.y); } }) },
             scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 8, autoSkip: true } },
                       y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { callback: function(v){ return _hhcGBP(v); } } } } }
         });
@@ -11650,16 +11807,13 @@
       });
     }
 
-    // "Working" toggles: one delegated listener for the whole card
+    // "Show" / "Back to all sites": one delegated listener for the whole card
     document.addEventListener('click', function(e){
-      var b = e.target.closest ? e.target.closest('#hhcCard .hhc-more') : null;
+      var b = e.target.closest ? e.target.closest('#hhcCard [data-hhc-site]') : null;
       if (!b) return;
-      var row = document.getElementById(b.getAttribute('data-hhc-row'));
-      if (!row) return;
-      var open = row.hidden;
-      row.hidden = !open;
-      b.setAttribute('aria-expanded', open ? 'true' : 'false');
-      b.textContent = open ? 'Hide' : 'Working';
+      hhcSetSite(b.getAttribute('data-hhc-site'));
+      var sel = document.getElementById('hhcSite');
+      if (sel && !sel.closest('[hidden]')) { sel.value = _hhc.site; try { sel.focus(); } catch (x) {} }
     });
 
     // Clean, formatted Excel table export (reuses ExcelJS + _downloadBlob already in the page).

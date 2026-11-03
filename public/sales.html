@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- Readable in a plain fetch of the URL, so "which build is live" needs no login. Bump on every push. -->
-  <meta name="build" content="sales 2026-11-03b" />
+  <meta name="build" content="sales 2026-11-03c" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' blob: https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' data: blob: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com https://api.simplylookupadmin.co.uk; frame-src 'self' blob: data: https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self';" />
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
@@ -8565,7 +8565,7 @@
       host.innerHTML='<table class="sk-table"><tr><th>Business</th><th>Type</th><th>Nature</th><th class="num">Clients</th><th class="num">Value</th><th>Note</th><th></th></tr>'+rows+
         '<tr style="font-weight:800;background:#f7f5f0;"><td>Total</td><td></td><td></td><td class="num">'+totClients+'</td><td class="num">'+_skMoney(tot)+'</td><td></td><td></td></tr></table>';
     }
-    // ── SALES LEAD (Adam) — team admin: lost revenue, targets, figures-on-behalf ──
+    // ── SALES LEAD (Adam; Vick too from 3 Nov 2026) — team admin: lost revenue, targets, figures-on-behalf ──
     function renderLeadView(){
       var host=document.getElementById('brokerLeadView'); if(!host) return;
       if(!(currentUser && currentUser.salesLead)){ host.innerHTML='<div class="card">This area is for the sales lead only.</div>'; return; }
@@ -8610,7 +8610,9 @@
             + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px;">'
               + '<div class="form-group" style="margin:0;"><label>Month</label><select id="leadActMonth" onchange="renderLeadActivity()"></select></div>'
               + '<button type="button" class="btn-secondary" id="leadDeckBtn" style="padding:9px 14px;" onclick="downloadBrokerDeck(document.getElementById(\'leadActMonth\').value)">Download the monthly report (PowerPoint)</button>'
+              + '<button type="button" class="btn-secondary" id="leadReportBtn" style="padding:9px 14px;" onclick="leadDownloadExcel()">Download the month-end report (Excel)</button>'
             + '</div>'
+            + '<div id="leadReportStatus" style="font-size:12.5px;margin:4px 0 10px;"></div>'
             + '<div id="leadActBody"></div>'
           + '</div>'
           + '<div class="card" id="leadActCard">' + _actCardHtml('lead') + '</div>'
@@ -8709,6 +8711,25 @@
             : '<div>No calls, emails, Teramind or DocuSign figures loaded for '+(all?'these months':escapeHtml(_skPeriodLabel(pick)))+' yet.</div>')
         + '<div style="margin-top:4px;">A dash means not recorded, never zero.'+(all?' Computer activity across several months is weighted by Teramind work time.':'')+'</div>'
         + '</div>';
+      renderLeadReportStatus();
+    }
+    // Team admin: the month-end Excel at any time (Zac, 3 Nov 2026). The same workbook Company view
+    // and the emailed month-end report produce; for a month not yet confirmed it is marked DRAFT and
+    // names who is outstanding. "All months" downloads the latest month.
+    function _leadReportKey(){
+      var sel=document.getElementById('leadActMonth'), key=sel ? sel.value : '';
+      if(!key || key==='__all__') key=_leadActPeriods()[0] || _skPeriods()[0] || '';
+      return key ? String(key).slice(0,7)+'-01' : '';
+    }
+    function leadDownloadExcel(){
+      var key=_leadReportKey();
+      if(!key){ safeAlert('There are no monthly figures yet, so there is nothing to report.', null); return; }
+      downloadMonthEndReport(key);
+    }
+    function renderLeadReportStatus(){
+      var el=document.getElementById('leadReportStatus'); if(!el) return;
+      var key=_leadReportKey();
+      el.innerHTML = key ? '<span style="font-weight:700;">Excel for '+escapeHtml(_skPeriodLabel(key))+':</span> '+_meReportStatusHtml(key) : '';
     }
     // ── Company view (CEO, read-only) ──
     // Its own screen rather than a dressed-up leaderboard: aggregate the company first,
@@ -8763,13 +8784,16 @@
       var el=document.getElementById('ceoReportStatus'); if(!el) return;
       var key=(document.getElementById('ceoReportMonth')||{}).value;
       if(!key){ el.innerHTML=''; return; }
+      el.innerHTML=_meReportStatusHtml(key);
+    }
+    function _meReportStatusHtml(key){
       var reps=(_SK.reps||[]).filter(function(r){ return r.active!==false; });
-      if(!reps.length){ el.innerHTML='<span style="color:#b5340f;font-weight:700;">The broker list did not load, so this month\'s status is unknown. Please refresh the page.</span>'; return; }
+      if(!reps.length) return '<span style="color:#b5340f;font-weight:700;">The broker list did not load, so this month\'s status is unknown. Please refresh the page.</span>';
       var waiting=reps.filter(function(r){
         return !(_SK.kpis||[]).some(function(k){ return k.rep_id===r.id && k.period===key && k.confirmed_at; });
       });
       var done=reps.length-waiting.length;
-      el.innerHTML = waiting.length
+      return waiting.length
         ? '<span style="color:#8a5a00;font-weight:700;">'+done+' of '+reps.length+' brokers confirmed.</span> '
           + '<span>The download is marked DRAFT until '
           + escapeHtml(waiting.map(function(r){ return _skShortName(r.name); }).join(', '))
