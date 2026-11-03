@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- Readable in a plain fetch of the URL, so "which build is live" needs no login. Bump on every push. -->
-  <meta name="build" content="sales 2026-11-03d" />
+  <meta name="build" content="sales 2026-11-03e" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' blob: https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' data: blob: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com https://api.simplylookupadmin.co.uk; frame-src 'self' blob: data: https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self';" />
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
@@ -6541,7 +6541,7 @@
         if(src.length) src.forEach(function(x){ bullet(x.metric + ': ' + x.line + '.'); });
         else bullet('Calls, emails and computer activity: nothing loaded for ' + label + '.');
         bullet('External calls are calls made on 8x8 (desk phone or 8x8 app). Calls from a personal mobile are not in 8x8, so they are not here.');
-        bullet('Emails sent are emails sent from the broker\'s own @cesgb.com mailbox, Monday to Friday 07:00 to 19:00 UK time, one per email however many people it went to.');
+        bullet('Emails sent are every email sent from the broker\'s own @cesgb.com mailbox in the month, the 1st to the last day, at any time, weekends and evenings included, one per email however many people it went to.');
         bullet('Computer activity is Teramind\'s figure for the whole month (Input Rate: Activity), not an average of daily downloads.');
         bullet('N/A means the figure was not recorded. It is never counted or ranked as zero.');
         s8.addText(lines, { x:0.55, y:1.2, w:11.6, h:5.2, fontFace:'Arial', valign:'top', margin:0, paraSpaceAfter:8 });
@@ -8605,7 +8605,7 @@
         + '<div class="bx-pane" id="leadPane-activity">'
           + '<div class="card" style="margin-bottom:16px;">'
             + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Activity &amp; output by broker</h3>'
-            + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Days worked and contracts signed are entered by each broker on their month-end form. Calls and talk time load from 8x8 every morning, and emails from Microsoft 365 (sent from the broker\'s own @cesgb.com mailbox, Monday to Friday 07:00 to 19:00). Calls from personal mobiles are not in 8x8. Computer activity comes from Teramind, loaded once a month on the Management page. A dash means not recorded, never zero. Where every figure came from is listed under the table.</p>'
+            + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Days worked and contracts signed are entered by each broker on their month-end form. Calls and talk time load from 8x8 every morning, and emails from Microsoft 365 (every email sent from the broker\'s own @cesgb.com mailbox, at any time on any day, weekends and evenings included). A month runs from the 1st to the last day. Calls from personal mobiles are not in 8x8. Computer activity comes from Teramind, loaded once a month on the Management page. A dash means not recorded, never zero. Where every figure came from is listed under the table.</p>'
             + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px;">'
               + '<div class="form-group" style="margin:0;"><label>Month</label><select id="leadActMonth" onchange="renderLeadActivity()"></select></div>'
               + '<button type="button" class="btn-secondary" id="leadDeckBtn" style="padding:9px 14px;" onclick="downloadBrokerDeck(document.getElementById(\'leadActMonth\').value)">Download the monthly report (PowerPoint)</button>'
@@ -8726,8 +8726,11 @@
     // ═══════════════════════════════════════════════════════════════════════════════════════
     // MANAGEMENT VIEW (3 Nov 2026, late): the old Company view with three more tabs.
     //   Figures         - unchanged (period figures, month-end Excel/PowerPoint)
-    //   Emails & calls  - every broker's emails, calls, talk time and call time for any time
-    //                     frame, with plain-English flags for anything that looks wrong
+    //   Emails & calls  - every broker's emails, calls, talk time and call time for a month (the
+    //                     1st to the last day, weekends included) or any dates, with
+    //                     plain-English flags for anything that looks wrong. Since _54 (3 Nov
+    //                     late, Zac) an email is EVERY email at any time on any day, and weekend
+    //                     days are rows like any other; flags still judge working days only.
     //   Monthly upload  - the Teramind export and days worked, once a month (management's days
     //                     sit BESIDE the broker's own figure: reports keep the broker's, Zac 3 Nov)
     //   Data feeds      - whether the 8x8 and Microsoft 365 feeds loaded, and the meters Stark sent
@@ -8735,7 +8738,7 @@
     // Read-only except Monthly upload, which goes through record_broker_activity (_53 lets
     // exec_view load Teramind and days worked, nothing else).
     // ═══════════════════════════════════════════════════════════════════════════════════════
-    var _MG = { tab:'figures', preset:'month', from:null, to:null, days:null, daysKey:null, feed:null, feedKey:null, upMonth:null, tm:null, seq:0, feedTab:'d30' };
+    var _MG = { tab:'figures', preset:'month', month:null, from:null, to:null, days:null, daysKey:null, feed:null, feedKey:null, upMonth:null, tm:null, seq:0, feedTab:'d30' };
     var MG_CSS = ''
       + '.mg-tabs .admin-tab{display:inline-flex;align-items:center;gap:6px;}'
       + '.mg-badge{display:inline-block;min-width:20px;padding:1px 7px;border-radius:999px;background:#b5340f;color:#fff;font-size:11.5px;font-weight:800;line-height:18px;text-align:center;}'
@@ -8757,6 +8760,10 @@
       + '.mg-grid td.mg-c-none{background:#eceff4;}'
       + '.mg-grid td.mg-c-data{background:#fbe3e0;}'
       + '.mg-grid td small{display:block;color:#4a4e5c;font-size:11.5px;}'
+      + '.mg-grid tr.mg-off td:first-child{background:#eef1f6;color:#3a4152;font-style:italic;}'
+      + '.sk-table td small.mg-sub{display:block;color:#4a4e5c;font-size:11.5px;font-weight:600;}'
+      + '.mg-field select.mg-month{min-width:200px;}'
+      + '#mgActTable th{white-space:normal;vertical-align:bottom;line-height:1.3;}'
       + '.mg-h4{font-size:13.5px;font-weight:800;color:#1f3864;margin:18px 0 8px;}'
       + '.mg-status{font-size:13px;line-height:1.55;color:#1f2a44;margin:0 0 12px;}'
       + '.mg-diff{color:#8a4b00;font-weight:800;}'
@@ -8775,11 +8782,33 @@
     function _mgDayW(iso){ var p = iso.split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1, p[2])).toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short', timeZone:'UTC' }); }
     function _mgMonthStart(iso){ return iso.slice(0, 8) + '01'; }
     function _mgMonthEnd(iso){ var p = iso.split('-').map(Number); return _mgIso(new Date(Date.UTC(p[0], p[1], 0))); }
-    // Working days as ranges, e.g. 26 Oct to 2 Nov counts across the weekend: "26-30 Oct, 2 Nov"
-    // would be wrong for a broker who just had no calls; consecutive WORKING days join up.
-    function _mgRanges(days){
+    function _mgMonthLabel(iso){ var p = iso.split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1, 1)).toLocaleDateString('en-GB', { month:'long', year:'numeric', timeZone:'UTC' }); }
+    // "1 Oct to 31 Oct 2026"; the year shows on both ends only when it changes.
+    function _mgSpan(from, to){
+      var y1 = from.slice(0, 4), y2 = to.slice(0, 4);
+      return from === to ? _mgDay(from) + ' ' + y1 : _mgDay(from) + (y1 !== y2 ? ' ' + y1 : '') + ' to ' + _mgDay(to) + ' ' + y2;
+    }
+    // The months on offer: this month back to the first month the daily feeds cover (a
+    // broker_activity month whose source carries a day count), and never more than two years.
+    function _mgMonthsList(){
+      var cur = _mgMonthStart(_mgToday()), first = null;
+      (_SK.activity || []).forEach(function(a){
+        var s = a.sources || {}, p = String(a.period).slice(0, 10);
+        if(((s.calls && s.calls.days) || (s.emails && s.emails.days)) && (!first || p < first)) first = p;
+      });
+      var out = [], m = cur;
+      for(var i = 0; i < 24; i++){
+        out.push(m);
+        if(first ? m <= first : i >= 11) break;
+        m = _mgMonthStart(_mgAdd(m, -1));
+      }
+      return out;
+    }
+    // Days as ranges. A broker's working days join across a weekend ("26 Oct to 30 Oct" for a
+    // week with no calls); a feed problem is about calendar days, so those join day to day only.
+    function _mgRanges(days, calendar){
       var ds = days.slice().sort(), out = [], i = 0;
-      function nextWorking(iso){ var n = _mgAdd(iso, 1); while(!_mgIsWorking(n)) n = _mgAdd(n, 1); return n; }
+      function nextWorking(iso){ var n = _mgAdd(iso, 1); if(!calendar) while(!_mgIsWorking(n)) n = _mgAdd(n, 1); return n; }
       while(i < ds.length){
         var j = i;
         while(j + 1 < ds.length && nextWorking(ds[j]) === ds[j + 1]) j++;
@@ -8794,15 +8823,18 @@
     function _mgMs(sec){ if(sec == null || !isFinite(sec)) return null; sec = Math.round(sec); var m = Math.floor(sec / 60), s = sec % 60; return m + 'm ' + String(s).padStart(2, '0') + 's'; }
     function _mgDash(){ return '<span style="color:#4a4e5c;">&ndash;</span>'; }
 
+    // A month is the 1st to the last day and a week Monday to Sunday, weekends included (Zac,
+    // 3 Nov). Figures stop at yesterday: each day loads the next morning.
     function _mgPresetRange(p){
-      var today = _mgToday(), y = _mgAdd(today, -1);
+      var today = _mgToday();
       if(p === 'lastmonth'){ var lm = _mgAdd(_mgMonthStart(today), -1); return [_mgMonthStart(lm), _mgMonthEnd(lm)]; }
       if(p === 'week' || p === 'lastweek'){
         var dow = _mgDow(today), mon = _mgAdd(today, -((dow + 6) % 7));
-        if(p === 'lastweek') return [_mgAdd(mon, -7), _mgAdd(mon, -1)];
-        return [mon, today];
+        if(p === 'lastweek') mon = _mgAdd(mon, -7);
+        return [mon, _mgAdd(mon, 6)];
       }
-      return [_mgMonthStart(today), today];   // 'month'
+      var m = _MG.month || _mgMonthStart(today);   // 'month'
+      return [m, _mgMonthEnd(m)];
     }
 
     // ── tabs ──
@@ -8863,43 +8895,60 @@
     // Days a feed did not load are never held against a broker: they are reported as data problems.
     function _mgAnalyse(reps, rows, feed, from, to){
       var yday = _mgAdd(_mgToday(), -1), last = to < yday ? to : yday;
-      var work = [];
-      for(var d = from; d <= last; d = _mgAdd(d, 1)) if(_mgIsWorking(d)) work.push(d);
+      var days = [], work = [];
+      for(var d = from; d <= last; d = _mgAdd(d, 1)){ days.push(d); if(_mgIsWorking(d)) work.push(d); }
+      // A feed only answers for days on or after it started (mgmt_feed_status returns the dates,
+      // _54): before that a day is "not on record", never "did not load" and never a zero.
+      var cFrom = feed && feed.calls_from ? String(feed.calls_from).slice(0, 10) : null;
+      var eFrom = feed && feed.emails_from ? String(feed.emails_from).slice(0, 10) : null;
       var callsOk = {}, mailOk = {};
-      ((feed && feed.calls) || []).forEach(function(x){ callsOk[x.day] = x.ok === true; });
-      ((feed && feed.emails) || []).forEach(function(x){ mailOk[x.day] = x.ok === true; });
+      ((feed && feed.calls) || []).forEach(function(x){ callsOk[String(x.day).slice(0, 10)] = x.ok === true; });
+      ((feed && feed.emails) || []).forEach(function(x){ mailOk[String(x.day).slice(0, 10)] = x.ok === true; });
+      function cIn(d){ return !feed || (cFrom ? d >= cFrom : (d in callsOk)); }
+      function eIn(d){ return !feed || (eFrom ? d >= eFrom : (d in mailOk)); }
+      function cGood(d){ return !feed || (cIn(d) && callsOk[d] === true); }
+      function eGood(d){ return !feed || (eIn(d) && mailOk[d] === true); }
       var byRep = {};
       reps.forEach(function(r){ byRep[r.id] = {}; });
-      rows.forEach(function(x){ var d = String(x.day).slice(0, 10); if(byRep[x.rep_id] && d >= from && d <= to) byRep[x.rep_id][d] = x; });
-      var out = [], flags = [];
-      var badCalls = work.filter(function(d){ return feed && callsOk[d] !== true; });
-      var badMail = work.filter(function(d){ return feed && mailOk[d] !== true; });
-      if(badCalls.length) flags.push({ kind:'data', who:null, text:'<b>8x8 calls did not load</b> for ' + _mgList(_mgRanges(badCalls)) + '. Calls on those days are not counted and are not flagged against anyone.' });
-      if(badMail.length) flags.push({ kind:'data', who:null, text:'<b>Emails did not load</b> for ' + _mgList(_mgRanges(badMail)) + '. Emails on those days are not counted and are not flagged against anyone.' });
+      rows.forEach(function(x){ var d = String(x.day).slice(0, 10); if(byRep[x.rep_id] && d >= from && d <= last) byRep[x.rep_id][d] = x; });
+      var out = [], flags = [], notes = [];
+      var badCalls = days.filter(function(d){ return feed && cIn(d) && callsOk[d] !== true; });
+      var badMail = days.filter(function(d){ return feed && eIn(d) && mailOk[d] !== true; });
+      if(badCalls.length) flags.push({ kind:'data', who:null, text:'<b>8x8 calls did not load</b> for ' + _mgList(_mgRanges(badCalls, true)) + '. Calls on those days are not counted and are not flagged against anyone.' });
+      if(badMail.length) flags.push({ kind:'data', who:null, text:'<b>Emails did not load</b> for ' + _mgList(_mgRanges(badMail, true)) + '. Emails on those days are not counted and are not flagged against anyone.' });
+      if(eFrom && from < eFrom) notes.push('Emails are on record from ' + _mgDay(eFrom) + ' ' + eFrom.slice(0, 4) + ': Microsoft keeps only 90 days of history, so September 2026 was the first whole month that could be loaded.');
+      if(cFrom && from < cFrom) notes.push('8x8 calls are on record from ' + _mgDay(cFrom) + ' ' + cFrom.slice(0, 4) + '.');
       reps.forEach(function(r){
         var D = byRep[r.id], name = _skShortName(r.name);
-        var s = { rep:r, emails:null, calls:null, talk:null, callt:null, active:0, work:work.length, hasCalls:false, cells:{} };
+        var hasExt = Array.isArray(r.activity_aliases) ? r.activity_aliases.some(function(a){ return /^x\d{2,5}$/i.test(String(a).trim()); }) : null;
+        var s = { rep:r, emails:null, calls:null, talk:null, callt:null, active:0, activeWork:0, activeWknd:0, activeHol:0, work:work.length, hasCalls:false, hasExt:hasExt, cells:{} };
         Object.keys(D).forEach(function(day){
           var x = D[day];
           if(x.emails != null) s.emails = (s.emails || 0) + Number(x.emails);
           if(x.calls != null){ s.calls = (s.calls || 0) + Number(x.calls); s.hasCalls = true; }
           if(x.talk_time_sec != null) s.talk = (s.talk || 0) + Number(x.talk_time_sec);
           if(x.call_time_sec != null) s.callt = (s.callt || 0) + Number(x.call_time_sec);
-          if((Number(x.emails) || 0) > 0 || (Number(x.calls) || 0) > 0) s.active++;
+          if((Number(x.emails) || 0) > 0 || (Number(x.calls) || 0) > 0){
+            s.active++;
+            if(_mgIsWorking(day)) s.activeWork++;
+            else if(_mgDow(day) === 0 || _mgDow(day) === 6) s.activeWknd++;
+            else s.activeHol++;
+          }
         });
-        // 1. emailing but no 8x8 calls, on days the calls feed loaded (only for brokers with an extension)
+        // The flags judge WORKING days only: emails at a weekend are counted, never expected.
+        // 1. emailing but no 8x8 calls, on days both feeds loaded (only for brokers with an extension)
         var noCalls = [], none = [], lowMail = [], highMail = [];
-        var mailVals = work.map(function(d){ return D[d] && mailOk[d] !== false ? Number(D[d].emails) : null; }).filter(function(v){ return v != null && !isNaN(v); }).sort(function(a, b){ return a - b; });
+        var mailVals = work.filter(eGood).map(function(d){ return D[d] && D[d].emails != null ? Number(D[d].emails) : null; }).filter(function(v){ return v != null && !isNaN(v); }).sort(function(a, b){ return a - b; });
         var med = mailVals.length ? mailVals[Math.floor(mailVals.length / 2)] : null;
         work.forEach(function(d){
-          var x = D[d], cOk = !feed || callsOk[d] === true, mOk = !feed || mailOk[d] === true;
+          var x = D[d], cOk = cGood(d), mOk = eGood(d);
           var e = x && x.emails != null ? Number(x.emails) : null, c = x && x.calls != null ? Number(x.calls) : null;
           if(s.hasCalls && cOk && mOk && (e || 0) > 0 && (c === 0 || (c == null && x))) { noCalls.push(d); s.cells[d] = 'check'; }
           if(mOk && (!s.hasCalls || cOk) && !(e > 0) && !(c > 0)) { none.push(d); s.cells[d] = 'none'; }
-          if(!cOk || !mOk) s.cells[d] = 'data';
           if(mOk && med != null && med >= 20 && e != null && e > 0 && e < med * 0.25) lowMail.push(d);
           if(mOk && med != null && med >= 20 && e != null && e >= 60 && e > med * 2.5) highMail.push(d);
         });
+        days.forEach(function(d){ if((cIn(d) && !cGood(d)) || (eIn(d) && !eGood(d))) s.cells[d] = 'data'; });
         // A run of 3+ working days, or a quarter of them: one quiet day is normal, a pattern is not.
         var runMax = 0, run = 0, prev = null;
         noCalls.forEach(function(d){ var p = prev, n = p ? _mgAdd(p, 1) : null; while(n && !_mgIsWorking(n)) n = _mgAdd(n, 1); run = (p && n === d) ? run + 1 : 1; if(run > runMax) runMax = run; prev = d; });
@@ -8910,7 +8959,8 @@
         if(highMail.length) flags.push({ kind:'info', who:name, text:'<b>' + escapeHtml(name) + '</b>: far more emails than usual on ' + _mgList(_mgRanges(highMail)) + ' (usual day about ' + _skNum(med, 0) + '). A bulk send?' });
         out.push(s);
       });
-      // 5. days worked: whole calendar months only (that is what days worked describe)
+      // 5. days worked: whole calendar months only (that is what days worked describe), compared
+      //    with the WORKING days that had emails or calls.
       var fullMonth = (from === _mgMonthStart(from) && to === _mgMonthEnd(from)) ? _mgMonthStart(from) : null;
       if(fullMonth){
         out.forEach(function(s){
@@ -8922,32 +8972,44 @@
           if(s.daysBroker != null && s.daysMgmt != null && s.daysBroker !== s.daysMgmt)
             flags.push({ kind:'check', who:name, text:'<b>' + escapeHtml(name) + '</b>: days worked differ for ' + escapeHtml(_skPeriodLabel(fullMonth)) + ': the broker entered ' + _skNum(s.daysBroker, 1).replace(/\.0$/, '') + ', management ' + _skNum(s.daysMgmt, 1).replace(/\.0$/, '') + '. Reports use the broker’s figure.' });
           var best = s.daysMgmt != null ? s.daysMgmt : s.daysBroker;
-          if(best != null && last >= _mgMonthEnd(fullMonth) && s.active > best + 1)
-            flags.push({ kind:'info', who:name, text:'<b>' + escapeHtml(name) + '</b>: emails or calls on ' + s.active + ' days, more than the ' + _skNum(best, 1).replace(/\.0$/, '') + ' days worked.' });
-          if(best != null && last >= _mgMonthEnd(fullMonth) && s.active < best - 2)
-            flags.push({ kind:'check', who:name, text:'<b>' + escapeHtml(name) + '</b>: ' + _skNum(best, 1).replace(/\.0$/, '') + ' days worked, but emails or calls on only ' + s.active + ' days.' });
+          if(best != null && last >= _mgMonthEnd(fullMonth) && s.activeWork > best + 1)
+            flags.push({ kind:'info', who:name, text:'<b>' + escapeHtml(name) + '</b>: emails or calls on ' + s.activeWork + ' working days, more than the ' + _skNum(best, 1).replace(/\.0$/, '') + ' days worked.' });
+          if(best != null && last >= _mgMonthEnd(fullMonth) && s.activeWork < best - 2)
+            flags.push({ kind:'check', who:name, text:'<b>' + escapeHtml(name) + '</b>: ' + _skNum(best, 1).replace(/\.0$/, '') + ' days worked, but emails or calls on only ' + s.activeWork + ' working days.' });
         });
       }
-      return { summary:out, flags:flags, work:work, fullMonth:fullMonth };
+      return { summary:out, flags:flags, notes:notes, days:days, work:work, last:last, cFrom:cFrom, eFrom:eFrom, fullMonth:fullMonth };
     }
 
     // ── Emails & calls ──
     function renderMgmtActivity(){
       _mgEnsureCss();
       var pane = document.getElementById('ceoPane-activity'); if(!pane) return;
+      var months = _mgMonthsList(), cur = _mgMonthStart(_mgToday());
+      if(!_MG.month || months.indexOf(_MG.month) < 0) _MG.month = months[0];
       if(!_MG.from){ var pr = _mgPresetRange(_MG.preset); _MG.from = pr[0]; _MG.to = pr[1]; }
-      var P = [['month','This month'],['lastmonth','Last month'],['week','This week'],['lastweek','Last week'],['custom','Choose dates']];
+      var P = [['week','This week'],['lastweek','Last week'],['custom','Choose dates']];
+      var isMonth = _MG.preset === 'month';
       pane.innerHTML = '<div class="card">'
         + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Emails and calls, by broker</h3>'
-        + '<p class="mg-note">Emails are counted from each broker’s own @cesgb.com mailbox (Monday to Friday, 07:00 to 19:00). Calls, talk time and call time come from 8x8 (outbound calls to outside numbers from the desk phone or 8x8 app). Both load by themselves every morning for the day before. Talk time is time connected; call time adds the ringing.</p>'
+        + '<p class="mg-note">A month runs from the 1st to the last day, weekends included. Emails: every email sent from each broker’s own @cesgb.com mailbox, at any time on any day, evenings and weekends included, counted once however many people it went to. Calls, talk time and call time: 8x8, every outbound call to an outside number from the desk phone or 8x8 app, at any time on any day. Both load by themselves every morning for the day before. Talk time is time connected; call time adds the ringing.</p>'
         + '<div class="mg-controls">'
-          + '<div class="mg-presets" role="group" aria-label="Time frame">' + P.map(function(p){ return '<button type="button" data-mg-preset="' + p[0] + '" aria-pressed="' + (_MG.preset === p[0] ? 'true' : 'false') + '">' + p[1] + '</button>'; }).join('') + '</div>'
+          + '<label class="mg-field">Month<select id="mgMonth" class="mg-month">'
+            + (isMonth ? '' : '<option value="" selected>Other dates</option>')
+            + months.map(function(m){ return '<option value="' + m + '"' + (isMonth && m === _MG.month ? ' selected' : '') + '>' + escapeHtml(_mgMonthLabel(m) + (m === cur ? ' (so far)' : '')) + '</option>'; }).join('')
+          + '</select></label>'
+          + '<div class="mg-presets" role="group" aria-label="Other time frames">' + P.map(function(p){ return '<button type="button" data-mg-preset="' + p[0] + '" aria-pressed="' + (_MG.preset === p[0] ? 'true' : 'false') + '">' + p[1] + '</button>'; }).join('') + '</div>'
           + '<label class="mg-field">From<input type="date" id="mgFrom" value="' + _MG.from + '"></label>'
           + '<label class="mg-field">To<input type="date" id="mgTo" value="' + _MG.to + '"></label>'
           + '<button type="button" class="mg-btn" id="mgShow">Show</button>'
         + '</div>'
         + '<div id="mgActBody" aria-live="polite"><p class="mg-note">Loading…</p></div>'
         + '</div>';
+      document.getElementById('mgMonth').onchange = function(){
+        if(!this.value) return;
+        _MG.preset = 'month'; _MG.month = this.value;
+        var r = _mgPresetRange('month'); _MG.from = r[0]; _MG.to = r[1]; renderMgmtActivity();
+      };
       pane.querySelectorAll('[data-mg-preset]').forEach(function(b){ b.onclick = function(){
         _MG.preset = b.getAttribute('data-mg-preset');
         if(_MG.preset !== 'custom'){ var r = _mgPresetRange(_MG.preset); _MG.from = r[0]; _MG.to = r[1]; renderMgmtActivity(); }
@@ -8957,17 +9019,25 @@
         var f = document.getElementById('mgFrom').value, t = document.getElementById('mgTo').value;
         if(!f || !t){ safeAlert('Pick a start and an end date.', null); return; }
         if(f > t){ var x = f; f = t; t = x; }
-        _MG.preset = 'custom'; _MG.from = f; _MG.to = t; renderMgmtActivity();
+        // whole calendar month typed in: treat it as that month
+        if(f === _mgMonthStart(f) && t === _mgMonthEnd(f) && months.indexOf(f) >= 0){ _MG.preset = 'month'; _MG.month = f; }
+        else _MG.preset = 'custom';
+        _MG.from = f; _MG.to = t; renderMgmtActivity();
       };
       _mgFillActivity();
     }
     async function _mgFillActivity(){
       var body = document.getElementById('mgActBody'); if(!body) return;
-      var seq = ++_MG.seq, from = _MG.from, to = _MG.to > _mgToday() ? _mgToday() : _MG.to;
+      var seq = ++_MG.seq, from = _MG.from, to = _MG.to;
+      var yday = _mgAdd(_mgToday(), -1), last = to < yday ? to : yday;
+      if(from > last){
+        body.innerHTML = '<p class="mg-status"><b>' + escapeHtml(_mgSpan(from, to)) + '</b></p><div class="mg-flag info">No figures yet: emails and calls load each morning for the day before.</div>';
+        return;
+      }
       var rows, feed = null;
       try {
-        rows = await _mgLoadDays(from, to);
-        try { feed = await _mgLoadFeed(from, to); } catch(e){ console.warn('feed status', e); }
+        rows = await _mgLoadDays(from, last);
+        try { feed = await _mgLoadFeed(from, last); } catch(e){ console.warn('feed status', e); }
       } catch(e){
         if(seq !== _MG.seq) return;
         body.innerHTML = '<div class="mg-flag data">The emails and calls could not be loaded just now. Please refresh the page.</div>'; return;
@@ -8975,27 +9045,39 @@
       if(seq !== _MG.seq) return;
       var reps = (_SK.reps || []).filter(function(r){ return r.active !== false; });
       var A = _mgAnalyse(reps, rows, feed, from, to);
-      var nW = A.work.length;
-      var span = _mgDay(from) + (from !== to ? ' to ' + _mgDay(to) : '') + ' · ' + nW + ' working day' + (nW === 1 ? '' : 's') + (A.work.length && A.work[A.work.length - 1] < to ? ' with figures so far' : '');
+      var nD = A.days.length, nW = A.work.length;
+      // "a day" means a working day; a feed that started part way through counts from its start
+      var nWe = A.work.filter(function(d){ return !A.eFrom || d >= A.eFrom; }).length;
+      var nWc = A.work.filter(function(d){ return !A.cFrom || d >= A.cFrom; }).length;
+      var span = _mgSpan(from, to) + ' · ' + (A.last < to
+        ? 'figures to ' + _mgDay(A.last) + ': ' + nD + ' day' + (nD === 1 ? '' : 's') + ' so far, ' + nW + ' of them working day' + (nW === 1 ? '' : 's')
+        : nD + ' days, ' + nW + ' of them working days');
       var T = { emails:null, calls:null, talk:null, callt:null };
       A.summary.forEach(function(s){ ['emails','calls','talk','callt'].forEach(function(k){ if(s[k] != null) T[k] = (T[k] || 0) + s[k]; }); });
       var showDays = !!A.fullMonth;
+      var offTxt = function(s){
+        var p = [];
+        if(s.activeWknd) p.push('+' + s.activeWknd + ' weekend day' + (s.activeWknd === 1 ? '' : 's'));
+        if(s.activeHol) p.push('+' + s.activeHol + ' bank holiday' + (s.activeHol === 1 ? '' : 's'));
+        return p.length ? '<small class="mg-sub">' + p.join(', ') + '</small>' : '';
+      };
       var h = '<p class="mg-status"><b>' + escapeHtml(span) + '</b></p>'
+        + (A.notes.length ? '<p class="mg-note" id="mgNotes">' + A.notes.map(escapeHtml).join(' ') + '</p>' : '')
         + '<div style="overflow-x:auto;"><table class="sk-table" id="mgActTable"><tr><th>Broker</th>'
-        + '<th class="num">Emails</th><th class="num">Emails a day</th><th class="num">Calls</th><th class="num">Calls a day</th>'
-        + '<th class="num">Talk time</th><th class="num">Average call</th><th class="num">Call time</th><th class="num">Days with activity</th>'
+        + '<th class="num">Emails</th><th class="num">Emails per working day</th><th class="num">Calls</th><th class="num">Calls per working day</th>'
+        + '<th class="num">Talk time</th><th class="num">Average call</th><th class="num">Call time</th><th class="num">Working days with activity</th>'
         + (showDays ? '<th class="num">Days worked (broker)</th><th class="num">Days worked (management)</th>' : '') + '</tr>'
         + A.summary.map(function(s){
             var diff = showDays && s.daysBroker != null && s.daysMgmt != null && s.daysBroker !== s.daysMgmt;
             return '<tr><td>' + escapeHtml(_skShortName(s.rep.name)) + '</td>'
               + '<td class="num">' + (s.emails == null ? _mgDash() : _skNum(s.emails, 0)) + '</td>'
-              + '<td class="num">' + (s.emails == null || !nW ? _mgDash() : _skNum(s.emails / nW, 1)) + '</td>'
-              + '<td class="num">' + (!s.hasCalls ? '<span title="No 8x8 extension on record">' + _mgDash() + '</span>' : _skNum(s.calls, 0)) + '</td>'
-              + '<td class="num">' + (!s.hasCalls || !nW ? _mgDash() : _skNum(s.calls / nW, 1)) + '</td>'
+              + '<td class="num">' + (s.emails == null || !nWe ? _mgDash() : _skNum(s.emails / nWe, 1)) + '</td>'
+              + '<td class="num">' + (!s.hasCalls ? '<span title="' + (s.hasExt === false ? 'No 8x8 extension on record' : 'Not on record') + '">' + _mgDash() + '</span>' : _skNum(s.calls, 0)) + '</td>'
+              + '<td class="num">' + (!s.hasCalls || !nWc ? _mgDash() : _skNum(s.calls / nWc, 1)) + '</td>'
               + '<td class="num">' + (s.talk == null || !s.hasCalls ? _mgDash() : _mgHm(s.talk)) + '</td>'
               + '<td class="num">' + (s.hasCalls && s.calls ? _mgMs(s.talk / s.calls) : _mgDash()) + '</td>'
               + '<td class="num">' + (s.callt == null || !s.hasCalls ? _mgDash() : _mgHm(s.callt)) + '</td>'
-              + '<td class="num">' + s.active + ' of ' + nW + '</td>'
+              + '<td class="num">' + s.activeWork + ' of ' + nW + offTxt(s) + '</td>'
               + (showDays ? '<td class="num">' + (s.daysBroker == null ? _mgDash() : _skNum(s.daysBroker, 1).replace(/\.0$/, '')) + '</td>'
                   + '<td class="num' + (diff ? ' mg-diff' : '') + '">' + (s.daysMgmt == null ? _mgDash() : _skNum(s.daysMgmt, 1).replace(/\.0$/, '')) + '</td>' : '')
               + '</tr>';
@@ -9009,23 +9091,21 @@
       h += A.flags.length
         ? '<ul class="mg-flags" id="mgFlags">' + A.flags.map(function(f){ return '<li class="mg-flag ' + f.kind + '">' + f.text + '</li>'; }).join('') + '</ul>'
         : '<div class="mg-ok" id="mgFlags">Nothing out of the ordinary in this time frame.</div>';
-      // day by day: the evidence behind every flag
+      // day by day: every calendar day, the evidence behind every flag
       h += '<details style="margin-top:16px;"><summary class="mg-h4" style="cursor:pointer;display:list-item;">Day by day</summary>'
         + '<div style="overflow-x:auto;margin-top:8px;"><table class="sk-table mg-grid" id="mgGrid"><tr><th>Day</th>' + A.summary.map(function(s){ return '<th class="num">' + escapeHtml(_skShortName(s.rep.name)) + '</th>'; }).join('') + '</tr>';
       var byRep = {}; A.summary.forEach(function(s){ byRep[s.rep.id] = {}; });
-      rows.forEach(function(x){ if(byRep[x.rep_id]) byRep[x.rep_id][x.day] = x; });
-      var allDays = A.work.slice();
-      rows.forEach(function(x){ if(allDays.indexOf(x.day) < 0 && ((Number(x.emails) || 0) > 0 || (Number(x.calls) || 0) > 0)) allDays.push(x.day); });
-      allDays.sort();
-      allDays.forEach(function(d){
-        h += '<tr><td>' + escapeHtml(_mgDayW(d)) + '</td>' + A.summary.map(function(s){
+      rows.forEach(function(x){ if(byRep[x.rep_id]) byRep[x.rep_id][String(x.day).slice(0, 10)] = x; });
+      A.days.forEach(function(d){
+        var off = !_mgIsWorking(d), dow = _mgDow(d);
+        h += '<tr' + (off ? ' class="mg-off"' : '') + '><td>' + escapeHtml(_mgDayW(d) + (off && dow >= 1 && dow <= 5 ? ' (bank holiday)' : '')) + '</td>' + A.summary.map(function(s){
           var x = byRep[s.rep.id][d], cls = s.cells[d] ? ' mg-c-' + s.cells[d] : '';
           if(!x) return '<td class="num' + cls + '">' + _mgDash() + '</td>';
-          var e = x.emails == null ? '–' : _skNum(x.emails, 0), c = x.calls == null ? null : Number(x.calls);
-          return '<td class="num' + cls + '">' + e + ' emails<small>' + (c == null ? 'no 8x8' : c + ' call' + (c === 1 ? '' : 's') + (c ? ' · ' + _mgMs(Number(x.talk_time_sec) || 0) : '')) + '</small></td>';
+          var e = x.emails == null ? _mgDash() : _skNum(x.emails, 0) + ' email' + (Number(x.emails) === 1 ? '' : 's'), c = x.calls == null ? null : Number(x.calls);
+          return '<td class="num' + cls + '">' + e + '<small>' + (c == null ? 'no 8x8' : c + ' call' + (c === 1 ? '' : 's') + (c ? ' · ' + _mgMs(Number(x.talk_time_sec) || 0) : '')) + '</small></td>';
         }).join('') + '</tr>';
       });
-      h += '</table></div><p class="mg-note" style="margin-top:8px;">Shaded amber: emails but no calls. Grey: no emails or calls. Red: the feed did not load that day.</p></details>';
+      h += '</table></div><p class="mg-note" style="margin-top:8px;">Shaded amber: emails but no calls on a working day. Grey: no emails or calls on a working day. Red: a feed did not load that day. Weekends and bank holidays are in italics; what was sent on them is counted, and nothing is expected.</p></details>';
       body.innerHTML = h;
     }
 
@@ -9178,15 +9258,20 @@
       try { f = await _mgLoadFeed(from, to); }
       catch(e){ if(seq === _MG.seq) body.innerHTML = '<div class="mg-flag data">The feed status could not be loaded just now. Please refresh the page.</div>'; return; }
       if(seq !== _MG.seq) return;
-      function feedLine(list, what){
-        var bad = (list || []).filter(function(x){ return x.ok !== true; }).map(function(x){ return x.day; });
-        var n = (list || []).length;
+      // Every calendar day, weekends included (_54); days before a feed started are "not on record".
+      function feedLine(list, what, since){
+        list = list || [];
+        since = since ? String(since).slice(0, 10) : null;
+        var bad = list.filter(function(x){ return x.ok !== true; }).map(function(x){ return String(x.day).slice(0, 10); });
+        var n = list.length;
+        var pre = since && since > String(f.from).slice(0, 10) ? ' On record from ' + _mgDay(since) + ' ' + since.slice(0, 4) + '.' : '';
+        if(!n) return '<li class="mg-flag info"><b>' + what + '</b>: none on record for these dates.' + pre + '</li>';
         return bad.length
-          ? '<li class="mg-flag data"><b>' + what + ' did not load</b> for ' + _mgList(_mgRanges(bad)) + '. It retries on its own for 10 days; if a day stays here, CES admin needs to look at it.</li>'
-          : '<li class="mg-ok"><b>' + what + '</b> loaded for all ' + n + ' weekday' + (n === 1 ? '' : 's') + (n ? ' (' + _mgDay(list[0].day) + ' to ' + _mgDay(list[list.length - 1].day) + ')' : '') + '.</li>';
+          ? '<li class="mg-flag data"><b>' + what + ' did not load</b> for ' + _mgList(_mgRanges(bad, true)) + '. It retries on its own for 10 days; if a day stays here, CES admin needs to look at it.' + pre + '</li>'
+          : '<li class="mg-ok"><b>' + what + '</b> loaded for every day, weekends included (' + n + ' day' + (n === 1 ? '' : 's') + ', ' + _mgDay(list[0].day) + ' to ' + _mgDay(list[n - 1].day) + ').' + pre + '</li>';
       }
       var h = '<p class="mg-status"><b>' + escapeHtml(_mgDay(f.from) + ' to ' + _mgDay(f.to)) + '</b></p>'
-        + '<ul class="mg-flags">' + feedLine(f.calls, 'Calls (8x8)') + feedLine(f.emails, 'Emails (Microsoft 365)') + '</ul>';
+        + '<ul class="mg-flags">' + feedLine(f.calls, 'Calls (8x8)', f.calls_from) + feedLine(f.emails, 'Emails (Microsoft 365)', f.emails_from) + '</ul>';
       h += '<h4 class="mg-h4">Half-hourly meter readings (Stark)</h4>'
         + '<p class="mg-note">' + _skNum(f.hhd_meters, 0) + ' meters on the Stark feed' + (f.hhd_last_file ? '; last file received ' + escapeHtml(new Date(f.hhd_last_file).toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Europe/London' })) : '') + '. Checked up to ' + escapeHtml(_mgDay(f.hh_to)) + ': Stark sends each day a day later and re-sends the last month every day, so a gap can still fill in.</p>';
       var gaps = f.hhd || [];
