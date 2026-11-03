@@ -1690,37 +1690,37 @@
             /* Estimated running cost (_52 + _52f, 3 Nov 2026): its own section + a summary strip on this page.
                Secondary text uses --text-2 (#4a4e5c, 8.28:1 on white); the portal's --muted (#7a7e8c) measures 4.05:1, under AA. */
             .dash-section[data-page="cost"] .section-meta{color:var(--text-2);}  /* the portal's section-meta grey measured 3.62:1 here */
-            .hhc-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px;margin:0 0 18px;}
+            .hhc-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:24px 26px;margin:0 0 20px;word-spacing:.05em;}  /* more air: Zac, 3 Nov 2026 ("too close together") */
             .hhc-card [hidden],.hhc-strip [hidden]{display:none !important;}  /* classes that set display would otherwise beat the hidden attribute */
-            .hhc-tools{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;margin-bottom:14px;}
+            .hhc-tools{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:flex-end;margin-bottom:20px;}
             .hhc-preview{display:inline-block;padding:4px 10px;border-radius:6px;background:#fdf0d2;color:#5c3d00;font-size:12.5px;font-weight:700;}
             .hhc-sitepick{display:flex;flex-direction:column;gap:5px;min-width:0;}
             .hhc-sitepick label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-2);font-weight:700;}
             .hhc-sitepick .hhd-select select{min-width:240px;max-width:420px;}
             .hhc-card .hhd-quick button:focus-visible,.hhc-more:focus-visible,.hhc-strip-btn:focus-visible{outline:2px solid #1f3864;outline-offset:2px;}
-            .hhc-cover{margin:0 0 12px;padding:10px 14px;border-left:4px solid #1f3864;background:#eef3fb;border-radius:0 8px 8px 0;color:#1f2a44;font-size:14px;line-height:1.5;}
+            .hhc-cover{margin:0 0 20px;padding:14px 18px;border-left:4px solid #1f3864;background:#eef3fb;border-radius:0 8px 8px 0;color:#1f2a44;font-size:14.5px;line-height:1.7;}
             .hhc-cover strong{color:#1f3864;}
-            .hhc-figs{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;}
-            .hhc-fig{border:1px solid #e8ebf1;border-radius:10px;padding:13px 15px;background:#f7f8fb;}
+            .hhc-figs{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px;}
+            .hhc-fig{border:1px solid #e8ebf1;border-radius:10px;padding:18px 20px;background:#f7f8fb;}
             .hhc-fig-main{background:#fff;border-color:#1f3864;}
             .hhc-fig .lab{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-2);font-weight:700;}
-            .hhc-fig .val{font-size:30px;font-weight:800;color:#1f3864;margin-top:3px;font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1.15;}
+            .hhc-fig .val{font-size:30px;font-weight:800;color:#1f3864;margin-top:8px;font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1.15;}
             .hhc-fig .val small{font-size:12.5px;font-weight:700;color:var(--text-2);margin-left:2px;letter-spacing:0;}
             .hhc-fig .val.hhc-val-muted{font-size:20px;color:var(--text-2);}
-            .hhc-fig .sub{font-size:13px;color:var(--text-2);margin-top:3px;font-variant-numeric:tabular-nums;}
-            .hhc-prog{margin:12px 0 2px;}
+            .hhc-fig .sub{font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.55;font-variant-numeric:tabular-nums;}
+            .hhc-prog{margin:20px 0 4px;}
             .hhc-bar{height:6px;background:#e3e7ef;border-radius:3px;overflow:hidden;}
             .hhc-bar>span{display:block;height:100%;background:#1f3864;}
-            .hhc-prog-txt{font-size:13px;color:var(--text-2);margin-top:5px;font-weight:600;}
-            .hhc-note{margin:12px 0 4px;padding:11px 14px;border:1px solid #d6dde8;border-radius:8px;background:#f2f5fa;color:#1f2a44;font-size:13.5px;line-height:1.5;}
+            .hhc-prog-txt{font-size:13.5px;color:var(--text-2);margin-top:8px;font-weight:600;}
+            .hhc-note{margin:20px 0 6px;padding:16px 20px;border:1px solid #d6dde8;border-radius:8px;background:#f2f5fa;color:#1f2a44;font-size:14px;line-height:1.75;}
             .hhc-note strong{color:#1f3864;}
-            .hhc-grid{display:grid;grid-template-columns:1fr;gap:16px;margin-top:16px;}
+            .hhc-grid{display:grid;grid-template-columns:1fr;gap:28px;margin-top:28px;}
             @media(min-width:1100px){.hhc-grid{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);}}
-            .hhc-h4{margin:0 0 8px;font-size:14px;font-weight:700;color:#1f3864;}
+            .hhc-h4{margin:0 0 12px;font-size:14.5px;font-weight:700;color:#1f3864;}
             .hhc-canvas{position:relative;height:250px;}
             .hhc-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;}
-            .hhc-table caption{text-align:left;font-size:14px;font-weight:700;color:#1f3864;padding:0 0 8px;}
-            .hhc-table th,.hhc-table td{padding:7px 8px;border-bottom:1px solid #edf0f4;font-size:13.5px;text-align:left;vertical-align:top;color:var(--text);}
+            .hhc-table caption{text-align:left;font-size:14.5px;font-weight:700;color:#1f3864;padding:0 0 12px;}
+            .hhc-table th,.hhc-table td{padding:11px 12px;border-bottom:1px solid #edf0f4;font-size:14px;line-height:1.5;text-align:left;vertical-align:top;color:var(--text);}
             .hhc-table thead th{font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-2);font-weight:700;border-bottom:1.5px solid #dfe3ea;}
             .hhc-table thead .hhc-unit{text-transform:none;letter-spacing:0;font-weight:600;}
             .hhc-table tbody th{font-weight:600;}
@@ -1728,33 +1728,35 @@
             .hhc-table tfoot th,.hhc-table tfoot td{border-bottom:none;}
             .hhc-table tr.sub th,.hhc-table tr.sub td{font-weight:700;border-top:1.5px solid #dfe3ea;}
             .hhc-table tr.tot th,.hhc-table tr.tot td{font-weight:800;color:#1f3864;border-top:2px solid #1f3864;}
-            .hhc-sites{margin-top:18px;border-top:1px solid #edf0f4;padding-top:14px;}
+            .hhc-sites{margin-top:30px;border-top:1px solid #edf0f4;padding-top:22px;}
             .hhc-scroll{overflow-x:auto;position:relative;}  /* relative: the sr-only header is absolute and otherwise escapes the scroller, pushing the page sideways */
             .hhc-sitetable{min-width:640px;}
             .hhc-site .nm{display:block;font-weight:700;color:var(--text);}
-            .hhc-site .mp{display:block;font-family:'JetBrains Mono',monospace;font-size:12px;color:#5b6170;font-weight:500;margin-top:2px;}
-            .hhc-site .kw{display:block;font-size:12px;color:var(--text-2);font-weight:500;}
-            .hhc-flags{margin:6px 0 0;padding-left:16px;font-size:12.5px;font-weight:500;color:#7a5010;line-height:1.45;}
-            .hhc-shared{margin:0 0 10px;font-size:13px;}
+            .hhc-site .mp{display:block;font-family:'JetBrains Mono',monospace;font-size:12px;color:#5b6170;font-weight:500;margin-top:4px;word-spacing:normal;}
+            .hhc-site .kw{display:block;font-size:12.5px;color:var(--text-2);font-weight:500;margin-top:3px;}
+            .hhc-flags{margin:10px 0 0;padding-left:18px;font-size:13px;font-weight:500;color:#7a5010;line-height:1.65;}
+            .hhc-flags li{margin-bottom:6px;}
+            .hhc-shared{margin:0 0 16px;font-size:13.5px;}
             .hhc-shared strong{font-weight:700;}
             .hhc-more{padding:5px 10px;border:1px solid #c9d0dc;border-radius:6px;background:#fff;color:#1f3864;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;min-height:30px;}
             .hhc-more:hover{border-color:#1f3864;background:#f2f5fa;}
-            .hhc-detail{margin:0 0 12px;padding:12px 14px;border:1px solid #e8ebf1;border-radius:10px;background:#f7f8fb;}
+            .hhc-detail{margin:0 0 20px;padding:16px 20px;border:1px solid #e8ebf1;border-radius:10px;background:#f7f8fb;}
             .hhc-detail-hd{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;justify-content:space-between;}
             .hhc-detail .nm{font-weight:800;color:#1f3864;font-size:15px;}
-            .hhc-detail .mp{font-size:12.5px;color:var(--text-2);margin-top:2px;}
+            .hhc-detail .mp{font-size:13px;color:var(--text-2);margin-top:6px;line-height:1.55;}
             .hhc-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
-            .hhc-excl-h{margin:18px 0 6px;}
-            .hhc-excl{margin:0;padding-left:18px;font-size:13px;color:var(--text-2);line-height:1.5;}
-            .hhc-foot{margin:14px 0 0;font-size:12.5px;color:var(--text-2);line-height:1.5;}
+            .hhc-excl-h{margin:30px 0 10px;}
+            .hhc-excl{margin:0;padding-left:20px;font-size:13.5px;color:var(--text-2);line-height:1.7;}
+            .hhc-excl li{margin-bottom:6px;}
+            .hhc-foot{margin:26px 0 0;font-size:13px;color:var(--text-2);line-height:1.75;}
             .hhc-empty{font-size:14px;color:var(--text-2);margin:4px 0 8px;}
             .hhc-err{margin:0 0 10px;padding:8px 12px;border-radius:6px;background:#fbeaea;color:#8b2015;font-size:13px;font-weight:600;}
-            .hhc-strip{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:0 0 16px;padding:12px 16px;background:#fff;border:1px solid #e5e7eb;border-left:4px solid #1f3864;border-radius:10px;font-size:14px;color:#1f2a44;line-height:1.45;}
+            .hhc-strip{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;margin:0 0 20px;padding:16px 20px;background:#fff;border:1px solid #e5e7eb;border-left:4px solid #1f3864;border-radius:10px;font-size:14.5px;color:#1f2a44;line-height:1.65;word-spacing:.05em;}
             .hhc-strip b{color:#1f3864;}
             .hhc-strip-txt{flex:1 1 320px;min-width:0;}
             .hhc-strip-btn{padding:8px 14px;border:1px solid #1f3864;border-radius:8px;background:#1f3864;color:#fff;font:inherit;font-size:13px;font-weight:700;cursor:pointer;min-height:36px;}
             .hhc-strip-btn:hover{background:#2a4a80;border-color:#2a4a80;}
-            @media(max-width:600px){.hhc-card{padding:14px;}.hhc-fig .val{font-size:26px;}.hhc-canvas{height:210px;}.hhc-sitepick{width:100%;}.hhc-sitepick .hhd-select select{min-width:0;width:100%;max-width:100%;}.hhc-strip-txt{flex-basis:100%;}
+            @media(max-width:600px){.hhc-card{padding:16px;}.hhc-fig .val{font-size:26px;}.hhc-canvas{height:210px;}.hhc-sitepick{width:100%;}.hhc-sitepick .hhd-select select{min-width:0;width:100%;max-width:100%;}.hhc-strip-txt{flex-basis:100%;}
               /* phone: site, cost and Show fit without scrolling sideways; "Rates from" is on each site's own view */
               .hhc-sitetable{min-width:0;}.hhc-sitetable th:nth-child(3),.hhc-sitetable td:nth-child(3){display:none;}
               .hhc-sitetable thead th.num{white-space:normal;}.hhc-sitetable th,.hhc-sitetable td{padding-left:5px;padding-right:5px;}}
@@ -11438,10 +11440,12 @@
         case 'pass_through_unknown': return 'Pass-through charges such as data collection are not included until an invoice under this contract is validated.';
         case 'april_reset': return 'Network charges change every April. This uses last year’s rates until April’s invoice is validated.';
         case 'missing_days': {
+          // Not zero use: a site that is empty still sends readings of 0 kWh, which count as actual.
           var r = _hhcRanges(f.dates), n = Number(f.n) || r.length;
-          return 'Readings missing or incomplete on ' + _hhcPlural(n, 'day', 'days')
+          return 'Stark, the meter data provider, sent no readings (or only some) for ' + _hhcPlural(n, 'day', 'days')
             + (r.length ? ' (' + r.slice(0, 4).join(', ') + (r.length > 4 ? ' and others' : '') + ')' : '')
-            + '. Only the readings received are counted, so usage on ' + (n === 1 ? 'that day' : 'those days') + ' is under-stated.';
+            + '. That is a gap in the data feed, not zero use, and CES is alerted to it. Until the readings arrive, '
+            + (n === 1 ? 'that day counts' : 'those days count') + ' only the fixed charges and any readings received, so usage is under-stated.';
         }
         case 'estimated_days': return _hhcPlural(Number(f.n) || 0, 'day', 'days') + ' of readings are marked as estimated by the meter data provider.';
         case 'summary_rates': return admin ? 'Admin: the invoice summary has no itemised charges, so capacity and pass-through show as one line. Reports tab → Refresh charge detail.' : null;
@@ -11466,7 +11470,7 @@
       var why = x.basis === 'flex'
         ? 'flexible contract, priced from the wholesale market each month, so it is not estimated here'
         : x.basis === 'no_data'
-          ? 'no meter readings for ' + monthName + (x.last_data ? ' (last reading ' + _hhcDayLong(x.last_data) + ')' : '')
+          ? 'Stark has sent no readings for ' + monthName + (x.last_data ? ' (last reading ' + _hhcDayLong(x.last_data) + ')' : '') + ': a gap in the data feed, not zero use, and CES is alerted to it'
           : 'no validated invoice or contract rates on file yet';
       return (x.site || x.mpan) + ' (' + x.mpan + '): ' + why + '.';
     }
@@ -11669,7 +11673,7 @@
       }
       h += '<p class="hhc-foot">How it is worked out: each site’s half-hourly kWh as received (night is 00:00 to 07:00) at the unit rates on its latest validated invoice or newer contract, '
          + 'plus standing, capacity and other daily charges up to the latest reading, and Climate Change Levy at ' + _hhcNum(d.ccl_p_kwh, 3) + 'p/kWh. '
-         + 'Nothing is estimated for days without readings. Covers half-hourly electricity only. Rounded to the nearest pound.</p>';
+         + 'Nothing is estimated for days without readings; a site that is empty still sends readings of 0 kWh, and those count as actual use. Covers half-hourly electricity only. Rounded to the nearest pound.</p>';
 
       body.innerHTML = h;
       _hhcDrawChart(d, one);

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- Readable in a plain fetch of the URL, so "which build is live" needs no login. Bump on every push. -->
-  <meta name="build" content="sales 2026-11-03c" />
+  <meta name="build" content="sales 2026-11-03d" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' blob: https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' data: blob: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com https://api.simplylookupadmin.co.uk; frame-src 'self' blob: data: https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self';" />
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
@@ -1509,7 +1509,7 @@
           <div class="nav-item" id="bkNavCot" onclick="brokerNav('cot')">COT Submission</div>
           <div class="nav-item" id="bkNavQuotes" onclick="brokerNav('quotes')">Supplier Quotes</div>
           <div class="nav-item" id="bkNavLead" onclick="brokerNav('lead')" style="display:none;">Team admin</div>
-          <div class="nav-item" id="bkNavCeo" onclick="brokerNav('ceo')" style="display:none;">Company view</div>
+          <div class="nav-item" id="bkNavCeo" onclick="brokerNav('ceo')" style="display:none;">Management</div>
         </div>
         <div class="sidebar-foot">
           <a href="/" class="signout-btn" style="display:block;text-align:center;text-decoration:none;background:#eef1fb;color:#232e63;border:1px solid #c7cde8;margin-bottom:8px;">&larr; Billing portal</a>
@@ -3000,7 +3000,7 @@
       // 'broker' (the unscoped broker policies write to every meter) and never 'staff'
       // (is_flex_team() treats staff as the flex desk). The door is my_portals(), migration _41.
       currentUser.execOnly = currentUser.execView && !currentUser.isBroker && !currentUser.isAdmin;
-      if (currentUser.execOnly) currentUser.name = profile.display_name || String(user.email || '').split('@')[0] || 'Company view';
+      if (currentUser.execOnly) currentUser.name = profile.display_name || String(user.email || '').split('@')[0] || 'Management';
       // ── COT team sign in here too, and get sent to their own desk ──
       //
       // One login page for everyone on the CES side, because "which URL do I use" is a
@@ -3182,7 +3182,7 @@
       var nameEl = document.getElementById('brokerName'); if (nameEl) nameEl.textContent = currentUser.name || '';
       // The view below already carries its own "Company view" heading, so the top bar keeps
       // the usual greeting and says what kind of login this is.
-      var meta = document.getElementById('brokerMeta'); if (meta) meta.textContent = 'Company view \u00b7 read-only';
+      var meta = document.getElementById('brokerMeta'); if (meta) meta.textContent = 'Management';
       ['bkNavSales','bkNavAnalytics','bkNavProjects','bkNavCust','bkNavCot','bkNavQuotes','bkNavLead'].forEach(function(id){
         var n = document.getElementById(id); if (n) n.style.display = 'none';
       });
@@ -5748,7 +5748,7 @@
     function _skFlash(id, msg){ var e = document.getElementById(id); if(!e) return; e.textContent = msg; e.style.display = 'block'; setTimeout(function(){ e.style.display = 'none'; }, 2500); }
     // ── Broker output figures (14 Oct 2026, Adam's month-end merge) ────────────────────────
     // Contracts signed and days worked come from the broker's own month-end form. Calls, talk
-    // time, emails, computer activity and DocuSign envelopes come from the systems into
+    // time, emails and computer activity come from the systems into
     // broker_activity, each stamped with where it came from (broker_activity.sources, _45).
     // A missing figure is NULL and shows as a dash: "not recorded" is never shown as zero.
     var _SK_OUTPUT_FROM = '2026-10-01';   // contracts + days required to confirm from this month (_47)
@@ -5812,7 +5812,7 @@
       if(ct){
         var cStored = !!(row && row.deals_won != null && row.deals_won !== '');
         ct.textContent = (confirmed && !cStored) ? ('Not recorded for ' + lbl + '.')
-          : 'One DocuSign envelope can hold several contracts: count the contracts. Enter 0 if none.';
+          : 'Count each contract signed. Enter 0 if none.';
       }
     }
     // A problem with the two broker-entered figures, or null. Mirrors the database checks.
@@ -5843,7 +5843,7 @@
     // activity is weighted by Teramind work time when every month carries it, else averaged.
     function _skOutputFor(repId, months){
       var set = {}; (months || []).forEach(function(p){ set[p] = 1; });
-      var o = { days:null, contracts:null, env:null, calls:null, talk:null, emails:null, idle:null, work:null, activity:null, billing:0, hasBilling:false };
+      var o = { days:null, contracts:null, calls:null, talk:null, emails:null, idle:null, work:null, activity:null, billing:0, hasBilling:false };
       function add(key, v){ if(v == null || v === '') return; v = Number(v); if(isNaN(v)) return; o[key] = (o[key] == null ? 0 : o[key]) + v; }
       // A month marked "excluded" for a broker is left out, as the month-end report leaves it out.
       (_SK.kpis || []).forEach(function(k){ if(k.rep_id !== repId || !set[k.period] || k.excluded) return; add('days', k.days_worked); add('contracts', k.deals_won); });
@@ -5852,7 +5852,7 @@
       (_SK.activity || []).forEach(function(a){
         if(a.rep_id !== repId || !set[String(a.period).slice(0, 10)]) return;
         add('calls', a.calls); add('talk', a.talk_time_sec); add('emails', a.emails);
-        add('env', a.docusign_envelopes); add('idle', a.idle_sec); add('work', a.work_sec);
+        add('idle', a.idle_sec); add('work', a.work_sec);
         if(a.activity_pct != null && a.activity_pct !== ''){
           var p = Number(a.activity_pct), w = Number(a.work_sec) || 0;
           aN++; aSum += p;
@@ -5872,7 +5872,7 @@
       if(sec == null) return null;
       sec = Math.round(Number(sec) || 0);
       var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
-      return h + ':' + (m < 10 ? '0' + m : m);
+      return h + 'h ' + (m < 10 ? '0' + m : m) + 'm';   // "8h 04m": "8:04" was read as eight minutes (3 Nov 2026)
     }
     function _skDash(){ return '<span style="color:var(--muted);">&mdash;</span>'; }
     function _skOutCell(v, kind){
@@ -5884,7 +5884,7 @@
       return _skNum(v, 0);
     }
     // Where each system-fed figure in these months came from, one line per metric and source.
-    var _SK_ACT_LABELS = { calls:'Calls', talk_time_sec:'Talk time', emails:'Emails sent', activity_pct:'Computer activity', idle_sec:'Idle time', docusign_envelopes:'DocuSign envelopes' };
+    var _SK_ACT_LABELS = { calls:'Calls', talk_time_sec:'Talk time', emails:'Emails sent', activity_pct:'Computer activity', idle_sec:'Idle time', days_worked_mgmt:'Days worked (management)' };
     function _skOutputSources(months){
       var set = {}; (months || []).forEach(function(p){ set[p] = 1; });
       var who = {}; (_SK.reps || []).forEach(function(r){ if(r.profile_id) who[r.profile_id] = _skShortName(r.name); });
@@ -5902,7 +5902,7 @@
           }
           var line = (s.source || 'source not recorded') + (s.file ? ' (' + s.file + ')' : '') + cov
             + (s.at ? ', loaded ' + new Date(s.at).toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', timeZone:'Europe/London' }) : '')
-            + (s.by ? ' by ' + (who[s.by] || 'CES admin') : '');
+            + (s.by ? ' by ' + (who[s.by] || 'CES management') : '');
           var key = k + '|' + line; if(seen[key]) return; seen[key] = 1;
           out.push({ metric:_SK_ACT_LABELS[k], line:line });
         });
@@ -6537,7 +6537,7 @@
           + (waiting.length
               ? 'Not confirmed yet for ' + label + ': ' + _deckJoin(waiting.map(function(r){ return _skShortName(r.name); })) + ', so this report is a DRAFT.'
               : 'Every broker has confirmed ' + label + ' as final.'));
-        bullet('Contracts signed and days worked: entered by each broker on the month-end form. Contracts are counted per contract, not per DocuSign envelope; days are pre-filled with UK working days and changed for leave.');
+        bullet('Contracts signed and days worked: entered by each broker on the month-end form. Contracts are counted per contract; days are pre-filled with UK working days and changed for leave.');
         if(src.length) src.forEach(function(x){ bullet(x.metric + ': ' + x.line + '.'); });
         else bullet('Calls, emails and computer activity: nothing loaded for ' + label + '.');
         bullet('External calls are calls made on 8x8 (desk phone or 8x8 app). Calls from a personal mobile are not in 8x8, so they are not here.');
@@ -7090,8 +7090,8 @@
         tImgs.forEach(function(im,i){ var id=wb.addImage({base64:im.dataUrl,extension:'png'}); ws2.addImage(id,{tl:{col:0,row:arow+i*17}, ext:{width:im.w,height:im.h}}); });
 
         // ── Activity & output sheet (14 Oct 2026): the work-output figures, sources underneath ──
-        var AO=[['Broker',24],['Days worked',10],['Contracts signed',11],['DocuSign envelopes',12],['Calls (8x8)',10],['Talk time (h:mm)',11],['Emails sent',10],['Computer activity',11],['Idle (h:mm)',10],['Billing',13],['Billing per day worked',13],['Contracts per day worked',13]];
-        var AOF=[null,'0.0','#,##0','#,##0','#,##0','[h]:mm','#,##0','0.0%','[h]:mm',fmtOf({fmt:'money'}),fmtOf({fmt:'money'}),'0.00'];
+        var AO=[['Broker',24],['Days worked',10],['Contracts signed',11],['Calls (8x8)',10],['Talk time',11],['Emails sent',10],['Computer activity',11],['Idle time',10],['Billing',13],['Billing per day worked',13],['Contracts per day worked',13]];
+        var AOF=[null,'0.0','#,##0','#,##0','[h]"h "mm"m"','#,##0','0.0%','[h]"h "mm"m"',fmtOf({fmt:'money'}),fmtOf({fmt:'money'}),'0.00'];
         var ws3=wb.addWorksheet('Activity & output', {views:[{showGridLines:false}]});
         ws3.mergeCells(1,1,1,AO.length);
         var t3=ws3.getCell(1,1); t3.value='Activity & output - '+mlab; t3.font={bold:true,size:15,color:{argb:WHITE}}; t3.fill={type:'pattern',pattern:'solid',fgColor:{argb:NAVY}}; t3.alignment={horizontal:'left',vertical:'middle'}; ws3.getRow(1).height=26;
@@ -7103,7 +7103,7 @@
         var aoOuts=[];
         reps.forEach(function(r){
           var o=_skOutputFor(r.id,[key]); aoOuts.push(o);
-          var row=ws3.addRow([r.name, o.days, o.contracts, o.env, o.calls, o.talk==null?null:o.talk/86400, o.emails, o.activity==null?null:o.activity/100, o.idle==null?null:o.idle/86400, o.billing, o.days?o.billing/o.days:null, (o.days && o.contracts!=null)?o.contracts/o.days:null]);
+          var row=ws3.addRow([r.name, o.days, o.contracts, o.calls, o.talk==null?null:o.talk/86400, o.emails, o.activity==null?null:o.activity/100, o.idle==null?null:o.idle/86400, o.billing, o.days?o.billing/o.days:null, (o.days && o.contracts!=null)?o.contracts/o.days:null]);
           row.getCell(1).font={bold:true}; row.getCell(1).alignment={horizontal:'left'};
           AOF.forEach(function(f,i){ if(f){ var c=row.getCell(i+1); c.numFmt=f; c.alignment={horizontal:'right'}; } });
           row.eachCell({includeEmpty:true}, function(cell){ cell.border={bottom:thin}; });
@@ -7113,7 +7113,7 @@
         // Per-day rates only over brokers whose days (and contracts) are recorded, so a gap never inflates them.
         var aoBD=0, aoDB=0, aoCD=0, aoDC=0;
         aoOuts.forEach(function(o){ if(o.days){ aoBD+=o.billing; aoDB+=o.days; if(o.contracts!=null){ aoCD+=o.contracts; aoDC+=o.days; } } });
-        var tr3=ws3.addRow(['Team', aoD, aoC, aoSum('env'), aoSum('calls'), aoT==null?null:aoT/86400, aoSum('emails'), aoA==null?null:aoA/100, aoI==null?null:aoI/86400, aoB, aoDB?aoBD/aoDB:null, aoDC?aoCD/aoDC:null]);
+        var tr3=ws3.addRow(['Team', aoD, aoC, aoSum('calls'), aoT==null?null:aoT/86400, aoSum('emails'), aoA==null?null:aoA/100, aoI==null?null:aoI/86400, aoB, aoDB?aoBD/aoDB:null, aoDC?aoCD/aoDC:null]);
         tr3.eachCell({includeEmpty:true}, function(cell,col){ cell.font={bold:true}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:TOTBG}}; cell.border={top:{style:'medium',color:{argb:NAVY}}}; if(col>1){ cell.alignment={horizontal:'right'}; if(AOF[col-1]) cell.numFmt=AOF[col-1]; } });
         AO.forEach(function(c,i){ ws3.getColumn(i+1).width=c[1]; });
         ws3.addRow([]);
@@ -7121,8 +7121,7 @@
         ws3.addRow(['Days worked and contracts signed: entered by each broker on their month-end form'+(missing.length?' (not every broker has confirmed yet, so these may still change)':'')+'.']);
         var aoSrc=_skOutputSources([key]);
         if(aoSrc.length) aoSrc.forEach(function(s){ ws3.addRow([s.metric+': '+s.line]); });
-        else ws3.addRow(['No calls, emails, Teramind or DocuSign figures loaded for '+mlab+'.']);
-        ws3.addRow(['DocuSign envelopes are a cross-check on contracts signed: one envelope can hold several contracts.']);
+        else ws3.addRow(['No calls, emails or Teramind figures loaded for '+mlab+'.']);
         var buf=await wb.xlsx.writeBuffer();
         _downloadBlob(buf, 'CES Sales KPIs '+mlab.replace(/\s/g,'-')+'.xlsx');
         try{ logAction('download_month_end_report', currentUser && currentUser.customerId, { period:key }); }catch(_e){}
@@ -8606,7 +8605,7 @@
         + '<div class="bx-pane" id="leadPane-activity">'
           + '<div class="card" style="margin-bottom:16px;">'
             + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Activity &amp; output by broker</h3>'
-            + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Days worked and contracts signed are entered by each broker on their month-end form. Calls and talk time load from 8x8 every morning, and emails from Microsoft 365 (sent from the broker\'s own @cesgb.com mailbox, Monday to Friday 07:00 to 19:00). Calls from personal mobiles are not in 8x8. Computer activity comes from Teramind and envelopes from DocuSign. A dash means not recorded, never zero. Where every figure came from is listed under the table.</p>'
+            + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Days worked and contracts signed are entered by each broker on their month-end form. Calls and talk time load from 8x8 every morning, and emails from Microsoft 365 (sent from the broker\'s own @cesgb.com mailbox, Monday to Friday 07:00 to 19:00). Calls from personal mobiles are not in 8x8. Computer activity comes from Teramind, loaded once a month on the Management page. A dash means not recorded, never zero. Where every figure came from is listed under the table.</p>'
             + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px;">'
               + '<div class="form-group" style="margin:0;"><label>Month</label><select id="leadActMonth" onchange="renderLeadActivity()"></select></div>'
               + '<button type="button" class="btn-secondary" id="leadDeckBtn" style="padding:9px 14px;" onclick="downloadBrokerDeck(document.getElementById(\'leadActMonth\').value)">Download the monthly report (PowerPoint)</button>'
@@ -8667,27 +8666,20 @@
       var rows=reps.map(function(r){ return { rep:r, o:_skOutputFor(r.id, months) }; });
       // Billing per day for the team only counts brokers whose days are recorded, so a broker
       // with billing but no days does not inflate the rate.
-      var T={ days:null, contracts:null, env:null, calls:null, talk:null, emails:null, idle:null, billing:0, bDays:0, dDays:0 };
+      var T={ days:null, contracts:null, calls:null, talk:null, emails:null, idle:null, billing:0, bDays:0, dDays:0 };
       rows.forEach(function(x){
-        ['days','contracts','env','calls','talk','emails','idle'].forEach(function(k){ if(x.o[k]!=null) T[k]=(T[k]==null?0:T[k])+x.o[k]; });
+        ['days','contracts','calls','talk','emails','idle'].forEach(function(k){ if(x.o[k]!=null) T[k]=(T[k]==null?0:T[k])+x.o[k]; });
         T.billing+=x.o.billing;
         if(x.o.days){ T.bDays+=x.o.billing; T.dDays+=x.o.days; }
       });
       T.activity=_skTeamActivity(rows.map(function(x){ return x.o; }));
-      function flag(o){
-        return (o.contracts!=null && o.env!=null && o.contracts<o.env)
-          ? ' style="background:#fdf3e7;color:#8a5a00;font-weight:700;" title="Fewer contracts entered than contract envelopes completed in DocuSign from this broker\'s own login. Worth a look."'
-          : '';
-      }
       var th='<tr><th>Broker</th><th class="num">Days worked</th><th class="num">Contracts signed</th>'
-        + '<th class="num" title="Completed contract envelopes sent from the broker\'s own DocuSign login. One envelope can hold several contracts, so this is a cross-check, not the figure.">DocuSign envelopes</th>'
         + '<th class="num">Calls</th><th class="num">Talk time</th><th class="num">Emails</th><th class="num">Computer activity</th><th class="num">Idle</th><th class="num">Billing</th><th class="num">Billing per day</th></tr>';
       var tb=rows.map(function(x){
         var o=x.o;
         return '<tr><td>'+escapeHtml(_skShortName(x.rep.name))+'</td>'
           + '<td class="num">'+_skOutCell(o.days,'days')+'</td>'
-          + '<td class="num"'+flag(o)+'>'+_skOutCell(o.contracts)+'</td>'
-          + '<td class="num">'+_skOutCell(o.env)+'</td>'
+          + '<td class="num">'+_skOutCell(o.contracts)+'</td>'
           + '<td class="num">'+_skOutCell(o.calls)+'</td>'
           + '<td class="num">'+_skOutCell(o.talk,'hm')+'</td>'
           + '<td class="num">'+_skOutCell(o.emails)+'</td>'
@@ -8697,7 +8689,7 @@
           + '<td class="num">'+(o.days?_skMoney(o.billing/o.days):_skDash())+'</td></tr>';
       }).join('');
       var tf='<tr class="sk-total"><td>Team</td>'
-        + '<td class="num">'+_skOutCell(T.days,'days')+'</td><td class="num">'+_skOutCell(T.contracts)+'</td><td class="num">'+_skOutCell(T.env)+'</td>'
+        + '<td class="num">'+_skOutCell(T.days,'days')+'</td><td class="num">'+_skOutCell(T.contracts)+'</td>'
         + '<td class="num">'+_skOutCell(T.calls)+'</td><td class="num">'+_skOutCell(T.talk,'hm')+'</td><td class="num">'+_skOutCell(T.emails)+'</td>'
         + '<td class="num">'+_skOutCell(T.activity,'pct')+'</td><td class="num">'+_skOutCell(T.idle,'hm')+'</td>'
         + '<td class="num">'+_skMoney(T.billing)+'</td><td class="num">'+(T.dDays?_skMoney(T.bDays/T.dDays):_skDash())+'</td></tr>';
@@ -8708,7 +8700,7 @@
         + '<div>Days worked and contracts signed: entered by each broker on their month-end form.</div>'
         + (src.length
             ? src.map(function(s){ return '<div>'+escapeHtml(s.metric)+': '+escapeHtml(s.line)+'</div>'; }).join('')
-            : '<div>No calls, emails, Teramind or DocuSign figures loaded for '+(all?'these months':escapeHtml(_skPeriodLabel(pick)))+' yet.</div>')
+            : '<div>No calls, emails or Teramind figures loaded for '+(all?'these months':escapeHtml(_skPeriodLabel(pick)))+' yet.</div>')
         + '<div style="margin-top:4px;">A dash means not recorded, never zero.'+(all?' Computer activity across several months is weighted by Teramind work time.':'')+'</div>'
         + '</div>';
       renderLeadReportStatus();
@@ -8731,7 +8723,499 @@
       var key=_leadReportKey();
       el.innerHTML = key ? '<span style="font-weight:700;">Excel for '+escapeHtml(_skPeriodLabel(key))+':</span> '+_meReportStatusHtml(key) : '';
     }
-    // ── Company view (CEO, read-only) ──
+    // ═══════════════════════════════════════════════════════════════════════════════════════
+    // MANAGEMENT VIEW (3 Nov 2026, late): the old Company view with three more tabs.
+    //   Figures         - unchanged (period figures, month-end Excel/PowerPoint)
+    //   Emails & calls  - every broker's emails, calls, talk time and call time for any time
+    //                     frame, with plain-English flags for anything that looks wrong
+    //   Monthly upload  - the Teramind export and days worked, once a month (management's days
+    //                     sit BESIDE the broker's own figure: reports keep the broker's, Zac 3 Nov)
+    //   Data feeds      - whether the 8x8 and Microsoft 365 feeds loaded, and the meters Stark sent
+    //                     no readings for (mgmt_feed_status, _53). Zero readings are actual data.
+    // Read-only except Monthly upload, which goes through record_broker_activity (_53 lets
+    // exec_view load Teramind and days worked, nothing else).
+    // ═══════════════════════════════════════════════════════════════════════════════════════
+    var _MG = { tab:'figures', preset:'month', from:null, to:null, days:null, daysKey:null, feed:null, feedKey:null, upMonth:null, tm:null, seq:0, feedTab:'d30' };
+    var MG_CSS = ''
+      + '.mg-tabs .admin-tab{display:inline-flex;align-items:center;gap:6px;}'
+      + '.mg-badge{display:inline-block;min-width:20px;padding:1px 7px;border-radius:999px;background:#b5340f;color:#fff;font-size:11.5px;font-weight:800;line-height:18px;text-align:center;}'
+      + '.mg-controls{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;margin-bottom:14px;}'
+      + '.mg-presets{display:flex;flex-wrap:wrap;gap:6px;}'
+      + '.mg-presets button,.mg-btn{padding:8px 12px;border:1px solid #cfd4de;border-radius:8px;background:#fff;color:#1f2a44;font:inherit;font-size:13px;font-weight:700;cursor:pointer;min-height:36px;}'
+      + '.mg-presets button[aria-pressed="true"]{background:#1f3864;border-color:#1f3864;color:#fff;}'
+      + '.mg-presets button:focus-visible,.mg-btn:focus-visible,.mg-field input:focus-visible,.mg-field select:focus-visible{outline:2px solid #1f3864;outline-offset:2px;}'
+      + '.mg-field{display:flex;flex-direction:column;gap:4px;font-size:11.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#4a4e5c;}'
+      + '.mg-field input,.mg-field select{padding:8px 10px;border:1px solid #cfd4de;border-radius:8px;font:inherit;font-size:14px;color:#1f2a44;background:#fff;text-transform:none;letter-spacing:0;font-weight:600;min-height:36px;}'
+      + '.mg-note{font-size:13px;color:#4a4e5c;line-height:1.55;margin:0 0 12px;}'
+      + '.mg-flags{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;}'
+      + '.mg-flag{padding:10px 12px;border-radius:8px;border-left:4px solid #b5840a;background:#fdf6e7;color:#3d2c00;font-size:13.5px;line-height:1.5;}'
+      + '.mg-flag.data{border-left-color:#b5340f;background:#fbeceb;color:#5c1709;}'
+      + '.mg-flag.info{border-left-color:#8a93a8;background:#f3f5f9;color:#2b3242;}'
+      + '.mg-flag b{font-weight:800;}'
+      + '.mg-ok{padding:10px 12px;border-radius:8px;border-left:4px solid #2f7d4f;background:#eef6ee;color:#1d4a2e;font-size:13.5px;line-height:1.5;}'
+      + '.mg-grid td.mg-c-check{background:#fdf0d8;}'
+      + '.mg-grid td.mg-c-none{background:#eceff4;}'
+      + '.mg-grid td.mg-c-data{background:#fbe3e0;}'
+      + '.mg-grid td small{display:block;color:#4a4e5c;font-size:11.5px;}'
+      + '.mg-h4{font-size:13.5px;font-weight:800;color:#1f3864;margin:18px 0 8px;}'
+      + '.mg-status{font-size:13px;line-height:1.55;color:#1f2a44;margin:0 0 12px;}'
+      + '.mg-diff{color:#8a4b00;font-weight:800;}'
+      + '.mg-days-input{width:84px;padding:6px 8px;border:1px solid #cfd4de;border-radius:6px;font:inherit;font-size:14px;text-align:right;}'
+      + '@media(max-width:600px){.mg-controls{flex-direction:column;align-items:stretch;}.mg-field input,.mg-field select{width:100%;}}';
+
+    function _mgEnsureCss(){ if(document.getElementById('mgStyles')) return; var s = document.createElement('style'); s.id = 'mgStyles'; s.textContent = MG_CSS; document.head.appendChild(s); }
+
+    // ── dates (London calendar days as YYYY-MM-DD strings) ──
+    function _mgIso(d){ return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0'); }
+    function _mgAdd(iso, n){ var p = iso.split('-').map(Number); return _mgIso(new Date(Date.UTC(p[0], p[1] - 1, p[2] + n))); }
+    function _mgToday(){ var t = _skLondonToday(); return t.y + '-' + String(t.m).padStart(2, '0') + '-' + String(t.d).padStart(2, '0'); }
+    function _mgDow(iso){ var p = iso.split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay(); }
+    function _mgIsWorking(iso){ var w = _mgDow(iso); return w >= 1 && w <= 5 && _SK_EW_BANK_HOLIDAYS.indexOf(iso) < 0; }
+    function _mgDay(iso){ var p = iso.split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1, p[2])).toLocaleDateString('en-GB', { day:'numeric', month:'short', timeZone:'UTC' }); }
+    function _mgDayW(iso){ var p = iso.split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1, p[2])).toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short', timeZone:'UTC' }); }
+    function _mgMonthStart(iso){ return iso.slice(0, 8) + '01'; }
+    function _mgMonthEnd(iso){ var p = iso.split('-').map(Number); return _mgIso(new Date(Date.UTC(p[0], p[1], 0))); }
+    // Working days as ranges, e.g. 26 Oct to 2 Nov counts across the weekend: "26-30 Oct, 2 Nov"
+    // would be wrong for a broker who just had no calls; consecutive WORKING days join up.
+    function _mgRanges(days){
+      var ds = days.slice().sort(), out = [], i = 0;
+      function nextWorking(iso){ var n = _mgAdd(iso, 1); while(!_mgIsWorking(n)) n = _mgAdd(n, 1); return n; }
+      while(i < ds.length){
+        var j = i;
+        while(j + 1 < ds.length && nextWorking(ds[j]) === ds[j + 1]) j++;
+        out.push(i === j ? _mgDay(ds[i]) : _mgDay(ds[i]) + ' to ' + _mgDay(ds[j]));
+        i = j + 1;
+      }
+      return out;
+    }
+    function _mgList(parts){ return parts.length < 2 ? (parts[0] || '') : parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1]; }
+    // Durations the way people read them: 29,093 seconds is "8h 04m", never "8:04".
+    function _mgHm(sec){ if(sec == null) return null; sec = Math.round(Number(sec) || 0); var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60); return h + 'h ' + String(m).padStart(2, '0') + 'm'; }
+    function _mgMs(sec){ if(sec == null || !isFinite(sec)) return null; sec = Math.round(sec); var m = Math.floor(sec / 60), s = sec % 60; return m + 'm ' + String(s).padStart(2, '0') + 's'; }
+    function _mgDash(){ return '<span style="color:#4a4e5c;">&ndash;</span>'; }
+
+    function _mgPresetRange(p){
+      var today = _mgToday(), y = _mgAdd(today, -1);
+      if(p === 'lastmonth'){ var lm = _mgAdd(_mgMonthStart(today), -1); return [_mgMonthStart(lm), _mgMonthEnd(lm)]; }
+      if(p === 'week' || p === 'lastweek'){
+        var dow = _mgDow(today), mon = _mgAdd(today, -((dow + 6) % 7));
+        if(p === 'lastweek') return [_mgAdd(mon, -7), _mgAdd(mon, -1)];
+        return [mon, today];
+      }
+      return [_mgMonthStart(today), today];   // 'month'
+    }
+
+    // ── tabs ──
+    function ceoTab(name){
+      _MG.tab = name;
+      ['figures','activity','upload','feeds'].forEach(function(n){
+        var pane = document.getElementById('ceoPane-' + n); if(pane) pane.classList.toggle('active', n === name);
+        var btn = document.getElementById('ceoTabBtn-' + n);
+        if(btn){ btn.classList.toggle('active', n === name); btn.setAttribute('aria-selected', n === name ? 'true' : 'false'); }
+      });
+      if(name === 'activity') renderMgmtActivity();
+      if(name === 'upload') renderMgmtUpload();
+      if(name === 'feeds') renderMgmtFeeds();
+    }
+    function _mgTabsHtml(){
+      var t = [['figures','Figures'],['activity','Emails &amp; calls'],['upload','Monthly upload'],['feeds','Data feeds']];
+      return '<div class="admin-tabs mg-tabs" role="tablist" aria-label="Management">' + t.map(function(x){
+        return '<button type="button" class="admin-tab' + (x[0] === _MG.tab ? ' active' : '') + '" role="tab" id="ceoTabBtn-' + x[0] + '" aria-selected="' + (x[0] === _MG.tab ? 'true' : 'false') + '" onclick="ceoTab(\'' + x[0] + '\')">' + x[1]
+          + (x[0] === 'feeds' ? '<span class="mg-badge" id="mgFeedBadge" hidden></span>' : '') + '</button>';
+      }).join('') + '</div>';
+    }
+
+    // ── data ──
+    async function _mgLoadDays(from, to){
+      var key = from + '|' + to;
+      if(_MG.daysKey === key && _MG.days) return _MG.days;
+      var all = [], page = 0;
+      for(;;){   // PostgREST returns at most 1,000 rows a request: page through
+        var r = await sb.from('broker_activity_days').select('rep_id,day,calls,talk_time_sec,call_time_sec,emails')
+          .gte('day', from).lte('day', to).order('day', { ascending:true }).range(page * 1000, page * 1000 + 999);
+        if(r.error) throw r.error;
+        var rows = r.data || []; all = all.concat(rows);
+        if(rows.length < 1000 || page > 20) break;
+        page++;
+      }
+      _MG.days = all; _MG.daysKey = key;
+      return all;
+    }
+    async function _mgLoadFeed(from, to){
+      var key = from + '|' + to;
+      if(_MG.feedKey === key && _MG.feed) return _MG.feed;
+      var r = await sb.rpc('mgmt_feed_status', { p_from: from, p_to: to });
+      if(r.error) throw r.error;
+      _MG.feed = r.data; _MG.feedKey = key;
+      return r.data;
+    }
+    // The Data feeds tab carries a count of open problems, so nobody has to open it to know.
+    async function _mgFeedBadge(){
+      try {
+        var to = _mgAdd(_mgToday(), -1), from = _mgAdd(to, -29);
+        var f = await _mgLoadFeed(from, to), n = _mgFeedIssues(f).length;
+        var b = document.getElementById('mgFeedBadge');
+        if(b){ b.hidden = !n; b.textContent = String(n); b.setAttribute('aria-label', n + ' data feed problem' + (n === 1 ? '' : 's')); }
+      } catch(e){ console.warn('feed badge', e); }
+    }
+
+    // ── the anomaly rules, kept in one place so the page, the tests and the notes agree ──
+    // Days a feed did not load are never held against a broker: they are reported as data problems.
+    function _mgAnalyse(reps, rows, feed, from, to){
+      var yday = _mgAdd(_mgToday(), -1), last = to < yday ? to : yday;
+      var work = [];
+      for(var d = from; d <= last; d = _mgAdd(d, 1)) if(_mgIsWorking(d)) work.push(d);
+      var callsOk = {}, mailOk = {};
+      ((feed && feed.calls) || []).forEach(function(x){ callsOk[x.day] = x.ok === true; });
+      ((feed && feed.emails) || []).forEach(function(x){ mailOk[x.day] = x.ok === true; });
+      var byRep = {};
+      reps.forEach(function(r){ byRep[r.id] = {}; });
+      rows.forEach(function(x){ var d = String(x.day).slice(0, 10); if(byRep[x.rep_id] && d >= from && d <= to) byRep[x.rep_id][d] = x; });
+      var out = [], flags = [];
+      var badCalls = work.filter(function(d){ return feed && callsOk[d] !== true; });
+      var badMail = work.filter(function(d){ return feed && mailOk[d] !== true; });
+      if(badCalls.length) flags.push({ kind:'data', who:null, text:'<b>8x8 calls did not load</b> for ' + _mgList(_mgRanges(badCalls)) + '. Calls on those days are not counted and are not flagged against anyone.' });
+      if(badMail.length) flags.push({ kind:'data', who:null, text:'<b>Emails did not load</b> for ' + _mgList(_mgRanges(badMail)) + '. Emails on those days are not counted and are not flagged against anyone.' });
+      reps.forEach(function(r){
+        var D = byRep[r.id], name = _skShortName(r.name);
+        var s = { rep:r, emails:null, calls:null, talk:null, callt:null, active:0, work:work.length, hasCalls:false, cells:{} };
+        Object.keys(D).forEach(function(day){
+          var x = D[day];
+          if(x.emails != null) s.emails = (s.emails || 0) + Number(x.emails);
+          if(x.calls != null){ s.calls = (s.calls || 0) + Number(x.calls); s.hasCalls = true; }
+          if(x.talk_time_sec != null) s.talk = (s.talk || 0) + Number(x.talk_time_sec);
+          if(x.call_time_sec != null) s.callt = (s.callt || 0) + Number(x.call_time_sec);
+          if((Number(x.emails) || 0) > 0 || (Number(x.calls) || 0) > 0) s.active++;
+        });
+        // 1. emailing but no 8x8 calls, on days the calls feed loaded (only for brokers with an extension)
+        var noCalls = [], none = [], lowMail = [], highMail = [];
+        var mailVals = work.map(function(d){ return D[d] && mailOk[d] !== false ? Number(D[d].emails) : null; }).filter(function(v){ return v != null && !isNaN(v); }).sort(function(a, b){ return a - b; });
+        var med = mailVals.length ? mailVals[Math.floor(mailVals.length / 2)] : null;
+        work.forEach(function(d){
+          var x = D[d], cOk = !feed || callsOk[d] === true, mOk = !feed || mailOk[d] === true;
+          var e = x && x.emails != null ? Number(x.emails) : null, c = x && x.calls != null ? Number(x.calls) : null;
+          if(s.hasCalls && cOk && mOk && (e || 0) > 0 && (c === 0 || (c == null && x))) { noCalls.push(d); s.cells[d] = 'check'; }
+          if(mOk && (!s.hasCalls || cOk) && !(e > 0) && !(c > 0)) { none.push(d); s.cells[d] = 'none'; }
+          if(!cOk || !mOk) s.cells[d] = 'data';
+          if(mOk && med != null && med >= 20 && e != null && e > 0 && e < med * 0.25) lowMail.push(d);
+          if(mOk && med != null && med >= 20 && e != null && e >= 60 && e > med * 2.5) highMail.push(d);
+        });
+        // A run of 3+ working days, or a quarter of them: one quiet day is normal, a pattern is not.
+        var runMax = 0, run = 0, prev = null;
+        noCalls.forEach(function(d){ var p = prev, n = p ? _mgAdd(p, 1) : null; while(n && !_mgIsWorking(n)) n = _mgAdd(n, 1); run = (p && n === d) ? run + 1 : 1; if(run > runMax) runMax = run; prev = d; });
+        if(noCalls.length && (runMax >= 3 || noCalls.length >= Math.max(3, Math.ceil(work.length * 0.25)))) flags.push({ kind:'check', who:name, text:'<b>' + escapeHtml(name) + '</b>: no 8x8 calls on ' + _skNum(noCalls.length, 0) + ' working day' + (noCalls.length === 1 ? '' : 's') + ' while sending emails (' + _mgList(_mgRanges(noCalls)) + '). Calls from a mobile or another extension are not counted, so this may be how they called, or the phone was not used.' });
+        if(none.length) flags.push({ kind: none.length >= 3 ? 'check' : 'info', who:name, text:'<b>' + escapeHtml(name) + '</b>: no emails and no calls on ' + _skNum(none.length, 0) + ' working day' + (none.length === 1 ? '' : 's') + ' (' + _mgList(_mgRanges(none)) + '). Leave or sickness would explain it; otherwise worth a word.' });
+        if(s.hasCalls && s.calls >= 20 && s.talk != null && s.talk / s.calls < 45) flags.push({ kind:'check', who:name, text:'<b>' + escapeHtml(name) + '</b>: calls average ' + _mgMs(s.talk / s.calls) + ' of talk time over ' + _skNum(s.calls, 0) + ' calls. Mostly unanswered or very short calls.' });
+        if(lowMail.length) flags.push({ kind:'info', who:name, text:'<b>' + escapeHtml(name) + '</b>: far fewer emails than usual on ' + _mgList(_mgRanges(lowMail)) + ' (usual day about ' + _skNum(med, 0) + ').' });
+        if(highMail.length) flags.push({ kind:'info', who:name, text:'<b>' + escapeHtml(name) + '</b>: far more emails than usual on ' + _mgList(_mgRanges(highMail)) + ' (usual day about ' + _skNum(med, 0) + '). A bulk send?' });
+        out.push(s);
+      });
+      // 5. days worked: whole calendar months only (that is what days worked describe)
+      var fullMonth = (from === _mgMonthStart(from) && to === _mgMonthEnd(from)) ? _mgMonthStart(from) : null;
+      if(fullMonth){
+        out.forEach(function(s){
+          var k = (_SK.kpis || []).filter(function(x){ return x.rep_id === s.rep.id && x.period === fullMonth; })[0];
+          var a = (_SK.activity || []).filter(function(x){ return x.rep_id === s.rep.id && String(x.period).slice(0, 10) === fullMonth; })[0];
+          s.daysBroker = k && k.days_worked != null ? Number(k.days_worked) : null;
+          s.daysMgmt = a && a.days_worked_mgmt != null ? Number(a.days_worked_mgmt) : null;
+          var name = _skShortName(s.rep.name);
+          if(s.daysBroker != null && s.daysMgmt != null && s.daysBroker !== s.daysMgmt)
+            flags.push({ kind:'check', who:name, text:'<b>' + escapeHtml(name) + '</b>: days worked differ for ' + escapeHtml(_skPeriodLabel(fullMonth)) + ': the broker entered ' + _skNum(s.daysBroker, 1).replace(/\.0$/, '') + ', management ' + _skNum(s.daysMgmt, 1).replace(/\.0$/, '') + '. Reports use the broker’s figure.' });
+          var best = s.daysMgmt != null ? s.daysMgmt : s.daysBroker;
+          if(best != null && last >= _mgMonthEnd(fullMonth) && s.active > best + 1)
+            flags.push({ kind:'info', who:name, text:'<b>' + escapeHtml(name) + '</b>: emails or calls on ' + s.active + ' days, more than the ' + _skNum(best, 1).replace(/\.0$/, '') + ' days worked.' });
+          if(best != null && last >= _mgMonthEnd(fullMonth) && s.active < best - 2)
+            flags.push({ kind:'check', who:name, text:'<b>' + escapeHtml(name) + '</b>: ' + _skNum(best, 1).replace(/\.0$/, '') + ' days worked, but emails or calls on only ' + s.active + ' days.' });
+        });
+      }
+      return { summary:out, flags:flags, work:work, fullMonth:fullMonth };
+    }
+
+    // ── Emails & calls ──
+    function renderMgmtActivity(){
+      _mgEnsureCss();
+      var pane = document.getElementById('ceoPane-activity'); if(!pane) return;
+      if(!_MG.from){ var pr = _mgPresetRange(_MG.preset); _MG.from = pr[0]; _MG.to = pr[1]; }
+      var P = [['month','This month'],['lastmonth','Last month'],['week','This week'],['lastweek','Last week'],['custom','Choose dates']];
+      pane.innerHTML = '<div class="card">'
+        + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Emails and calls, by broker</h3>'
+        + '<p class="mg-note">Emails are counted from each broker’s own @cesgb.com mailbox (Monday to Friday, 07:00 to 19:00). Calls, talk time and call time come from 8x8 (outbound calls to outside numbers from the desk phone or 8x8 app). Both load by themselves every morning for the day before. Talk time is time connected; call time adds the ringing.</p>'
+        + '<div class="mg-controls">'
+          + '<div class="mg-presets" role="group" aria-label="Time frame">' + P.map(function(p){ return '<button type="button" data-mg-preset="' + p[0] + '" aria-pressed="' + (_MG.preset === p[0] ? 'true' : 'false') + '">' + p[1] + '</button>'; }).join('') + '</div>'
+          + '<label class="mg-field">From<input type="date" id="mgFrom" value="' + _MG.from + '"></label>'
+          + '<label class="mg-field">To<input type="date" id="mgTo" value="' + _MG.to + '"></label>'
+          + '<button type="button" class="mg-btn" id="mgShow">Show</button>'
+        + '</div>'
+        + '<div id="mgActBody" aria-live="polite"><p class="mg-note">Loading…</p></div>'
+        + '</div>';
+      pane.querySelectorAll('[data-mg-preset]').forEach(function(b){ b.onclick = function(){
+        _MG.preset = b.getAttribute('data-mg-preset');
+        if(_MG.preset !== 'custom'){ var r = _mgPresetRange(_MG.preset); _MG.from = r[0]; _MG.to = r[1]; renderMgmtActivity(); }
+        else { pane.querySelectorAll('[data-mg-preset]').forEach(function(x){ x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); }); var f = document.getElementById('mgFrom'); if(f) f.focus(); }
+      }; });
+      document.getElementById('mgShow').onclick = function(){
+        var f = document.getElementById('mgFrom').value, t = document.getElementById('mgTo').value;
+        if(!f || !t){ safeAlert('Pick a start and an end date.', null); return; }
+        if(f > t){ var x = f; f = t; t = x; }
+        _MG.preset = 'custom'; _MG.from = f; _MG.to = t; renderMgmtActivity();
+      };
+      _mgFillActivity();
+    }
+    async function _mgFillActivity(){
+      var body = document.getElementById('mgActBody'); if(!body) return;
+      var seq = ++_MG.seq, from = _MG.from, to = _MG.to > _mgToday() ? _mgToday() : _MG.to;
+      var rows, feed = null;
+      try {
+        rows = await _mgLoadDays(from, to);
+        try { feed = await _mgLoadFeed(from, to); } catch(e){ console.warn('feed status', e); }
+      } catch(e){
+        if(seq !== _MG.seq) return;
+        body.innerHTML = '<div class="mg-flag data">The emails and calls could not be loaded just now. Please refresh the page.</div>'; return;
+      }
+      if(seq !== _MG.seq) return;
+      var reps = (_SK.reps || []).filter(function(r){ return r.active !== false; });
+      var A = _mgAnalyse(reps, rows, feed, from, to);
+      var nW = A.work.length;
+      var span = _mgDay(from) + (from !== to ? ' to ' + _mgDay(to) : '') + ' · ' + nW + ' working day' + (nW === 1 ? '' : 's') + (A.work.length && A.work[A.work.length - 1] < to ? ' with figures so far' : '');
+      var T = { emails:null, calls:null, talk:null, callt:null };
+      A.summary.forEach(function(s){ ['emails','calls','talk','callt'].forEach(function(k){ if(s[k] != null) T[k] = (T[k] || 0) + s[k]; }); });
+      var showDays = !!A.fullMonth;
+      var h = '<p class="mg-status"><b>' + escapeHtml(span) + '</b></p>'
+        + '<div style="overflow-x:auto;"><table class="sk-table" id="mgActTable"><tr><th>Broker</th>'
+        + '<th class="num">Emails</th><th class="num">Emails a day</th><th class="num">Calls</th><th class="num">Calls a day</th>'
+        + '<th class="num">Talk time</th><th class="num">Average call</th><th class="num">Call time</th><th class="num">Days with activity</th>'
+        + (showDays ? '<th class="num">Days worked (broker)</th><th class="num">Days worked (management)</th>' : '') + '</tr>'
+        + A.summary.map(function(s){
+            var diff = showDays && s.daysBroker != null && s.daysMgmt != null && s.daysBroker !== s.daysMgmt;
+            return '<tr><td>' + escapeHtml(_skShortName(s.rep.name)) + '</td>'
+              + '<td class="num">' + (s.emails == null ? _mgDash() : _skNum(s.emails, 0)) + '</td>'
+              + '<td class="num">' + (s.emails == null || !nW ? _mgDash() : _skNum(s.emails / nW, 1)) + '</td>'
+              + '<td class="num">' + (!s.hasCalls ? '<span title="No 8x8 extension on record">' + _mgDash() + '</span>' : _skNum(s.calls, 0)) + '</td>'
+              + '<td class="num">' + (!s.hasCalls || !nW ? _mgDash() : _skNum(s.calls / nW, 1)) + '</td>'
+              + '<td class="num">' + (s.talk == null || !s.hasCalls ? _mgDash() : _mgHm(s.talk)) + '</td>'
+              + '<td class="num">' + (s.hasCalls && s.calls ? _mgMs(s.talk / s.calls) : _mgDash()) + '</td>'
+              + '<td class="num">' + (s.callt == null || !s.hasCalls ? _mgDash() : _mgHm(s.callt)) + '</td>'
+              + '<td class="num">' + s.active + ' of ' + nW + '</td>'
+              + (showDays ? '<td class="num">' + (s.daysBroker == null ? _mgDash() : _skNum(s.daysBroker, 1).replace(/\.0$/, '')) + '</td>'
+                  + '<td class="num' + (diff ? ' mg-diff' : '') + '">' + (s.daysMgmt == null ? _mgDash() : _skNum(s.daysMgmt, 1).replace(/\.0$/, '')) + '</td>' : '')
+              + '</tr>';
+          }).join('')
+        + '<tr class="sk-total"><td>Team</td><td class="num">' + (T.emails == null ? _mgDash() : _skNum(T.emails, 0)) + '</td><td class="num"></td>'
+        + '<td class="num">' + (T.calls == null ? _mgDash() : _skNum(T.calls, 0)) + '</td><td class="num"></td>'
+        + '<td class="num">' + (T.talk == null ? _mgDash() : _mgHm(T.talk)) + '</td><td class="num">' + (T.calls ? _mgMs(T.talk / T.calls) : _mgDash()) + '</td>'
+        + '<td class="num">' + (T.callt == null ? _mgDash() : _mgHm(T.callt)) + '</td><td class="num"></td>' + (showDays ? '<td class="num"></td><td class="num"></td>' : '') + '</tr>'
+        + '</table></div>';
+      h += '<h4 class="mg-h4">Flags</h4>';
+      h += A.flags.length
+        ? '<ul class="mg-flags" id="mgFlags">' + A.flags.map(function(f){ return '<li class="mg-flag ' + f.kind + '">' + f.text + '</li>'; }).join('') + '</ul>'
+        : '<div class="mg-ok" id="mgFlags">Nothing out of the ordinary in this time frame.</div>';
+      // day by day: the evidence behind every flag
+      h += '<details style="margin-top:16px;"><summary class="mg-h4" style="cursor:pointer;display:list-item;">Day by day</summary>'
+        + '<div style="overflow-x:auto;margin-top:8px;"><table class="sk-table mg-grid" id="mgGrid"><tr><th>Day</th>' + A.summary.map(function(s){ return '<th class="num">' + escapeHtml(_skShortName(s.rep.name)) + '</th>'; }).join('') + '</tr>';
+      var byRep = {}; A.summary.forEach(function(s){ byRep[s.rep.id] = {}; });
+      rows.forEach(function(x){ if(byRep[x.rep_id]) byRep[x.rep_id][x.day] = x; });
+      var allDays = A.work.slice();
+      rows.forEach(function(x){ if(allDays.indexOf(x.day) < 0 && ((Number(x.emails) || 0) > 0 || (Number(x.calls) || 0) > 0)) allDays.push(x.day); });
+      allDays.sort();
+      allDays.forEach(function(d){
+        h += '<tr><td>' + escapeHtml(_mgDayW(d)) + '</td>' + A.summary.map(function(s){
+          var x = byRep[s.rep.id][d], cls = s.cells[d] ? ' mg-c-' + s.cells[d] : '';
+          if(!x) return '<td class="num' + cls + '">' + _mgDash() + '</td>';
+          var e = x.emails == null ? '–' : _skNum(x.emails, 0), c = x.calls == null ? null : Number(x.calls);
+          return '<td class="num' + cls + '">' + e + ' emails<small>' + (c == null ? 'no 8x8' : c + ' call' + (c === 1 ? '' : 's') + (c ? ' · ' + _mgMs(Number(x.talk_time_sec) || 0) : '')) + '</small></td>';
+        }).join('') + '</tr>';
+      });
+      h += '</table></div><p class="mg-note" style="margin-top:8px;">Shaded amber: emails but no calls. Grey: no emails or calls. Red: the feed did not load that day.</p></details>';
+      body.innerHTML = h;
+    }
+
+    // ── Monthly upload ──
+    function _mgUpMonths(){
+      var t = _mgToday(), cur = _mgMonthStart(t), out = [];
+      for(var i = 0, m = cur; i < 13; i++){ out.push(m); m = _mgMonthStart(_mgAdd(m, -1)); }
+      return out;
+    }
+    function renderMgmtUpload(){
+      _mgEnsureCss();
+      var pane = document.getElementById('ceoPane-upload'); if(!pane) return;
+      var months = _mgUpMonths();
+      if(!_MG.upMonth) _MG.upMonth = months[1];   // last month: the one being closed off
+      var key = _MG.upMonth, lbl = _skPeriodLabel(key);
+      var reps = (_SK.reps || []).filter(function(r){ return r.active !== false; });
+      var act = {}; (_SK.activity || []).forEach(function(a){ if(String(a.period).slice(0, 10) === key) act[a.rep_id] = a; });
+      var kp = {}; (_SK.kpis || []).forEach(function(k){ if(k.period === key) kp[k.rep_id] = k; });
+      var src = function(field){
+        var s = null; reps.forEach(function(r){ var a = act[r.id]; if(a && a.sources && a.sources[field] && (!s || a.sources[field].at > s.at)) s = a.sources[field]; });
+        return s ? ' Loaded ' + new Date(s.at).toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Europe/London' }) + (s.file ? ' from ' + escapeHtml(s.file) : '') + '.' : '';
+      };
+      var tmLoaded = reps.some(function(r){ return act[r.id] && act[r.id].activity_pct != null; });
+      var dwLoaded = reps.some(function(r){ return act[r.id] && act[r.id].days_worked_mgmt != null; });
+      var wd = _skWorkingDays(key);
+      pane.innerHTML = '<div class="card">'
+        + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Monthly upload</h3>'
+        + '<p class="mg-note">Once a month, when it has ended: the Teramind Productivity export, and each broker’s days worked. Calls, talk time and emails load by themselves every morning, so they are not needed here. Teramind goes straight into the month-end report; days worked are kept beside the figure each broker enters, and any difference is flagged on Emails &amp; calls.</p>'
+        + '<div class="mg-controls"><label class="mg-field">Month<select id="mgUpMonth">' + months.map(function(m){ return '<option value="' + m + '"' + (m === key ? ' selected' : '') + '>' + escapeHtml(_skPeriodLabel(m)) + '</option>'; }).join('') + '</select></label></div>'
+        + '<p class="mg-status" id="mgUpStatus">' + escapeHtml(lbl) + ': Teramind ' + (tmLoaded ? '<b>loaded</b>.' + src('activity_pct') : '<b>not loaded yet</b>.') + ' Days worked ' + (dwLoaded ? '<b>entered</b>.' + src('days_worked_mgmt') : '<b>not entered yet</b>.') + '</p>'
+        + '<h4 class="mg-h4">1. Teramind export (.csv)</h4>'
+        + '<p class="mg-note">In Teramind, run the Productivity report for every employee from the 1st to the last day of the month and export it as CSV. Keep the dates Teramind puts in the file name.</p>'
+        + '<input type="file" id="mgTmFile" accept=".csv">'
+        + '<div id="mgTmPreview" aria-live="polite"></div>'
+        + '<h4 class="mg-h4">2. Days worked in ' + escapeHtml(lbl) + '</h4>'
+        + '<p class="mg-note">' + (wd != null ? wd + ' working days in ' + escapeHtml(lbl) + ' (weekends and bank holidays taken out). ' : '') + 'Whole or half days. Leave a box empty for a broker you have no figure for.</p>'
+        + '<div style="overflow-x:auto;"><table class="sk-table" id="mgDaysTable"><tr><th>Broker</th><th class="num">Entered by the broker</th><th class="num">Management figure</th><th></th></tr>'
+        + reps.map(function(r){
+            var b = kp[r.id] && kp[r.id].days_worked != null ? Number(kp[r.id].days_worked) : null;
+            var m = act[r.id] && act[r.id].days_worked_mgmt != null ? Number(act[r.id].days_worked_mgmt) : null;
+            var diff = b != null && m != null && b !== m;
+            return '<tr><td>' + escapeHtml(_skShortName(r.name)) + '</td>'
+              + '<td class="num">' + (b == null ? _mgDash() : _skNum(b, 1).replace(/\.0$/, '')) + '</td>'
+              + '<td class="num"><input class="mg-days-input" type="number" inputmode="decimal" min="0" max="31" step="0.5" data-mg-days="' + r.id + '" aria-label="Days worked for ' + escapeHtml(_skShortName(r.name)) + '" value="' + (m == null ? '' : m) + '"></td>'
+              + '<td>' + (diff ? '<span class="mg-diff">Differs from the broker’s ' + _skNum(b, 1).replace(/\.0$/, '') + '</span>' : '') + '</td></tr>';
+          }).join('')
+        + '</table></div>'
+        + '<button type="button" class="btn-primary" id="mgDaysSave" style="width:auto;padding:10px 18px;margin-top:12px;">Save days worked</button>'
+        + '<div id="mgDaysMsg" aria-live="polite" style="margin-top:8px;"></div>'
+        + '</div>';
+      document.getElementById('mgUpMonth').onchange = function(){ _MG.upMonth = this.value; _MG.tm = null; renderMgmtUpload(); };
+      document.getElementById('mgTmFile').onchange = function(){ _mgReadTeramind(this); };
+      document.getElementById('mgDaysSave').onclick = _mgSaveDays;
+      if(_MG.tm && _MG.tm.period === key) _mgShowTeramind();
+    }
+    async function _mgReadTeramind(input){
+      var box = document.getElementById('mgTmPreview'); if(!box) return;
+      var f = input && input.files && input.files[0];
+      _MG.tm = null;
+      if(!f){ box.innerHTML = ''; return; }
+      var text; try { text = await f.text(); } catch(e){ box.innerHTML = '<div class="mg-flag data">Could not read that file.</div>'; return; }
+      var p = _tmParse(text, f.name, _SK.reps || []);
+      if(p.error){ box.innerHTML = '<div class="mg-flag data">' + escapeHtml(p.error) + '</div>'; return; }
+      if(!p.period){ box.innerHTML = '<div class="mg-flag data">' + escapeHtml((p.note || '') + ' Keep the dates Teramind puts in the name, e.g. "... 2026-10-01 - 2026-10-31.csv".') + '</div>'; return; }
+      p.file = f.name;
+      _MG.tm = p;
+      if(p.period !== _MG.upMonth){ _MG.upMonth = p.period; renderMgmtUpload(); return; }   // the file says which month it is
+      _mgShowTeramind();
+    }
+    function _mgShowTeramind(){
+      var box = document.getElementById('mgTmPreview'), p = _MG.tm; if(!box || !p) return;
+      box.innerHTML = '<p class="mg-status" style="margin-top:10px;">' + escapeHtml(p.file) + ': <b>' + escapeHtml(_skPeriodLabel(p.period)) + '</b>, ' + p.rows.length + ' broker' + (p.rows.length === 1 ? '' : 's') + '.'
+          + (p.missing && p.missing.length ? ' Not in the file: ' + escapeHtml(p.missing.map(function(x){ return _skShortName(x.name); }).join(', ')) + '.' : '')
+          + (p.others ? ' ' + p.others + ' other staff ignored.' : '') + '</p>'
+        + '<div style="overflow-x:auto;"><table class="sk-table" id="mgTmTable"><tr><th>Broker</th><th class="num">Computer activity</th><th class="num">Work time</th><th class="num">Idle time</th></tr>'
+        + p.rows.map(function(r){ return '<tr><td>' + escapeHtml(_skShortName(r.rep.name)) + '</td><td class="num">' + (r.activity_pct == null ? _mgDash() : r.activity_pct.toFixed(2) + '%') + '</td><td class="num">' + (r.work_sec == null ? _mgDash() : _mgHm(r.work_sec)) + '</td><td class="num">' + (r.idle_sec == null ? _mgDash() : _mgHm(r.idle_sec)) + '</td></tr>'; }).join('')
+        + '</table></div>'
+        + '<button type="button" class="btn-primary" id="mgTmSave" style="width:auto;padding:10px 18px;margin-top:12px;">Save Teramind for ' + escapeHtml(_skPeriodLabel(p.period)) + '</button>';
+      document.getElementById('mgTmSave').onclick = _mgSaveTeramind;
+    }
+    async function _mgReloadActivity(){
+      var r = await sb.from('broker_activity').select('*');
+      if(!r.error) _SK.activity = r.data || [];
+    }
+    async function _mgSaveTeramind(){
+      var p = _MG.tm, btn = document.getElementById('mgTmSave'); if(!p || !btn) return;
+      btn.disabled = true; btn.textContent = 'Saving…';
+      var rows = p.rows.map(function(r){ var o = { rep_id:r.rep.id, activity_pct:r.activity_pct }; if(p.hasIdle) o.idle_sec = r.idle_sec; if(p.hasWork) o.work_sec = r.work_sec; return o; });
+      var res = await sb.rpc('record_broker_activity', { p_period:p.period, p_rows:rows, p_source:'Teramind monthly export', p_file:p.file });
+      if(res.error){ btn.disabled = false; btn.textContent = 'Save Teramind for ' + _skPeriodLabel(p.period); safeAlert('The Teramind figures were not saved. ' + (res.error.message || ''), res.error); return; }
+      try { logAction('mgmt_upload_teramind', null, { period:p.period, rows:rows.length, file:p.file }); } catch(e){}
+      _MG.tm = null;
+      await _mgReloadActivity();
+      renderMgmtUpload();
+      var st = document.getElementById('mgUpStatus'); if(st) st.insertAdjacentHTML('afterbegin', '<span class="mg-ok" style="display:block;margin-bottom:8px;">Teramind for ' + escapeHtml(_skPeriodLabel(p.period)) + ' saved. It is in the month-end report from now on.</span>');
+    }
+    async function _mgSaveDays(){
+      var key = _MG.upMonth, msg = document.getElementById('mgDaysMsg'), btn = document.getElementById('mgDaysSave');
+      var act = {}; (_SK.activity || []).forEach(function(a){ if(String(a.period).slice(0, 10) === key) act[a.rep_id] = a; });
+      var rows = [], bad = [];
+      document.querySelectorAll('[data-mg-days]').forEach(function(inp){
+        var id = inp.getAttribute('data-mg-days'), v = String(inp.value).trim(), had = act[id] && act[id].days_worked_mgmt != null;
+        if(v === ''){ if(had) rows.push({ rep_id:id, days_worked_mgmt:null }); return; }
+        var n = Number(v);
+        if(!(n >= 0 && n <= 31) || Math.round(n * 2) !== n * 2){ bad.push(inp.getAttribute('aria-label').replace('Days worked for ', '')); return; }
+        if(!had || Number(act[id].days_worked_mgmt) !== n) rows.push({ rep_id:id, days_worked_mgmt:n });
+      });
+      if(bad.length){ msg.innerHTML = '<div class="mg-flag data">Days worked must be 0 to 31, in whole or half days: check ' + escapeHtml(_mgList(bad)) + '.</div>'; return; }
+      if(!rows.length){ msg.innerHTML = '<div class="mg-flag info">Nothing has changed, so there is nothing to save.</div>'; return; }
+      btn.disabled = true; btn.textContent = 'Saving…';
+      var res = await sb.rpc('record_broker_activity', { p_period:key, p_rows:rows, p_source:'Days worked (management)', p_file:null });
+      btn.disabled = false; btn.textContent = 'Save days worked';
+      if(res.error){ msg.innerHTML = '<div class="mg-flag data">Not saved: ' + escapeHtml(res.error.message || 'please try again') + '</div>'; return; }
+      try { logAction('mgmt_days_worked', null, { period:key, rows:rows.length }); } catch(e){}
+      await _mgReloadActivity();
+      _MG.days = null; _MG.daysKey = null;
+      renderMgmtUpload();
+      var m2 = document.getElementById('mgDaysMsg'); if(m2) m2.innerHTML = '<div class="mg-ok">Days worked for ' + escapeHtml(_skPeriodLabel(key)) + ' saved for ' + rows.length + ' broker' + (rows.length === 1 ? '' : 's') + '.</div>';
+    }
+
+    // ── Data feeds ──
+    function _mgFeedIssues(f){
+      if(!f) return [];
+      var out = [];
+      (f.calls || []).forEach(function(x){ if(x.ok !== true) out.push({ kind:'calls', day:x.day }); });
+      (f.emails || []).forEach(function(x){ if(x.ok !== true) out.push({ kind:'emails', day:x.day }); });
+      (f.hhd || []).forEach(function(x){ out.push({ kind:'hhd', mpan:x.mpan }); });
+      return out;
+    }
+    function renderMgmtFeeds(){
+      _mgEnsureCss();
+      var pane = document.getElementById('ceoPane-feeds'); if(!pane) return;
+      var P = [['d7','Last 7 days'],['d30','Last 30 days'],['lastmonth','Last month'],['month','This month']];
+      pane.innerHTML = '<div class="card">'
+        + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Data feeds</h3>'
+        + '<p class="mg-note">Whether the automatic feeds arrived. A problem here is a data problem, not something a broker or customer did.</p>'
+        + '<div class="mg-controls"><div class="mg-presets" role="group" aria-label="Time frame">' + P.map(function(p){ return '<button type="button" data-mg-feed="' + p[0] + '" aria-pressed="' + (_MG.feedTab === p[0] ? 'true' : 'false') + '">' + p[1] + '</button>'; }).join('') + '</div></div>'
+        + '<div id="mgFeedBody" aria-live="polite"><p class="mg-note">Loading…</p></div></div>';
+      pane.querySelectorAll('[data-mg-feed]').forEach(function(b){ b.onclick = function(){ _MG.feedTab = b.getAttribute('data-mg-feed'); renderMgmtFeeds(); }; });
+      _mgFillFeeds();
+    }
+    async function _mgFillFeeds(){
+      var body = document.getElementById('mgFeedBody'); if(!body) return;
+      var y = _mgAdd(_mgToday(), -1), from, to = y;
+      if(_MG.feedTab === 'd7') from = _mgAdd(y, -6);
+      else if(_MG.feedTab === 'lastmonth'){ var r = _mgPresetRange('lastmonth'); from = r[0]; to = r[1]; }
+      else if(_MG.feedTab === 'month'){ from = _mgMonthStart(_mgToday()); if(from > to) from = to; }
+      else from = _mgAdd(y, -29);
+      var seq = ++_MG.seq, f;
+      try { f = await _mgLoadFeed(from, to); }
+      catch(e){ if(seq === _MG.seq) body.innerHTML = '<div class="mg-flag data">The feed status could not be loaded just now. Please refresh the page.</div>'; return; }
+      if(seq !== _MG.seq) return;
+      function feedLine(list, what){
+        var bad = (list || []).filter(function(x){ return x.ok !== true; }).map(function(x){ return x.day; });
+        var n = (list || []).length;
+        return bad.length
+          ? '<li class="mg-flag data"><b>' + what + ' did not load</b> for ' + _mgList(_mgRanges(bad)) + '. It retries on its own for 10 days; if a day stays here, CES admin needs to look at it.</li>'
+          : '<li class="mg-ok"><b>' + what + '</b> loaded for all ' + n + ' weekday' + (n === 1 ? '' : 's') + (n ? ' (' + _mgDay(list[0].day) + ' to ' + _mgDay(list[list.length - 1].day) + ')' : '') + '.</li>';
+      }
+      var h = '<p class="mg-status"><b>' + escapeHtml(_mgDay(f.from) + ' to ' + _mgDay(f.to)) + '</b></p>'
+        + '<ul class="mg-flags">' + feedLine(f.calls, 'Calls (8x8)') + feedLine(f.emails, 'Emails (Microsoft 365)') + '</ul>';
+      h += '<h4 class="mg-h4">Half-hourly meter readings (Stark)</h4>'
+        + '<p class="mg-note">' + _skNum(f.hhd_meters, 0) + ' meters on the Stark feed' + (f.hhd_last_file ? '; last file received ' + escapeHtml(new Date(f.hhd_last_file).toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Europe/London' })) : '') + '. Checked up to ' + escapeHtml(_mgDay(f.hh_to)) + ': Stark sends each day a day later and re-sends the last month every day, so a gap can still fill in.</p>';
+      var gaps = f.hhd || [];
+      if(gaps.length){
+        h += '<div style="overflow-x:auto;"><table class="sk-table" id="mgHhdTable"><tr><th>Customer</th><th>Site</th><th>MPAN</th><th>Readings missing</th><th>Status</th></tr>'
+          + gaps.map(function(g){
+              var miss = (g.missing || []).slice(), part = (g.partial || []).slice();
+              var calDays = function(ds){ var out = [], i = 0, s = ds.slice().sort(); while(i < s.length){ var j = i; while(j + 1 < s.length && _mgAdd(s[j], 1) === s[j + 1]) j++; out.push(i === j ? _mgDay(s[i]) : _mgDay(s[i]) + ' to ' + _mgDay(s[j])); i = j + 1; } return out; };
+              var txt = (miss.length ? miss.length + ' day' + (miss.length === 1 ? '' : 's') + ' with no readings (' + _mgList(calDays(miss)) + ')' : '')
+                + (part.length ? (miss.length ? '; ' : '') + part.length + ' with only some (' + _mgList(calDays(part)) + ')' : '');
+              var status = g.ongoing
+                ? '<span class="mg-diff">Ongoing' + (g.last_complete ? ': no full day since ' + escapeHtml(_mgDay(g.last_complete)) : ': no full day on record') + '</span>'
+                : 'Readings back' + (g.last_complete ? ' (latest ' + escapeHtml(_mgDay(g.last_complete)) + ')' : '');
+              return '<tr><td>' + escapeHtml(g.company_name || g.customer_id) + '</td><td style="white-space:normal;">' + escapeHtml(g.site || '') + '</td><td style="font-family:\'JetBrains Mono\',monospace;">' + escapeHtml(g.mpan) + '</td><td style="white-space:normal;min-width:260px;">' + escapeHtml(txt) + '</td><td>' + status + '</td></tr>';
+            }).join('')
+          + '</table></div>'
+          + '<p class="mg-note" style="margin-top:8px;"><b>What this means:</b> Stark sent these days with no half-hourly readings (or only some). That is a gap in the data feed, not zero use: a site that is open sends readings, and an empty site still sends readings of 0 kWh. Gaps usually follow a change of supplier or data collector; ask the supplier to confirm Stark is appointed as data collector, or ask Stark why the meter has no data. Until it fills in, the customer’s running cost leaves those days out and says so.</p>';
+      } else {
+        h += '<div class="mg-ok">Every meter on the feed has full readings for every day in this period.</div>';
+      }
+      var zero = f.hhd_zero || [];
+      if(zero.length) h += '<h4 class="mg-h4">Readings of 0 kWh every day (for information)</h4>'
+        + '<p class="mg-note">These meters are sending readings, all zero. That is actual data, usually an empty or closed site, and it is counted as no use.</p>'
+        + '<ul class="mg-flags">' + zero.map(function(z){ return '<li class="mg-flag info">' + escapeHtml((z.company_name || z.customer_id) + ', ' + (z.site || '') + ' (' + z.mpan + '): ' + z.zero_days + ' days at 0 kWh.') + '</li>'; }).join('') + '</ul>';
+      if((f.hhd_ingest_errors || []).length) h += '<h4 class="mg-h4">Stark files that could not be read</h4><ul class="mg-flags">'
+        + f.hhd_ingest_errors.map(function(e){ return '<li class="mg-flag data">' + escapeHtml(new Date(e.at).toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Europe/London' }) + ': ' + (e.file || '') + ' - ' + (e.message || '')) + '</li>'; }).join('') + '</ul>';
+      body.innerHTML = h;
+    }
+    // ── Management view, Figures tab (was the Company view) ──
     // Its own screen rather than a dressed-up leaderboard: aggregate the company first,
     // break down by broker second. Every figure comes from _SK.eff, the same source the
     // team figures table and the month-end report use, so the three cannot quietly
@@ -8753,7 +9237,9 @@
         ? ps.map(function(p){ return '<option value="'+p+'">'+escapeHtml(_skPeriodLabel(p))+'</option>'; }).join('')
         : '<option value="">&mdash; no figures yet &mdash;</option>';
       host.innerHTML =
-        '<div class="section-head"><h2>Company view</h2></div>'
+        '<div class="section-head"><h2>Management</h2></div>'
+        + _mgTabsHtml()
+        + '<div class="bx-pane' + (_MG.tab === 'figures' ? ' active' : '') + '" id="ceoPane-figures">'
         + '<div class="card" style="margin-bottom:16px;">'
           + '<div class="sk-entry-grid sk-entry-vert" style="margin-bottom:0;">'
             + '<div class="form-group"><label>Period</label><select id="ceoMonth" onchange="renderCeoBody()">'
@@ -8774,9 +9260,14 @@
           + '</div>'
           + '<div id="ceoReportStatus" style="font-size:12.5px;margin-top:10px;"></div>'
         + '</div>'
-        + '<div id="ceoBody"></div>';
+        + '<div id="ceoBody"></div>'
+        + '</div>'
+        + '<div class="bx-pane" id="ceoPane-activity"></div><div class="bx-pane" id="ceoPane-upload"></div><div class="bx-pane" id="ceoPane-feeds"></div>';
       renderCeoBody();
       renderCeoReportStatus();
+      _mgEnsureCss();
+      if(_MG.tab !== 'figures') ceoTab(_MG.tab);
+      _mgFeedBadge();
     }
     // Whether the chosen month is final. The workbook prints DRAFT or COMPLETE by this same
     // rule (confirmed_at on every active rep), so the line and the file cannot disagree.
