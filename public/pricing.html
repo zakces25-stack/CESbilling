@@ -5,10 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- cdnjs carries SheetJS, which reads the header row of an xlsx pricebook in the browser
        so a wrong layout is caught before the file is ever stored. Pinned, not floating. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: data: https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self';" />
+  <!-- challenges.cloudflare.com is Turnstile, the human check the CES Supabase project
+       requires on every password sign-in (it is enforced server-side, so a sign-in box
+       without it can never succeed: that is why this page used to send everyone via the
+       sales portal). It needs script, frame and connect permission. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://challenges.cloudflare.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: data: https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self';" />
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
-  <title>CES Pricing Desk</title>
+  <!-- Bump on every push: a plain fetch of the live page can then tell this build from the last. -->
+  <meta name="build" content="pricing 2026-11-03a" />
+  <title>CES Pricing Portal</title>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -60,6 +67,19 @@
     nav button.on{color:var(--cyan);background:var(--cyan-glow);border-color:var(--cyan-dim)}
     .spacer{flex:1}
     .whoami{font-size:12px;color:var(--muted)}
+    /* Eight tabs plus the name and buttons need about 1,500px on one line without wrapping a
+       label onto two lines (measured 3 Nov 2026). Narrower than that the tab strip takes its own
+       row and scrolls sideways inside itself, so the PAGE never does. */
+    nav button, header .act{white-space:nowrap}
+    @media (max-width:1560px){
+      header{flex-wrap:wrap;row-gap:8px}
+      nav{order:3;flex:0 0 100%;margin-left:0;overflow-x:auto;scrollbar-width:thin}
+      nav button{flex:0 0 auto}
+    }
+    @media (max-width:600px){
+      header{padding:10px 16px;gap:10px}
+      #app main{padding:16px}          /* #app: the plain main{} rule comes later in this sheet */
+    }
 
     main{max-width:1500px;margin:0 auto;padding:22px}
     .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;
@@ -106,12 +126,39 @@
     .note.warn{border-left-color:var(--warn);color:#5c4104;background:var(--warn-bg)}
     .note.good{border-left-color:var(--ok);color:#0d4a21;background:var(--ok-bg)}
 
-    #signin{max-width:340px;margin:14vh auto;padding:26px;background:var(--panel);
-      border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
-    #signin h1{font-size:17px;margin-bottom:6px}
-    #signin p{font-size:12px;color:var(--muted);margin-bottom:20px}
-    #signin label{margin-top:12px}
-    #signin button{width:100%;margin-top:18px}
+    /* The sign-in page. Its own door now (3 Nov 2026): a CES-branded panel on the left, the
+       sign-in card on the right, stacked on a phone. The brand panel is CES teal; every text
+       colour on it was measured against the DARKER end of the gradient AND the lighter one. */
+    #signin{min-height:100vh;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(360px,.9fr)}
+    #signin.hide{display:none!important}
+    .si-brand{background:linear-gradient(150deg,#0f766e 0%,#0b4f4a 100%);color:#fff;padding:48px 56px;
+      display:flex;flex-direction:column;justify-content:space-between;min-height:100vh}
+    .si-logo{background:#fff;border-radius:14px;padding:14px 18px;display:inline-flex;align-self:flex-start;
+      box-shadow:0 8px 24px rgba(0,0,0,.18)}
+    .si-logo img{height:46px;width:auto;display:block}
+    .si-brand h1{font-size:34px;font-weight:800;letter-spacing:-.01em;margin:36px 0 10px;color:#fff}
+    .si-brand p{font-size:14px;line-height:1.6;max-width:46ch;color:#e6f6f2}
+    .si-brand ul{list-style:none;margin-top:22px;display:grid;gap:9px;font-size:13.5px;color:#f1fbf8}
+    .si-brand li::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;
+      background:#9be6d8;margin-right:10px;vertical-align:middle}
+    .si-foot{font-size:11.5px;color:#e6f6f2;margin-top:28px}
+    .si-panel{display:grid;place-items:center;padding:32px 22px;background:var(--bg)}
+    .si-card{width:100%;max-width:380px;background:var(--panel);border:1px solid var(--line);border-radius:14px;
+      box-shadow:var(--shadow);padding:28px}
+    .si-card h2{font-size:20px;margin-bottom:4px}
+    .si-card .si-sub{font-size:12.5px;color:var(--muted);margin-bottom:6px}
+    .si-card label{margin-top:12px}
+    .si-card .cf-turnstile{margin:16px 0 2px;min-height:65px;display:flex;justify-content:center}
+    .si-card button.act{width:100%;margin-top:12px}
+    .si-help{font-size:11.5px;color:var(--muted);margin-top:14px;line-height:1.5;text-align:center}
+    .si-links{font-size:12px;margin-top:14px;text-align:center;color:var(--muted)}
+    @media (max-width:860px){
+      #signin{grid-template-columns:1fr}
+      .si-brand{min-height:auto;padding:26px 16px}
+      .si-brand h1{font-size:26px;margin-top:22px}
+      .si-brand ul{display:none}
+      .si-panel{padding:22px 16px 32px;place-items:start center}
+    }
     #loginErr{margin-top:12px;font-size:12px;color:var(--fail);line-height:1.5}
     .chips{display:flex;flex-wrap:wrap;gap:8px}
     .chip{background:var(--panel-2);border:1px solid var(--line-2);color:var(--text);font:inherit;
@@ -144,14 +191,42 @@
 <body>
 
 <div id="signin">
-  <h1>CES <span style="color:var(--cyan)">Pricing Desk</span></h1>
-  <p>Pricebook uploads and portfolio pricing.</p>
-  <label for="u">Username</label>
-  <input id="u" autocomplete="username" autocapitalize="none" spellcheck="false" />
-  <label for="p">Password</label>
-  <input id="p" type="password" autocomplete="current-password" />
-  <button class="act" id="loginBtn" onclick="signIn()">Sign in</button>
-  <div id="loginErr" class="hide"></div>
+  <div class="si-brand">
+    <div>
+      <div class="si-logo"><img src="/ces_logo.png" alt="Commercial Energy Solutions"
+           onerror="this.parentNode.style.display='none'" /></div>
+      <h1>Pricing Portal</h1>
+      <p>Supplier pricebooks, portfolio pricing and the customer record that used to live in
+         UtilityClick, in one place for the CES pricing team.</p>
+      <ul>
+        <li>Price any meter off the live supplier books</li>
+        <li>New pricebooks collected from the pricing mailbox</li>
+        <li>Customers, contracts and renewals from the UC data</li>
+        <li>Quotes and contracts ready to send</li>
+      </ul>
+    </div>
+    <div class="si-foot">&copy; Commercial Energy Solutions Ltd &middot; CES internal</div>
+  </div>
+  <div class="si-panel">
+    <div class="si-card">
+      <h2>Sign in</h2>
+      <div class="si-sub">Use the pricing team login.</div>
+      <label for="u">Username</label>
+      <input id="u" autocomplete="username" autocapitalize="none" spellcheck="false" />
+      <label for="p">Password</label>
+      <input id="p" type="password" autocomplete="current-password" />
+      <!-- Turnstile: the same site key as the sales and billing portals (it is bound to the
+           billcesgb.com hostname). The token is single use, so it is reset after every try. -->
+      <div class="cf-turnstile" data-sitekey="0x4AAAAAADVk1PbXl4rZN4aL" data-theme="light"
+           data-callback="onTurnstileOk" data-error-callback="onTurnstileGone"
+           data-expired-callback="onTurnstileGone"></div>
+      <button class="act" id="loginBtn" onclick="signIn()">Sign in</button>
+      <div id="loginErr" class="hide"></div>
+      <div class="si-help">Forgotten the password? Ask a CES portal admin to reset it. There is no
+        reset email: these logins have no mailbox behind them.</div>
+      <div class="si-links"><a href="/">Billing portal</a> &middot; <a href="/sales.html">Sales portal</a></div>
+    </div>
+  </div>
 </div>
 
 <!--
@@ -183,10 +258,11 @@
 
 <div id="app" class="hide">
   <header>
-    <h1>CES <span>Pricing Desk</span></h1>
+    <h1>CES <span>Pricing Portal</span></h1>
     <nav>
       <button id="tab-price" class="on" onclick="showTab('price')">Pick a meter</button>
-      <button id="tab-books" onclick="showTab('books')">Pricebooks</button>
+      <button id="tab-crm" onclick="showTab('crm')">Customers</button>
+      <button id="tab-books" onclick="showTab('books')">Pricebooks <span id="inboxBadge" class="pill p-warn hide" style="margin-left:4px"></span></button>
       <button id="tab-aq" onclick="showTab('aq')">AQ Opportunities</button>
       <button id="tab-contracts" onclick="showTab('contracts')">Contracts</button>
       <button id="tab-quotes" onclick="showTab('quotes')">Supplier Quotes</button>
@@ -200,8 +276,27 @@
   </header>
 
   <main>
+    <!-- ══════════════════════════════════════════════════════════════════ CUSTOMERS -->
+    <!-- Everything UtilityClick held (customers, sites, meters, contracts, tenders), from
+         /pricing-crm.js. Mounted on first visit. -->
+    <section id="pane-crm" class="hide"><div id="crmHost"></div></section>
+
     <!-- ══════════════════════════════════════════════════════════════════ PRICEBOOKS -->
     <section id="pane-books" class="hide">
+      <!-- Pricebooks the pricebook-mail function collected from pricingteam@cesgb.com. Loading
+           one goes through exactly the same checks as dropping the file in below. -->
+      <div class="card" id="inboxCard">
+        <h2>New pricebooks from the mailbox</h2>
+        <div class="sub">
+          Collected from pricingteam@cesgb.com every half hour on weekdays. <b>Load</b> runs the
+          same checks as dropping the file in below: the layout must be one we know, the file is
+          matched to its product, and the book replaces only the previous one for that product.
+          Anything that needs a person stays in the list below with the reason.
+        </div>
+        <div id="inboxStatus"></div>
+        <div id="inboxList" style="margin-top:10px"><div class="note">Loading&hellip;</div></div>
+      </div>
+
       <div class="card">
         <h2>Upload a pricebook</h2>
         <div class="sub">
@@ -232,14 +327,15 @@
           <div style="font-size:14px;font-weight:700;color:var(--text)">
             Drop the whole supplier pack here</div>
           <div style="font-size:12px;color:var(--muted);margin-top:6px">
-            a .zip, or as many files as you like at once &nbsp;·&nbsp;
+            a .zip or .7z, or as many files as you like at once &nbsp;&middot;&nbsp;
             <span style="color:var(--cyan);text-decoration:underline">or choose files</span>
           </div>
           <div style="font-size:11.5px;color:var(--muted);margin-top:8px">
             Each file is matched to its product by filename, so the 28-file British Gas zip
             sorts itself out. Fuel and sale type come from the product, not from a dropdown.
+            TotalEnergies' .7z books are unpacked here in the browser: no 7-Zip needed.
           </div>
-          <input id="upFile" type="file" accept=".xlsx,.xlsm,.csv,.zip" multiple class="hide" />
+          <input id="upFile" type="file" accept=".xlsx,.xlsm,.xlsb,.csv,.zip,.7z" multiple class="hide" />
         </div>
         <div id="upInspect" class="hide" style="margin-top:16px"></div>
       </div>
@@ -747,7 +843,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="/pricing-parsers.js?v=2026-09-12.1"></script>
+<script src="/pricing-parsers.js?v=2026-11-03.1"></script>
+<script src="/pricing-7z.js?v=2026-11-03.1"></script>
+<script src="/pricing-crm-import.js?v=2026-11-03.2"></script>
+<script src="/pricing-crm.js?v=2026-11-03.1"></script>
 <script src="/pricing-contracts.js?v=2026-09-13.1"></script>
 <script src="/supplier-quotes.js?v=2026-09-14.3"></script>
 <script>
@@ -774,7 +873,7 @@
  * So the two files check each other. Bump BOTH strings together whenever a parser change
  * alters what a rate means.
  */
-const EXPECTS_PARSERS = '2026-09-12.1';
+const EXPECTS_PARSERS = '2026-11-03.1';
 
 const SUPABASE_URL  = 'https://niadffxpxdohglcyagau.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pYWRmZnhweGRvaGdsY3lhZ2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3Mzc3MTksImV4cCI6MjA5NDMxMzcxOX0.x22Zh9O408PGfcPZ6rgu-a4B7WTbyH8iyT_ysr-IfIs';
@@ -843,17 +942,45 @@ function fail(el, msg) {
 // authenticate here and then see empty tables, which reads as a broken page rather than
 // as the wrong door.
 // ═══════════════════════════════════════════════════════════════════════════════════════
+// Turnstile. The CES Supabase project refuses a password sign-in without a fresh human-check
+// token, which is why this box never worked before 3 Nov 2026 and everyone came in through
+// the sales portal. A token is single use: it is dropped after every attempt.
+let TS_TOKEN = null;
+window.onTurnstileOk = (t) => { TS_TOKEN = t; };
+window.onTurnstileGone = () => { TS_TOKEN = null; };
+function tsReset() {
+  TS_TOKEN = null;
+  try { if (window.turnstile && typeof turnstile.reset === 'function') turnstile.reset(); } catch (_) { /* widget gone */ }
+}
+
 async function signIn() {
   const err = $('loginErr'), btn = $('loginBtn');
   const user = ($('u').value || '').trim().toLowerCase();
   const pass = $('p').value || '';
   err.classList.add('hide');
-  if (!user || !pass) { err.textContent = 'Username and password, please.'; err.classList.remove('hide'); return; }
+  const say = (m) => { err.textContent = m; err.classList.remove('hide'); };
+  if (!user || !pass) return say('Username and password, please.');
+  const captchaToken = TS_TOKEN
+    || (window.turnstile && typeof turnstile.getResponse === 'function' ? turnstile.getResponse() : '');
+  if (!captchaToken) {
+    return say('Tick the human check above first. If it never appears, turn off ad or privacy '
+             + 'blockers for this site and reload the page.');
+  }
   btn.disabled = true; btn.textContent = 'Signing in…';
   const email = user.includes('@') ? user : `${user}@${LOGIN_DOMAIN}`;
-  const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+  let error = null;
+  try {
+    ({ error } = await sb.auth.signInWithPassword({ email, password: pass, options: { captchaToken } }));
+  } catch (e) { error = { message: 'network: ' + e.message }; }
+  tsReset();
   btn.disabled = false; btn.textContent = 'Sign in';
-  if (error) { err.textContent = 'That username and password did not work.'; err.classList.remove('hide'); return; }
+  if (error) {
+    const m = String(error.message || '').toLowerCase();
+    if (m.includes('captcha')) return say('The human check expired. Tick it again, then sign in.');
+    if (m.includes('rate limit') || m.includes('too many')) return say('Too many attempts. Wait a minute and try again.');
+    if (m.startsWith('network')) return say('Could not reach the server. Check the connection and try again.');
+    return say('That username and password did not work.');
+  }
   await afterSignIn();
 }
 
@@ -906,6 +1033,18 @@ function startDesk() {
   });
   paintTermLabel();
   showTab('price');          // the desk's job is pricing meters; pricebooks is upkeep
+  // New books from the mailbox: a badge on the tab, and one line on the page you land on.
+  inboxBadge().then((n) => {
+    if (!n) return;
+    const bar = document.createElement('div');
+    bar.className = 'note warn';
+    bar.id = 'inboxBanner';
+    bar.style.cssText = 'margin:0 0 14px;font-size:13px';
+    bar.innerHTML = `<b>${n} new pricebook file${n === 1 ? '' : 's'} arrived from the mailbox.</b> `
+      + `<a href="#" onclick="showTab('books');return false">Open Pricebooks to load ${n === 1 ? 'it' : 'them'}</a>.`;
+    const main = document.querySelector('#app main');
+    if (main && !$('inboxBanner')) main.insertBefore(bar, main.firstChild);
+  });
 }
 
 function setWho() {
@@ -962,20 +1101,115 @@ function showSignIn(){
   $('whoami').classList.add('hide');
   $('app').classList.add('hide');
 }
-// Out of the desk and back to the sales login, as the COT desk does, rather than reloading into
-// this page's own sign-in box. The sales portal is the one front door for the CES side.
-async function signOut(){ localStorage.removeItem('pricing_who'); await sb.auth.signOut(); location.href = '/sales.html'; }
+// The pricing portal has its own sign-in page again (3 Nov 2026, with Turnstile), so signing
+// out comes back here rather than going to the sales login. The session is shared across the
+// CES pages on billcesgb.com, so this signs out of those too, which is what "sign out" means.
+async function signOut(){ localStorage.removeItem('pricing_who'); await sb.auth.signOut(); location.href = '/pricing.html'; }
 
 function showTab(t) {
-  for (const k of ['books','price','aq','contracts','quotes','ref','admin']) {
+  for (const k of ['books','price','crm','aq','contracts','quotes','ref','admin']) {
     $('pane-'+k).classList.toggle('hide', k !== t);
     $('tab-'+k).classList.toggle('on', k === t);
   }
+  if (t === 'crm') crmInit();
+  if (t === 'books') loadInbox();
   if (t === 'admin') { loadAdmin(); loadStorage(); }
   if (t === 'aq') aqInit();
   if (t === 'contracts') contractsInit();
   if (t === 'quotes') quotesInit();
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Customers: the UtilityClick data (/pricing-crm.js, tables crm_*). Mounted on first visit.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+let CRM_API = null;
+function crmInit() {
+  if (CRM_API) return;
+  if (typeof CrmDesk === 'undefined') {
+    $('crmHost').innerHTML = '<div class="note bad">The Customers module did not load (pricing-crm.js). Hold Shift and reload.</div>';
+    return;
+  }
+  CRM_API = CrmDesk.mount($('crmHost'), { sb, esc, XLSX: window.XLSX, who: () => WHO, onPriceMeter: priceFromCrm });
+  window.CRM_API = CRM_API;
+}
+
+const UC_REGISTERS = { single: 'single', day_night: 'day_night', eve_weekend: 'eve_weekend',
+                       day_night_ew: 'day_night_ew' };
+
+/**
+ * Price a meter picked on the Customers tab.
+ *
+ * A meter the broker portfolio already carries goes through the normal path, because the
+ * portfolio row has the converted SSC, the TCR band and the gas zone the UC export does not.
+ * Anything else (a lead, an inactive meter, a customer no broker portfolio holds) goes through
+ * the hand-typed path with every field filled in from the UC record, so it is visible and can
+ * be corrected before pricing. Either way the start date comes from the UC contract dates.
+ */
+async function priceFromCrm(m) {
+  showTab('price');
+  let rows = [];
+  try {
+    rows = await q(sb.from('meters')
+      .select('id,customer_id,mpan,utility,supply_type,site_name,site_address,postcode,'
+            + 'est_annual_consumption,profile_class,rate_structure,rate_structure_src,tcr_band,tcr_band_src,'
+            + 'ssc,ssc_status,ssc_note,ssc_src,top_line,meter_serial,'
+            + 'dno_id,llfc,ldz,exit_zone,priceable,price_block_reason,supplier,contract_end_date')
+      .eq('mpan', m.mpan).in('utility', ['electricity', 'gas']).limit(5), 'portfolio meter');
+  } catch (e) { rows = []; }
+  if (rows.length) {
+    $('mSearch').value = m.mpan;
+    window.__FOUND = rows;
+    METER = rows[0];
+    METER.crm = m;
+    fillMeterGaps().catch(() => showMeter());
+    $('priceCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  const gas = m.fuel === 'gas';
+  $('manualWrap').open = true;
+  $('xFuel').value = gas ? 'gas' : 'electricity';
+  manualFuelChanged();
+  $('xId').value = m.mpan || '';
+  $('xAq').value = m.aq ? Math.round(Number(m.aq)) : '';
+  if (gas) {
+    $('xPostcode').value = m.postcode || '';
+    $('xLdz').value = ''; $('xZone').value = '';
+    // Awaited: useManualMeter reads the LDZ and exit zone boxes, and gas prices by zone.
+    if (m.postcode) await autofillZones();
+  } else {
+    $('xDno').value = ''; $('xDno').dataset.typed = ''; autofillDno();
+    const pc = m.profile_class != null ? String(m.profile_class) : '';
+    $('xPc').value = [...$('xPc').options].some(o => o.value === pc) ? pc : '';
+    $('xStruct').value = UC_REGISTERS[m.registers] || 'single';
+    $('xSsc').value = m.ssc || '';
+    $('xLlfc').value = m.llfc || '';
+    // The TCR band from the LLFC (ref_llfc_band, one row per distributor + LLFC), as the
+    // portfolio derives it. Only a real band is set: 'domestic' or no match leaves it unknown,
+    // which shows every band rather than dropping the banded suppliers.
+    $('xBand').value = '';
+    const dno = ($('xDno').value || '').trim();
+    const ll = String(m.llfc || '').trim().toUpperCase();
+    if (dno && ll) {
+      try {
+        const b = await q(sb.from('ref_llfc_band').select('band').eq('dno_id', dno)
+          .eq('llfc', /^\d{1,3}$/.test(ll) ? ll.padStart(3, '0') : ll).limit(1), 'TCR band');
+        if (b.length && [...$('xBand').options].some(o => o.value && o.value === b[0].band)) $('xBand').value = b[0].band;
+      } catch (_) { /* unknown band: every band is shown */ }
+    }
+  }
+  // Today's supplier: the live contract, else the one lined up (a gap between two), else the
+  // last one (out of contract, still with them). A contract lined up with a DIFFERENT supplier
+  // (340 active meters on 3 Nov 2026) is handled by defaultStartDate: the start goes after it
+  // and START_SUPPLIER makes the lined-up supplier the one quoting the renewal.
+  const sup = String(m.cur_supplier || m.next_supplier || m.last_supplier || m.uc_current_supplier || '').trim();
+  const hit = [...$('xSupplier').options].map(o => o.value)
+    .find(v => v && v !== '__other' && v.toLowerCase() === sup.toLowerCase());
+  $('xSupplier').value = !sup ? '' : (hit || '__other');
+  if (!m.aq) { $('xAq').focus(); return; }
+  PENDING_CRM = m;
+  useManualMeter();
+}
+let PENDING_CRM = null;
 
 // Supplier Quotes is /supplier-quotes.js, the same module the sales portal mounts, so the two
 // cannot drift. Mounted on the first visit; the api object is kept for the tests.
@@ -1173,6 +1407,146 @@ const productLabel = p => !p ? '—'
  * exception and are named as such, because JSZip cannot read them at all and a silently
  * empty queue would look like the feature is broken.
  */
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// The mailbox inbox: pricebooks the pricebook-mail function collected from pricingteam@.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+//
+// The function only COLLECTS: it stores each supplier attachment once (by SHA-256, so the
+// team's own forwards to UtilityClick never queue twice) and records it here. Loading goes
+// through addFiles and processQueue exactly like a dropped file: layout fingerprint, product
+// routing, the same go-live rule. A person presses Load and sees the counts. Nothing goes
+// live because an email arrived.
+
+let INBOX = [];
+
+/** Count for the tab badge, cheap enough for every desk start. */
+async function inboxBadge() {
+  try {
+    const { count, error } = await sb.from('pricebook_inbox').select('id', { count: 'exact', head: true })
+      .eq('status', 'new').eq('kind', 'attachment');
+    if (error) throw error;
+    const b = $('inboxBadge');
+    if (b) { b.textContent = count ? String(count) : ''; b.classList.toggle('hide', !count); }
+    return count || 0;
+  } catch (e) { return 0; }
+}
+
+async function loadInbox() {
+  const list = $('inboxList'), status = $('inboxStatus');
+  if (!list) return;
+  let rows = [], runs = [];
+  try {
+    [rows, runs] = await Promise.all([
+      q(sb.from('pricebook_inbox').select('*').order('received_at', { ascending: false }).limit(80), 'mailbox inbox'),
+      q(sb.from('pricebook_mail_runs').select('started_at, ok, error, files_new, messages_matched')
+          .order('started_at', { ascending: false }).limit(1), 'mailbox runs'),
+    ]);
+  } catch (e) { return fail(list, e.message); }
+  INBOX = rows;
+  inboxBadge();
+  const run = runs[0];
+  status.innerHTML = !run
+    ? '<div class="note warn">The mailbox has not been read yet.</div>'
+    : /^not configured/.test(run.error || '')
+    ? `<div class="note warn"><b>Not connected to the mailbox yet.</b> The collector is installed and runs every
+       half hour, but a Microsoft 365 admin still has to give it read access to pricingteam@cesgb.com
+       (a one-off step). Until then, drop files in below as before.</div>`
+    : run.ok
+    ? `<div class="note good">Mailbox last read ${uk(run.started_at)} at ${String(run.started_at).slice(11, 16)} UTC:
+       ${run.files_new || 0} new file${run.files_new === 1 ? '' : 's'}.</div>`
+    : `<div class="note bad">The last mailbox read failed (${uk(run.started_at)} ${String(run.started_at).slice(11, 16)} UTC):
+       ${esc(run.error || 'no reason recorded')}</div>`;
+
+  const waiting = rows.filter(r => r.status === 'new' || r.status === 'failed' || r.status === 'loading');
+  const done = rows.filter(r => r.status === 'loaded' || r.status === 'skipped').slice(0, 15);
+  const fileRows = waiting.filter(r => r.kind === 'attachment' && r.storage_path);
+  const when = (r) => `${uk(r.received_at)} ${String(r.received_at || '').slice(11, 16)}`;
+  const pillFor = (st) => ({ new: 'p-warn', loading: 'p-warn', failed: 'p-fail', loaded: 'p-ok', skipped: 'p-mute' }[st] || 'p-mute');
+  const row = (r, live) => `<tr>
+      <td>${when(r)}</td>
+      <td>${esc(supplierName(r.supplier_key))}</td>
+      <td style="max-width:320px;overflow-wrap:anywhere">${r.kind === 'link'
+        ? `<a href="${esc(r.link_url)}" target="_blank" rel="noopener noreferrer">download link</a>`
+        : esc(r.file_name || '')}
+        <div style="font-size:10.5px;color:var(--muted)">${esc(r.subject || '')}</div></td>
+      <td class="num">${r.size_bytes ? mb(r.size_bytes) : '—'}</td>
+      <td><span class="pill ${pillFor(r.status)}">${esc(r.status)}</span>
+        ${r.status_note ? `<div style="font-size:10.5px;color:var(--muted);max-width:260px">${esc(r.status_note)}</div>` : ''}</td>
+      <td style="white-space:nowrap">${!live ? '' : r.kind === 'link'
+        ? `<button class="act ghost sm" onclick="skipInbox('${r.id}','opened by hand')">Done</button>`
+        : `<button class="act sm" onclick="loadInboxRows(['${r.id}'])">Load</button>
+           <button class="act ghost sm" onclick="skipInbox('${r.id}')">Skip</button>`}</td>
+    </tr>`;
+  list.innerHTML = (waiting.length
+      ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+           <button class="act" ${fileRows.length ? '' : 'disabled'} onclick="loadInboxRows(INBOX.filter(r => (r.status === 'new' || r.status === 'failed') && r.kind === 'attachment' && r.storage_path).map(r => r.id))">
+             ${fileRows.length ? `Load all ${fileRows.length}` : 'Nothing to load'}</button>
+           <span style="font-size:11.5px;color:var(--muted)">One at a time, oldest supplier book replaced only by its own product.</span></div>
+         <div class="scroll"><table><thead><tr><th>Received</th><th>Supplier</th><th>File</th><th class="num">Size</th><th>State</th><th></th></tr></thead>
+         <tbody>${waiting.map(r => row(r, true)).join('')}</tbody></table></div>`
+      : '<div class="note">Nothing waiting.</div>')
+    + (done.length
+      ? `<details style="margin-top:12px"><summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--text-2)">Recently handled</summary>
+         <div class="scroll" style="margin-top:8px"><table><tbody>${done.map(r => row(r, false)).join('')}</tbody></table></div></details>`
+      : '');
+}
+
+/** Pull stored files from the bucket into the queue, then run it. */
+async function loadInboxRows(ids) {
+  const rows = INBOX.filter(r => ids.includes(r.id) && r.storage_path);
+  if (!rows.length) return;
+  showTab('books');
+  let fetchFailed = 0;
+  for (const r of rows) {
+    try {
+      await sb.from('pricebook_inbox').update({ status: 'loading', handled_by_name: WHO || null,
+        handled_at: new Date().toISOString(), status_note: null }).eq('id', r.id);
+      const { data, error } = await sb.storage.from('pricebook-inbox').download(r.storage_path);
+      if (error) throw new Error(error.message);
+      const file = new File([data], r.file_name || 'pricebook', { type: data.type || 'application/octet-stream' });
+      await addFiles([file], { skey: r.supplier_key, inboxId: r.id });
+    } catch (e) {
+      fetchFailed++;
+      await sb.from('pricebook_inbox').update({ status: 'failed', status_note: 'could not fetch the file: ' + String(e.message).slice(0, 300) }).eq('id', r.id);
+    }
+  }
+  await processQueue();
+  // processQueue redraws the inbox only for files that reached the queue; a file that could
+  // not be fetched never did, and its row would sit there looking untouched.
+  if (fetchFailed) loadInbox();
+}
+
+/**
+ * What happened to one inbox file, from the queue rows it produced (a .7z becomes several).
+ * All live or already loaded -> loaded. Anything that broke -> failed with the first reason.
+ * Anything waiting on a person (unknown layout, no product rule) -> back to new, with why.
+ */
+async function settleInbox(inboxId) {
+  const items = QUEUE.filter(i => i.inboxId === inboxId);
+  if (!items.length) return;
+  const ids = items.map(i => i.uploadId).filter(Boolean);
+  const broke = items.find(i => i.state === 'error');
+  const human = items.find(i => ['layout', 'unrouted', 'queued'].includes(i.state));
+  const allDone = items.every(i => i.state === 'done' || i.state === 'skipped'
+                                   || (i.state === 'blocked' && /already uploaded/.test(i.msg || '')));
+  const patch = broke ? { status: 'failed', status_note: `${broke.name}: ${broke.msg}`.slice(0, 500) }
+    : allDone ? { status: 'loaded', status_note: null }
+    : human ? { status: 'new', status_note: `needs a person: ${human.name}: ${human.msg || human.state}`.slice(0, 500) }
+    : { status: 'new', status_note: items.map(i => `${i.name}: ${i.state}`).join('; ').slice(0, 500) };
+  if (ids.length) patch.upload_ids = ids;
+  try { await sb.from('pricebook_inbox').update(patch).eq('id', inboxId); } catch (e) { console.warn('inbox:', e.message); }
+}
+
+async function skipInbox(id, why) {
+  const reason = why || prompt('Why skip this file? (optional)', '') ;
+  if (reason === null) return;
+  try {
+    await q(sb.from('pricebook_inbox').update({ status: 'skipped', status_note: reason || null,
+      handled_by_name: WHO || null, handled_at: new Date().toISOString() }).eq('id', id), 'skip');
+  } catch (e) { alert(e.message); }
+  loadInbox();
+}
+
 /**
  * Supplier archives the desk can open by itself.
  *
@@ -1187,97 +1561,128 @@ const KNOWN_ARCHIVES = [
     skipWhy: 'new connection pricebooks, which CES does not quote' },
 ];
 
-async function addFiles(list) {
+/**
+ * Queue dropped (or mailbox-collected) files.
+ *
+ * `opts.skey` pins the supplier for these files (a mailbox file knows its supplier), and
+ * `opts.inboxId` ties every queue row back to its pricebook_inbox row so the inbox can be told
+ * what happened. A plain drop passes neither and uses the supplier dropdown, as before.
+ */
+async function addFiles(list, opts = {}) {
   const files = [...list];
   if (!files.length) return;
+  const tag = { skey: opts.skey || null, inboxId: opts.inboxId || null };
+  const push = (o) => QUEUE.push(Object.assign({ id: crypto.randomUUID() }, tag, o));
   const note = $('upInspect');
   note.classList.remove('hide');
   note.innerHTML = '<div class="note">Opening…</div>';
 
   for (const f of files) {
-    if (/\.zip$/i.test(f.name)) {
+    // What the bytes ARE decides the reader, not the extension alone: a .zip that is really
+    // a 7z (or the other way round) is read by the right one.
+    let head = null;
+    if (/\.(zip|7z)$/i.test(f.name)) {
+      try { head = new Uint8Array(await f.slice(0, 6).arrayBuffer()); } catch (_) { head = null; }
+    }
+    const is7z = !!head && head[0] === 0x37 && head[1] === 0x7a && head[2] === 0xbc
+                 && head[3] === 0xaf && head[4] === 0x27 && head[5] === 0x1c;
+
+    if (is7z || (!head && /\.7z$/i.test(f.name))) {
+      // ── A .7z, unpacked here (pricing-7z.js). TotalEnergies send both weekly power books this
+      // way: four CSVs, 195 to 262 MB unpacked. Each file becomes a File (Blob-backed, so the
+      // browser can keep it off the JS heap) and joins the queue like a dropped CSV.
+      if (typeof SevenZip === 'undefined') {
+        push({ name: f.name, state: 'error', msg: 'the 7z reader (pricing-7z.js) did not load. Hold Shift and reload.' });
+        continue;
+      }
+      try {
+        const u8 = new Uint8Array(await f.arrayBuffer());
+        const names = SevenZip.list(u8).filter(e => !e.isDir).map(e => e.name);
+        await SevenZip.extract(u8, {
+          filter: (n) => /\.(csv|xlsx|xlsm|xlsb)$/i.test(n),
+          onProgress: ({ done, total }) => {
+            note.innerHTML = `<div class="note">Unpacking ${esc(f.name)}: ${Math.round(100 * done / Math.max(1, total))}%</div>`;
+          },
+          onFile: async ({ name, size, chunks }) => {
+            const file = new File(chunks, baseName(name), { type: /\.csv$/i.test(name) ? 'text/csv' : 'application/octet-stream' });
+            push({ name: baseName(name), zipName: f.name, size, file, isCsv: /\.csv$/i.test(name), state: 'queued' });
+          },
+        });
+        const left = names.filter(n => !/\.(csv|xlsx|xlsm|xlsb)$/i.test(n));
+        if (left.length) push({ name: `${left.length} not a pricebook`, zipName: f.name, state: 'skipped', msg: left.map(baseName).join(', ') });
+      } catch (e) {
+        push({ name: f.name, state: 'error', msg: `could not unpack ${f.name}: ${e.message}` });
+      }
+    } else if (/\.zip$/i.test(f.name)) {
       // ── A supplier archive we already know how to open. ────────────────────────────
       // E.ON Next password-protect their SME pricebook. The password is not a secret: it
       // is on their broker portal and it is the same for every TPI, so it lives here
       // rather than being typed in every month.
       //
-      // Their zip is legacy ZipCrypto, which JSZip cannot read at all — hence readZip in
-      // pricing-parsers.js. The NEW CONNECTION members are skipped before they are even
-      // decrypted: three of the nine files, about 3 MB of CSV for supplies CES does not
-      // quote, against a 500 MB storage plan.
+      // Until 1 Nov 2026 their zip was legacy ZipCrypto; from 2 Nov it is WinZip AES (the
+      // "you need 7-Zip" change). JSZip reads neither, readZip in pricing-parsers.js reads
+      // both. The NEW CONNECTION members are skipped before they are even decrypted.
       const known = KNOWN_ARCHIVES.find(a => a.match.test(f.name));
       if (known) {
         try {
           const { files: members, skipped } = await PricingParsers.readZip(await f.arrayBuffer(),
             { password: known.password, skip: known.skip });
           for (const m of members) {
-            QUEUE.push({ id: crypto.randomUUID(), name: baseName(m.name), zipName: f.name,
+            push({ name: baseName(m.name), zipName: f.name,
               size: m.bytes.byteLength, buf: m.bytes.buffer.slice(m.bytes.byteOffset,
                                                                  m.bytes.byteOffset + m.bytes.byteLength),
               isCsv: /\.csv$/i.test(m.name), state: 'queued' });
           }
           if (skipped.length) {
-            QUEUE.push({ id: crypto.randomUUID(), name: `${skipped.length} skipped`,
-              zipName: f.name, state: 'skipped',
+            push({ name: `${skipped.length} skipped`, zipName: f.name, state: 'skipped',
               msg: `${known.skipWhy} — ${skipped.map(baseName).join(', ')}` });
           }
         } catch (e) {
-          QUEUE.push({ id: crypto.randomUUID(), name: f.name, state: 'error',
-            msg: `could not open the ${known.label} archive: ${e.message}` });
+          push({ name: f.name, state: 'error', msg: `could not open the ${known.label} archive: ${e.message}` });
         }
         continue;
       }
       if (typeof JSZip === 'undefined') {
-        QUEUE.push({ id: crypto.randomUUID(), name: f.name, state: 'error',
-          msg: 'the zip reader did not load, so extract this one by hand' });
+        push({ name: f.name, state: 'error', msg: 'the zip reader did not load, so extract this one by hand' });
         continue;
       }
       try {
         const zip = await JSZip.loadAsync(await f.arrayBuffer());
         const members = Object.values(zip.files).filter(e =>
           !e.dir && !/(^|\/)__MACOSX\//i.test(e.name) && !/(^|\/)\._/.test(e.name)
-          && /\.(xlsx|xlsm|csv)$/i.test(e.name));
+          && /\.(xlsx|xlsm|xlsb|csv)$/i.test(e.name));
         if (!members.length) {
-          QUEUE.push({ id: crypto.randomUUID(), name: f.name, state: 'error',
-            msg: 'no .xlsx, .xlsm or .csv inside that zip' });
+          push({ name: f.name, state: 'error', msg: 'no .xlsx, .xlsm, .xlsb or .csv inside that zip' });
           continue;
         }
         for (const m of members) {
           try {
             const buf = await m.async('arraybuffer');
-            QUEUE.push({ id: crypto.randomUUID(), name: baseName(m.name), zipName: f.name,
-              size: buf.byteLength, buf, isCsv: /\.csv$/i.test(m.name), state: 'queued' });
+            push({ name: baseName(m.name), zipName: f.name, size: buf.byteLength, buf,
+                   isCsv: /\.csv$/i.test(m.name), state: 'queued' });
           } catch (e) {
             // Encrypted members throw here rather than at loadAsync.
-            QUEUE.push({ id: crypto.randomUUID(), name: baseName(m.name), zipName: f.name,
-              state: 'error', msg: /encrypt/i.test(e.message)
-                ? 'the zip is password protected — JSZip cannot open it, so unzip it '
-                  + 'yourself and drop the files in'
+            push({ name: baseName(m.name), zipName: f.name, state: 'error',
+              msg: /encrypt/i.test(e.message)
+                ? 'the zip is password protected and this supplier has no saved password here, so unzip it yourself and drop the files in'
                 : e.message });
           }
         }
       } catch (e) {
-        QUEUE.push({ id: crypto.randomUUID(), name: f.name, state: 'error',
+        push({ name: f.name, state: 'error',
           msg: /encrypt|password/i.test(e.message)
-            ? 'password protected zip — unzip it yourself and drop the files in'
+            ? 'password protected zip: unzip it yourself and drop the files in'
             : 'could not open that zip: ' + e.message });
       }
-    } else if (/\.(xlsx|xlsm|csv)$/i.test(f.name)) {
+    } else if (/\.(xlsx|xlsm|xlsb|csv)$/i.test(f.name)) {
       // Hold the File, not its bytes. Reading 28 workbooks up front just to draw a table is
       // memory spent on nothing; the buffer is pulled when the file is actually processed.
-      QUEUE.push({ id: crypto.randomUUID(), name: f.name, size: f.size, file: f,
-        isCsv: /\.csv$/i.test(f.name), state: 'queued' });
-    } else if (/\.(7z|rar|tar|gz|tgz)$/i.test(f.name)) {
-      // TotalEnergies sends power as .7z. The browser's zip reader does .zip only, and a
-      // WebAssembly 7-Zip would have to hold the whole 263 MB of decompressed CSV in memory
-      // before parsing even starts — which makes the memory problem worse, not better.
-      // Right-click, Extract Here, then drop the CSVs in: they all queue at once.
-      QUEUE.push({ id: crypto.randomUUID(), name: f.name, state: 'error',
-        msg: `a ${f.name.split('.').pop().toLowerCase()} archive cannot be opened in a `
-           + 'browser — extract it and drop the files in, they will all queue together' });
+      push({ name: f.name, size: f.size, file: f, isCsv: /\.csv$/i.test(f.name), state: 'queued' });
+    } else if (/\.(rar|tar|gz|tgz)$/i.test(f.name)) {
+      push({ name: f.name, state: 'error',
+        msg: `a ${f.name.split('.').pop().toLowerCase()} archive cannot be opened here: extract it and drop the files in` });
     } else {
-      QUEUE.push({ id: crypto.randomUUID(), name: f.name, state: 'error',
-        msg: 'not a pricebook (.xlsx, .xlsm, .csv or .zip)' });
+      push({ name: f.name, state: 'error', msg: 'not a pricebook (.xlsx, .xlsm, .xlsb, .csv, .zip or .7z)' });
     }
   }
   $('upFile').value = '';       // so dropping the same file twice still fires onchange
@@ -1286,10 +1691,11 @@ async function addFiles(list) {
 
 /** Re-route everything against the currently selected supplier and redraw. */
 function rescanQueue() {
-  const skey = $('upSupplier').value;
+  const pick = $('upSupplier').value;
   for (const it of QUEUE) {
     if (it.state === 'done' || it.state === 'busy' || it.state === 'error'
         || it.state === 'skipped') continue;
+    const skey = it.skey || pick;        // a mailbox file knows its own supplier
     if (!skey) { it.state = 'queued'; it.product = null; it.msg = 'choose the supplier'; continue; }
     if (it.forced && it.product) continue;     // a hand-picked product survives a rescan
     it.product = matchProduct(it.name, skey);
@@ -1325,13 +1731,14 @@ function renderQueue() {
 
   const rows = QUEUE.map(it => `<tr>
     <td style="max-width:300px;overflow-wrap:anywhere">${esc(it.name)}
-      ${it.zipName ? `<div style="font-size:10.5px;color:var(--muted)">from ${esc(it.zipName)}</div>` : ''}</td>
+      ${it.zipName ? `<div style="font-size:10.5px;color:var(--muted)">from ${esc(it.zipName)}</div>` : ''}
+      ${it.inboxId ? `<div style="font-size:10.5px;color:var(--muted)">from the mailbox: ${esc(supplierName(it.skey))}</div>` : ''}</td>
     <td>${it.state === 'skipped' ? '<span style="color:var(--muted)">not uploaded</span>'
-      : skey ? `<select onchange="forceProduct('${it.id}',this.value)"
+      : (it.skey || skey) ? `<select onchange="forceProduct('${it.id}',this.value)"
            style="font-size:11.5px;padding:4px 6px;max-width:230px"
            ${it.state === 'done' || it.state === 'busy' ? 'disabled' : ''}>
            <option value="">${it.product ? '— keep ' + esc(it.product.display_name) + ' —' : 'choose a product…'}</option>
-           ${PRODUCTS.filter(p => p.supplier_key === skey)
+           ${PRODUCTS.filter(p => p.supplier_key === (it.skey || skey))
              .sort((a,b) => a.sort_order - b.sort_order)
              .map(p => `<option value="${esc(p.product_key)}|${esc(p.fuel)}|${esc(p.sale_scope)}"
                   ${it.product && it.product.product_key === p.product_key
@@ -1383,7 +1790,7 @@ function forceProduct(id, val) {
   const it = QUEUE.find(i => i.id === id);
   if (!it || !val) return;                     // the blank option means "leave it alone"
   const [pk, fuel, scope] = val.split('|');
-  const p = PRODUCTS.find(x => x.supplier_key === $('upSupplier').value
+  const p = PRODUCTS.find(x => x.supplier_key === (it.skey || $('upSupplier').value)
     && x.product_key === pk && x.fuel === fuel && x.sale_scope === scope);
   if (!p) return;
   it.product = p;
@@ -1410,6 +1817,7 @@ async function itemBuffer(it) {
 async function processQueue() {
   const go = $('qGo');
   if (go) { go.disabled = true; go.textContent = 'Working…'; }
+  const touched = new Set();
   for (const it of QUEUE) {
     if (it.state !== 'queued' || !it.product) continue;
     it.state = 'busy'; it.msg = 'reading…'; renderQueue();
@@ -1418,6 +1826,12 @@ async function processQueue() {
     renderQueue();
     loadLedger();
   }
+  // Every mailbox file in the list is settled, not only the ones that ran: a .7z that would
+  // not unpack, or a file no product rule matches, never reaches processOne, and its inbox
+  // row would otherwise sit at 'loading' for ever.
+  for (const it of QUEUE) if (it.inboxId) touched.add(it.inboxId);
+  for (const id of touched) await settleInbox(id);
+  if (touched.size) loadInbox();
   renderQueue();
 }
 
@@ -1442,7 +1856,7 @@ async function processOne(it) {
   const bad = parserMismatch();
   if (bad) throw new Error(bad);
   const t0 = Date.now();
-  const skey = $('upSupplier').value;
+  const skey = it.skey || $('upSupplier').value;
   const supplier = SUPPLIERS.find(x => x.supplier_key === skey) || {};
   const fuel = it.product.fuel;
   let uploadId = null;
@@ -1504,6 +1918,7 @@ async function processOne(it) {
   // ── Store, register, parse, load, promote.
   const { data: { user } } = await sb.auth.getUser();
   uploadId = crypto.randomUUID();
+  it.uploadId = uploadId;
   let path = null, storeNote = '';
   try {
     it.msg = 'storing…'; renderQueue();
@@ -2177,7 +2592,9 @@ async function findMeters() {
   if (term.length < 3) { out.innerHTML = '<div class="note warn">Three characters or more.</div>'; return; }
   out.innerHTML = '<div class="note">Searching…</div>';
   window.__FOUND = [];
-  const like = `%${term.replace(/[%_]/g,'')}%`;
+  // A comma or bracket would end the .or() filter early (PostgREST syntax) and the search
+  // errored on "Smith, Jones & Co" or "Acme (UK) Ltd": they become wildcards instead.
+  const like = `%${term.replace(/[%_]/g,'').replace(/[,()]/g, '%')}%`;
   let rows;
   try {
     rows = await q(sb.from('meters')
@@ -2189,7 +2606,11 @@ async function findMeters() {
       .in('utility', ['electricity','gas'])
       .limit(50), 'meter search');
   } catch (e) { return fail(out, e.message); }
-  if (!rows.length) { out.innerHTML = '<div class="note">Nothing matched.</div>'; return; }
+  if (!rows.length) {
+    out.innerHTML = '<div class="note">Nothing in a broker portfolio matched.</div>';
+    window.__FOUND = [];
+    return findCrmMeters(like, rows, out);
+  }
   out.innerHTML = `<div class="scroll"><table><thead><tr>
       <th>Customer</th><th>MPAN / MPRN</th><th>Fuel</th><th>Type</th><th>Site</th>
       <th class="num">EAC</th><th>Priceable</th><th></th></tr></thead><tbody>` +
@@ -2207,6 +2628,48 @@ async function findMeters() {
       <td><button class="act sm" onclick="chooseMeter(${i})">Select</button></td>
     </tr>`).join('') + '</tbody></table></div>';
   window.__FOUND = rows;
+  await findCrmMeters(like, rows, out);
+}
+
+/**
+ * The same search against the UtilityClick data, for meters no broker portfolio holds (leads,
+ * customers whose meters were never loaded to the sales portal, inactive meters). Shown under
+ * the portfolio results, never mixed into them, because a portfolio meter carries more
+ * (converted SSC, TCR band, gas zone) and should be the one picked when both exist.
+ */
+async function findCrmMeters(like, have, out) {
+  let crm = [];
+  try {
+    crm = await q(sb.from('crm_meters_v')
+      .select('uc_meter_id,uc_customer_id,customer_name,account_manager,mpan,mpan_valid,fuel,supply_type,'
+            + 'utility,meter_type,registers,aq,aq_unit,profile_class,ssc,llfc,site_name,address_1,postcode,'
+            + 'active,is_lead,customer_is_lead,cur_supplier,cur_end,next_supplier,next_start,next_end,'
+            + 'last_supplier,last_end,contract_state,supplied_until')
+      .or(`mpan.ilike.${like},site_name.ilike.${like},postcode.ilike.${like},customer_name.ilike.${like}`)
+      .in('fuel', ['electricity', 'gas']).limit(40), 'UC meter search');
+  } catch (e) {
+    out.insertAdjacentHTML('beforeend', `<div class="note warn" style="margin-top:10px">Searching the UC data failed: ${esc(e.message)}</div>`);
+    return;
+  }
+  const seen = new Set((have || []).map(r => r.mpan));
+  crm = crm.filter(r => !seen.has(r.mpan));
+  window.__CRMFOUND = crm;
+  if (!crm.length) return;
+  out.insertAdjacentHTML('beforeend',
+    `<div style="margin:18px 0 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-2)">
+       Also in the UtilityClick data, not in a broker portfolio</div>
+     <div class="scroll"><table><thead><tr><th>Customer</th><th>MPAN / MPRN</th><th>Fuel</th><th>Site</th>
+       <th class="num">AQ</th><th>Supplier now</th><th>Free from</th><th></th></tr></thead><tbody>` +
+    crm.map((m, i) => `<tr>
+      <td style="max-width:240px">${esc(m.customer_name || '')}${m.customer_is_lead ? ' <span class="pill p-mute">lead</span>' : ''}</td>
+      <td class="mono">${esc(m.mpan)}</td>
+      <td>${esc(m.fuel || '')} ${esc(m.supply_type && m.fuel === 'electricity' ? m.supply_type : '')}</td>
+      <td style="max-width:260px">${esc(m.site_name || m.postcode || '')}</td>
+      <td class="num">${m.aq ? Number(m.aq).toLocaleString() : '—'}</td>
+      <td>${esc(m.cur_supplier || m.next_supplier || m.last_supplier || '—')}</td>
+      <td>${m.supplied_until ? uk(m.supplied_until) : (m.last_end ? 'ended ' + uk(m.last_end) : '—')}</td>
+      <td>${m.mpan_valid ? `<button class="act sm" onclick="priceFromCrm(window.__CRMFOUND[${i}])">Price</button>` : ''}</td>
+    </tr>`).join('') + '</tbody></table></div>');
 }
 
 function chooseMeter(i) {
@@ -2336,6 +2799,9 @@ function useManualMeter() {
     contract_end_date: null,
     priceable: null, manual: true,
   };
+  // Filled in from the Customers tab: keep the UC record so the start date and the names
+  // come from it (priceFromCrm sets this just before calling here).
+  if (PENDING_CRM) { METER.crm = PENDING_CRM; PENDING_CRM = null; }
   fillMeterGaps().catch(() => showMeter());
   $('priceCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -2360,6 +2826,10 @@ function useManualMeter() {
  */
 let START_AUTO = null;   // the date this page chose
 let START_WHY  = '';     // and the contract it chose it from
+// The supplier lined up to hold the meter on that date, when it is not today's supplier (UC
+// data). It decides who quotes a renewal: a new contract starting after the lined-up one is
+// that supplier's renewal, not today's supplier's.
+let START_SUPPLIER = null;
 
 /** Keeps the start-date note honest about whether the box still holds the chosen date. */
 function paintStartNote() {
@@ -3598,8 +4068,51 @@ async function defaultStartDate() {
   const note = $('startNote');
   const iso = (d) => d.toISOString().slice(0, 10);
   const tomorrow = () => { const d = new Date(); d.setDate(d.getDate() + 1); return iso(d); };
-  START_AUTO = null; START_WHY = '';
+  START_AUTO = null; START_WHY = ''; START_SUPPLIER = null;
   if (note) { note.className = 'hide'; note.textContent = ''; }
+  // The UC data is the fresher record (exported 3 Nov 2026, re-imported from the Customers tab
+  // since), so a meter it knows takes its free-from date from there: the latest end of a LIVE
+  // or UPCOMING supply contract (crm_meters_v.supplied_until). Lost and never-progressed deals
+  // are not supply and never count, which the old max-of-everything rule could not tell apart
+  // once the full UC history was in. Falls back to meter_contracts (the broker portfolio).
+  const mp = String(METER.mpan || '').replace(/\s/g, '');
+  if (mp && /^[0-9A-Z]{6,}$/i.test(mp)) {
+    try {
+      const rows = await q(sb.from('crm_meters_v')
+        .select('supplied_until, cur_supplier, cur_end, next_supplier, next_start, next_end, last_supplier, last_end, contract_state')
+        .eq('mpan', mp).order('supplied_until', { ascending: false, nullsFirst: false }).limit(5),
+        'UC contracts for this meter');
+      const best = rows.find(r => r.supplied_until) || null;
+      if (best) {
+        const d = new Date(best.supplied_until + 'T00:00:00Z');
+        d.setUTCDate(d.getUTCDate() + 1);
+        const suggested = iso(d), today = iso(new Date());
+        $('qStart').value = suggested > today ? suggested : tomorrow();
+        const lined = !!(best.next_supplier && best.next_end === best.supplied_until);
+        const who = lined
+          ? `${esc(best.next_supplier)} (lined up from ${uk(best.next_start)})`
+          : esc(best.cur_supplier || 'its current supplier');
+        START_SUPPLIER = lined ? best.next_supplier : null;
+        START_AUTO = $('qStart').value;
+        START_WHY = `${who} runs to ${uk(best.supplied_until)} in the UC data.`
+          + (suggested <= today ? ' That date has passed, so tomorrow is used instead.' : '');
+        paintStartNote();
+        return;
+      }
+      if (rows.length) {
+        const last = rows.find(r => r.last_end);
+        $('qStart').value = tomorrow();
+        if (note) {
+          note.className = 'note warn';
+          note.innerHTML = last
+            ? `UC shows nothing live or lined up on this meter: the last contract (${esc(last.last_supplier || 'unknown supplier')}) `
+              + `ended ${uk(last.last_end)}. The start is set to tomorrow. Check it has not been renewed without CES before quoting.`
+            : 'UC holds this meter but no contract dates for it, so the start is set to tomorrow. Set the real date before quoting.';
+        }
+        return;
+      }
+    } catch (e) { console.warn('UC contract lookup:', e.message); /* fall back to the portfolio */ }
+  }
   if (METER.manual || !METER.mpan) {           // typed in by hand: nothing to look up
     if (!$('qStart').value) $('qStart').value = tomorrow();
     return;
@@ -3763,8 +4276,17 @@ async function showMeter() {
   const cust = await paintManagers(METER.manual ? null : METER.customer_id);
   const meterKey = METER.manual ? 'manual:' + (METER.mpan || '') : String(METER.id || METER.mpan || '');
   if (QCUST_FOR !== meterKey) {
-    $('qCustomer').value = METER.manual ? '' : tradingName((cust && cust.company_name) || '');
+    // A meter picked from the UC data brings its customer's name even on the hand-typed path.
+    $('qCustomer').value = METER.manual
+      ? (METER.crm ? tradingName(METER.crm.customer_name || '') : '')
+      : tradingName((cust && cust.company_name) || '');
     QCUST_FOR = meterKey;
+  }
+  // ...and its account manager, when the portfolio has none and UC's name is a broker on the list.
+  if (METER.crm && METER.crm.account_manager && !(cust && cust.manager_name)) {
+    const want = String(METER.crm.account_manager).trim().toLowerCase();
+    const opt = [...$('qManager').options].find(o => String(o.value).trim().toLowerCase() === want);
+    if (opt) $('qManager').value = opt.value;
   }
 
   // One box per register, prefilled from the portfolio's annual figure. With no measured
@@ -3776,20 +4298,30 @@ async function showMeter() {
   paintKwhBoxes(regs.length === 1 ? { total: est } : { [regs[0]]: est });
   await defaultStartDate();
 
-  INCUMBENT_KEY = supplierKeyOf(METER.supplier);
+  // The incumbent is whoever holds the supply when the new contract STARTS. With a contract
+  // already lined up in the UC data (defaultStartDate sets START_SUPPLIER), that is the
+  // lined-up supplier, not today's.
+  const lined = !!START_SUPPLIER
+    && String(START_SUPPLIER).trim().toLowerCase() !== String(METER.supplier || '').trim().toLowerCase();
+  const incName = lined ? START_SUPPLIER : METER.supplier;
+  INCUMBENT_KEY = supplierKeyOf(incName);
   if (SSC_READY) await SSC_READY;
   paintSscNote();
   const sup = SUPPLIERS.filter(x => x.parser_ready).length;
+  const withWho = lined
+    ? `From the start date this meter is with <b>${esc(incName)}</b> (lined up in the UC data;
+       today it is with ${esc(METER.supplier || 'nobody on file')})`
+    : `This meter is with <b>${esc(incName || '')}</b>`;
   $('saleNote').className = 'note';
-  $('saleNote').innerHTML = !METER.supplier
+  $('saleNote').innerHTML = !incName
     ? `No current supplier on this meter, so <b>every quote below is an acquisition</b>.
        If it is a renewal, set the supplier on the meter first or use the manual entry.`
     : INCUMBENT_KEY
-    ? `This meter is with <b>${esc(METER.supplier)}</b>, so
+    ? `${withWho}, so
        <b>${esc(supplierName(INCUMBENT_KEY))} is quoted as a renewal</b> and the other
        ${sup - 1} suppliers as an acquisition. You do not choose this: a renewal is only
        available from whoever already has the supply.`
-    : `This meter is with <b>${esc(METER.supplier)}</b>, which has no pricebook here, so
+    : `${withWho}, which has no pricebook here, so
        <b>every quote below is an acquisition</b>. That is the right answer — nobody else
        can offer a renewal on it.`;
   paintMeterFacts();

@@ -345,48 +345,207 @@
     return new Uint8Array(await new Response(stream).arrayBuffer());
   }
 
+  // ── WinZip AES (method 99) ───────────────────────────────────────────────────────────
+  // E.ON Next changed their daily pricebook on 2 Nov 2026 "for added security": their own
+  // instructions say Windows cannot open it and 7-Zip must, with the same password. That is
+  // the signature of a WinZip AES zip (compression method 99, extra field 0x9901), which the
+  // ZipCrypto path below cannot read. The key comes from PBKDF2-HMAC-SHA1 (1000 rounds), the
+  // data is AES in CTR mode with a LITTLE-endian counter starting at 1 (so WebCrypto's
+  // big-endian AES-CTR cannot do it), and a 10-byte HMAC-SHA1 tag proves the password and
+  // the bytes before anything is inflated. AES itself is the small table version below,
+  // checked against Node's own AES in tests/aes_zip_test.js.
+  const AES = (() => {
+    const gmul = (a, b) => { let p = 0; for (let i = 0; i < 8; i++) { if (b & 1) p ^= a; const hi = a & 0x80; a = (a << 1) & 0xff; if (hi) a ^= 0x1b; b >>= 1; } return p; };
+    const inv = new Uint8Array(256);
+    for (let x = 1; x < 256; x++) for (let y = 1; y < 256; y++) if (gmul(x, y) === 1) { inv[x] = y; break; }
+    const rotl = (b, n) => ((b << n) | (b >>> (8 - n))) & 0xff;
+    const S = new Uint8Array(256);
+    for (let x = 0; x < 256; x++) { const b = inv[x]; S[x] = b ^ rotl(b, 1) ^ rotl(b, 2) ^ rotl(b, 3) ^ rotl(b, 4) ^ 0x63; }
+    const T0 = new Uint32Array(256), T1 = new Uint32Array(256), T2 = new Uint32Array(256), T3 = new Uint32Array(256);
+    for (let x = 0; x < 256; x++) {
+      const s = S[x], s2 = gmul(s, 2), s3 = gmul(s, 3);
+      const w = ((s2 << 24) | (s << 16) | (s << 8) | s3) >>> 0;
+      T0[x] = w; T1[x] = ((w >>> 8) | (w << 24)) >>> 0; T2[x] = ((w >>> 16) | (w << 16)) >>> 0; T3[x] = ((w >>> 24) | (w << 8)) >>> 0;
+    }
+    function expand(key) {
+      const nk = key.length >>> 2, nr = nk + 6, W = new Uint32Array(4 * (nr + 1));
+      for (let i = 0; i < nk; i++) W[i] = ((key[4 * i] << 24) | (key[4 * i + 1] << 16) | (key[4 * i + 2] << 8) | key[4 * i + 3]) >>> 0;
+      let rcon = 1;
+      for (let i = nk; i < W.length; i++) {
+        let t = W[i - 1];
+        if (i % nk === 0) {
+          t = ((t << 8) | (t >>> 24)) >>> 0;
+          t = ((S[t >>> 24] << 24) | (S[(t >>> 16) & 255] << 16) | (S[(t >>> 8) & 255] << 8) | S[t & 255]) >>> 0;
+          t = (t ^ (rcon << 24)) >>> 0;
+          rcon = gmul(rcon, 2);
+        } else if (nk > 6 && i % nk === 4) {
+          t = ((S[t >>> 24] << 24) | (S[(t >>> 16) & 255] << 16) | (S[(t >>> 8) & 255] << 8) | S[t & 255]) >>> 0;
+        }
+        W[i] = (W[i - nk] ^ t) >>> 0;
+      }
+      return { W, nr };
+    }
+    /** Encrypt one 16-byte block of `inp` at `io` into `out` at `oo`. */
+    function encrypt(ks, inp, io, out, oo) {
+      const W = ks.W, nr = ks.nr;
+      let s0 = (((inp[io] << 24) | (inp[io + 1] << 16) | (inp[io + 2] << 8) | inp[io + 3]) ^ W[0]) >>> 0;
+      let s1 = (((inp[io + 4] << 24) | (inp[io + 5] << 16) | (inp[io + 6] << 8) | inp[io + 7]) ^ W[1]) >>> 0;
+      let s2 = (((inp[io + 8] << 24) | (inp[io + 9] << 16) | (inp[io + 10] << 8) | inp[io + 11]) ^ W[2]) >>> 0;
+      let s3 = (((inp[io + 12] << 24) | (inp[io + 13] << 16) | (inp[io + 14] << 8) | inp[io + 15]) ^ W[3]) >>> 0;
+      let k = 4;
+      for (let r = 1; r < nr; r++) {
+        const t0 = T0[s0 >>> 24] ^ T1[(s1 >>> 16) & 255] ^ T2[(s2 >>> 8) & 255] ^ T3[s3 & 255] ^ W[k];
+        const t1 = T0[s1 >>> 24] ^ T1[(s2 >>> 16) & 255] ^ T2[(s3 >>> 8) & 255] ^ T3[s0 & 255] ^ W[k + 1];
+        const t2 = T0[s2 >>> 24] ^ T1[(s3 >>> 16) & 255] ^ T2[(s0 >>> 8) & 255] ^ T3[s1 & 255] ^ W[k + 2];
+        const t3 = T0[s3 >>> 24] ^ T1[(s0 >>> 16) & 255] ^ T2[(s1 >>> 8) & 255] ^ T3[s2 & 255] ^ W[k + 3];
+        s0 = t0 >>> 0; s1 = t1 >>> 0; s2 = t2 >>> 0; s3 = t3 >>> 0; k += 4;
+      }
+      const f = (a, b, c, d, w) => ((((S[a >>> 24] << 24) | (S[(b >>> 16) & 255] << 16) | (S[(c >>> 8) & 255] << 8) | S[d & 255]) ^ w) >>> 0);
+      const o0 = f(s0, s1, s2, s3, W[k]), o1 = f(s1, s2, s3, s0, W[k + 1]), o2 = f(s2, s3, s0, s1, W[k + 2]), o3 = f(s3, s0, s1, s2, W[k + 3]);
+      const put = (v, at) => { out[at] = v >>> 24; out[at + 1] = (v >>> 16) & 255; out[at + 2] = (v >>> 8) & 255; out[at + 3] = v & 255; };
+      put(o0, oo); put(o1, oo + 4); put(o2, oo + 8); put(o3, oo + 12);
+    }
+    return { expand, encrypt, S };
+  })();
+
+  function subtleCrypto() {
+    const c = (typeof crypto !== 'undefined' && crypto) || (typeof globalThis !== 'undefined' && globalThis.crypto);
+    if (!c || !c.subtle) throw new Error('this browser has no WebCrypto, so it cannot open an encrypted zip');
+    return c.subtle;
+  }
+
+  /** Decrypt one WinZip AES member. Returns the still-compressed payload. */
+  async function winzipAesDecrypt(body, password, strength) {
+    const keyLen = { 1: 16, 2: 24, 3: 32 }[strength];
+    if (!keyLen) throw new Error(`unknown AES strength ${strength} in this zip`);
+    const saltLen = keyLen / 2;
+    if (body.length < saltLen + 2 + 10) throw new Error('an encrypted member is too short to be real');
+    const salt = body.subarray(0, saltLen), pwv = body.subarray(saltLen, saltLen + 2);
+    const data = body.subarray(saltLen + 2, body.length - 10), tag = body.subarray(body.length - 10);
+    const subtle = subtleCrypto();
+    const pw = new TextEncoder().encode(password);
+    const base = await subtle.importKey('raw', pw, 'PBKDF2', false, ['deriveBits']);
+    const bits = new Uint8Array(await subtle.deriveBits(
+      { name: 'PBKDF2', salt, iterations: 1000, hash: 'SHA-1' }, base, (2 * keyLen + 2) * 8));
+    if (bits[2 * keyLen] !== pwv[0] || bits[2 * keyLen + 1] !== pwv[1]) {
+      throw new Error('that password did not open the archive');
+    }
+    const hk = await subtle.importKey('raw', bits.slice(keyLen, 2 * keyLen), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
+    const mac = new Uint8Array(await subtle.sign('HMAC', hk, data));
+    for (let i = 0; i < 10; i++) {
+      if (mac[i] !== tag[i]) throw new Error('the archive is damaged: its authentication code does not match');
+    }
+    const ks = AES.expand(bits.slice(0, keyLen));
+    const out = new Uint8Array(data.length), ctr = new Uint8Array(16), pad = new Uint8Array(16);
+    for (let off = 0, n = 1; off < data.length; off += 16, n++) {
+      // Little-endian block counter, starting at 1.
+      let v = n;
+      for (let i = 0; i < 8; i++) { ctr[i] = v & 255; v = Math.floor(v / 256); }
+      AES.encrypt(ks, ctr, 0, pad, 0);
+      const end = Math.min(16, data.length - off);
+      for (let i = 0; i < end; i++) out[off + i] = data[off + i] ^ pad[i];
+    }
+    return out;
+  }
+
+  const crc32 = (u8) => { let c = 0xffffffff; for (let i = 0; i < u8.length; i++) c = crc1(c, u8[i]); return (c ^ 0xffffffff) >>> 0; };
+
+  /** The entries of a zip, from its central directory (sizes are right there even when the
+   *  local headers defer them to a data descriptor), or from the local headers if a zip has
+   *  no readable central directory. */
+  function zipEntries(u8, d) {
+    let eocd = -1;
+    for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) {
+      if (d.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+    }
+    const out = [];
+    if (eocd >= 0) {
+      const count = d.getUint16(eocd + 10, true);
+      let p = d.getUint32(eocd + 16, true);
+      for (let k = 0; k < count; k++) {
+        if (p + 46 > u8.length || d.getUint32(p, true) !== 0x02014b50) throw new Error('the zip directory is damaged');
+        const nl = d.getUint16(p + 28, true), el = d.getUint16(p + 30, true), cl = d.getUint16(p + 32, true);
+        const lho = d.getUint32(p + 42, true);
+        if (lho + 30 > u8.length || d.getUint32(lho, true) !== 0x04034b50) throw new Error('the zip directory points at nothing');
+        out.push({
+          flag: d.getUint16(p + 8, true), method: d.getUint16(p + 10, true), mtime: d.getUint16(p + 12, true),
+          crc: d.getUint32(p + 16, true), csz: d.getUint32(p + 20, true),
+          name: new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nl)),
+          extra: u8.subarray(p + 46 + nl, p + 46 + nl + el),
+          start: lho + 30 + d.getUint16(lho + 26, true) + d.getUint16(lho + 28, true),
+        });
+        p += 46 + nl + el + cl;
+      }
+      return out;
+    }
+    let off = 0;
+    while (off + 30 <= u8.length && d.getUint32(off, true) === 0x04034b50) {
+      const nl = d.getUint16(off + 26, true), el = d.getUint16(off + 28, true);
+      const e = {
+        flag: d.getUint16(off + 6, true), method: d.getUint16(off + 8, true), mtime: d.getUint16(off + 10, true),
+        crc: d.getUint32(off + 14, true), csz: d.getUint32(off + 18, true),
+        name: new TextDecoder().decode(u8.subarray(off + 30, off + 30 + nl)),
+        extra: u8.subarray(off + 30 + nl, off + 30 + nl + el), start: off + 30 + nl + el,
+      };
+      if (!e.csz) throw new Error(`cannot read "${e.name}" from this zip: its size is not in the header`);
+      out.push(e);
+      off = e.start + e.csz;
+    }
+    return out;
+  }
+
+  /** The WinZip AES extra field (0x9901): strength and the real compression method. */
+  function aesExtra(extra) {
+    const dv = new DataView(extra.buffer, extra.byteOffset, extra.byteLength);
+    for (let p = 0; p + 4 <= extra.length;) {
+      const id = dv.getUint16(p, true), len = dv.getUint16(p + 2, true);
+      if (id === 0x9901 && len >= 7) return { version: dv.getUint16(p + 4, true), strength: extra[p + 8], method: dv.getUint16(p + 9, true) };
+      p += 4 + len;
+    }
+    return null;
+  }
+
   /**
-   * Read a zip by walking its local file headers, decrypting where necessary.
+   * Read a zip, decrypting where necessary (legacy ZipCrypto or WinZip AES).
    *
    * Returns [{ name, bytes }]. `skip` is asked about every member BEFORE it is decrypted or
    * inflated, so the E.ON new-connection files cost nothing at all: three of their nine
    * members are NC, about 3 MB of CSV CES never quotes, against a 500 MB storage plan.
+   * Every member with a CRC in the directory is checked against it after inflating.
    */
   async function readZip(buffer, { password = null, skip = null } = {}) {
     const d = new DataView(buffer);
     const u8 = new Uint8Array(buffer);
     const out = [];
     const skipped = [];
-    let off = 0;
-    while (off + 30 <= u8.length && d.getUint32(off, true) === 0x04034b50) {
-      const flag = d.getUint16(off + 6, true);
-      const method = d.getUint16(off + 8, true);
-      const mtime = d.getUint16(off + 10, true);
-      const crc = d.getUint32(off + 14, true);
-      let csz = d.getUint32(off + 18, true);
-      const nl = d.getUint16(off + 26, true);
-      const el = d.getUint16(off + 28, true);
-      const name = new TextDecoder().decode(u8.subarray(off + 30, off + 30 + nl));
-      const start = off + 30 + nl + el;
-      if (!csz) throw new Error(`cannot read "${name}" from this zip: its size is not in the header`);
-      off = start + csz;
-
-      const encrypted = !!(flag & 1);
+    for (const e of zipEntries(u8, d)) {
+      const name = e.name;
       if (name.endsWith('/')) continue;
       if (/(^|\/)(__MACOSX\/|\._)/.test(name)) continue;
       if (skip && skip(name)) { skipped.push(name); continue; }
+      const encrypted = !!(e.flag & 1);
       if (encrypted && !password) throw new Error('this zip needs a password');
-      if (flag & 0x40) throw new Error('this zip uses strong encryption, which cannot be opened here');
+      if (e.flag & 0x40) throw new Error('this zip uses strong encryption, which cannot be opened here');
 
-      let body = u8.subarray(start, start + csz);
-      if (encrypted) {
+      let body = u8.subarray(e.start, e.start + e.csz);
+      let method = e.method, checkCrc = true;
+      if (method === 99) {
+        const ax = aesExtra(e.extra);
+        if (!ax) throw new Error(`"${name}" says it is AES encrypted but carries no AES details`);
+        body = await winzipAesDecrypt(body, password, ax.strength);
+        method = ax.method;
+        checkCrc = ax.version === 1;          // AE-2 deliberately stores no CRC
+      } else if (encrypted) {
         // Bit 3 set => sizes are in a data descriptor and the check byte is the DOS time's
         // high byte. Using the CRC's there rejects the right password.
-        const check = (flag & 8) ? ((mtime >>> 8) & 0xff) : ((crc >>> 24) & 0xff);
+        const check = (e.flag & 8) ? ((e.mtime >>> 8) & 0xff) : ((e.crc >>> 24) & 0xff);
         body = zipCryptoDecrypt(body, password, check);
       }
       if (method === 8) body = await inflateRaw(body);
       else if (method !== 0) throw new Error(`"${name}" uses compression method ${method}, which is not supported`);
+      if (checkCrc && e.crc && crc32(body) !== e.crc) {
+        throw new Error(`"${name}" came out of the zip damaged (its checksum does not match)`);
+      }
       out.push({ name, bytes: body });
     }
     if (!out.length && !skipped.length) throw new Error('nothing readable in that zip');
@@ -2152,11 +2311,11 @@
      * re-upload wrote 8,916 rows with no selling days and the wrong rate kept winning.
      * Caching headers are the first line of defence and this is the second.
      */
-    VERSION: '2026-09-12.1',
+    VERSION: '2026-11-03.1',
     parse, normHeader, readZip, headerRowIndex, csvRows, CANON_FIELDS, P_KVA_DAY_TO_MONTH,
     // exported for the test suite
     _internals: { saleType, rateStructure, tcrBand, toNum, toDate, toBool, dnoId, rate, sc,
-                  capFromDay, key, scType, eonProductName, zipCryptoDecrypt,
+                  capFromDay, key, scType, eonProductName, zipCryptoDecrypt, winzipAesDecrypt, AES, crc32,
                   gspToDno, ldzOfZone, termFromDates, plusMonthsMinusDay, startWindowLadder,
                   dayBefore, monthsBetween, GSP_TO_DNO, ZONE_LDZ, SSE_STRUCT,
                   CORONA_PWR_STRUCT, TE_DNO_ABBR, TE_HORIZON_MONTHS, sefeShape, sefeHeaderRow,
