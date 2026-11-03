@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- Readable in a plain fetch of the URL, so "which build is live" needs no login. Bump on every push. -->
-  <meta name="build" content="sales 2026-09-08a" />
+  <meta name="build" content="sales 2026-11-03b" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' blob: https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' data: blob: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com https://api.simplylookupadmin.co.uk; frame-src 'self' blob: data: https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self';" />
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
@@ -4513,13 +4513,78 @@
         load_factor_pct:pk?Math.round(avgKw/pk*100):0
       };
     }
+    // Itemised charges on each electricity invoice row (_52, 3 Nov 2026). bv_summary used to keep
+    // only the unit rates, the standing charge in pounds and the kVA, so the running-cost estimate
+    // could only show capacity and every pass-through as one lump. These fields come from the same
+    // report rows (canonical v3 schema: standing days, capacity, RAB, data collection, reactive, CCL,
+    // VAT, net) and are only ever ADDED to a row.
+    var BV_CHARGE_FIELDS = ['standing_days','standing_rate','day_charge','night_charge','kva_rate','kva_charge',
+      'rab_mwh','rab_rate','rab_charge','reactive_kvarh','reactive_rate','reactive_charge',
+      'da_days','da_rate','da_charge','ccl_kwh','ccl_rate','ccl_charge','net','vat_pct','vat','invoice','_accrual'];
+    function _bvChargeDetail(src){
+      var o = {};
+      if (!src || typeof src !== 'object') return o;
+      BV_CHARGE_FIELDS.forEach(function(k){ if (src[k] !== undefined && src[k] !== null && src[k] !== '') o[k] = src[k]; });
+      return o;
+    }
+    // The summary row is normally itemised already. Older generators kept the detail only on the
+    // supplier's invoice row, so fall back to the invoice with the same MPAN (and invoice number or
+    // period start when both rows carry one).
+    function _bvDetailFor(bv, s){
+      var d = _bvChargeDetail(s);
+      if (Object.keys(d).length >= 3) return d;
+      var mp = String((s && s.mpan) || '').replace(/\D/g, '');
+      if (!mp) return d;
+      var sups = bv && bv.electricity && bv.electricity.suppliers;
+      if (sups && !Array.isArray(sups)) sups = Object.keys(sups).map(function(k){ return sups[k]; });
+      var best = null;
+      (sups || []).forEach(function(sup){
+        ((sup && sup.invoices) || []).forEach(function(inv){
+          if (String((inv && inv.mpan) || '').replace(/\D/g, '') !== mp) return;
+          if (s.invoice && inv.invoice && String(s.invoice) !== String(inv.invoice)) return;
+          if (s.period_start && inv.period_start && String(s.period_start) !== String(inv.period_start)) return;
+          best = inv;
+        });
+      });
+      if (!best) return d;
+      var o = _bvChargeDetail(best);
+      Object.keys(d).forEach(function(k){ o[k] = d[k]; });
+      return o;
+    }
+    // Add charge detail from a freshly parsed window.BV to the rows already stored in bv_summary.
+    // Rows are matched by position + MPAN (trimBvSummary maps them in order), else by MPAN + period.
+    // Returns how many rows gained a field. Never changes or removes an existing value.
+    function _bvMergeChargeDetail(stored, bv){
+      var src = (bv && bv.summary && Array.isArray(bv.summary.electricity)) ? bv.summary.electricity : [];
+      var rows = (stored && Array.isArray(stored.electricity)) ? stored.electricity : [];
+      var norm = function(x){ return String(x == null ? '' : x).replace(/\D/g, ''); };
+      var changed = 0;
+      rows.forEach(function(row, idx){
+        if (!row || typeof row !== 'object') return;
+        var cand = src[idx];
+        if (!(cand && norm(cand.mpan) && norm(cand.mpan) === norm(row.mpan))) {
+          var same = src.filter(function(s){ return s && norm(s.mpan) === norm(row.mpan)
+            && String(s.period_start || '') === String(row.period_start || '')
+            && String(s.period_end || '') === String(row.period_end || ''); });
+          cand = same.length === 1 ? same[0] : null;
+        }
+        if (!cand) return;
+        var det = _bvDetailFor(bv, cand), added = false;
+        Object.keys(det).forEach(function(k){ if (!(k in row)) { row[k] = det[k]; added = true; } });
+        if (added) changed++;
+      });
+      return changed;
+    }
     function trimBvSummary(bv, bvhh) {
       const WL = ['mpan','spid','mpr','site','address','supplier','cur_kwh','cur_cost','day_kwh','night_kwh','day_rate','night_rate','unit_rate','standing_charge','kva','total','period_start','period_end'];
       const summ = (bv && bv.summary) || {};
       const out = {};
       ['electricity','gas','water'].forEach(function(u){
         if (Array.isArray(summ[u]) && summ[u].length) {
-          out[u] = summ[u].map(function(s){ const o = {}; WL.forEach(function(k){ if (s[k] !== undefined && s[k] !== null) o[k] = s[k]; }); return o; });
+          out[u] = summ[u].map(function(s){ const o = {}; WL.forEach(function(k){ if (s[k] !== undefined && s[k] !== null) o[k] = s[k]; });
+            // electricity rows also keep their itemised charges, for the running-cost estimate (_52)
+            if (u === 'electricity') { const det = _bvDetailFor(bv, s); Object.keys(det).forEach(function(k){ if (o[k] === undefined) o[k] = det[k]; }); }
+            return o; });
         }
       });
       if (summ.totals) {
@@ -6175,7 +6240,8 @@
     }
     function _actCardHtml(prefix){
       return '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Load this month\'s activity files</h3>'
-        + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:10px;">Choose any of these, as many as you like, in one go: the Teramind Productivity export for the whole month (CSV), Claude\'s 8x8 outbound call reports (one per day, or a whole month), and the outbound email CSVs (daily summary, weekly tidy or per-message trace). A day loaded again replaces itself, so nothing is ever counted twice. You will see the figures before anything is saved.</p>'
+        + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:6px;"><b>Calls, talk time and emails now load by themselves every morning</b> (8x8 call records and the Microsoft 365 mail log for the day before), so the only file still needed each month is the Teramind Productivity export (CSV).</p>'
+        + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:10px;">You can still load Claude\'s 8x8 outbound call reports or the outbound email CSVs to correct a day. A day loaded again replaces itself, so nothing is ever counted twice. You will see the figures before anything is saved.</p>'
         + '<input type="file" multiple id="' + prefix + 'ActFile" accept=".csv,.xlsx" onchange="actPick(\'' + prefix + '\', this)">'
         + '<div id="' + prefix + 'ActPreview"></div>';
     }
@@ -6248,9 +6314,11 @@
     var _DECK_LIB = 'https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js';
     var _DECK_C = { bg:'1E2A5A', card:'2A3770', line:'3B4A8C', lime:'9BC53D', white:'FFFFFF', soft:'C9CEE3', muted:'8E96B8', amber:'F2C94C' };
     var _DECK_SERIES = ['9BC53D', '4FC3F7', 'F2C94C', 'EF7D5B', 'B39DDB', '80CBC4'];
+    // board:false gives a measure its own slide but keeps it off the leader boards, which fit five cards.
     var _DECK_MEASURES = [
       { key:'activity', title:'Computer Activity', sub:'Monthly percentage activity by broker (Teramind)', fmt:'pct', agg:'mean', word:'computer activity', boardSub:'average', qSub:'monthly average' },
       { key:'calls', title:'External Outbound Calls', sub:'Monthly external calls by broker (8x8)', fmt:'int', agg:'sum', word:'external calls', boardSub:'total', qSub:'total to date' },
+      { key:'talk', title:'Outbound Talk Time', sub:'Monthly outbound talk time by broker, chart in hours (8x8)', fmt:'hm', agg:'sum', word:'talk time', boardSub:'total', qSub:'total to date', board:false },
       { key:'emails', title:'Emails Sent', sub:'Monthly emails sent by broker', fmt:'int', agg:'sum', word:'emails sent', boardSub:'total', qSub:'total to date' },
       { key:'billing', title:'Monthly Revenue', sub:'Monthly revenue (billing total) by broker', fmt:'money', agg:'sum', word:'revenue', boardSub:'total', qSub:'total to date' },
       { key:'contracts', title:'Contracts Signed', sub:'Monthly contracts signed by broker', fmt:'int', agg:'sum', word:'contracts signed', boardSub:'total', qSub:'total to date' }
@@ -6272,9 +6340,15 @@
       return ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][m - 1] + '-' + y;
     }
     function _deckMonthName(p){ return new Date(p + 'T00:00:00').toLocaleDateString('en-GB', { month:'long', year:'numeric' }); }
+    function _deckHm(sec){
+      sec = Math.round(Number(sec) || 0);
+      var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+      return h + 'h ' + (m < 10 ? '0' + m : m) + 'm';
+    }
     function _deckFmt(v, fmt){
       if(v == null) return 'N/A';
       if(fmt === 'pct') return Number(v).toFixed(2) + '%';
+      if(fmt === 'hm') return _deckHm(v);
       if(fmt === 'money') return _skMoney(v);
       return _skNum(v, 0);
     }
@@ -6328,7 +6402,7 @@
     }
     function _deckBoard(slide, D, entriesFor, subFor, y0){
       var w = 2.35, gap = 0.12, x0 = 0.55;
-      _DECK_MEASURES.forEach(function(meas, i){
+      _DECK_MEASURES.filter(function(ms){ return ms.board !== false; }).forEach(function(meas, i){
         var x = x0 + i * (w + gap), R = _deckRank(entriesFor(meas));
         slide.addShape('roundRect', { x:x, y:y0, w:w, h:2.75, fill:{ color:_DECK_C.card }, line:{ color:_DECK_C.line, width:1 }, rectRadius:0.08 });
         slide.addText([
@@ -6392,7 +6466,7 @@
         s1.addText('Single-month view for ' + short + '. N/A means not recorded and is never ranked as zero. Where every figure comes from is on the last slide.',
           { x:0.55, y:6.75, w:11.5, h:0.3, fontFace:'Arial', fontSize:9, italic:true, color:_DECK_C.muted, margin:0 });
 
-        // 2-6. one slide per measure across the half-year
+        // 2-7. one slide per measure across the half-year
         _DECK_MEASURES.forEach(function(meas){
           var s = base();
           s.addText('BROKER MONTHLY COMPARISON', { x:0.5, y:0.3, w:8, h:0.3, fontFace:'Arial', fontSize:12, bold:true, color:_DECK_C.lime, margin:0 });
@@ -6400,13 +6474,13 @@
           s.addText(meas.sub, { x:0.5, y:1.15, w:10, h:0.3, fontFace:'Arial', fontSize:12, color:_DECK_C.soft, margin:0 });
           var series = D.reps.map(function(r){
             return { name:_deckName(r), labels:D.half.map(_deckMon),
-                     values:D.half.map(function(p){ var v = (p <= key) ? _deckVal(D.cells[r.id][p], meas.key) : null; return v == null ? 0 : (meas.fmt === 'pct' ? v / 100 : v); }) };
+                     values:D.half.map(function(p){ var v = (p <= key) ? _deckVal(D.cells[r.id][p], meas.key) : null; return v == null ? 0 : (meas.fmt === 'pct' ? v / 100 : (meas.fmt === 'hm' ? Math.round(v / 36) / 100 : v)); }) };
           });
           s.addChart('bar', series, {
             x:0.5, y:1.6, w:7.7, h:3.55, barDir:'col', barGrouping:'clustered', chartColors:_DECK_SERIES.slice(0, series.length),
             showLegend:true, legendPos:'b', legendColor:_DECK_C.white, legendFontSize:10,
             catAxisLabelColor:_DECK_C.white, catAxisLabelFontSize:10, valAxisLabelColor:_DECK_C.white, valAxisLabelFontSize:9,
-            valAxisLabelFormatCode:(meas.fmt === 'pct' ? '0%' : (meas.fmt === 'money' ? '£#,##0' : '#,##0')),
+            valAxisLabelFormatCode:(meas.fmt === 'pct' ? '0%' : (meas.fmt === 'money' ? '£#,##0' : (meas.fmt === 'hm' ? '#,##0.0' : '#,##0'))),
             valGridLine:{ color:_DECK_C.line, style:'solid', size:0.5 }, catGridLine:{ style:'none' },
             plotArea:{ fill:{ color:_DECK_C.bg } }
           });
@@ -6434,7 +6508,7 @@
                              border:{ type:'solid', pt:0.5, color:_DECK_C.line }, align:'center', valign:'middle', rowH:0.22 });
         });
 
-        // 7. the quarter so far
+        // 8. the quarter so far
         var s7 = base(), qLab = 'Q' + D.q + ' ' + D.year, qMonths = D.quarter.map(_deckMon);
         s7.addText('Broker Quarterly Performance Comparison - ' + qLab, { x:0.5, y:0.3, w:11.4, h:0.6, fontFace:'Arial', fontSize:28, bold:true, color:_DECK_C.white, margin:0 });
         s7.addText(_deckJoin(names) + ' performance summary across ' + qMonths[0] + (qMonths.length > 1 ? ' to ' + qMonths[qMonths.length - 1] : '') + ' (' + qLab + ' to date).',
@@ -6451,7 +6525,7 @@
         s7.addText('Quarter to date. Computer activity is the average of the monthly figures; everything else is the total. N/A means not recorded.',
           { x:0.55, y:6.75, w:11.5, h:0.3, fontFace:'Arial', fontSize:9, italic:true, color:_DECK_C.muted, margin:0 });
 
-        // 8. where every number came from
+        // 9. where every number came from
         var s8 = base();
         s8.addText('Where these figures come from', { x:0.5, y:0.3, w:11, h:0.6, fontFace:'Arial', fontSize:26, bold:true, color:_DECK_C.white, margin:0 });
         var reps0 = (_SK.reps || []).filter(function(r){ return r.active !== false; });
@@ -6467,6 +6541,7 @@
         if(src.length) src.forEach(function(x){ bullet(x.metric + ': ' + x.line + '.'); });
         else bullet('Calls, emails and computer activity: nothing loaded for ' + label + '.');
         bullet('External calls are calls made on 8x8 (desk phone or 8x8 app). Calls from a personal mobile are not in 8x8, so they are not here.');
+        bullet('Emails sent are emails sent from the broker\'s own @cesgb.com mailbox, Monday to Friday 07:00 to 19:00 UK time, one per email however many people it went to.');
         bullet('Computer activity is Teramind\'s figure for the whole month (Input Rate: Activity), not an average of daily downloads.');
         bullet('N/A means the figure was not recorded. It is never counted or ranked as zero.');
         s8.addText(lines, { x:0.55, y:1.2, w:11.6, h:5.2, fontFace:'Arial', valign:'top', margin:0, paraSpaceAfter:8 });
@@ -8531,7 +8606,7 @@
         + '<div class="bx-pane" id="leadPane-activity">'
           + '<div class="card" style="margin-bottom:16px;">'
             + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Activity &amp; output by broker</h3>'
-            + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Days worked and contracts signed are entered by each broker on their month-end form. Calls and talk time come from 8x8, emails from the mail logs, computer activity from Teramind and envelopes from DocuSign. A dash means not recorded, never zero. Where every figure came from is listed under the table.</p>'
+            + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Days worked and contracts signed are entered by each broker on their month-end form. Calls and talk time load from 8x8 every morning, and emails from Microsoft 365 (sent from the broker\'s own @cesgb.com mailbox, Monday to Friday 07:00 to 19:00). Calls from personal mobiles are not in 8x8. Computer activity comes from Teramind and envelopes from DocuSign. A dash means not recorded, never zero. Where every figure came from is listed under the table.</p>'
             + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px;">'
               + '<div class="form-group" style="margin:0;"><label>Month</label><select id="leadActMonth" onchange="renderLeadActivity()"></select></div>'
               + '<button type="button" class="btn-secondary" id="leadDeckBtn" style="padding:9px 14px;" onclick="downloadBrokerDeck(document.getElementById(\'leadActMonth\').value)">Download the monthly report (PowerPoint)</button>'
