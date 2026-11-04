@@ -1761,9 +1761,22 @@
             .hhc-strip-txt{flex:1 1 320px;min-width:0;}
             .hhc-strip-btn{padding:8px 14px;border:1px solid #1f3864;border-radius:8px;background:#1f3864;color:#fff;font:inherit;font-size:13px;font-weight:700;cursor:pointer;min-height:36px;}
             .hhc-strip-btn:hover{background:#2a4a80;border-color:#2a4a80;}
+            /* v2.2 (Vick, 4 Nov 2026): missing readings said out loud, comparisons, rates used */
+            .hhc-warn{margin:0 0 20px;padding:14px 18px;border:1px solid #e9cf94;border-left:4px solid #b5840a;border-radius:0 8px 8px 0;background:#fdf6e7;color:#3d2c00;font-size:14px;line-height:1.7;}
+            .hhc-warn strong{color:#5c3d00;}
+            .hhc-fig-warn{margin-top:8px;font-size:13px;font-weight:700;color:#8a4b00;line-height:1.45;}
+            .hhc-fig.hhc-cmp .val{font-size:26px;}
+            .hhc-cmpnote{margin:14px 0 0;font-size:13px;color:var(--text-2);line-height:1.7;}
+            .hhc-badge{display:inline-block;margin-top:7px;padding:2px 9px;border-radius:999px;background:#fdf0d8;color:#6b3f00;font-size:12px;font-weight:700;line-height:1.6;}
+            .hhc-src{display:block;font-weight:600;color:var(--text);}
+            .hhc-rates{display:block;margin-top:4px;font-size:12.5px;color:var(--text-2);line-height:1.55;font-weight:500;}
+            .hhc-rates-m{display:none;}
+            .hhc-sitetable th:nth-child(3),.hhc-sitetable td:nth-child(3){width:270px;}
+            .hhc-rates-one{margin-top:4px;}
             @media(max-width:600px){.hhc-card{padding:16px;}.hhc-fig .val{font-size:26px;}.hhc-canvas{height:210px;}.hhc-sitepick{width:100%;}.hhc-sitepick .hhd-select select{min-width:0;width:100%;max-width:100%;}.hhc-strip-txt{flex-basis:100%;}
-              /* phone: site, cost and Show fit without scrolling sideways; "Rates from" is on each site's own view */
+              /* phone: site, cost and Show fit without scrolling sideways; the rates move under the site name */
               .hhc-sitetable{min-width:0;}.hhc-sitetable th:nth-child(3),.hhc-sitetable td:nth-child(3){display:none;}
+              .hhc-rates-m{display:block;margin-top:6px;font-size:12px;color:var(--text-2);line-height:1.55;font-weight:500;}.hhc-fig.hhc-cmp .val{font-size:22px;}
               .hhc-sitetable thead th.num{white-space:normal;}.hhc-sitetable th,.hhc-sitetable td{padding-left:5px;padding-right:5px;}}
             /* Pre-existing (zip 40): the Site dropdown sized itself to its longest option and pushed this page 21px sideways at 390px. */
             @media(max-width:600px){.hhd-controls .filter-block{min-width:0;max-width:100%;}.hhd-select{display:block;max-width:100%;}.hhd-select select{min-width:0;width:100%;max-width:100%;}}
@@ -11366,7 +11379,7 @@
     }
 
     // ═════════════════════════════════════════════════════════════════════
-    //  ESTIMATED RUNNING COST (half-hourly readings x latest validated rates)  [_52 + _52f, 3 Nov 2026]
+    //  ESTIMATED RUNNING COST (half-hourly readings x latest validated rates)  [_52 + _52f, 3 Nov 2026; v2.2 + _55, 4 Nov]
     // ═════════════════════════════════════════════════════════════════════
     // Its own section in the left-hand menu ("Estimated Running Cost"), plus a one-line summary
     // on the Half-Hourly Data page. Everything is worked out in Postgres by
@@ -11381,7 +11394,11 @@
     // "Open portal", always gets figures and the page says it is a preview.
     // Units: p/kWh, standing p/day, capacity p/kVA/month (house rule). Money to the nearest
     // pound, except a single site's working, which is shown to the penny.
-    var _hhc = { cid:null, cache:{}, idx:0, months:null, chart:null, seq:0, data:null, site:'all', probe:null };
+    // v2.2 (Vick, 4 Nov 2026): two comparison cards, like for like, from hh_cost_compare(): the same days
+    // last month and last year (whole months once the month is complete), each priced at the rates that
+    // applied then; a warning whenever readings are missing, so the total is never lower than it should
+    // be without saying so; and the rates each site is priced at, from the lines the server returns.
+    var _hhc = { cid:null, cache:{}, idx:0, months:null, chart:null, seq:0, data:null, site:'all', probe:null, cmp:{}, cmpWait:{} };
     var HHC_LINE_LABEL = {
       day:'Energy, day units', night:'Energy, night units', unit:'Energy', standing:'Standing charges',
       capacity:'Capacity (kVA)', rab:'RAB pass-through', data:'Data collection (DC/DA)',
@@ -11407,6 +11424,46 @@
     function _hhcLineLabel(ln){ return ln.code === 'other' ? _hhcOtherLabel(ln.kind) : (HHC_LINE_LABEL[ln.code] || ln.code); }
     function _hhcJoin(parts){ return parts.length < 2 ? (parts[0] || '') : parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1]; }
     function _hhcPlural(n, one, many){ return n + ' ' + (n === 1 ? one : many); }
+    // "+1.5%" / "−2.0%": the sign says which way. No red or green: a cost can rise for good reasons.
+    function _hhcPct(p){
+      if (p == null || isNaN(Number(p))) return '–';
+      var v = Math.round(Number(p) * 10) / 10;
+      if (v === 0) return 'No change';
+      return (v > 0 ? '+' : '−') + _hhcNum(Math.abs(v), 1) + '%';
+    }
+    // The rates a site is priced at, in CES's units: p/kWh, standing p/day, capacity p/kVA/month.
+    function _hhcRatesParts(s){
+      var L = {}, out = [], p = function(v){ return _hhcNum(v, 2) + 'p'; };
+      (s.lines || []).forEach(function(l){ if (l && !L[l.code]) L[l.code] = l; });
+      if (L.day && L.night) out.push('Day ' + p(L.day.rate) + ', night ' + p(L.night.rate) + ' per kWh');
+      else if (L.unit) out.push('Unit ' + p(L.unit.rate) + ' per kWh');
+      else if (L.day) out.push('Day ' + p(L.day.rate) + ' per kWh');
+      if (L.standing) out.push('Standing ' + _hhcNum(L.standing.rate, 2) + 'p/day');
+      if (L.capacity) out.push('Capacity ' + _hhcNum(L.capacity.rate_month, 2) + 'p/kVA/month' + (L.capacity.kva ? ' on ' + _hhcNum(L.capacity.kva, 0) + ' kVA' : ''));
+      else if (L.other && L.other.rate != null) out.push((L.other.kind === 'fixed_and_passthrough' ? 'Capacity and other charges ' : 'Other charges ') + _hhcNum(L.other.rate, 2) + 'p/day');
+      return out;
+    }
+    function _hhcRatesHtml(s, phone){
+      var parts = _hhcRatesParts(s);
+      if (phone) return '<span class="hhc-rates-m">' + escapeHtml('Rates: ' + _hhcSource(s)) + (parts.length ? '<br>' + parts.map(escapeHtml).join('<br>') : '') + '</span>';
+      return parts.length ? '<span class="hhc-rates">' + parts.map(escapeHtml).join('<br>') + '</span>' : '';
+    }
+    // A site name a customer recognises: "Unit 2, Mersenne Court", not "Unit 2".
+    function _hhcSiteName(x){
+      var p = String((x && (x.site || x.mpan)) || '').split(',').map(function(t){ return t.trim(); }).filter(Boolean);
+      if (!p.length) return String((x && x.mpan) || '');
+      return p.length > 1 && (p[0].length < 8 || /^(unit|units|suite|flat|floor|building|block|plot|new supply)\b/i.test(p[0])) ? p[0] + ', ' + p[1] : p[0];
+    }
+    // Sites whose readings have gaps (in the total, so it is under-stated) and sites with none at all
+    // this month (left out of the total). A gap is never zero use: an empty site still sends 0 kWh.
+    function _hhcMissingOf(sites, excl, de){
+      var gaps = [], none = [];
+      (sites || []).forEach(function(s){
+        (s.flags || []).forEach(function(f){ if (f && f.code === 'missing_days') gaps.push({ s:s, n:Number(f.n) || (f.dates || []).length, dates:f.dates || [] }); });
+      });
+      if (de > 0) (excl || []).forEach(function(x){ if (x.basis === 'no_data') none.push(x); });
+      return { gaps:gaps, none:none };
+    }
 
     // Consecutive dates as ranges: ['2026-10-02'..'2026-10-13'] -> ['2–13 Oct']
     function _hhcRanges(dates){
@@ -11482,7 +11539,7 @@
 
     function _hhcReset(cid){
       if (_hhc.chart) { try { _hhc.chart.destroy(); } catch (e) {} }
-      _hhc = { cid:cid, cache:{}, idx:0, months:null, chart:null, seq:0, data:null, site:'all', probe:null };
+      _hhc = { cid:cid, cache:{}, idx:0, months:null, chart:null, seq:0, data:null, site:'all', probe:null, cmp:{}, cmpWait:{} };
       var nav = document.getElementById('navCost'); if (nav) nav.style.display = 'none';
       var strip = document.getElementById('hhcStrip'); if (strip) { strip.style.display = 'none'; strip.innerHTML = ''; }
       var body = document.getElementById('hhcBody'); if (body) body.innerHTML = '';
@@ -11580,7 +11637,8 @@
       if (!d || !n) { el.style.display = 'none'; el.innerHTML = ''; return; }
       el.innerHTML = (d.admin_preview ? '<span class="hhc-preview">Admin preview</span>' : '')
         + '<span class="hhc-strip-txt"><b>Estimated running cost so far this month: ' + _hhcGBP(A.totals.net) + '</b> excl. VAT, from meter readings to '
-        + escapeHtml(_hhcDay(d.as_of)) + ' at ' + _hhcPlural(n, 'half-hourly site', 'half-hourly sites') + '. An estimate, not a bill.</span>'
+        + escapeHtml(_hhcDay(d.as_of)) + ' at ' + _hhcPlural(n, 'half-hourly site', 'half-hourly sites') + '. An estimate, not a bill.'
+        + (function(){ var g = _hhcMissingOf(A.sites, [], 1).gaps.length; return g ? ' Readings are missing at ' + _hhcPlural(g, 'site', 'sites') + ', so it is lower than it will be.' : ''; })() + '</span>'
         + '<button type="button" class="hhc-strip-btn" onclick="showCustomerPage(\'cost\')">See the breakdown</button>';
       el.style.display = '';
     }
@@ -11630,13 +11688,16 @@
         return;
       }
       if (one) h += _hhcSiteDetailHtml(one, admin);
+      h += _hhcWarnHtml(d, sites, excl, one);
 
       var T = one ? { net: one.net, vat: one.vat, gross: one.gross, kwh: one.kwh } : (A.totals || {});
       var range = de > 0 ? (de === 1 ? _hhcDay(d.month) : '1–' + _hhcDay(d.as_of)) : '';
       h += '<div class="hhc-figs">';
       h += '<div class="hhc-fig hhc-fig-main"><div class="lab">' + (complete ? escapeHtml(monthName) + ' running cost' : 'Running cost so far') + (range ? ' · ' + range : '') + '</div>'
          + '<div class="val">' + _hhcGBP(T.net) + ' <small>excl. VAT</small></div>'
-         + '<div class="sub">' + _hhcGBP(T.gross) + ' incl. VAT · ' + _hhcNum(T.kwh) + ' kWh measured</div></div>';
+         + '<div class="sub">' + _hhcGBP(T.gross) + ' incl. VAT · ' + _hhcNum(T.kwh) + ' kWh measured</div>'
+         + (function(){ var g = _hhcMissingOf(one ? [one] : sites, [], de).gaps.length; return g ? '<div class="hhc-fig-warn">' + escapeHtml(one ? 'Readings missing: lower than it will be' : 'Readings missing at ' + _hhcPlural(g, 'site', 'sites') + ': lower than it will be') + '</div>' : ''; })()
+         + '</div>';
       if (complete) {
         // the validated invoices for the same month, once CES has published them
         var billed = d.billed || {}, bGross = 0, eGross = 0, nB = 0, pool = one ? [one] : sites;
@@ -11656,10 +11717,15 @@
            + '<div class="val">' + _hhcGBP((Number(T.net) || 0) / de) + ' <small>excl. VAT</small></div>'
            + '<div class="sub">' + _hhcNum((Number(T.kwh) || 0) / de) + ' kWh a day over ' + _hhcPlural(de, 'day', 'days') + '</div></div>';
       }
+      if (de > 0) ['prev', 'last_year'].forEach(function(k){
+        h += '<div class="hhc-fig hhc-cmp" id="hhcCmp-' + k + '"><div class="lab">' + escapeHtml(_hhcCmpLabel(d, k)) + '</div>'
+           + '<div class="val hhc-val-muted">Working it out…</div></div>';
+      });
       h += '</div>';
       var pct = Math.max(0, Math.min(100, Math.round(de / dm * 100)));
       h += '<div class="hhc-prog"><div class="hhc-bar" role="progressbar" aria-label="Days of ' + escapeHtml(monthName) + ' with meter readings" aria-valuemin="0" aria-valuemax="' + dm + '" aria-valuenow="' + de + '"><span style="width:' + pct + '%"></span></div>'
          + '<div class="hhc-prog-txt">' + (de > 0 ? 'Meter readings to ' + escapeHtml(_hhcDay(d.as_of)) + ' · day ' + de + ' of ' + dm : 'No meter readings for ' + escapeHtml(monthName) + ' yet') + '</div></div>';
+      if (de > 0) h += '<div id="hhcCmpNote"></div>';
 
       // the disclaimer: always visible, never behind a toggle
       h += '<div class="hhc-note" role="note"><strong>This is an estimate, not a bill.</strong> '
@@ -11682,6 +11748,7 @@
 
       body.innerHTML = h;
       _hhcDrawChart(d, one);
+      _hhcCompare(d);
     }
 
     function _hhcCoverageHtml(d, sites, excl, one){
@@ -11714,7 +11781,8 @@
     function _hhcSiteDetailHtml(s, admin){
       var notes = _hhcNotes(s, admin);
       return '<div class="hhc-detail"><div class="hhc-detail-hd"><div><div class="nm">' + escapeHtml(s.site || s.mpan) + '</div>'
-        + '<div class="mp">' + escapeHtml(s.mpan) + (s.supplier ? ' · ' + escapeHtml(s.supplier) : '') + ' · rates: ' + escapeHtml(_hhcSource(s)) + '</div></div>'
+        + '<div class="mp">' + escapeHtml(s.mpan) + (s.supplier ? ' · ' + escapeHtml(s.supplier) : '') + ' · rates: ' + escapeHtml(_hhcSource(s)) + '</div>'
+        + (_hhcRatesParts(s).length ? '<div class="mp hhc-rates-one">' + _hhcRatesParts(s).map(escapeHtml).join(' · ') + '</div>' : '') + '</div>'
         + '<button type="button" class="hhc-more" data-hhc-site="all">Back to all sites</button></div>'
         + (notes.length ? '<ul class="hhc-flags">' + notes.map(function(t){ return '<li>' + escapeHtml(t) + '</li>'; }).join('') + '</ul>' : '')
         + '</div>';
@@ -11763,20 +11831,111 @@
       }).join('') + '</ul>' : '';
       var h = '<table class="hhc-table hhc-sitetable"><caption class="hhc-sr">Cost per site, in pounds excl. VAT</caption><thead><tr>'
         + '<th scope="col">Site</th><th scope="col" class="num">' + (complete ? 'Cost' : 'Cost so far') + ' <span class="hhc-unit">excl. VAT</span></th>'
-        + '<th scope="col">Rates from</th><th scope="col"><span class="hhc-sr">Show on its own</span></th></tr></thead><tbody>';
+        + '<th scope="col">Rates used</th><th scope="col"><span class="hhc-sr">Show on its own</span></th></tr></thead><tbody>';
       rows.forEach(function(s){
         var notes = bySite[s.mpan].filter(function(t){ return shared.indexOf(t) < 0; }), b = billed[s.mpan];
+        var miss = (s.flags || []).filter(function(f){ return f && f.code === 'missing_days'; })[0];
         h += '<tr class="hhc-site">'
           + '<th scope="row"><span class="nm">' + escapeHtml(s.site || s.mpan) + '</span><span class="mp">' + escapeHtml(s.mpan) + (s.supplier ? ' · ' + escapeHtml(s.supplier) : '') + '</span>'
+          + (miss ? '<span class="hhc-badge">' + escapeHtml('Readings missing: ' + _hhcPlural(Number(miss.n) || (miss.dates || []).length, 'day', 'days')) + '</span>' : '')
+          + _hhcRatesHtml(s, true)
           + (notes.length ? '<ul class="hhc-flags">' + notes.map(function(t){ return '<li>' + escapeHtml(t) + '</li>'; }).join('') + '</ul>' : '') + '</th>'
           + '<td class="num">' + _hhcGBP(s.net) + '<span class="kw">' + _hhcNum(s.kwh) + ' kWh</span>'
           + (b && b.gross != null ? '<span class="kw">invoiced ' + _hhcGBP(b.gross) + ' incl. VAT</span>' : '') + '</td>'
-          + '<td>' + escapeHtml(_hhcSource(s)) + '</td>'
+          + '<td><span class="hhc-src">' + escapeHtml(_hhcSource(s)) + '</span>' + _hhcRatesHtml(s) + '</td>'
           + '<td><button type="button" class="hhc-more" data-hhc-site="' + escapeHtml(s.mpan) + '" aria-label="Show ' + escapeHtml(s.site || s.mpan) + ' on its own">Show</button></td>'
           + '</tr>';
       });
       h += '</tbody><tfoot><tr class="tot"><th scope="row">All ' + _hhcPlural(rows.length, 'site', 'sites') + '</th><td class="num">' + _hhcGBP(A.totals && A.totals.net) + '</td><td colspan="2"></td></tr></tfoot></table>';
       return pre + '<div class="hhc-scroll">' + h + '</div>';
+    }
+
+    function _hhcWarnHtml(d, sites, excl, one){
+      var de = Number(d.days_elapsed) || 0, monthName = _hhcMonthName(d.month);
+      var M = _hhcMissingOf(one ? [one] : sites, one ? [] : excl, de);
+      if (!M.gaps.length && !M.none.length) return '';
+      var nm = _hhcSiteName;
+      var when = function(g){ var r = _hhcRanges(g.dates); return r.length ? r.slice(0, 3).join(', ') + (r.length > 3 ? ' and others' : '') : _hhcPlural(g.n, 'day', 'days'); };
+      var feed = 'Those days count only the fixed charges until Stark, the meter data provider, sends the readings. A gap in the data feed is not zero use, and CES is alerted to it.';
+      var none = function(){ return _hhcJoin(M.none.map(nm)) + (M.none.length === 1 ? ' has' : ' have') + ' sent no readings for ' + monthName + ' and ' + (M.none.length === 1 ? 'is' : 'are') + ' left out of this total.'; };
+      var head, body;
+      if (one) {
+        head = 'Readings missing for ' + _hhcPlural(M.gaps[0].n, 'day', 'days') + ' (' + when(M.gaps[0]) + '), so this site’s cost so far is lower than it will be.';
+        body = feed;
+      } else if (M.gaps.length) {
+        head = 'Readings missing at ' + M.gaps.length + ' of ' + sites.length + ' sites, so this total is lower than it will be.';
+        body = M.gaps.map(function(g){ return nm(g.s) + ': ' + when(g) + '.'; }).join(' ') + ' ' + feed + (M.none.length ? ' ' + none() : '');
+      } else {
+        head = none();
+        body = 'A gap in the data feed is not zero use, and CES is alerted to it.';
+      }
+      return '<div class="hhc-warn" role="note"><strong>' + escapeHtml(head) + '</strong> ' + escapeHtml(body) + '</div>';
+    }
+
+    // ── the comparison (hh_cost_compare, _55) ──
+    function _hhcShiftMonth(iso, n){ var p = String(iso).slice(0, 10).split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1 + n, 1)).toISOString().slice(0, 10); }
+    function _hhcCmpLabel(d, k){
+      if (d.complete) return 'Compared with ' + (k === 'prev' ? _hhcMonthName(_hhcShiftMonth(d.month, -1)) : _hhcMonthName(_hhcShiftMonth(d.month, -12), true));
+      return k === 'prev' ? 'Same days last month' : 'Same days last year';
+    }
+    function _hhcCmpWhen(x){
+      var from = String(x.from).slice(0, 10), to = String(x.to).slice(0, 10), y = x.key === 'last_year';
+      if (x.whole_month) return 'in ' + _hhcMonthName(from, y);
+      var t = from === to ? _hhcDay(from) : Number(from.slice(8, 10)) + '–' + _hhcDay(to);
+      return 'on ' + t + (y ? ' ' + from.slice(0, 4) : '');
+    }
+    function _hhcWhy(w, d){
+      return ({ missing_now:'readings missing in ' + _hhcMonthName(d.month), missing_then:'readings missing then', no_readings_then:'no readings then',
+                no_rates_then:'no rates on file for then', flex_then:'flexible contract then' })[w] || 'not comparable';
+    }
+    function _hhcCompare(d){
+      var key = String(d.month).slice(0, 10), cid = _hhc.cid;
+      if (!(Number(d.days_elapsed) > 0) || !cid) return;
+      if (_hhc.cmp[key]) { _hhcFillCompare(d, _hhc.cmp[key]); return; }
+      if (!_hhc.cmpWait[key]) {
+        _hhc.cmpWait[key] = Promise.resolve()
+          .then(function(){ return sb.rpc('hh_cost_compare', { p_customer_id: cid, p_month: key }); })
+          .then(function(r){ return r; }, function(e){ return { error: e }; })
+          .then(function(r){
+            if (_hhc.cid !== cid) return null;
+            delete _hhc.cmpWait[key];
+            var c = r && !r.error && r.data && typeof r.data === 'object' && !Array.isArray(r.data) && r.data.enabled ? r.data : null;
+            if (c) _hhc.cmp[key] = c; else console.warn('hh_cost_compare', r && r.error);
+            return c;
+          });
+      }
+      _hhc.cmpWait[key].then(function(c){ if (_hhc.cid === cid && _hhc.data === d) _hhcFillCompare(d, c); });
+    }
+    function _hhcFillCompare(d, c){
+      var one = _hhc.site === 'all' ? null : _hhc.site;
+      var muted = function(t){ return '<div class="val hhc-val-muted">' + escapeHtml(t) + '</div>'; };
+      ['prev', 'last_year'].forEach(function(k){
+        var el = document.getElementById('hhcCmp-' + k); if (!el) return;
+        var x = c && (c.comparisons || []).filter(function(z){ return z.key === k; })[0], val, sub;
+        if (!x) { val = muted('Not available'); sub = 'The comparison could not be worked out just now.'; }
+        else if (one) {
+          var S = (c.sites || {})[one] || {}, e = S[k], nw = S.now || {};
+          if (e && e.ok) { val = '<div class="val">' + escapeHtml(_hhcPct(e.pct_net)) + '</div>'; sub = _hhcGBP(nw.net) + ' now against ' + _hhcGBP(e.net) + ' ' + _hhcCmpWhen(x) + '. Usage ' + _hhcPct(e.pct_kwh) + '.'; }
+          else { val = muted('Not comparable'); sub = 'Not compared ' + _hhcCmpWhen(x).replace(/^(on|in) /, 'with ') + ': ' + (e && e.why ? _hhcWhy(e.why, d) : 'no figures for then') + '.'; }
+        } else if (!x.sites_compared) { val = muted('Not comparable'); sub = 'No site has readings for every day in both periods.'; }
+        else {
+          val = '<div class="val">' + escapeHtml(_hhcPct(x.pct_net)) + '</div>';
+          sub = _hhcGBP(x.now.net) + ' now against ' + _hhcGBP(x.then.net) + ' ' + _hhcCmpWhen(x) + '. Usage ' + _hhcPct(x.pct_kwh) + '.'
+              + (x.sites_compared < x.sites_total ? ' Like for like: ' + (x.sites_compared * 2 < x.sites_total ? 'only ' : '') + x.sites_compared + ' of ' + x.sites_total + ' sites.' : '');
+        }
+        el.innerHTML = '<div class="lab">' + escapeHtml(_hhcCmpLabel(d, k)) + '</div>' + val + '<div class="sub">' + escapeHtml(sub) + '</div>';
+      });
+      // which sites were left out, and why: said once, under the figures
+      var note = document.getElementById('hhcCmpNote'); if (!note) return;
+      if (!c || one) { note.innerHTML = ''; return; }
+      var lines = [];
+      (c.comparisons || []).forEach(function(x){
+        if (!x.left_out || !x.left_out.length || !x.sites_compared) return;
+        var by = {}, order = [];
+        x.left_out.forEach(function(l){ var w = _hhcWhy(l.why, d); if (!by[w]) { by[w] = []; order.push(w); } by[w].push(_hhcSiteName(l)); });
+        lines.push('Not in the comparison ' + _hhcCmpWhen(x).replace(/^(on|in) /, 'with ') + ': ' + order.map(function(w){ return _hhcJoin(by[w]) + ' (' + w + ')'; }).join('; ') + '.');
+      });
+      note.innerHTML = '<p class="hhc-cmpnote">' + escapeHtml('Like for like: only sites with readings for every day in both periods are compared, each period at the rates that applied then.' + (lines.length ? ' ' + lines.join(' ') : '')) + '</p>';
     }
 
     function _hhcDrawChart(d, one){
