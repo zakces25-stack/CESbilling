@@ -725,7 +725,24 @@
     'night unit charge': 'night_rate_p_kwh',
     'evening & weekend unit charge': 'eve_weekend_p_kwh',
     'off peak unit charge': 'offpeak_p_kwh',
+    // British Gas V313 (Nov 2026): "Availability Charge", p/kVa/Day. Stored per kVA per MONTH.
+    'availability charge': 'capacity_p_kva_month',
   };
+
+  /**
+   * The connection the DUoS band names. British Gas V313 prices whole-current, LV network and
+   * LV substation connections separately, each in TCR bands 1 to 4. Recorded on the row, in the
+   * same words the Corona parser uses; the matcher does not filter on it.
+   */
+  function bgVoltage(t) {
+    const s = String(t || '').trim().toLowerCase();
+    if (!s) return null;
+    if (/whole\s*current/.test(s)) return 'LV_noMIC';
+    if (/substation/.test(s)) return 'LV-SUB';
+    if (/high\s*voltage|^hv\b/.test(s)) return 'HV';
+    if (/low\s*voltage|^lv\b/.test(s)) return 'LV';
+    return null;
+  }
 
   function parseBgLong(rows, supplierKey, fuel, onRow, onRefuse, meta) {
     const header = rows[0];
@@ -741,6 +758,17 @@
       const g = (...names) => A.get(row, ...names);
       try {
         if (!meta.version) meta.version = String(g('pricebookversion') || '').trim() || null;
+        const pc = toNum(g('profileclass'));
+        // British Gas V313 (2 Nov 2026) moved to BG Lite's layout and put HALF-HOURLY prices in
+        // the same book: profile class 0, priced per connection (whole current, LV network, LV
+        // substation) with an availability charge per kVA on the CT ones. The desk has no
+        // connection type to match a meter on, so the three would sit on one match key and the
+        // whole-current row, with no availability charge, would win every half-hourly quote:
+        // 32,256 such collisions in V313. BG's half-hourly books were never priced here (their
+        // own files route to a product marked not quotable), so these stay out, by name.
+        if (fuel === 'electricity' && pc === 0) {
+          throw new Refuse('profile class 0 (half-hourly): not priced on the desk');
+        }
         const st = saleType(g('salestype'));
         const term = toNum(g('contractduration'));
         if (term == null) throw new Refuse('no contract duration');
@@ -754,7 +782,6 @@
         } else {
           struct = 'single';
         }
-        const pc = toNum(g('profileclass'));
         const winFrom = toDate(g('windowopen'));
         const winTo = toDate(g('windowclose'));
         if (winFrom && (!meta.window_open || winFrom < meta.window_open)) meta.window_open = winFrom;
@@ -781,6 +808,11 @@
         if (col === 'standing_charge_p_day') {
           if (unit !== 'p/day') throw new Refuse(`standing charge in unexpected unit "${unit}"`);
           val = sc(val);
+        } else if (col === 'capacity_p_kva_month') {
+          // Never kept per day: 6.28 p/kVA/day is 191.02 p/kVA/month.
+          if (unit === 'p/kva/day') val = capFromDay(val);
+          else if (unit === 'p/kva/month') val = bounded(toNum(val), 1, 20000, 'capacity p/kVA/month');
+          else throw new Refuse(`availability charge in unexpected unit "${unit}"`);
         } else {
           if (unit !== 'p/kwh') throw new Refuse(`unit charge in unexpected unit "${unit}"`);
           val = rate(val);
@@ -797,6 +829,7 @@
           r.payment_method = k[8];
           r.sc_type = scType(k[9]);
           r.tcr_band = k[10] ? tcrBand(k[10]) : null;
+          r.voltage_level = bgVoltage(k[10]);
           r.start_date_min = k[11]; r.start_date_max = k[12];
           r.aq_max = bandTop;
           // Pricebook Version carries the grid ("Standard V305 EA", "V206VB 0SC"), which is
@@ -2359,10 +2392,20 @@
     const meta = { version: null, window_open: null, window_close: null };
     const onRow = (r) => rows.push(r);
     const MAX_KEPT = 200;   // enough to diagnose; the count is what matters at scale
+    // Every refusal counted by reason, not just the first 200 kept. British Gas V313's first
+    // 200 were all "4 rate stod" while 153,216 of its 156,096 were half-hourly lines: the
+    // first 200 alone told the desk the wrong story. (A property on the array, so the JSON
+    // stored with the upload is unchanged.)
+    const counts = {};
+    let distinct = 0;
     const onRefuse = (line, reason) => {
       if (refusals.length < MAX_KEPT) refusals.push({ row: line, reason });
       else refusals.overflow = (refusals.overflow || 0) + 1;
+      const k = counts[reason] != null || distinct < 50 ? reason : 'other reasons';
+      if (counts[k] == null) { counts[k] = 0; if (k === reason) distinct++; }
+      counts[k]++;
     };
+    refusals.counts = counts;
 
     // SEFE's consumption ranges are on a separate sheet, so they are read before any price
     // row is looked at.
@@ -2474,7 +2517,7 @@
      * re-upload wrote 8,916 rows with no selling days and the wrong rate kept winning.
      * Caching headers are the first line of defence and this is the second.
      */
-    VERSION: '2026-11-04.1',
+    VERSION: '2026-11-04.2',
     parse, normHeader, readZip, headerRowIndex, csvRows, CANON_FIELDS, P_KVA_DAY_TO_MONTH,
     // exported for the test suite
     _internals: { saleType, rateStructure, tcrBand, toNum, toDate, toBool, dnoId, rate, sc,
