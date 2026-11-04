@@ -1783,6 +1783,8 @@ function cxRenderDayAhead(){
       <button class="gbtn dl" type="button" id="cxDaXl">&#8681; Export</button>
       <span class="muted" style="font-size:11px">Click a month to open it</span>
     </div>
+    <div class="cx-da-xl-note muted" style="margin:-4px 0 12px;font-size:11.5px">${
+        FlexCore.esc(FlexCore.DA_EXPORT_CAPTION)}</div>
     <div class="cx-da-chart"><canvas id="cxDaChart"></canvas></div>
     <div id="cxDaBody"></div>`;
 
@@ -1906,52 +1908,36 @@ function cxDaChart(yr){
    file. Three sheets — one per fuel, then monthly averages — built the desk's way down
    to the number masks, because the two files end up side by side on a call. */
 async function cxDaExport(){
+  /* Round 48: the same eight-tab workbook the desk downloads, built by the same
+     FlexCore.daWorkbook. Until now this page exported a simpler three-tab file; it no
+     longer does, because there is nothing in the richer workbook a customer should not
+     see — it is their own day-ahead prices, summarised.
+
+     What is still page-level here and not on the desk: ExcelJS is fetched on demand
+     rather than carried on every page load, and the button reports its own progress.
+
+     The workbook is a SNAPSHOT of what the portal holds right now. Press Export again
+     after new prices land and the new file carries them; one already downloaded does
+     not change. */
   const btn = document.getElementById('cxDaXl');
+  const gas   = cxDaRows('gas');
+  const power = cxDaRows('power');
+  if(!gas.length && !power.length) return toast('There are no day-ahead prices to export');
   if(btn){ btn.disabled = true; btn.innerHTML = 'Preparing&hellip;'; }
   try{
     const XL = await loadExcelJs();
-    const wb = new XL.Workbook();
-    const NAVY = 'FF1F2D4D';
-    const head = (ws, cols)=>{
-      ws.getRow(1).values = cols.map(c=>c[0]);
-      ws.columns = cols.map(c=>({ width:c[1] }));
-      const r = ws.getRow(1);
-      r.font = { bold:true, color:{ argb:'FFFFFFFF' }, name:'Arial', size:10 };
-      r.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:NAVY } };
-      r.height = 20;
-    };
-    for(const c of ['gas','power']){
-      const ws = wb.addWorksheet(CX_DA_NAME[c]);
-      head(ws, [['Date',14], ['Day Ahead Cash Out Price ('+CX_DA_UNIT[c]+')',34]]);
-      for(const r of cxDaRows(c)){
-        // Midday UTC, never local midnight: ExcelJS converts to UTC on write, so a local
-        // midnight under BST lands at 23:00 the day before and every date reads one out.
-        const row = ws.addRow([new Date(r.d+'T12:00:00Z'), r.p]);
-        row.getCell(1).numFmt = 'dd/mm/yyyy';
-        // The point in an Excel mask is a literal: '0.####' prints "190." on a whole
-        // number. Per cell, so only genuine decimals carry one.
-        row.getCell(2).numFmt = Number.isInteger(r.p) ? '0' : '0.####';
-      }
-      ws.views = [{ state:'frozen', ySplit:1 }];
-    }
-    const ws = wb.addWorksheet('Monthly averages');
-    head(ws, [['Month',12], ['Gas (p/th)',14], ['Gas days',11],
-              ['Power (£/MWh)',16], ['Power days',12]]);
-    const merged = cxDaMerged();
-    const mks = [...new Set(Object.keys(merged).map(d=>d.slice(0,7)))].sort();
-    for(const mk of mks){
-      const days = Object.keys(merged).filter(d=>d.slice(0,7)===mk);
-      const g = days.map(d=>merged[d].gas).filter(v=>v!=null);
-      const p = days.map(d=>merged[d].power).filter(v=>v!=null);
-      const ga = g.length?cxDaMean(g):null, pa = p.length?cxDaMean(p):null;
-      const row = ws.addRow([cxDaFmtMonth(mk), ga, g.length, pa, p.length]);
-      const avgFmt = v => (v==null||Number.isInteger(v)) ? '0' : '0.0000';
-      row.getCell(2).numFmt = avgFmt(ga);
-      row.getCell(4).numFmt = avgFmt(pa);
-    }
-    ws.views = [{ state:'frozen', ySplit:1 }];
-    xlSave(await wb.xlsx.writeBuffer(), 'Day Ahead Cash Out Prices - '+xlStamp()+'.xlsx');
-    toast('Workbook downloaded');
+    /* Redrawn here from the same arrays the sheets are built from, so a workbook always
+       agrees with itself. Chart.js is on this page already; the guard is there so a
+       missing library costs the export its pictures rather than the whole file. */
+    const images = FlexCore.daCharts(typeof Chart !== 'undefined' ? Chart : null, gas, power);
+    const built  = FlexCore.daWorkbook({ XL: XL, gas: gas, power: power, images: images });
+    xlSave(await built.wb.xlsx.writeBuffer(), 'Day Ahead Cash Out Prices - '+xlStamp()+'.xlsx');
+    /* Say so when a fuel had no readings — its tabs are left out rather than written
+       blank, and a missing tab somebody has to notice is worse than a sentence. */
+    toast(built.skipped.length
+      ? 'Workbook downloaded — '+built.skipped.join(' and ')+' had no readings and '
+        +(built.skipped.length>1?'were':'was')+' left out'
+      : 'Workbook downloaded');
   }catch(e){
     console.error('day-ahead export', e);
     toast('The spreadsheet could not be prepared. Please try again.');

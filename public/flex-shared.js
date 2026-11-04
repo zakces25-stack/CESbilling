@@ -1151,6 +1151,751 @@
          + '<tbody>' + body + foot + '</tbody></table></div>';
   }
 
+  /* ── DAY AHEAD WORKBOOK (round 48) ────────────────────────────────────────────
+     The eight-tab Day Ahead export, replacing the three-tab one both portals used
+     up to round 47. It lives here rather than in either page because the desk and
+     the client portal now download the SAME workbook, and two copies of 300 lines
+     of spreadsheet geometry is two copies to keep in step.
+
+     The design is not ours. Every colour, border weight, row height, merge, number
+     format and banding rule was read out of a reference workbook a colleague built
+     and is reproduced, not reinterpreted. The constants below are named after what
+     they are in HIS file. Two things only are ours: the note wording (the portal is
+     the source, not a spreadsheet exported from somewhere else), and the units line,
+     which the portal can state rather than hedge.
+
+     EVERY FIGURE IS A LIVE FORMULA **AND** A CACHED RESULT. The formula is what lets
+     the book recalculate when somebody pastes extra days onto a Daily Data tab; the
+     cached result is what lets the figures show in Preview, Google Sheets and the
+     browser, none of which calculate a formula they were handed.
+
+     The workbook is a SNAPSHOT. It is built from whatever the portal holds at the
+     moment Export is pressed, and the charts are redrawn from that same data in the
+     same breath, so a file always agrees with itself. It does not then track the
+     portal: new prices appear in the next export, not in a file already downloaded. */
+
+  var DA_BANNER = 'FF1F3864';   // banner fill, rows 1-2 of every sheet
+  var DA_HEAD   = 'FF2F5597';   // table heading fill
+  var DA_CARD   = 'FFD9E1F2';   // dashboard KPI cards, and the Monthly total row
+  var DA_BAND   = 'FFF2F5FA';   // zebra banding on data rows
+  var DA_NAVY   = 'FF1F3864';   // heading ink
+  var DA_GREY   = 'FF595959';   // note ink
+  var DA_BLUE   = 'FF0000FF';   // a source reading
+  var DA_GREEN  = 'FF008000';   // a figure linked from another tab
+  /* Banner and heading navy are the same on BOTH fuels in his book. Only the tab
+     colour tells gas from power; tinting the headings per fuel looks deliberate and
+     is wrong. */
+  var DA_TAB = { Gas: 'FF2F5597', Power: 'FFC55A11', data: 'FFA6A6A6' };
+
+  /* Border weights and colours, straight from his borders table. */
+  var DA_B_HEAD  = { bottom: { style: 'medium', color: { argb: DA_NAVY } } };
+  var DA_B_HAIR  = { bottom: { style: 'hair',   color: { argb: 'FFD9D9D9' } } };
+  var DA_B_CARD  = { bottom: { style: 'thick',  color: { argb: DA_HEAD } } };
+  var DA_B_TOTAL = { top:    { style: 'medium', color: { argb: DA_NAVY } },
+                     bottom: { style: 'medium', color: { argb: DA_NAVY } } };
+
+  /* Number formats, written with HIS backslash escaping. Excel renders #,##0.0\p and
+     #,##0.0"p" identically, but writing them his way keeps the stored format codes
+     byte-identical to his file. mm-dd-yy is Excel's BUILT-IN short date (numFmtId 14),
+     which renders to the reader's own locale — dd/mm/yyyy on a UK machine. */
+  var DA_NF_PRICE = '#,##0.00';
+  var DA_NF_PCT   = '\\+0.0%;[Red]\\-0.0%;0.0%';
+  var DA_NF_MON   = 'mmm-yy';
+  var DA_NF_DAY   = 'mm-dd-yy';
+
+  /* Chart geometry, recovered from the drawing anchors in his workbook and converted
+     at 96dpi (9,525 EMU to the pixel, 75px to a width-10 column, 20px to a default
+     15pt row):   line  B7  -> R26 + 62,280 EMU = 1206 x 397 px
+                  bar   B29 -> I43 + 32,760 EMU =  574 x 283 px
+     `scale` is how much bigger the bitmap is drawn than it is placed, so it stays
+     sharp on a high-dpi screen. These are the single source of truth: the renderer
+     draws at w*scale and the sheet places at w, so the two cannot drift apart. */
+  var DA_CHART = { line: { w: 1206, h: 397 }, bar: { w: 574, h: 283 }, scale: 2 };
+
+  var DA_MONN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var DA_COLS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+  /* MIDNIGHT UTC, built from an explicit Z string so there is no local-timezone slip.
+     It has to be midnight rather than midday for two reasons, both of which produce
+     wrong numbers in silence:
+       - the Month helper on Daily Data is =DATE(YEAR(..),MONTH(..),1), which Excel
+         returns at midnight. AVERAGEIFS matches it against the Month column on the
+         Monthly tab, so a midday month there matches NOTHING and every average comes
+         back #DIV/0!.
+       - the Annual Summary bounds a year with <=DATE(y,12,31). A midday 31 December
+         is greater than a midnight one, so every 31 December drops out of its own
+         year.
+     The old three-tab export used midday for the opposite reason — it wrote dates for
+     display only, and a local midnight under BST landed at 23:00 the day before. That
+     file had no formulas to match against; this one does. */
+  function daDate(iso) { return new Date(iso + 'T00:00:00Z'); }
+  function daHuman(iso) {
+    return (+iso.slice(8, 10)) + ' ' + DA_MONN[+iso.slice(5, 7) - 1] + ' ' + iso.slice(0, 4);
+  }
+  function daShort(iso) { return DA_MONN[+iso.slice(5, 7) - 1] + '-' + iso.slice(2, 4); }
+  function daMean(a) {
+    var s = 0, i;
+    for (i = 0; i < a.length; i++) s += a[i];
+    return a.length ? s / a.length : null;
+  }
+  function daMin(a) { return Math.min.apply(null, a); }
+  function daMax(a) { return Math.max.apply(null, a); }
+  function daR6(v) { return v == null ? null : Math.round(v * 1e6) / 1e6; }
+
+  /* Whether the record stops mid-month. The two fuels do not end on the same day —
+     power normally runs a day ahead of gas — so a note that simply declares the last
+     month partial is wrong for one of them about half the time. */
+  function daPartialEnd(iso) {
+    var d = daDate(iso),
+        eom = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0));
+    return d.getUTCDate() !== eom.getUTCDate();
+  }
+
+  function daMonths(rows) {
+    var by = {}, keys = [], i, mk, out = [], v;
+    for (i = 0; i < rows.length; i++) {
+      mk = rows[i].d.slice(0, 7);
+      if (!by[mk]) { by[mk] = []; keys.push(mk); }
+      by[mk].push(rows[i].p);
+    }
+    keys.sort();
+    for (i = 0; i < keys.length; i++) {
+      v = by[keys[i]];
+      out.push({ mk: keys[i], first: keys[i] + '-01', n: v.length,
+                 avg: daMean(v), min: daMin(v), max: daMax(v) });
+    }
+    return out;
+  }
+  function daYears(rows) {
+    var by = {}, keys = [], i, y, out = [], v;
+    for (i = 0; i < rows.length; i++) {
+      y = rows[i].d.slice(0, 4);
+      if (!by[y]) { by[y] = []; keys.push(y); }
+      by[y].push(rows[i].p);
+    }
+    keys.sort();
+    for (i = 0; i < keys.length; i++) {
+      v = by[keys[i]];
+      out.push({ y: keys[i], n: v.length, avg: daMean(v), min: daMin(v), max: daMax(v) });
+    }
+    return out;
+  }
+
+  function daFont(o) {
+    /* No colour unless one is asked for: these cells use Excel's automatic ink, as his
+       do. Handing them an explicit near-black instead reads flatter even where the
+       layout matches. */
+    var f = { name: 'Arial', size: 10 }, k;
+    for (k in o) if (Object.prototype.hasOwnProperty.call(o, k)) f[k] = o[k];
+    return f;
+  }
+  function daFill(c) { return { type: 'pattern', pattern: 'solid', fgColor: { argb: c } }; }
+
+  /* Two merged bars of navy across the table width: 16pt white title on a 30pt row,
+     9pt white italic subtitle on an 18pt row, both vertically centred. Excel paints a
+     merged range from its top-left cell, so the fill goes on the master only. */
+  function daBanner(ws, lastCol, title, sub) {
+    var L = DA_COLS.charAt(lastCol - 1);
+    ws.getCell('B1').value = title;
+    ws.getCell('B1').font = daFont({ bold: true, size: 16, color: { argb: 'FFFFFFFF' } });
+    ws.getCell('B1').fill = daFill(DA_BANNER);
+    ws.getCell('B1').alignment = { vertical: 'middle' };
+    ws.mergeCells('B1:' + L + '1');
+    ws.getRow(1).height = 30;
+
+    ws.getCell('B2').value = sub;
+    ws.getCell('B2').font = daFont({ size: 9, italic: true, color: { argb: 'FFFFFFFF' } });
+    ws.getCell('B2').fill = daFill(DA_BANNER);
+    ws.getCell('B2').alignment = { vertical: 'middle' };
+    ws.mergeCells('B2:' + L + '2');
+    ws.getRow(2).height = 18;
+
+    ws.views = [{ showGridLines: false }];
+    ws.getColumn(1).width = 2;
+  }
+
+  /* Navy fill, white bold, wrapped and centred on a 30pt row, closed with a medium
+     rule underneath. */
+  function daHeadRow(ws, rowNo, labels) {
+    var r = ws.getRow(rowNo), i, c;
+    for (i = 0; i < labels.length; i++) {
+      c = r.getCell(2 + i);
+      c.value = labels[i];
+      c.font = daFont({ bold: true, color: { argb: 'FFFFFFFF' } });
+      c.fill = daFill(DA_HEAD);
+      c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      c.border = DA_B_HEAD;
+    }
+    r.height = 30;
+  }
+
+  /* One data row dressed his way: centred, hair rule beneath, banded on every second
+     row counting from the first of the block. `bold` names the emphasised column —
+     the Average, on every tab that has one. */
+  function daDress(row, c0, c1, banded, bold, ink) {
+    var c, cell, o;
+    for (c = c0; c <= c1; c++) {
+      cell = row.getCell(c);
+      o = {};
+      if (c === bold) o.bold = true;
+      if (ink) o.color = { argb: ink };
+      cell.font = daFont(o);
+      cell.alignment = { horizontal: 'center' };
+      cell.border = DA_B_HAIR;
+      if (banded) cell.fill = daFill(DA_BAND);
+    }
+  }
+
+  /* His book uses TWO note styles and the difference is deliberate, so it is carried
+     rather than tidied into one: on a dashboard the block is furniture beside the
+     charts — 10pt bold navy label over upright grey text; on a table tab it is a
+     footnote under the grid — 9pt bold grey label over italic grey text. */
+  function daNotes(ws, cell, lines, variant) {
+    var col = cell.charAt(0), r0 = +cell.slice(1), dash = variant === 'dashboard', i, c;
+    ws.getCell(col + r0).value = 'Notes';
+    ws.getCell(col + r0).font = dash
+      ? daFont({ bold: true, size: 10, color: { argb: DA_NAVY } })
+      : daFont({ bold: true, size: 9,  color: { argb: DA_GREY } });
+    for (i = 0; i < lines.length; i++) {
+      c = ws.getCell(col + (r0 + 1 + i));
+      c.value = '• ' + lines[i];
+      c.font = dash ? daFont({ size: 9, color: { argb: DA_GREY } })
+                    : daFont({ size: 9, italic: true, color: { argb: DA_GREY } });
+    }
+  }
+
+  function daFooter(ws) {
+    ws.headerFooter = { oddFooter: '&LCES — Commercial Energy Solutions&RPage &P of &N' };
+  }
+
+  function daDailySheet(wb, fuel) {
+    var ws = wb.addWorksheet(fuel.name + ' Daily Data',
+          { properties: { tabColor: { argb: DA_TAB.data } } }),
+        i, n, row;
+    daBanner(ws, 4, fuel.name + ' Day-Ahead Cash-Out Price — Daily',
+      'Source: CES Flex Portal, Day Ahead tab · ' + fuel.unit);
+    daHeadRow(ws, 4, ['Date', 'DA Cash-Out\n(' + fuel.unit + ')', 'Month']);
+    for (i = 0; i < fuel.rows.length; i++) {
+      n = 5 + i; row = ws.getRow(n);
+      row.getCell(2).value = daDate(fuel.rows[i].d);
+      row.getCell(3).value = fuel.rows[i].p;
+      row.getCell(4).value = { formula: 'DATE(YEAR(B' + n + '),MONTH(B' + n + '),1)',
+                               result: daDate(fuel.rows[i].d.slice(0, 7) + '-01') };
+      daDress(row, 2, 4, i % 2 === 1, null);
+      row.getCell(2).numFmt = DA_NF_DAY;
+      row.getCell(3).numFmt = DA_NF_PRICE;
+      row.getCell(4).numFmt = DA_NF_MON;
+      // Blue ink marks a source reading, the convention his book uses.
+      row.getCell(3).font = daFont({ color: { argb: DA_BLUE } });
+    }
+    ws.getColumn(2).width = 14; ws.getColumn(3).width = 16; ws.getColumn(4).width = 12;
+    ws.views = [{ showGridLines: false, state: 'frozen', xSplit: 1, ySplit: 4,
+                  topLeftCell: 'B5' }];
+    ws.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1,
+                     fitToHeight: 0, printTitlesRow: '4:4' };
+    daFooter(ws);
+    return ws;
+  }
+
+  function daMonthlySheet(wb, fuel, dailyName, lastDataRow) {
+    var ws = wb.addWorksheet(fuel.name + ' Monthly Averages',
+          { properties: { tabColor: { argb: DA_TAB[fuel.name] } } }),
+        d0 = fuel.rows[0].d, d1 = fuel.rows[fuel.rows.length - 1].d,
+        U = '\n(' + fuel.unit + ')',
+        D = "'" + dailyName + "'!",
+        C = D + '$C$5:$C$' + lastDataRow,
+        M = D + '$D$5:$D$' + lastDataRow,
+        ms = fuel.months, i, n, row, tot, tr, all = [], c;
+
+    daBanner(ws, 9, fuel.name + ' Day-Ahead Cash-Out Price — Monthly Averages',
+      'All figures ' + fuel.unit + ' · ' + daHuman(d0) + ' to ' + daHuman(d1)
+      + ' · calculated live from the ' + dailyName + ' tab');
+    daHeadRow(ws, 4, ['Month', 'Average' + U, 'Min' + U, 'Max' + U, 'Range' + U,
+                      'Days in\nData', 'MoM\nChange', 'YoY\nChange']);
+
+    for (i = 0; i < ms.length; i++) {
+      n = 5 + i; row = ws.getRow(n);
+      row.getCell(2).value = daDate(ms[i].first);
+      row.getCell(3).value = { formula: 'AVERAGEIFS(' + C + ',' + M + ',$B' + n + ')',
+                               result: daR6(ms[i].avg) };
+      /* _xlfn. prefix: MINIFS and MAXIFS are post-2007 and Excel stores them prefixed.
+         Written bare they come back #NAME?. */
+      row.getCell(4).value = { formula: '_xlfn.MINIFS(' + C + ',' + M + ',$B' + n + ')',
+                               result: daR6(ms[i].min) };
+      row.getCell(5).value = { formula: '_xlfn.MAXIFS(' + C + ',' + M + ',$B' + n + ')',
+                               result: daR6(ms[i].max) };
+      row.getCell(6).value = { formula: 'E' + n + '-D' + n,
+                               result: daR6(ms[i].max - ms[i].min) };
+      row.getCell(7).value = { formula: 'COUNTIFS(' + M + ',$B' + n + ')', result: ms[i].n };
+      if (i > 0)
+        row.getCell(8).value = { formula: 'C' + n + '/C' + (n - 1) + '-1',
+                                 result: daR6(ms[i].avg / ms[i - 1].avg - 1) };
+      if (i >= 12)
+        row.getCell(9).value = { formula: 'C' + n + '/C' + (n - 12) + '-1',
+                                 result: daR6(ms[i].avg / ms[i - 12].avg - 1) };
+      daDress(row, 2, 9, i % 2 === 1, 3);
+      row.getCell(2).numFmt = DA_NF_MON;
+      for (c = 3; c <= 6; c++) row.getCell(c).numFmt = DA_NF_PRICE;
+      row.getCell(7).numFmt = '0';
+      row.getCell(8).numFmt = DA_NF_PCT;
+      row.getCell(9).numFmt = DA_NF_PCT;
+    }
+
+    /* The full-period row: card fill, bold, ruled above and below in medium — the one
+       row on the tab that is a total rather than a month. */
+    tot = 5 + ms.length; tr = ws.getRow(tot);
+    for (i = 0; i < fuel.rows.length; i++) all.push(fuel.rows[i].p);
+    tr.getCell(2).value = 'Full period';
+    tr.getCell(3).value = { formula: 'AVERAGE(' + C + ')', result: daR6(daMean(all)) };
+    tr.getCell(4).value = { formula: 'MIN(' + C + ')',     result: daR6(daMin(all)) };
+    tr.getCell(5).value = { formula: 'MAX(' + C + ')',     result: daR6(daMax(all)) };
+    tr.getCell(6).value = { formula: 'E' + tot + '-D' + tot,
+                            result: daR6(daMax(all) - daMin(all)) };
+    tr.getCell(7).value = { formula: 'COUNT(' + C + ')', result: all.length };
+    for (c = 2; c <= 9; c++) {
+      tr.getCell(c).font = daFont({ bold: true });
+      tr.getCell(c).alignment = { horizontal: 'center' };
+      tr.getCell(c).fill = daFill(DA_CARD);
+      tr.getCell(c).border = DA_B_TOTAL;
+    }
+    for (c = 3; c <= 6; c++) tr.getCell(c).numFmt = DA_NF_PRICE;
+
+    ws.addConditionalFormatting({ ref: 'C5:C' + (tot - 1), rules: [{
+      type: 'colorScale', priority: 1,
+      cfvo: [{ type: 'min' }, { type: 'percentile', value: 50 }, { type: 'max' }],
+      color: [{ argb: 'FF63BE7B' }, { argb: 'FFFFEB84' }, { argb: 'FFF8696B' }] }] });
+
+    daNotes(ws, 'B' + (tot + 2), [
+      daShort(d0) + ' covers ' + daHuman(d0).replace(/ \d{4}$/, '') + ' onward only; '
+        + daShort(d1) + ' runs to ' + daHuman(d1)
+        + (daPartialEnd(d1) ? '. Partial months are not full-month averages.'
+                            : ', a complete month. The opening month is not a full-month average.'),
+      'Average is the simple arithmetic mean of daily day-ahead cash-out prices in the '
+        + 'month (all calendar days present in the portal).',
+      'Colour scale on Average: green = lowest, red = highest. Blue figures on Daily '
+        + 'Data are source readings.'
+    ]);
+
+    ws.getColumn(2).width = 13; ws.getColumn(3).width = 13;
+    for (c = 4; c <= 6; c++) ws.getColumn(c).width = 12;
+    ws.getColumn(7).width = 10; ws.getColumn(8).width = 11; ws.getColumn(9).width = 11;
+    ws.views = [{ showGridLines: false, state: 'frozen', xSplit: 2, ySplit: 4,
+                  topLeftCell: 'C5' }];
+    ws.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1,
+                     fitToHeight: 0, printTitlesRow: '4:4' };
+    daFooter(ws);
+    return ws;
+  }
+
+  function daAnnualSheet(wb, fuel, dailyName, lastDataRow, monthlyName) {
+    var ws = wb.addWorksheet(fuel.name + ' Annual Summary',
+          { properties: { tabColor: { argb: DA_TAB[fuel.name] } } }),
+        d0 = fuel.rows[0].d, d1 = fuel.rows[fuel.rows.length - 1].d,
+        U = '\n(' + fuel.unit + ')',
+        D = "'" + dailyName + "'!",
+        C = D + '$C$5:$C$' + lastDataRow,
+        B = D + '$B$5:$B$' + lastDataRow,
+        ys = fuel.years, i, n, row, w, c, open, cap, openMonths = [], src, L, end;
+
+    daBanner(ws, 7, fuel.name + ' Day-Ahead Cash-Out Price — Annual Summary',
+      fuel.unit + ' · calendar-year figures from Daily Data (' + d0.slice(0, 4)
+      + ' from ' + daHuman(d0).replace(/ \d{4}$/, '') + '; latest year to date)');
+    daHeadRow(ws, 4, ['Year', 'Average' + U, 'Min' + U, 'Max' + U, 'Days in\nData',
+                      'YoY\nChange']);
+
+    for (i = 0; i < ys.length; i++) {
+      n = 5 + i; row = ws.getRow(n);
+      w = ',' + B + ',">="&DATE(' + ys[i].y + ',1,1),' + B + ',"<="&DATE(' + ys[i].y + ',12,31))';
+      row.getCell(2).value = ys[i].y;
+      row.getCell(3).value = { formula: 'AVERAGEIFS(' + C + w,    result: daR6(ys[i].avg) };
+      row.getCell(4).value = { formula: '_xlfn.MINIFS(' + C + w,  result: daR6(ys[i].min) };
+      row.getCell(5).value = { formula: '_xlfn.MAXIFS(' + C + w,  result: daR6(ys[i].max) };
+      row.getCell(6).value = { formula: 'COUNTIFS(' + B + ',">="&DATE(' + ys[i].y + ',1,1),'
+                                        + B + ',"<="&DATE(' + ys[i].y + ',12,31))',
+                               result: ys[i].n };
+      if (i > 0)
+        row.getCell(7).value = { formula: 'C' + n + '/C' + (n - 1) + '-1',
+                                 result: daR6(ys[i].avg / ys[i - 1].avg - 1) };
+      daDress(row, 2, 7, i % 2 === 1, 3);
+      for (c = 3; c <= 5; c++) row.getCell(c).numFmt = DA_NF_PRICE;
+      row.getCell(7).numFmt = DA_NF_PCT;
+    }
+
+    /* The opening part-year, month by month. It is the one annual row that cannot be
+       read at face value, so his book spells its months out underneath, linked from
+       the Monthly tab in green rather than recomputed. Two clear rows, a ruled
+       caption, then its own heading. */
+    open = ys[0].y; cap = 4 + ys.length + 3;
+    for (c = 2; c <= 7; c++) ws.getRow(cap).getCell(c).border = DA_B_HEAD;
+    ws.getCell('B' + cap).value = open + ' Monthly Averages — ' + fuel.name;
+    ws.getCell('B' + cap).font = daFont({ bold: true, size: 12, color: { argb: DA_NAVY } });
+    ws.mergeCells('B' + cap + ':G' + cap);
+    ws.getRow(cap).height = 15.75;
+    daHeadRow(ws, cap + 1, ['Month', 'Average' + U, 'Min' + U, 'Max' + U, 'Days in\nData']);
+
+    for (i = 0; i < fuel.months.length; i++)
+      if (fuel.months[i].mk.slice(0, 4) === open) openMonths.push(i);
+    L = "'" + monthlyName + "'!";
+    for (i = 0; i < openMonths.length; i++) {
+      n = cap + 2 + i; src = 5 + openMonths[i]; row = ws.getRow(n);
+      row.getCell(2).value = { formula: L + 'B' + src,
+                               result: daDate(fuel.months[openMonths[i]].first) };
+      row.getCell(3).value = { formula: L + 'C' + src,
+                               result: daR6(fuel.months[openMonths[i]].avg) };
+      row.getCell(4).value = { formula: L + 'D' + src,
+                               result: daR6(fuel.months[openMonths[i]].min) };
+      row.getCell(5).value = { formula: L + 'E' + src,
+                               result: daR6(fuel.months[openMonths[i]].max) };
+      row.getCell(6).value = { formula: L + 'G' + src, result: fuel.months[openMonths[i]].n };
+      daDress(row, 2, 6, i % 2 === 1, 3, DA_GREEN);
+      row.getCell(2).numFmt = DA_NF_MON;
+      for (c = 3; c <= 5; c++) row.getCell(c).numFmt = DA_NF_PRICE;
+      row.getCell(6).numFmt = '0';
+    }
+
+    /* His closing line here is a single italic note, not a bulleted block. */
+    end = cap + 2 + openMonths.length + 1;
+    ws.getCell('B' + end).value = daShort(d0) + ' = from '
+      + daHuman(d0).replace(/ \d{4}$/, '') + ' only; no earlier ' + open
+      + ' data on the portal. Green = linked from the ' + monthlyName + ' tab.';
+    ws.getCell('B' + end).font = daFont({ size: 9, italic: true, color: { argb: DA_GREY } });
+
+    ws.getColumn(2).width = 10; ws.getColumn(3).width = 13;
+    for (c = 4; c <= 5; c++) ws.getColumn(c).width = 12;
+    ws.getColumn(6).width = 10; ws.getColumn(7).width = 11;
+    ws.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1,
+                     fitToHeight: 0 };
+    daFooter(ws);
+    return ws;
+  }
+
+  function daDashboardSheet(wb, fuel, monthlyName, lastMonthRow, totRow, images) {
+    var ws = wb.addWorksheet(fuel.name + ' Dashboard',
+          { properties: { tabColor: { argb: DA_TAB[fuel.name] } } }),
+        d0 = fuel.rows[0].d, d1 = fuel.rows[fuel.rows.length - 1].d,
+        L = "'" + monthlyName + "'!", ms = fuel.months, last = ms[ms.length - 1],
+        peak = ms[0], low = ms[0], tail = ms.slice(-12), R = lastMonthRow,
+        NFK = fuel.unit === 'p/therm' ? '#,##0.0\\p' : '\\£#,##0.0',
+        all = [], tailAvg = [], kpis, i, col, a, b, h, v;
+
+    for (i = 0; i < ms.length; i++) {
+      if (ms[i].avg > peak.avg) peak = ms[i];
+      if (ms[i].avg < low.avg)  low  = ms[i];
+    }
+    for (i = 0; i < fuel.rows.length; i++) all.push(fuel.rows[i].p);
+    for (i = 0; i < tail.length; i++) tailAvg.push(tail[i].avg);
+
+    daBanner(ws, 17, fuel.name + ' Day-Ahead Cash-Out Price — Dashboard',
+      'Monthly averages, ' + fuel.unit + ' · ' + daShort(d0) + ' – '
+      + daShort(d1) + ' · Prepared by CES');
+    /* Sixteen narrow columns of equal width, so the eight KPI cards each span a pair
+       and the charts measure out against a predictable grid. */
+    for (i = 2; i <= 17; i++) ws.getColumn(i).width = 10;
+
+    kpis = [
+      ['Latest month avg', { formula: L + 'C' + R, result: daR6(last.avg) }, NFK],
+      ['Latest month',     { formula: L + 'B' + R, result: daDate(last.first) }, DA_NF_MON],
+      ['Peak month avg',   { formula: 'MAX(' + L + 'C5:C' + R + ')', result: daR6(peak.avg) }, NFK],
+      ['Peak month',       { formula: 'INDEX(' + L + 'B5:B' + R + ',MATCH(MAX(' + L + 'C5:C'
+                                        + R + '),' + L + 'C5:C' + R + ',0))',
+                             result: daDate(peak.first) }, DA_NF_MON],
+      ['Lowest month avg', { formula: 'MIN(' + L + 'C5:C' + R + ')', result: daR6(low.avg) }, NFK],
+      ['Lowest month',     { formula: 'INDEX(' + L + 'B5:B' + R + ',MATCH(MIN(' + L + 'C5:C'
+                                        + R + '),' + L + 'C5:C' + R + ',0))',
+                             result: daDate(low.first) }, DA_NF_MON],
+      ['Full-period avg',  { formula: L + 'C' + totRow, result: daR6(daMean(all)) }, NFK],
+      ['Latest 12m avg',   { formula: 'AVERAGE(' + L + 'C' + (R - 11) + ':C' + R + ')',
+                             result: daR6(daMean(tailAvg)) }, NFK]
+    ];
+    for (i = 0; i < kpis.length; i++) {
+      col = 2 + i * 2; a = DA_COLS.charAt(col - 1); b = DA_COLS.charAt(col);
+      h = ws.getRow(4).getCell(col);
+      h.value = kpis[i][0];
+      h.font = daFont({ bold: true, size: 8, color: { argb: DA_GREY } });
+      h.fill = daFill(DA_CARD);
+      h.alignment = { horizontal: 'center' };
+      ws.mergeCells(a + '4:' + b + '4');
+
+      v = ws.getRow(5).getCell(col);
+      v.value = kpis[i][1]; v.numFmt = kpis[i][2];
+      v.font = daFont({ bold: true, size: 15, color: { argb: DA_NAVY } });
+      v.fill = daFill(DA_CARD);
+      v.alignment = { horizontal: 'center', vertical: 'middle' };
+      /* The thick underline is drawn per cell, not per merge, so BOTH halves of the
+         card need it or the rule stops halfway across. */
+      ws.getRow(5).getCell(col).border = DA_B_CARD;
+      ws.getRow(5).getCell(col + 1).border = DA_B_CARD;
+      ws.mergeCells(a + '5:' + b + '5');
+    }
+    ws.getRow(4).height = 18;
+    ws.getRow(5).height = 30;
+
+    /* THE CHARTS. Pictures, because ExcelJS cannot write a native Excel chart — there
+       is no addChart in the library at all. They are redrawn from the current figures
+       at every export, so a file always matches the tabs beside it; what they will not
+       do is redraw if somebody edits a cell afterwards. */
+    daAddImage(wb, ws, images.line, 7,  DA_CHART.line.w, DA_CHART.line.h);
+    daAddImage(wb, ws, images.bar, 29,  DA_CHART.bar.w,  DA_CHART.bar.h);
+
+    /* Notes sit to the RIGHT of the bar chart. His are in column J; these start two
+       columns further over, at L, and the reason is a difference between his charts
+       and these.
+
+       HIS bar chart is a native Excel chart on a twoCellAnchor: it is pinned to end at
+       column I plus a fixed offset, so it ends there whatever a column measures. THESE
+       are pictures on a oneCellAnchor — placed at B29 and given a width in PIXELS — so
+       where the right edge lands depends on what a width-10 column actually renders as,
+       and that is not the same everywhere. Excel puts it near 70px, LibreOffice near
+       75px. At 75 the 574px bar stops short of column J and every render check passes;
+       at 70 it runs about 14px into J and covers the left edge of the notes.
+
+       Column L clears the bar by a full column on either metric. Anchoring by cell
+       instead would track his file more exactly, but it would let the bitmap stretch if
+       a width ever changed, and a distorted chart is the worse failure. */
+    daNotes(ws, 'L29', [
+      'Monthly average = mean of daily DA cash-out prices in the month.',
+      daPartialEnd(d1) ? daShort(d0) + ' and ' + daShort(d1) + ' are partial months.'
+                       : daShort(d0) + ' is a partial month; ' + daShort(d1) + ' is complete.',
+      d0.slice(0, 4) + ' annual figure covers ' + daHuman(d0).replace(/ \d{4}$/, '')
+        + ' – 31 Dec only.',
+      'All figures recalculate from the ' + fuel.name + ' Daily Data tab.',
+      /* His workbook carried "source file does not state units; power shown as £/MWh"
+         — a caveat belonging to a spreadsheet exported from somewhere else. The portal
+         holds the unit against the reading, so it is stated rather than assumed. */
+      'Units are ' + fuel.unit + ', as held against every reading on the portal.',
+      'Source: CES Flex Portal, Day Ahead tab.'
+    ], 'dashboard');
+
+    /* Landscape as his is. fitToPage is print-only and changes nothing on screen; it
+       keeps the dashboard on one sheet of paper, which his geometry alone does not do
+       at 1206px wide. Out to S, not Q: on the narrower column metric the line chart
+       reaches past R, and a print area stopping at Q would clip its right edge on
+       paper while looking perfectly fine on screen. */
+    ws.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1,
+      fitToHeight: 1,
+      margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 },
+      printArea: 'B1:S44' };
+    daFooter(ws);
+    return ws;
+  }
+
+  /* ExcelJS takes an image as base64 WITHOUT the data: prefix. The browser hands us a
+     data URL and the test harness hands us the same shape, so the prefix is stripped
+     here in one place rather than at each call site. */
+  function daAddImage(wb, ws, dataUrl, tlRow, w, h) {
+    var b64 = String(dataUrl || ''), comma = b64.indexOf(',');
+    if (b64.slice(0, 5) === 'data:' && comma > -1) b64 = b64.slice(comma + 1);
+    if (!b64) return;
+    var id = wb.addImage({ base64: b64, extension: 'png' });
+    ws.addImage(id, { tl: { col: 1, row: tlRow - 1 }, ext: { width: w, height: h } });
+  }
+
+  /* The workbook. `o.XL` is the ExcelJS namespace — passed in rather than reached for,
+     because the client portal loads it lazily and the desk has it on the page.
+     `o.images` is { Gas: {line, bar}, Power: {line, bar} } of PNG data URLs. */
+  function daWorkbook(o) {
+    var wb = new o.XL.Workbook(),
+        all = [
+          { name: 'Gas',   unit: 'p/therm', rows: o.gas   || [] },
+          { name: 'Power', unit: '£/MWh', rows: o.power || [] }
+        ],
+        fuels = [], geo = {}, i, f, imgs = o.images || {};
+
+    /* A fuel with no readings gets no tabs at all. Every sheet below is built from
+       rows[0] and rows[length-1] — the banner dates, the notes, the part-year block —
+       so an empty series does not make an empty sheet, it throws. Four blank tabs
+       would not be much better: the point of the book is the figures. The caller is
+       handed both lists either way, so it can say a fuel was left out rather than
+       letting somebody discover a missing tab. */
+    for (i = 0; i < all.length; i++) if (all[i].rows.length) fuels.push(all[i]);
+
+    wb.creator = 'CES Flex Portal';
+    wb.created = new Date();
+
+    for (i = 0; i < fuels.length; i++) {
+      f = fuels[i];
+      f.months = daMonths(f.rows);
+      f.years  = daYears(f.rows);
+      /* The dashboards reference the monthly tabs by cell ADDRESS, and those addresses
+         are arithmetic: month rows start at 5, so the last is 4 + months.length and the
+         full-period row the one after. Working the geometry out up front means the
+         sheets can be created in their final display order — an earlier draft built
+         them in dependency order and re-sorted afterwards, which quietly dropped one. */
+      geo[f.name] = { lastData: 4 + f.rows.length,
+                      lastMonthRow: 4 + f.months.length,
+                      totRow: 5 + f.months.length };
+    }
+
+    for (i = 0; i < fuels.length; i++)
+      daDashboardSheet(wb, fuels[i], fuels[i].name + ' Monthly Averages',
+        geo[fuels[i].name].lastMonthRow, geo[fuels[i].name].totRow,
+        imgs[fuels[i].name] || {});
+    for (i = 0; i < fuels.length; i++)
+      daMonthlySheet(wb, fuels[i], fuels[i].name + ' Daily Data',
+        geo[fuels[i].name].lastData);
+    for (i = 0; i < fuels.length; i++)
+      daAnnualSheet(wb, fuels[i], fuels[i].name + ' Daily Data',
+        geo[fuels[i].name].lastData, fuels[i].name + ' Monthly Averages');
+    for (i = 0; i < fuels.length; i++)
+      daDailySheet(wb, fuels[i]);
+
+    return { wb: wb, fuels: fuels, geo: geo,
+             included: fuels.map(function (x) { return x.name; }),
+             skipped: all.filter(function (x) { return !x.rows.length; })
+                         .map(function (x) { return x.name; }) };
+  }
+
+  /* ── THE CHARTS ───────────────────────────────────────────────────────────────
+     Four pictures, drawn with the Chart.js already on both pages. Each is rendered
+     into a detached canvas sized to the box the sheet will place it in, at `scale`
+     times that in the backing store so it stays sharp.
+
+     The size matters more than it looks. A first draft left the canvas at Chart.js's
+     default 300x150 and stretched a 2:1 bitmap into a 3.5:1 box; the charts came out
+     visibly flattened and nothing in the workbook said why. daChartPng therefore sets
+     the canvas explicitly and the caller can check what it got. */
+  function daChartCfg(kind, fuel, colour) {
+    var labels = [], data = [], i, title;
+    if (kind === 'line') {
+      for (i = 0; i < fuel.months.length; i++) {
+        labels.push(DA_MONN[+fuel.months[i].mk.slice(5, 7) - 1] + '-'
+                    + fuel.months[i].mk.slice(2, 4));
+        data.push(Math.round(fuel.months[i].avg * 100) / 100);
+      }
+      title = fuel.name + ' Day-Ahead Cash-Out Price — Monthly Average ('
+              + fuel.unit + ')';
+      return { type: 'line',
+        plugins: [daFramePlugin()],
+        data: { labels: labels, datasets: [{ label: title, data: data,
+          borderColor: colour, backgroundColor: colour, borderWidth: 1.6,
+          pointRadius: 2, pointStyle: 'circle', pointBackgroundColor: colour,
+          tension: 0, fill: false }] },
+        options: { responsive: false, animation: false, maintainAspectRatio: false,
+          devicePixelRatio: DA_CHART.scale,
+          layout: { padding: { top: 6, right: 14, bottom: 4, left: 6 } },
+          plugins: { title: { display: true, text: title,
+                       font: { size: 15, weight: 'bold' }, color: '#1f3864',
+                       padding: { top: 4, bottom: 10 } },
+                     legend: { display: false } },
+          scales: {
+            /* Every second month at 45 degrees — his labels run Feb-22, Apr-22, Jun-22
+               and all of them are legible, which a plain autoSkip does not guarantee
+               at this width. */
+            x: { ticks: { font: { size: 9 }, color: '#595959', maxRotation: 45,
+                          minRotation: 45, autoSkip: false,
+                          callback: function (v, idx) {
+                            return idx % 2 === 0 ? this.getLabelForValue(v) : '';
+                          } },
+                 grid: { color: 'rgba(31,56,100,0.07)' } },
+            y: { title: { display: true, text: fuel.unit, font: { size: 10 },
+                          color: '#595959' },
+                 ticks: { font: { size: 9 }, color: '#595959' },
+                 grid: { color: 'rgba(31,56,100,0.14)' } } } } };
+    }
+    for (i = 0; i < fuel.years.length; i++) {
+      labels.push(fuel.years[i].y);
+      data.push(Math.round(fuel.years[i].avg * 100) / 100);
+    }
+    title = 'Annual Average (' + fuel.unit + ')';
+    return { type: 'bar',
+      plugins: [daFramePlugin(), daBarLabelPlugin(2)],
+      data: { labels: labels, datasets: [{ label: title, data: data,
+        backgroundColor: colour, borderWidth: 0 }] },
+      options: { responsive: false, animation: false, maintainAspectRatio: false,
+        devicePixelRatio: DA_CHART.scale,
+        layout: { padding: { top: 6, right: 12, bottom: 4, left: 6 } },
+        plugins: { title: { display: true, text: title,
+                     font: { size: 15, weight: 'bold' }, color: '#1f3864',
+                     padding: { top: 4, bottom: 10 } },
+                   legend: { display: false } },
+        scales: { x: { ticks: { font: { size: 10 }, color: '#595959' },
+                       grid: { display: false } },
+                  y: { beginAtZero: true, grace: '12%',
+                       ticks: { font: { size: 9 }, color: '#595959' },
+                       grid: { color: 'rgba(31,56,100,0.14)' } } } } };
+  }
+
+  /* White behind the plot and the thin grey frame Excel draws round a chart. Without
+     the fill the PNG is transparent and the picture reads as a smear on a coloured
+     row. */
+  function daFramePlugin() {
+    return { id: 'daFrame', beforeDraw: function (ch) {
+      var x = ch.ctx;
+      x.save();
+      x.fillStyle = '#fff'; x.fillRect(0, 0, ch.width, ch.height);
+      x.strokeStyle = '#d9d9d9'; x.lineWidth = 1;
+      x.strokeRect(0.5, 0.5, ch.width - 1, ch.height - 1);
+      x.restore();
+    } };
+  }
+  /* Chart.js 4 has no data labels of its own, so the bar values are drawn here. */
+  function daBarLabelPlugin(dp) {
+    return { id: 'daBarLabels', afterDatasetsDraw: function (ch) {
+      var x = ch.ctx, meta = ch.getDatasetMeta(0), i, v;
+      x.save();
+      x.fillStyle = '#404040'; x.textAlign = 'center'; x.textBaseline = 'bottom';
+      x.font = '10px Arial, Helvetica, sans-serif';
+      for (i = 0; i < meta.data.length; i++) {
+        v = Number(ch.data.datasets[0].data[i]);
+        x.fillText(v.toFixed(dp), meta.data[i].x, meta.data[i].y - 3);
+      }
+      x.restore();
+    } };
+  }
+
+  /* Render one chart to a PNG data URL. ChartLib is passed in for the same reason XL
+     is: so the caller owns how the library got there, and so a test can hand in a
+     double. Returns null rather than throwing if there is nothing to draw — a fuel
+     with no readings should cost the export a picture, not the whole workbook. */
+  function daChartPng(ChartLib, cfg, w, h) {
+    if (!ChartLib || typeof document === 'undefined') return null;
+    var cv = document.createElement('canvas'), ch, url;
+    /* Attribute size is the CSS box; Chart.js multiplies it by devicePixelRatio for
+       the backing store, which is what toDataURL reads. Fonts are specified against
+       the CSS box, so they scale with it and the picture is sharp rather than tiny. */
+    cv.width = w; cv.height = h;
+    cv.style.width = w + 'px'; cv.style.height = h + 'px';
+    try {
+      ch = new ChartLib(cv.getContext('2d'), cfg);
+      /* Draw explicitly before reading the bitmap. With animation off Chart.js paints
+         in the constructor, but "paints in the constructor" is an implementation
+         detail and toDataURL on an unpainted canvas returns a blank picture with no
+         error — the kind of failure that ships. One cheap call removes the question. */
+      try { ch.draw(); } catch (e) {}
+      url = cv.toDataURL('image/png');
+    } finally {
+      if (ch) { try { ch.destroy(); } catch (e) {} }
+    }
+    return url;
+  }
+
+  /* All four, keyed the way daWorkbook wants them. */
+  function daCharts(ChartLib, gasRows, powerRows) {
+    var out = {}, defs = [
+          { name: 'Gas',   unit: 'p/therm',   rows: gasRows   || [], colour: '#2f5597' },
+          { name: 'Power', unit: '£/MWh', rows: powerRows || [], colour: '#c55a11' }
+        ], i, f;
+    for (i = 0; i < defs.length; i++) {
+      f = defs[i];
+      f.months = daMonths(f.rows);
+      f.years  = daYears(f.rows);
+      out[f.name] = f.rows.length ? {
+        line: daChartPng(ChartLib, daChartCfg('line', f, f.colour),
+                         DA_CHART.line.w, DA_CHART.line.h),
+        bar:  daChartPng(ChartLib, daChartCfg('bar', f, f.colour),
+                         DA_CHART.bar.w, DA_CHART.bar.h)
+      } : {};
+    }
+    return out;
+  }
+
+  /* The sentence under the Day Ahead tab. It exists because the tab shows daily prices
+     for one year and the workbook now carries a great deal more than that, and nobody
+     opens an export to find out what is in it. */
+  var DA_EXPORT_CAPTION = 'The Excel export carries more than this tab shows — '
+    + 'monthly and annual statistics for both fuels, with the highs, lows and ranges '
+    + 'behind each average.';
+
   /* ── EXPORT ───────────────────────────────────────────────────────────────────── */
   root.FlexCore = {
     // units & precision
@@ -1181,9 +1926,14 @@
     normTrade: normTrade, fmtDate: fmtDate,
     TABS: TABS, clientTabs: clientTabs, TARGETS_TABLE_CLASS: TARGETS_TABLE_CLASS,
     pctCell: pctCell, buildTable: buildTable,
+    // day-ahead workbook (round 48) — both portals export the SAME file from here
+    daWorkbook: daWorkbook, daCharts: daCharts, daChartCfg: daChartCfg,
+    daChartPng: daChartPng, daMonths: daMonths, daYears: daYears,
+    daPartialEnd: daPartialEnd, DA_CHART: DA_CHART,
+    DA_EXPORT_CAPTION: DA_EXPORT_CAPTION,
     // BUMP THIS on every change to this file. It is how anyone tells which build a
     // browser actually has — the desk shows it, and it is the first thing to check when
     // the two portals disagree or a change appears not to have landed.
-    VERSION: '2026-10-29'
+    VERSION: '2026-11-04'
   };
 })(typeof window !== 'undefined' ? window : globalThis);

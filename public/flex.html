@@ -3874,6 +3874,11 @@ function fxRenderDayAhead(){
     +   '<span style="font-size:11px;color:#6b7280">Click a month to open it'
     +     (EDIT ? ' · click a price to edit' : '') + '</span>'
     + '</div>'
+    // Round 48. The tab shows daily prices for one year; the workbook carries monthly
+    // and annual statistics for both fuels, and nobody opens an export to find out
+    // what is in it. One sentence, from flex-shared.js so both portals say the same.
+    + '<div class="fx-da-xl-note" style="margin:-4px 0 12px;font-size:11.5px;color:#6b7280">'
+    +   FlexCore.esc(FlexCore.DA_EXPORT_CAPTION) + '</div>'
     + '<div class="fx-da-chart"><canvas id="fxDaChart"></canvas></div>'
     + '<div id="fxDaBody"></div></div>';
 
@@ -4271,56 +4276,44 @@ async function fxDaImportCommit(){
    above. The monthly averages get a sheet of their own rather than being scattered down
    the margin as they were in the original. */
 async function fxDaExport(){
-  if (typeof ExcelJS === 'undefined') return fxToast('Excel engine not loaded — reload the page', false);
-  const wb = new ExcelJS.Workbook();
-  const NAVY = 'FF1F2D4D';
-  const head = (ws, cols) => {
-    ws.getRow(1).values = cols.map(c => c[0]);
-    ws.columns = cols.map(c => ({ width: c[1] }));
-    const r = ws.getRow(1);
-    r.font = { bold: true, color: { argb: 'FFFFFFFF' }, name: 'Arial', size: 10 };
-    r.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
-    r.height = 20;
-  };
-  for (const c of ['gas', 'power']){
-    const ws = wb.addWorksheet(FX_DA_NAME[c]);
-    head(ws, [['Date', 14], ['Day Ahead Cash Out Price (' + FX_DA_UNIT[c] + ')', 34]]);
-    for (const r of ((DATA.da && DATA.da[c]) || [])){
-      // Midday UTC, never local midnight: ExcelJS converts to UTC on write, so a local
-      // midnight under BST lands at 23:00 the day before and every date reads one out.
-      const row = ws.addRow([new Date(r.d + 'T12:00:00Z'), r.p]);
-      row.getCell(1).numFmt = 'dd/mm/yyyy';
-      // The point in an Excel mask is a literal: '0.####' prints "190." on a whole
-      // number. Per cell, so only genuine decimals carry one.
-      row.getCell(2).numFmt = Number.isInteger(r.p) ? '0' : '0.####';
-    }
-    ws.views = [{ state: 'frozen', ySplit: 1 }];
-  }
-  const ws = wb.addWorksheet('Monthly averages');
-  head(ws, [['Month', 12], ['Gas (p/th)', 14], ['Gas days', 11],
-            ['Power (£/MWh)', 16], ['Power days', 12]]);
-  const merged = fxDaMerged();
-  const mks = [...new Set(Object.keys(merged).map(d => d.slice(0, 7)))].sort();
-  for (const mk of mks){
-    const days = Object.keys(merged).filter(d => d.slice(0, 7) === mk);
-    const g = days.map(d => merged[d].gas).filter(v => v != null);
-    const p = days.map(d => merged[d].power).filter(v => v != null);
-    const row = ws.addRow([fxDaFmtMonth(mk), g.length ? fxDaMean(g) : null, g.length,
-                                             p.length ? fxDaMean(p) : null, p.length]);
-    const avgFmt = v => (v == null || Number.isInteger(v)) ? '0' : '0.0000';
-    row.getCell(2).numFmt = avgFmt(g.length ? fxDaMean(g) : null);
-    row.getCell(4).numFmt = avgFmt(p.length ? fxDaMean(p) : null);
-  }
-  ws.views = [{ state: 'frozen', ySplit: 1 }];
+  /* Round 48: the eight-tab workbook, built by FlexCore.daWorkbook so the desk and the
+     client portal download the SAME file. Everything about the sheets — geometry,
+     formulas, formatting, the embedded charts — lives in flex-shared.js; what stays
+     here is page-level: finding the data, naming the file, and saving it.
 
-  const buf = await wb.xlsx.writeBuffer();
-  const url = URL.createObjectURL(new Blob([buf],
-    { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-  const a = document.createElement('a');
-  a.href = url; a.download = 'Day Ahead Cash Out Prices - ' + TODAY + '.xlsx';
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
-  fxToast('Workbook downloaded');
+     The workbook is a SNAPSHOT of what the portal holds right now. DATA.da is loaded
+     through _fetchAll, which pages past PostgREST's 1,000-row cap, so this is every
+     reading and not the first thousand. Press Export again after adding prices and the
+     new file carries them; a file already downloaded does not change. */
+  if (typeof ExcelJS === 'undefined') return fxToast('Excel engine not loaded — reload the page', false);
+  const gas   = (DATA.da && DATA.da.gas)   || [];
+  const power = (DATA.da && DATA.da.power) || [];
+  if (!gas.length && !power.length) return fxToast('There are no day-ahead prices to export', false);
+  try {
+    /* The charts are redrawn here, from the same arrays the sheets are built from, so
+       a workbook always agrees with itself. Chart.js is inlined in this page, but the
+       call is guarded anyway: a missing library should cost the export its pictures,
+       not the whole file. */
+    const images = FlexCore.daCharts(typeof Chart !== 'undefined' ? Chart : null, gas, power);
+    const built  = FlexCore.daWorkbook({ XL: ExcelJS, gas: gas, power: power, images: images });
+    const buf = await built.wb.xlsx.writeBuffer();
+    const url = URL.createObjectURL(new Blob([buf],
+      { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = 'Day Ahead Cash Out Prices - ' + TODAY + '.xlsx';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    /* Say so when a fuel had no readings. Its tabs are left out rather than written
+       blank, and a missing tab the person has to notice for themselves is worse than
+       a sentence telling them. */
+    fxToast(built.skipped.length
+      ? 'Workbook downloaded — ' + built.skipped.join(' and ') + ' had no readings and '
+        + (built.skipped.length > 1 ? 'were' : 'was') + ' left out'
+      : 'Workbook downloaded');
+  } catch (e) {
+    console.error('day-ahead export', e);
+    fxToast('The workbook could not be prepared — please try again', false);
+  }
 }
 
 // ── CHARTS ────────────────────────────────────────────────────────
