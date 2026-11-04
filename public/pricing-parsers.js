@@ -1488,6 +1488,164 @@
     }
   }
 
+  // ── Adapter 8b: Corona power, the MHHS layout (from 19 Oct 2026) ─────────────────────
+  //
+  // Same 24 column names plus one, but Profile and Rate Structure are EMPTY on every row,
+  // "Daily Charge pence/day" is renamed, an availability charge arrives in £/kVA/month, and
+  // everything that identifies a tariff moved into its NAME and CODE:
+  //
+  //   "12 - Months - Smart Fixed - Green - Non-Domestic Aggregated or CT Band 3 - Two Rate"
+  //   "End of Curve - Advanced Standard - LV Site Specific Band 2 - Evening Weekend"
+  //   code "16_WC_3_DN__F_G_S_1A_1.0"   distributor _ segment _ band _ structure _ ...
+  //
+  // Measured on CE_PPB_Broker_Flat File_MHHS_20261102.xlsb (106,920 rows):
+  //  * Smart and Advanced meters share every unit rate and differ ONLY in the standing charge
+  //    (Advanced 27 to 28 p/day dearer, all 53,460 pairs). They load as different products,
+  //    "Smart Fixed" and "Advanced Fixed", and are never folded together: folded, the smaller
+  //    standing charge would win every quote, which is the TotalEnergies-SSC mistake again.
+  //  * Loaded: whole-current non-domestic (WC: Band 1-4, and No Residual) and domestic
+  //    aggregated with residual (DA, Band D), the desk's single-meter sites.
+  //  * Refused by name: LV, LV-sub and HV "Site Specific" (37,180 rows, every one with an
+  //    availability charge) are half-hourly CT sites priced by tender, and with no profile
+  //    class left in the file nothing would keep them off a small meter; "related MPAN" (the
+  //    aggregated related-meter tariff, Band R here); End of Curve (term "E": runs to a fixed
+  //    end date the file does not give).
+  //  * Band N now means NO RESIDUAL (it meant related MPAN in the old layout), so the band
+  //    letter is read through the tariff name, never on its own.
+  //  * Profile class went with MHHS, so profile_class stays null (fits any meter).
+  //  * The band column and the band in the name agree on every row; the band in the code and
+  //    the distributor in the code are cross-checked too, and a row where they disagree is
+  //    refused rather than trusted.
+
+  const CORONA_MHHS_STRUCT = {
+    'unrestricted': 'single', 'two rate': 'day_night', 'evening weekend': 'eve_weekend',
+    'three rate evening weekend': 'day_night_ew', 'off peak': 'off_peak',
+  };
+  const CORONA_MHHS_NAME = /^(?:\d+\s*-\s*months\s*-\s*)?(smart|advanced)\s+(fixed|standard)\s*-\s*(green\s*-\s*)?(.+?)\s*-\s*([a-z ]+)$/i;
+
+  /** Is this header the MHHS power layout? (Profile / Rate Structure columns may still exist, empty.) */
+  function isCoronaMhhs(A) {
+    return A.has('tariffname') && A.has('tariffcode') && A.has('dailychargepenceday');
+  }
+
+  function parseCoronaPowerMhhs(rows, supplierKey, onRow, onRefuse, meta) {
+    const header = rows[0];
+    const A = accessor(header);
+    for (const need of ['tariffname', 'tariffcode', 'tarifflengthmonths', 'supplyzone', 'band',
+                        'rate1pkwh', 'dailychargepenceday', 'firstsupplystartdate']) {
+      if (!A.has(need)) throw new Error(`not the Corona MHHS power layout, missing ${need}`);
+    }
+    const ssd = [], lsd = [];
+    for (let n = 1; n < rows.length; n++) {
+      if (!rows[n] || !rows[n].length) continue;
+      const a = toDate(A.get(rows[n], 'firstsupplystartdate'));
+      const b = toDate(A.get(rows[n], 'lastsupplystartdate'));
+      if (a) ssd.push(a); if (b) lsd.push(b);
+    }
+    meta.window_open = ssd.length ? ssd.sort()[0] : null;
+    meta.window_close = lsd.length ? lsd.sort()[lsd.length - 1] : null;
+
+    for (let n = 1; n < rows.length; n++) {
+      const row = rows[n];
+      if (!row || !row.some((c) => c !== null && c !== undefined && c !== '')) continue;
+      const g = (...names) => A.get(row, ...names);
+      try {
+        const name = String(g('tariffname') || '').trim();
+        const code = String(g('tariffcode') || '').trim();
+        const tok = code.split('_');
+        const seg = String(tok[1] || '').toUpperCase();
+
+        if (/related\s*mpan/i.test(name)) {
+          throw new Refuse('related-MPAN tariff (the aggregated related-meter case), not a TCR band');
+        }
+        if (/site\s*specific/i.test(name) || ['LV', 'LS', 'HV'].includes(seg)) {
+          throw new Refuse('site-specific (half-hourly CT) tariff: priced by tender, not on the desk');
+        }
+        const termRaw = String(g('tarifflengthmonths') == null ? '' : g('tarifflengthmonths')).trim();
+        if (/^e$/i.test(termRaw) || /^end of curve/i.test(name)) {
+          throw new Refuse('End of Curve contract: it runs to a fixed end date, not a term');
+        }
+        const term = toNum(termRaw);
+        if (term == null) throw new Refuse('no tariff length');
+
+        const m = name.match(CORONA_MHHS_NAME);
+        if (!m) throw new Refuse(`unrecognised Corona tariff name "${name}"`);
+        const meterType = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
+        const productType = m[2].charAt(0).toUpperCase() + m[2].slice(1).toLowerCase();
+        const segment = m[4];
+        const declared = CORONA_MHHS_STRUCT[m[5].trim().toLowerCase()];
+        if (!declared) throw new Refuse(`unmapped Corona rate structure "${m[5].trim()}"`);
+
+        const r = blankRow(supplierKey, 'electricity');
+        r.sale_type = 'any';
+        r.term_months = Math.round(term);
+
+        // The letters changed meaning with this layout: here N is NO RESIDUAL ("Non-Domestic
+        // Aggregated or CT No Residual", 3,300 rows, all Band N) and R is the related-MPAN case
+        // (refused above by name). The old layout used N for related MPAN. The NAME decides.
+        const bandTxt = String(g('band') || '').trim();
+        if (/no\s*residual/i.test(segment)) r.tcr_band = 'no_residual';
+        else if (/^band\s*d$/i.test(bandTxt)) r.tcr_band = 'domestic';
+        else if (/^band\s*[nr]$/i.test(bandTxt)) throw new Refuse(`band "${bandTxt}" on a tariff that is neither no-residual nor related-MPAN: "${segment}"`);
+        else r.tcr_band = tcrBand(bandTxt);
+        if (!r.tcr_band) throw new Refuse('no TCR band on the row');
+        const nb = segment.match(/band\s*(\d)/i);
+        if (nb && r.tcr_band !== 'band_' + nb[1]) {
+          throw new Refuse(`band column "${bandTxt}" disagrees with the tariff name "${segment}"`);
+        }
+        if (/domestic aggregated/i.test(segment) && !/non-?\s*domestic/i.test(segment) && r.tcr_band !== 'domestic') {
+          throw new Refuse(`domestic aggregated tariff with band "${bandTxt}"`);
+        }
+
+        r.dno_id = gspToDno(g('supplyzone'));
+        if (/^\d{2}$/.test(tok[0] || '') && tok[0] !== r.dno_id) {
+          throw new Refuse(`distributor disagrees: supply zone says ${r.dno_id}, tariff code says ${tok[0]}`);
+        }
+        r.gsp_group = String(g('supplyzone') || '').trim().replace(/^_/, '') || null;
+        r.profile_class = null;
+
+        r.aq_min = toNum(g('minimumconsumptionkwh'));
+        r.aq_max = toNum(g('maximumconsumptionkwh'));
+        r.start_date_min = toDate(g('firstsupplystartdate'));
+        r.start_date_max = toDate(g('lastsupplystartdate'));
+        if (!r.start_date_min) throw new Refuse('no first supply start date');
+        r.quote_valid_from = toDate(g('onsalefrom'));
+        r.quote_valid_to = toDate(g('onsaleto'));
+
+        const r1 = rate(g('rate1pkwh')), r2 = rate(g('rate2pkwh')), r3 = rate(g('rate3pkwh'));
+        if (r1 == null) throw new Refuse('no unit rate on the row');
+        if (declared === 'single') { r.unit_rate_p_kwh = r1; r.rate_structure = 'single'; }
+        else if (declared === 'off_peak') { r.unit_rate_p_kwh = r1; r.rate_structure = 'off_peak'; }
+        else if (declared === 'eve_weekend') {
+          r.unit_rate_p_kwh = r1; r.eve_weekend_p_kwh = r2;
+          r.rate_structure = r2 == null ? 'single' : 'eve_weekend';
+        } else if (declared === 'day_night') {
+          if (r2 == null) { r.unit_rate_p_kwh = r1; r.rate_structure = 'single'; }
+          else { r.day_rate_p_kwh = r1; r.night_rate_p_kwh = r2; r.rate_structure = 'day_night'; }
+        } else {
+          r.day_rate_p_kwh = r1; r.night_rate_p_kwh = r2; r.eve_weekend_p_kwh = r3;
+          r.rate_structure = r3 == null ? (r2 == null ? 'single' : 'day_night') : 'day_night_ew';
+          if (r2 == null) { r.unit_rate_p_kwh = r1; r.day_rate_p_kwh = null; }
+        }
+
+        r.standing_charge_p_day = sc(g('dailychargepenceday'));
+        r.sc_type = (r.standing_charge_p_day === 0) ? 'no_sc' : 'with_sc';
+        // £/kVA/month to p/kVA/month (x100). Only site-specific rows carry one, and those are
+        // refused above, so on a loaded row this is 0 and stays empty.
+        const cap = toNum(g('availibilitystandingchargekvamonth', 'availabilitystandingchargekvamonth'));
+        if (cap) r.capacity_p_kva_month = bounded(Math.round(cap * 100 * 1e6) / 1e6, 1, 20000, 'capacity p/kVA/month');
+        r.green = toBool(g('greentariff'));
+        if (r.green == null) r.green = !!m[3];
+        r.product_name = `${meterType} ${productType}`;        // "Smart Fixed", "Advanced Standard"
+        r.product_code = code || null;
+        r.payment_method = String(g('payment') || '').trim() || null;
+        onRow(r);
+      } catch (e) {
+        if (e instanceof Refuse) onRefuse(n + 1, e.message); else throw e;
+      }
+    }
+  }
+
   // ── Adapter 9: Ecotricity ────────────────────────────────────────────────────────────
   //
   // Small, clean, and the only supplier here with NO TERM COLUMN. The term is the gap
@@ -2264,7 +2422,10 @@
           break;
         }
         case 'corona_gas':   parseCoronaGas(sheet.rows, supplierKey, onRow, onRefuse, meta); break;
-        case 'corona_power': parseCoronaPower(sheet.rows, supplierKey, onRow, onRefuse, meta); break;
+        case 'corona_power':
+          if (isCoronaMhhs(accessor(sheet.rows[0] || []))) parseCoronaPowerMhhs(sheet.rows, supplierKey, onRow, onRefuse, meta);
+          else parseCoronaPower(sheet.rows, supplierKey, onRow, onRefuse, meta);
+          break;
         case 'ecotricity':   parseEcotricity(sheet.rows, supplierKey, sheet.fuel || fuel, onRow, onRefuse, meta); break;
         // Corona ships two completely different layouts, 109 columns for gas and 24 for
         // power, so the header decides which. One supplier, one parser key, two shapes.
@@ -2272,6 +2433,8 @@
           const A = accessor(sheet.rows[0] || []);
           if (A.has('dnoexitzone') || A.has('rate1aperkwh')) {
             parseCoronaGas(sheet.rows, supplierKey, onRow, onRefuse, meta);
+          } else if (isCoronaMhhs(A)) {
+            parseCoronaPowerMhhs(sheet.rows, supplierKey, onRow, onRefuse, meta);
           } else if (A.has('supplyzone') || A.has('ratestructure')) {
             parseCoronaPower(sheet.rows, supplierKey, onRow, onRefuse, meta);
           } else {
@@ -2311,7 +2474,7 @@
      * re-upload wrote 8,916 rows with no selling days and the wrong rate kept winning.
      * Caching headers are the first line of defence and this is the second.
      */
-    VERSION: '2026-11-03.1',
+    VERSION: '2026-11-04.1',
     parse, normHeader, readZip, headerRowIndex, csvRows, CANON_FIELDS, P_KVA_DAY_TO_MONTH,
     // exported for the test suite
     _internals: { saleType, rateStructure, tcrBand, toNum, toDate, toBool, dnoId, rate, sc,

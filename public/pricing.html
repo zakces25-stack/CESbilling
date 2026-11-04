@@ -13,7 +13,7 @@
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <!-- Bump on every push: a plain fetch of the live page can then tell this build from the last. -->
-  <meta name="build" content="pricing 2026-11-03a" />
+  <meta name="build" content="pricing 2026-11-04a" />
   <title>CES Pricing Portal</title>
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
@@ -160,6 +160,20 @@
       .si-panel{padding:22px 16px 32px;place-items:start center}
     }
     #loginErr{margin-top:12px;font-size:12px;color:var(--fail);line-height:1.5}
+    /* Pricebooks tab (4 Nov 2026): live books only, one button for the mailbox. */
+    .bk-head{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+    .bk-head .sub{margin-bottom:10px}
+    .bk-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .bk-sup{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}
+    .bk-chip{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line-2);border-radius:999px;
+      padding:4px 10px;font-size:11.5px;font-weight:600;background:var(--panel-2);color:var(--text)}
+    .bk-chip i{width:8px;height:8px;border-radius:50%;display:inline-block}
+    .bk-chip .ok{background:var(--ok)} .bk-chip .warn{background:#a8740b} .bk-chip .bad{background:var(--fail)}
+    .bk-why summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--text-2)}
+    .bk-why p{font-size:12px;color:var(--muted);line-height:1.6;margin-top:8px;max-width:90ch}
+    .bk-age{font-size:10.5px;color:var(--muted)}
+    .bk-log td{font-size:12px}
+    .bk-log .why{font-size:11px;color:var(--muted);max-width:420px;overflow-wrap:anywhere}
     .chips{display:flex;flex-wrap:wrap;gap:8px}
     .chip{background:var(--panel-2);border:1px solid var(--line-2);color:var(--text);font:inherit;
       font-size:12.5px;font-weight:600;padding:7px 13px;border-radius:999px;cursor:pointer}
@@ -283,30 +297,62 @@
 
     <!-- ══════════════════════════════════════════════════════════════════ PRICEBOOKS -->
     <section id="pane-books" class="hide">
-      <!-- Pricebooks the pricebook-mail function collected from pricingteam@cesgb.com. Loading
-           one goes through exactly the same checks as dropping the file in below. -->
+      <!-- What is live, one button to bring every supplier up to date from the mailbox, the
+           mailbox list for anything that needs a person, and a drop zone for books that never
+           come by email. Replaced and deleted books are not listed: they are deleted. -->
+      <div class="card">
+        <div class="bk-head">
+          <div>
+            <h2>Live pricebooks</h2>
+            <div class="sub">What the desk quotes from, one book per supplier product. Loading a newer
+              book puts it live and deletes the one it replaces. A book past its own end date is not
+              quoted.</div>
+          </div>
+          <div class="bk-actions">
+            <button class="act" id="emailLoadBtn" onclick="loadLatestFromEmail()">Load the latest from email</button>
+          </div>
+        </div>
+        <div id="busyNote" class="note warn hide" style="margin-bottom:12px"></div>
+        <div id="emailLoadPanel" class="hide"></div>
+        <div id="bkSuppliers" class="bk-sup"></div>
+        <div class="scroll"><table>
+          <thead><tr>
+            <th>Supplier</th><th>Product</th><th>File</th><th>Book of</th><th>Quoted until</th>
+            <th class="num">Rates</th><th></th>
+          </tr></thead>
+          <tbody id="ledgerBody"><tr><td colspan="7" style="color:var(--muted)">Loading…</td></tr></tbody>
+        </table></div>
+        <div id="ledgerErr" class="hide"></div>
+      </div>
+
       <div class="card" id="inboxCard">
-        <h2>New pricebooks from the mailbox</h2>
+        <h2>Mailbox</h2>
         <div class="sub">
-          Collected from pricingteam@cesgb.com every half hour on weekdays. <b>Load</b> runs the
-          same checks as dropping the file in below: the layout must be one we know, the file is
-          matched to its product, and the book replaces only the previous one for that product.
-          Anything that needs a person stays in the list below with the reason.
+          What the collector took from pricingteam@cesgb.com: every folder, every 15 minutes on
+          weekdays. <b>Load the latest from email</b> above does this whole list in one go; it is here
+          for anything that needs a person. Suppliers who send a link instead of a file (SSE, and UGP
+          once its 30-minute link has expired) are listed to open. Files are kept for 14 days.
         </div>
         <div id="inboxStatus"></div>
         <div id="inboxList" style="margin-top:10px"><div class="note">Loading&hellip;</div></div>
       </div>
 
       <div class="card">
-        <h2>Upload a pricebook</h2>
+        <h2>Add a pricebook by hand</h2>
         <div class="sub">
-          The header row is read here, in the browser, and hashed before the file goes
-          anywhere. If that hash is not already registered for this supplier the upload is
-          refused and the header is shown for someone to look at. Suppliers change their
-          layouts without telling anyone, and a parser that half-works does not fail, it
-          produces a plausible wrong price.
+          For a book that never arrives by email: British Gas (their portal), SSE and UGP when their
+          link has gone. Pick the supplier, drop the files. The same checks run as for the mailbox.
         </div>
-        <div class="row">
+        <details class="bk-why">
+          <summary>How a book is checked before it goes live</summary>
+          <p>The header row is read here, in the browser, and hashed before the file goes anywhere. If
+            that hash is not registered for the supplier the book is refused and the header is shown for
+            someone to look at: suppliers change their layouts without telling anyone, and a parser that
+            half-works does not fail, it produces a plausible wrong price. Each file is matched to its
+            product by its name, a book whose own end date has passed is not loaded, and a book older
+            than the one already live is never put over it.</p>
+        </details>
+        <div class="row" style="margin-top:12px">
           <div>
             <label for="upSupplier">Supplier</label>
             <select id="upSupplier" onchange="rescanQueue()"><option value="">Loading…</option></select>
@@ -338,25 +384,6 @@
           <input id="upFile" type="file" accept=".xlsx,.xlsm,.xlsb,.csv,.zip,.7z" multiple class="hide" />
         </div>
         <div id="upInspect" class="hide" style="margin-top:16px"></div>
-      </div>
-
-      <div class="card">
-        <h2>Upload ledger</h2>
-        <div class="sub">
-          Append only. A reload never overwrites the rates that are live, it replaces them,
-          so a price quoted last week can still be explained. Only rows on a <b>live</b>
-          upload are used for pricing. Deleted books are hidden here and listed in
-          <b>Admin</b>, where they can still be looked up.
-        </div>
-        <div class="scroll"><table>
-          <thead><tr>
-            <th>Supplier</th><th>Fuel</th><th>File</th><th>Version</th>
-            <th class="num">Rows</th><th class="num">Refused</th>
-            <th>Start window</th><th>Status</th><th>Uploaded</th><th></th>
-          </tr></thead>
-          <tbody id="ledgerBody"><tr><td colspan="10" style="color:var(--muted)">Loading…</td></tr></tbody>
-        </table></div>
-        <div id="ledgerErr" class="hide"></div>
       </div>
     </section>
 
@@ -733,9 +760,9 @@
       <div class="card">
         <h2>Storage</h2>
         <div class="sub">
-          A replaced pricebook keeps its record and loses its rates. It did not always: four
-          replaced books were holding 310,704 rows, a quarter of the whole table, because
-          going live only relabelled the old one. If anything is ever stale here, it says so
+          Replaced, removed and failed pricebooks are deleted outright: their rates, their archive
+          files and their rows (4 Nov 2026; before that, replaced books kept their records). The
+          mailbox job tidies up every 15 minutes too. If anything is ever left over, it shows here
           and there is a button.
         </div>
         <div id="adminStorage" style="font-size:13px;line-height:1.9">Reading…</div>
@@ -821,21 +848,6 @@
         </details>
       </div>
 
-      <div class="card">
-        <h2>All uploads</h2>
-        <div class="sub">
-          Every pricebook ever loaded. <b>Retire</b> takes one out of pricing but keeps the
-          record, so a quote sent last week can still be explained. <b>Purge</b> deletes its
-          rates too, for something that should never have been loaded at all.
-        </div>
-        <div class="scroll"><table>
-          <thead><tr>
-            <th>Supplier</th><th>Product</th><th>File</th><th>Version</th>
-            <th class="num">Rates</th><th>Status</th><th>By</th><th>When</th><th></th>
-          </tr></thead>
-          <tbody id="adminUploads"><tr><td colspan="9" style="color:var(--muted)">Loading…</td></tr></tbody>
-        </table></div>
-      </div>
     </section>
   </main>
 </div>
@@ -843,10 +855,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="/pricing-parsers.js?v=2026-11-03.1"></script>
+<script src="/pricing-parsers.js?v=2026-11-04.1"></script>
 <script src="/pricing-7z.js?v=2026-11-03.1"></script>
 <script src="/pricing-crm-import.js?v=2026-11-03.2"></script>
-<script src="/pricing-crm.js?v=2026-11-03.1"></script>
+<script src="/pricing-crm.js?v=2026-11-04.1"></script>
 <script src="/pricing-contracts.js?v=2026-09-13.1"></script>
 <script src="/supplier-quotes.js?v=2026-09-14.3"></script>
 <script>
@@ -873,7 +885,7 @@
  * So the two files check each other. Bump BOTH strings together whenever a parser change
  * alters what a rate means.
  */
-const EXPECTS_PARSERS = '2026-11-03.1';
+const EXPECTS_PARSERS = '2026-11-04.1';
 
 const SUPABASE_URL  = 'https://niadffxpxdohglcyagau.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pYWRmZnhweGRvaGdsY3lhZ2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3Mzc3MTksImV4cCI6MjA5NDMxMzcxOX0.x22Zh9O408PGfcPZ6rgu-a4B7WTbyH8iyT_ysr-IfIs';
@@ -1033,18 +1045,30 @@ function startDesk() {
   });
   paintTermLabel();
   showTab('price');          // the desk's job is pricing meters; pricebooks is upkeep
-  // New books from the mailbox: a badge on the tab, and one line on the page you land on.
-  inboxBadge().then((n) => {
-    if (!n) return;
-    const bar = document.createElement('div');
+  // New books from the mailbox: a badge on the tab, and one line on the other tabs.
+  inboxBadge();
+}
+
+/**
+ * The "new books arrived" line. Recounted with the badge, so it goes when they are loaded
+ * (it used to stay for the whole visit), and hidden on the Pricebooks tab, where saying
+ * "Open Pricebooks" is nonsense.
+ */
+function paintInboxBanner(n) {
+  let bar = $('inboxBanner');
+  if (!n) { if (bar) bar.remove(); return; }
+  if (!bar) {
+    const main = document.querySelector('#app main');
+    if (!main) return;
+    bar = document.createElement('div');
     bar.className = 'note warn';
     bar.id = 'inboxBanner';
     bar.style.cssText = 'margin:0 0 14px;font-size:13px';
-    bar.innerHTML = `<b>${n} new pricebook file${n === 1 ? '' : 's'} arrived from the mailbox.</b> `
-      + `<a href="#" onclick="showTab('books');return false">Open Pricebooks to load ${n === 1 ? 'it' : 'them'}</a>.`;
-    const main = document.querySelector('#app main');
-    if (main && !$('inboxBanner')) main.insertBefore(bar, main.firstChild);
-  });
+    main.insertBefore(bar, main.firstChild);
+  }
+  bar.innerHTML = `<b>${n} new pricebook file${n === 1 ? '' : 's'} arrived from the mailbox.</b> `
+    + `<a href="#" onclick="showTab('books');return false">Open Pricebooks to load ${n === 1 ? 'it' : 'them'}</a>.`;
+  bar.classList.toggle('hide', !$('pane-books').classList.contains('hide'));
 }
 
 function setWho() {
@@ -1107,12 +1131,16 @@ function showSignIn(){
 async function signOut(){ localStorage.removeItem('pricing_who'); await sb.auth.signOut(); location.href = '/pricing.html'; }
 
 function showTab(t) {
+  // A tab opens at its top: the page otherwise keeps the last tab's scroll, and the sticky
+  // header then sits over the new tab's own menu.
+  if ($('pane-' + t).classList.contains('hide') && window.scrollY > 0) window.scrollTo(0, 0);
   for (const k of ['books','price','crm','aq','contracts','quotes','ref','admin']) {
     $('pane-'+k).classList.toggle('hide', k !== t);
     $('tab-'+k).classList.toggle('on', k === t);
   }
+  const bar = $('inboxBanner'); if (bar) bar.classList.toggle('hide', t === 'books');
   if (t === 'crm') crmInit();
-  if (t === 'books') loadInbox();
+  if (t === 'books') { loadInbox(); loadLedger(); }
   if (t === 'admin') { loadAdmin(); loadStorage(); }
   if (t === 'aq') aqInit();
   if (t === 'contracts') contractsInit();
@@ -1427,6 +1455,7 @@ async function inboxBadge() {
     if (error) throw error;
     const b = $('inboxBadge');
     if (b) { b.textContent = count ? String(count) : ''; b.classList.toggle('hide', !count); }
+    paintInboxBanner(count || 0);
     return count || 0;
   } catch (e) { return 0; }
 }
@@ -1449,7 +1478,7 @@ async function loadInbox() {
     ? '<div class="note warn">The mailbox has not been read yet.</div>'
     : /^not configured/.test(run.error || '')
     ? `<div class="note warn"><b>Not connected to the mailbox yet.</b> The collector is installed and runs every
-       half hour, but a Microsoft 365 admin still has to give it read access to pricingteam@cesgb.com
+       15 minutes, but a Microsoft 365 admin still has to give it read access to pricingteam@cesgb.com
        (a one-off step). Until then, drop files in below as before.</div>`
     : run.ok
     ? `<div class="note good">Mailbox last read ${uk(run.started_at)} at ${String(run.started_at).slice(11, 16)} UTC:
@@ -1474,14 +1503,17 @@ async function loadInbox() {
         ${r.status_note ? `<div style="font-size:10.5px;color:var(--muted);max-width:260px">${esc(r.status_note)}</div>` : ''}</td>
       <td style="white-space:nowrap">${!live ? '' : r.kind === 'link'
         ? `<button class="act ghost sm" onclick="skipInbox('${r.id}','opened by hand')">Done</button>`
-        : `<button class="act sm" onclick="loadInboxRows(['${r.id}'])">Load</button>
+        : `<button class="act sm js-load" onclick="loadInboxRows(['${r.id}'])">Load</button>
            <button class="act ghost sm" onclick="skipInbox('${r.id}')">Skip</button>`}</td>
     </tr>`;
+  // Oldest first, so when two files are the same product the newer one ends up live.
+  const loadable = fileRows.filter(r => r.status !== 'loading')
+    .sort((a, b) => String(a.received_at).localeCompare(String(b.received_at))).map(r => r.id);
   list.innerHTML = (waiting.length
       ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-           <button class="act" ${fileRows.length ? '' : 'disabled'} onclick="loadInboxRows(INBOX.filter(r => (r.status === 'new' || r.status === 'failed') && r.kind === 'attachment' && r.storage_path).map(r => r.id))">
-             ${fileRows.length ? `Load all ${fileRows.length}` : 'Nothing to load'}</button>
-           <span style="font-size:11.5px;color:var(--muted)">One at a time, oldest supplier book replaced only by its own product.</span></div>
+           <button class="act js-load" ${loadable.length ? '' : 'disabled'} onclick='loadInboxRows(${JSON.stringify(loadable)})'>
+             ${loadable.length ? `Load all ${loadable.length}` : 'Nothing to load'}</button>
+           <span style="font-size:11.5px;color:var(--muted)">One file at a time, oldest first. A book only ever replaces its own product.</span></div>
          <div class="scroll"><table><thead><tr><th>Received</th><th>Supplier</th><th>File</th><th class="num">Size</th><th>State</th><th></th></tr></thead>
          <tbody>${waiting.map(r => row(r, true)).join('')}</tbody></table></div>`
       : '<div class="note">Nothing waiting.</div>')
@@ -1489,49 +1521,267 @@ async function loadInbox() {
       ? `<details style="margin-top:12px"><summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--text-2)">Recently handled</summary>
          <div class="scroll" style="margin-top:8px"><table><tbody>${done.map(r => row(r, false)).join('')}</tbody></table></div></details>`
       : '');
+  renderBusy();
 }
 
-/** Pull stored files from the bucket into the queue, then run it. */
-async function loadInboxRows(ids) {
-  const rows = INBOX.filter(r => ids.includes(r.id) && r.storage_path);
-  if (!rows.length) return;
-  showTab('books');
-  let fetchFailed = 0;
-  for (const r of rows) {
-    try {
-      await sb.from('pricebook_inbox').update({ status: 'loading', handled_by_name: WHO || null,
-        handled_at: new Date().toISOString(), status_note: null }).eq('id', r.id);
-      const { data, error } = await sb.storage.from('pricebook-inbox').download(r.storage_path);
-      if (error) throw new Error(error.message);
-      const file = new File([data], r.file_name || 'pricebook', { type: data.type || 'application/octet-stream' });
-      await addFiles([file], { skey: r.supplier_key, inboxId: r.id });
-    } catch (e) {
-      fetchFailed++;
-      await sb.from('pricebook_inbox').update({ status: 'failed', status_note: 'could not fetch the file: ' + String(e.message).slice(0, 300) }).eq('id', r.id);
-    }
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ONE LOAD AT A TIME.
+//
+// 3 Nov 2026, 22:43: Load was pressed again while a load was running, and every press started
+// another loop over the queue in the same tab. Ten books were loading at once, two of them
+// TotalEnergies power books that unpack to ~900 MB of CSV, and the tab ran out of memory and
+// died. Ten uploads were left at 'loading' for ever with 273,000 rates half in, the duplicate
+// check then refused to load the same files again, and TotalEnergies "just showed loading".
+//
+// Now every load, from any button, goes through exclusive(): a second press waits its turn
+// instead of running alongside. Mailbox files are fetched, unpacked and loaded ONE FILE at a
+// time, and each file's bytes are let go before the next is read.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+let LOAD_CHAIN = Promise.resolve();
+let LOADS_PENDING = 0;
+let EMAIL_RUN = false;      // "Load the latest from email" in progress
+function exclusive(fn) {
+  LOADS_PENDING++; renderBusy();
+  const run = LOAD_CHAIN.then(fn, fn);
+  LOAD_CHAIN = run.catch(() => {}).finally(() => { LOADS_PENDING--; renderBusy(); });
+  return run;
+}
+function renderBusy(text) {
+  const busy = LOADS_PENDING > 0;
+  const note = $('busyNote');
+  if (note) {
+    note.classList.toggle('hide', !busy);
+    if (busy) note.innerHTML = '<b>Loading pricebooks.</b> Keep this tab open until it finishes; '
+      + 'other loads wait their turn' + (text ? ` &middot; ${esc(text)}` : '') + '.';
   }
-  await processQueue();
-  // processQueue redraws the inbox only for files that reached the queue; a file that could
-  // not be fetched never did, and its row would sit there looking untouched.
-  if (fetchFailed) loadInbox();
+  for (const b of document.querySelectorAll('.js-load')) b.disabled = busy;
+  const eb = $('emailLoadBtn'); if (eb) eb.disabled = busy || EMAIL_RUN;
+}
+window.addEventListener('beforeunload', (e) => {
+  if (LOADS_PENDING > 0) { e.preventDefault(); e.returnValue = 'A pricebook is still loading.'; return e.returnValue; }
+});
+
+/** Loads a closed or crashed tab left half-done are failed (and their inbox rows reopened). */
+async function reapStale() {
+  try { await sb.rpc('pricebook_reap_stale', { p_minutes: 15 }); } catch (_) { /* housekeeping */ }
+}
+
+/** Fetch, unpack and load stored mailbox files, one file at a time, behind the load lock. */
+function loadInboxRows(ids) {
+  ids = [...new Set(ids)];
+  if (!ids.length) return Promise.resolve();
+  // Only if another tab is open: "Load the latest" calls this once per file, and redrawing
+  // (and scrolling) the tab under someone reading the results each time is not on.
+  if ($('pane-books').classList.contains('hide')) showTab('books');
+  return exclusive(async () => {
+    await reapStale();
+    for (const id of ids) await loadOneInboxRow(id);
+    loadInbox(); loadLedger();
+  });
+}
+
+async function loadOneInboxRow(id) {
+  // Read the row again: it may have been loaded by a press that was waiting ahead of this one.
+  let r;
+  try {
+    r = await q(sb.from('pricebook_inbox').select('*').eq('id', id).maybeSingle(), 'mailbox file');
+  } catch (e) { return; }
+  if (!r || !r.storage_path || r.status === 'loaded' || r.kind !== 'attachment') return;
+  renderBusy(r.file_name);
+  try {
+    await sb.from('pricebook_inbox').update({ status: 'loading', handled_by_name: WHO || null,
+      handled_at: new Date().toISOString(), status_note: null }).eq('id', r.id);
+    const { data, error } = await sb.storage.from('pricebook-inbox').download(r.storage_path);
+    if (error) throw new Error(error.message);
+    const file = new File([data], r.file_name || 'pricebook', { type: data.type || 'application/octet-stream' });
+    await addFiles([file], { skey: r.supplier_key, inboxId: r.id, receivedAt: r.received_at });
+  } catch (e) {
+    await sb.from('pricebook_inbox').update({ status: 'failed',
+      status_note: 'could not fetch the file: ' + String(e.message).slice(0, 300) }).eq('id', r.id);
+    return;
+  }
+  await runQueue(r.id);
+  await settleInbox(r.id);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// "Load the latest from email": one press brings every supplier the mailbox has up to date.
+//
+// pricebook-mail (mode latest) searches EVERY folder of pricingteam@ (the team files supplier
+// mail by hand; Deleted Items and Junk are left out) for the newest book of each kind each
+// supplier sends, and says which are already in the inbox. The rest are fetched into the inbox
+// (mode fetch, ~40 MB a call) and everything is loaded through the same one-at-a-time path as
+// the Load button, oldest first, so where two files are the same product the newer ends up
+// live. A book older than the one live, or past its own end date, is never put live.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+const MAX_BOOK_AGE_DAYS = 28;
+const NOT_BY_EMAIL = {
+  british_gas: 'British Gas put their books on their portal, not in email. Email the portal files to '
+             + 'pricingteam@ with "British Gas" in the subject (they are then picked up like any other '
+             + 'supplier\'s), or drop them in below.',
+  sefe: 'SEFE paused matrix pricing on 22 Oct 2026, so there is no current SEFE book anywhere.',
+  sse: 'SSE send links to a web page, not files: open them from the Mailbox list and drop the files in.',
+  ugp: 'UGP\'s link dies 30 minutes after their email. Caught in time it is collected automatically; '
+     + 'otherwise open it from the Mailbox list (or ask UGP for a new one).',
+};
+
+async function invokeMail(body) {
+  const { data, error } = await sb.functions.invoke('pricebook-mail', { body });
+  if (error) {
+    // supabase-js puts a non-2xx answer in error.context, not error.message.
+    let detail = error.message;
+    try { const j = await error.context.json(); detail = j.error || JSON.stringify(j); } catch (_) { /* keep */ }
+    throw new Error(detail);
+  }
+  if (data && data.ok === false) throw new Error(data.error || 'the mailbox did not answer');
+  return data;
+}
+
+/** What loading one mailbox file came to, from the queue rows it produced. */
+function outcomeFor(inboxId) {
+  // A ".7z leftovers: not a pricebook" row is skipped and says nothing; older and expired do.
+  const items = QUEUE.filter(i => i.inboxId === inboxId && (i.state !== 'skipped' || i.older || i.expired));
+  if (!items.length) return null;
+  const pick = (f) => items.filter(f);
+  const live = pick(i => i.state === 'done' && !i.already);
+  const err = pick(i => i.state === 'error');
+  const human = pick(i => ['layout', 'unrouted'].includes(i.state) || (i.state === 'blocked' && !i.notQuotable));
+  const already = pick(i => i.already);
+  const older = pick(i => i.older), expired = pick(i => i.expired);
+  if (err.length) return { pill: 'p-fail', word: 'failed', why: err.map(i => `${i.name}: ${i.msg}`).join(' · ') };
+  if (human.length) return { pill: 'p-warn', word: 'needs a person', why: human.map(i => `${i.name}: ${i.msg}`).join(' · ') };
+  if (live.length) return { pill: 'p-ok', word: live.length > 1 ? `${live.length} books live` : 'live',
+    why: live.map(i => `${i.name}: ${i.msg}`).concat(already.map(i => `${i.name}: already live`)).join(' · ') };
+  if (already.length && !older.length && !expired.length) return { pill: 'p-ok', word: 'already live', why: '' };
+  if (expired.length) return { pill: 'p-mute', word: 'expired', why: expired.map(i => `${i.name}: ${i.msg}`).join(' · ') };
+  if (older.length) return { pill: 'p-mute', word: 'newer one live', why: older.map(i => `${i.name}: ${i.msg}`).join(' · ') };
+  return { pill: 'p-mute', word: 'nothing to load', why: items.map(i => `${i.name}: ${i.msg || i.state}`).join(' · ') };
+}
+
+async function loadLatestFromEmail() {
+  if (EMAIL_RUN) return;
+  EMAIL_RUN = true; renderBusy();
+  const panel = $('emailLoadPanel');
+  panel.classList.remove('hide');
+  panel.innerHTML = '<div class="note">Searching every folder of pricingteam@ for each supplier\'s newest books. '
+    + 'This takes about a minute.</div>';
+  const plan = [];
+  const draw = (head) => {
+    const rows = plan.map(p => {
+      const o = p.inboxId ? outcomeFor(p.inboxId) : null;
+      const res = p.result || o || { pill: 'p-mute', word: p.state || 'waiting', why: '' };
+      return `<tr><td>${esc(supplierName(p.c.supplier_key))}</td>
+        <td style="max-width:320px;overflow-wrap:anywhere">${esc(p.c.file_name)}${p.c.product
+          ? `<div class="bk-age">${esc(p.c.product.display_name || p.c.product.product_key)} · ${esc(p.c.product.fuel)}${
+              p.c.product.sale_scope !== 'any' ? ' · ' + esc(p.c.product.sale_scope) : ''}</div>` : ''}</td>
+        <td class="mono">${uk(p.c.received_at)} ${String(p.c.received_at).slice(11, 16)}</td>
+        <td><span class="pill ${res.pill}">${esc(res.word)}</span>${res.why ? `<div class="why">${esc(res.why)}</div>` : ''}</td></tr>`;
+    }).join('');
+    const found = new Set(plan.map(p => p.c.supplier_key));
+    const missing = SUPPLIERS.filter(s => !found.has(s.supplier_key))
+      .map(s => `<li><b>${esc(s.display_name)}</b>: ${esc(NOT_BY_EMAIL[s.supplier_key] || 'no pricebook email in the last 120 days.')}</li>`).join('');
+    panel.innerHTML = head
+      + (rows ? `<div class="scroll" style="margin:10px 0"><table class="bk-log"><thead><tr><th>Supplier</th><th>File</th><th>Email</th><th>Result</th></tr></thead><tbody>${rows}</tbody></table></div>` : '')
+      + (missing ? `<details style="margin-bottom:12px"><summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--text-2)">Not in the mailbox</summary>`
+        + `<ul style="font-size:12px;color:var(--text-2);line-height:1.7;margin:8px 0 0 18px">${missing}</ul></details>` : '');
+  };
+  try {
+    const res = await invokeMail({ mode: 'latest' });
+    const now = Date.now();
+    for (const c of res.candidates || []) {
+      const age = (now - Date.parse(c.received_at)) / 864e5;
+      const p = { c };
+      if (c.too_big) p.result = { pill: 'p-fail', word: 'too big', why: 'over 50 MB, so it cannot be stored: drop it in by hand' };
+      else if (age > MAX_BOOK_AGE_DAYS) p.result = { pill: 'p-mute', word: 'too old', why: `the newest one in the mailbox is ${Math.round(age)} days old` };
+      else if (c.inbox && c.inbox.status === 'loaded') p.result = { pill: 'p-ok', word: 'already loaded', why: '' };
+      else if (c.inbox && c.inbox.status === 'skipped' && c.inbox.storage_path && !/^Closed after/.test(c.inbox.status_note || ''))
+        p.result = { pill: 'p-mute', word: 'skipped before', why: c.inbox.status_note || 'skipped by hand' };
+      else if (c.inbox && c.inbox.storage_path) { p.inboxId = c.inbox.id; p.state = 'to load'; }
+      else p.state = 'to fetch';
+      plan.push(p);
+    }
+    const head = (txt) => `<div class="note">Searched ${Number(res.messages_seen || 0).toLocaleString()} emails with attachments `
+      + `in every folder over ${res.days} days: ${plan.length} current book${plan.length === 1 ? '' : 's'} found. ${txt}</div>`;
+    draw(head('Fetching…'));
+
+    // Fetch what the inbox does not hold yet, about 40 MB per call.
+    const toFetch = plan.filter(p => p.state === 'to fetch');
+    for (let i = 0; i < toFetch.length;) {
+      const batch = []; let bytes = 0;
+      while (i < toFetch.length && batch.length < 8 && (bytes === 0 || bytes + (toFetch[i].c.size || 0) <= 40 * 1048576)) {
+        bytes += toFetch[i].c.size || 0; batch.push(toFetch[i++]);
+      }
+      batch.forEach(p => { p.state = 'fetching'; });
+      draw(head(`Fetching ${batch.map(p => p.c.file_name).join(', ')}…`));
+      let out;
+      try {
+        out = await invokeMail({ mode: 'fetch', items: batch.map(p => ({ message_id: p.c.message_id, attachment_id: p.c.attachment_id, file_name: p.c.file_name })) });
+      } catch (e) {
+        batch.forEach(p => { p.result = { pill: 'p-fail', word: 'not fetched', why: e.message }; });
+        continue;
+      }
+      for (const p of batch) {
+        const r = (out.items || []).find(x => x.message_id === p.c.message_id && x.attachment_id === p.c.attachment_id);
+        // Deferred FIRST: a deferred answer carries no inbox_id, and was being reported as
+        // "not fetched" (found by the page test, 4 Nov). The function fetches at least one file
+        // per call, so this always drains; three deferrals of one file is a fault, not a queue.
+        if (r && r.deferred && !r.error) {
+          p.deferrals = (p.deferrals || 0) + 1;
+          if (p.deferrals > 3) p.result = { pill: 'p-fail', word: 'not fetched', why: 'the mailbox kept deferring it: try again' };
+          else { p.state = 'to fetch'; toFetch.push(p); }
+        }
+        else if (!r || r.error || !r.inbox_id) p.result = { pill: 'p-fail', word: 'not fetched', why: (r && r.error) || 'no answer for this file' };
+        else if (r.status === 'loaded') p.result = { pill: 'p-ok', word: 'already loaded', why: '' };
+        else { p.inboxId = r.inbox_id; p.state = 'to load'; }
+      }
+    }
+
+    // Load, oldest email first, one file at a time.
+    const order = plan.filter(p => p.inboxId && !p.result)
+      .sort((a, b) => String(a.c.received_at).localeCompare(String(b.c.received_at)));
+    draw(head(order.length ? `Loading ${order.length} file${order.length === 1 ? '' : 's'}, one at a time…` : 'Nothing new to load.'));
+    await loadInbox();
+    let n = 0;
+    for (const p of order) {
+      n++;
+      p.state = 'loading';
+      draw(head(`Loading ${n} of ${order.length}: ${p.c.file_name}`));
+      await loadInboxRows([p.inboxId]);
+      p.state = null;
+    }
+    const lives = plan.filter(p => { const o = p.inboxId && outcomeFor(p.inboxId); return o && o.pill === 'p-ok' && o.word !== 'already live'; }).length;
+    const people = plan.filter(p => { const o = p.inboxId && outcomeFor(p.inboxId); return o && (o.pill === 'p-warn' || o.pill === 'p-fail'); }).length
+      + plan.filter(p => p.result && p.result.pill === 'p-fail').length;
+    draw(head(`Done: ${lives} file${lives === 1 ? '' : 's'} put live` + (people ? `, ${people} need${people === 1 ? 's' : ''} a look (below).` : '.')));
+  } catch (e) {
+    panel.innerHTML = `<div class="note bad">The mailbox search did not work: ${esc(e.message)}</div>`;
+  } finally {
+    EMAIL_RUN = false; renderBusy();
+    loadLedger(); loadInbox();
+  }
 }
 
 /**
  * What happened to one inbox file, from the queue rows it produced (a .7z becomes several).
- * All live or already loaded -> loaded. Anything that broke -> failed with the first reason.
- * Anything waiting on a person (unknown layout, no product rule) -> back to new, with why.
+ *   something went live, the rest live already or not a pricebook  -> loaded
+ *   nothing to load (older than what is live, expired, not quotable) -> skipped, with why
+ *   anything broke                                                   -> failed, with why
+ *   anything waiting on a person (new layout, no product rule)       -> new, with why
+ * Never left at 'loading'.
  */
 async function settleInbox(inboxId) {
   const items = QUEUE.filter(i => i.inboxId === inboxId);
   if (!items.length) return;
   const ids = items.map(i => i.uploadId).filter(Boolean);
   const broke = items.find(i => i.state === 'error');
-  const human = items.find(i => ['layout', 'unrouted', 'queued'].includes(i.state));
-  const allDone = items.every(i => i.state === 'done' || i.state === 'skipped'
-                                   || (i.state === 'blocked' && /already uploaded/.test(i.msg || '')));
+  const human = items.find(i => ['layout', 'unrouted', 'queued', 'busy'].includes(i.state)
+                             || (i.state === 'blocked' && !i.notQuotable));
+  const settled = (i) => i.state === 'done' || i.state === 'skipped' || (i.state === 'blocked' && i.notQuotable);
+  const loadedAny = items.some(i => i.state === 'done');
   const patch = broke ? { status: 'failed', status_note: `${broke.name}: ${broke.msg}`.slice(0, 500) }
-    : allDone ? { status: 'loaded', status_note: null }
     : human ? { status: 'new', status_note: `needs a person: ${human.name}: ${human.msg || human.state}`.slice(0, 500) }
+    : items.every(settled) && loadedAny ? { status: 'loaded', status_note: null }
+    : items.every(settled) ? { status: 'skipped', status_note: items.map(i => `${i.name}: ${i.msg || i.state}`).join('; ').slice(0, 500) }
     : { status: 'new', status_note: items.map(i => `${i.name}: ${i.state}`).join('; ').slice(0, 500) };
   if (ids.length) patch.upload_ids = ids;
   try { await sb.from('pricebook_inbox').update(patch).eq('id', inboxId); } catch (e) { console.warn('inbox:', e.message); }
@@ -1571,7 +1821,7 @@ const KNOWN_ARCHIVES = [
 async function addFiles(list, opts = {}) {
   const files = [...list];
   if (!files.length) return;
-  const tag = { skey: opts.skey || null, inboxId: opts.inboxId || null };
+  const tag = { skey: opts.skey || null, inboxId: opts.inboxId || null, receivedAt: opts.receivedAt || null };
   const push = (o) => QUEUE.push(Object.assign({ id: crypto.randomUUID() }, tag, o));
   const note = $('upInspect');
   note.classList.remove('hide');
@@ -1707,6 +1957,7 @@ function rescanQueue() {
       // uplift already inside them and British Gas's HH books price on capacity bands the
       // canonical row does not carry. Blocked here rather than loaded and then avoided.
       it.state = 'blocked';
+      it.notQuotable = true;
       it.msg = `${it.product.display_name} is marked not quotable`
              + (it.product.notes ? ' — ' + it.product.notes : '');
     } else {
@@ -1718,7 +1969,16 @@ function rescanQueue() {
 
 function renderQueue() {
   const out = $('upInspect');
-  if (!QUEUE.length) { out.classList.add('hide'); out.innerHTML = ''; return; }
+  // The row count of a big load, up in the busy note where it can be seen: this list sits at
+  // the bottom of the tab, under everything else.
+  const working = QUEUE.find(i => i.state === 'busy');
+  if (working && LOADS_PENDING > 0) renderBusy(`${working.name}: ${working.msg || 'working'}`);
+  // A mailbox file that has settled is reported in the Mailbox list (and the email results);
+  // it is not repeated here. One still running, or waiting on a person (a new layout to
+  // register, a product to pick), stays: this is where that is done.
+  const shown = QUEUE.filter(i => !i.inboxId || ['queued', 'busy', 'layout', 'unrouted'].includes(i.state)
+                                || (i.state === 'blocked' && !i.notQuotable));
+  if (!shown.length) { out.classList.add('hide'); out.innerHTML = ''; return; }
   out.classList.remove('hide');
   const skey = $('upSupplier').value;
   const ready = QUEUE.filter(i => i.state === 'queued' && i.product).length;
@@ -1729,7 +1989,7 @@ function renderQueue() {
                        blocked:'skipped', unrouted:'no match', layout:'new layout',
                        skipped:'not loaded' }[s] || s);
 
-  const rows = QUEUE.map(it => `<tr>
+  const rows = shown.map(it => `<tr>
     <td style="max-width:300px;overflow-wrap:anywhere">${esc(it.name)}
       ${it.zipName ? `<div style="font-size:10.5px;color:var(--muted)">from ${esc(it.zipName)}</div>` : ''}
       ${it.inboxId ? `<div style="font-size:10.5px;color:var(--muted)">from the mailbox: ${esc(supplierName(it.skey))}</div>` : ''}</td>
@@ -1808,31 +2068,76 @@ async function itemBuffer(it) {
 }
 
 /**
- * Process the queue, one file at a time.
+ * Load what was dropped in by hand. Behind the same lock as the mailbox loads, so pressing
+ * Upload twice, or while a mailbox load runs, queues rather than running alongside.
+ */
+function processQueue() {
+  const go = $('qGo');
+  if (go) { go.disabled = true; go.textContent = 'Working…'; }
+  return exclusive(async () => {
+    await reapStale();
+    await runQueue(null);
+    renderQueue();
+  });
+}
+
+/**
+ * Process queued files one at a time: every queued file when inboxId is null, or only the
+ * files that came from one mailbox file. Each file's bytes are let go as soon as it is done.
  *
  * Sequential on purpose. A BG Lite electricity book is 162,433 canonical rows going up in
  * batches of a thousand; three of those at once would just queue inside PostgREST while
- * looking, from here, like a hang.
+ * looking, from here, like a hang, and two TotalEnergies power books at once do not fit in a
+ * browser tab's memory at all.
  */
-async function processQueue() {
-  const go = $('qGo');
-  if (go) { go.disabled = true; go.textContent = 'Working…'; }
-  const touched = new Set();
+async function runQueue(inboxId) {
   for (const it of QUEUE) {
     if (it.state !== 'queued' || !it.product) continue;
+    if (inboxId !== null && it.inboxId !== inboxId) continue;
     it.state = 'busy'; it.msg = 'reading…'; renderQueue();
+    renderBusy(it.name);
     try { await processOne(it); }
     catch (e) { it.state = 'error'; it.msg = e.message; }
+    finally { it.buf = null; it.file = null; }
     renderQueue();
     loadLedger();
   }
-  // Every mailbox file in the list is settled, not only the ones that ran: a .7z that would
-  // not unpack, or a file no product rule matches, never reaches processOne, and its inbox
-  // row would otherwise sit at 'loading' for ever.
-  for (const it of QUEUE) if (it.inboxId) touched.add(it.inboxId);
-  for (const id of touched) await settleInbox(id);
-  if (touched.size) loadInbox();
-  renderQueue();
+  // A mailbox file whose rows never reached processOne (a .7z that would not unpack, a name
+  // no product rule matches) is settled too, or its row would sit at 'loading' for ever.
+  if (inboxId === null) {
+    const touched = new Set(QUEUE.filter(i => i.inboxId).map(i => i.inboxId));
+    for (const id of touched) await settleInbox(id);
+    if (touched.size) loadInbox();
+  }
+}
+
+/** The last day a parsed book may be quoted on, when every row says (E.ON: its own day). */
+function bookValidity(rows) {
+  let from = null, to = null, all = rows.length > 0;
+  for (const r of rows) {
+    const t = r.quote_valid_to ? String(r.quote_valid_to).slice(0, 10) : null;
+    if (!t) { all = false; break; }
+    if (!to || t > to) to = t;
+    const f = r.quote_valid_from ? String(r.quote_valid_from).slice(0, 10) : null;
+    if (f && (!from || f < from)) from = f;
+  }
+  return all ? { from, to } : { from: null, to: null };
+}
+const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+
+/**
+ * A live book for the same product that came from a NEWER email (or was dropped in by hand
+ * after this email arrived). "Load the latest" must never put an older book over it.
+ */
+async function newerLiveBook(skey, p, receivedAt) {
+  if (!receivedAt) return null;
+  const rows = await q(sb.from('pricebook_uploads')
+    .select('id, source_filename, source_received_at, uploaded_at, fuel, sale_scope')
+    .eq('supplier_key', skey).eq('product_key', p.product_key).eq('status', 'live'), 'live book check');
+  const t = Date.parse(receivedAt);
+  return rows.find(u => (u.fuel === p.fuel || u.fuel === 'both' || p.fuel === 'both')
+      && ((u.sale_scope || 'any') === p.sale_scope || (u.sale_scope || 'any') === 'any' || p.sale_scope === 'any')
+      && Date.parse(u.source_received_at || u.uploaded_at) > t) || null;
 }
 
 /**
@@ -1861,9 +2166,13 @@ async function processOne(it) {
   const fuel = it.product.fuel;
   let uploadId = null;
 
-  const buf = await itemBuffer(it);
+  let buf = await itemBuffer(it);
   const fileSha = await sha256Hex(buf);
-  const { names, wb } = readWorkbook(new Uint8Array(buf), it.isCsv);
+  // The archive copy is kept as a Blob, which the browser can hold off the JS heap; the
+  // ArrayBuffer itself is let go as soon as the workbook has been read out of it.
+  const raw = it.file || new Blob([buf]);
+  let { names, wb } = readWorkbook(new Uint8Array(buf), it.isCsv);
+  buf = null; it.buf = null;
   const plan = sheetPlan(supplier.parser_key, names, fuel);
   // Hash the sheet that carries the PRICES, and the row the parser calls the header. SEFE
   // put a blank row and a units row above theirs, and hashing row 0 would have registered
@@ -1890,16 +2199,23 @@ async function processOne(it) {
       .eq('active', true).limit(1), 'fingerprint check'),
     q(sb.from('pricebook_fingerprints').select('supplier_key, fuel')
       .eq('header_sha256', hSha).neq('supplier_key', skey).limit(5), 'cross-supplier check'),
-    // A rejected attempt is retryable; a live, parsed or pending one is a genuine double load.
+    // A failed attempt is retryable; a live one is this exact book, already in use; a loading
+    // one is somebody loading it right now (an abandoned one is failed by the reaper first).
     q(sb.from('pricebook_uploads').select('id, uploaded_at, status')
       .eq('supplier_key', skey).eq('file_sha256', fileSha)
-      .in('status', ['loading','parsed','live']).limit(1), 'duplicate check'),
+      .in('status', ['loading', 'parsed', 'live']).limit(1), 'duplicate check'),
   ]);
 
   if (dup.length) {
+    const d0 = dup[0];
+    if (d0.status === 'live') {
+      it.state = 'done'; it.already = true;
+      it.msg = `already live (loaded ${uk(d0.uploaded_at)})`;
+      return;
+    }
     it.state = 'blocked';
-    it.msg = `already uploaded ${uk(dup[0].uploaded_at)} (status ${dup[0].status}) — `
-           + 'loading the same bytes twice would double the rates';
+    it.msg = `somebody is loading this exact file right now (started ${uk(d0.uploaded_at)} `
+           + `${String(d0.uploaded_at || '').slice(11, 16)})`;
     return;
   }
   if (!mine.length) {
@@ -1915,19 +2231,54 @@ async function processOne(it) {
     return;
   }
 
-  // ── Store, register, parse, load, promote.
+  // A book from the mailbox is never put over a NEWER one that is already live.
+  const newer = await newerLiveBook(skey, it.product, it.receivedAt);
+  if (newer) {
+    it.state = 'skipped'; it.older = true;
+    it.msg = `older than the book already live (${newer.source_filename}, `
+           + `${uk(newer.source_received_at || newer.uploaded_at)}), so not loaded`;
+    return;
+  }
+
+  // ── Read the prices FIRST: nothing is stored for a book that is empty or already over.
+  it.msg = 'reading the prices…'; renderQueue();
+  let sheets = plan.map(p => ({ name: p.name, fuel: p.fuel, rows: sheetToRows(wb, p.name) }));
+  wb = null;
+  // saleScope and green both come from the PRODUCT. TotalEnergies' files carry neither:
+  // acquisition vs renewal and ECO vs standard are only in the filename, so without
+  // these a renewal book would be offered on an acquisition and a green book would price
+  // as brown.
+  const parsed = PricingParsers.parse({
+    parserKey: supplier.parser_key, supplierKey: skey, fuel, sheets,
+    saleScope: it.product.sale_scope, green: it.product.green });
+  sheets = null;
+  const refused = parsed.refusals.length + (parsed.refusals.overflow || 0);
+  if (!parsed.rows.length) {
+    it.state = 'error';
+    it.msg = 'parsed 0 rows, nothing loaded: '
+           + ([...new Set(parsed.refusals.map(r => r.reason))].slice(0, 3).join(' · ')
+              || 'no reason recorded');
+    return;
+  }
+  // E.ON's books are good for one day, Yu's for about a fortnight. One whose own end date
+  // has passed would be quoted at prices the supplier no longer honours.
+  const valid = bookValidity(parsed.rows);
+  if (valid.to && valid.to < todayIso()) {
+    it.state = 'skipped'; it.expired = true;
+    it.msg = `its prices ended on ${uk(valid.to)}, so it was not loaded`;
+    return;
+  }
+
+  // ── Store, register, load, promote.
   const { data: { user } } = await sb.auth.getUser();
   uploadId = crypto.randomUUID();
   it.uploadId = uploadId;
   let path = null, storeNote = '';
   try {
     it.msg = 'storing…'; renderQueue();
-    const raw = it.file || new Blob([buf]);
     // Gzipped, because a pricebook is text and compresses about ten to one. TotalEnergies'
-    // renewal power file is 65.75 MB and was rejected outright — Supabase caps every bucket
-    // at the PROJECT's global file size limit, which on the free plan could not go above
-    // 50 MB whatever the bucket said. Gzip also stops this bucket doing what the rates table
-    // did: 249 MB of source files, not one of which anything has ever read back.
+    // renewal power file is 65.75 MB and was rejected outright when the project's file size
+    // limit was 50 MB. Gzip also keeps this bucket small.
     const stored = await gzipBlob(raw) || raw;
     const gz = stored !== raw;
     path = `${uploadId}/${it.name}${gz ? '.gz' : ''}`;
@@ -1936,12 +2287,13 @@ async function processOne(it) {
     if (up.error) {
       // The rates are the product; this copy is a receipt. Refusing to load a 254,375-row
       // pricebook because its archive copy would not fit is the wrong way round. Recorded on
-      // the row so it is visible in the ledger rather than silently skipped.
+      // the row so it is visible rather than silently skipped.
       console.warn('archive copy not stored:', up.error.message);
       storeNote = ` archive_not_stored=${String(up.error.message).slice(0, 120)}`;
       path = null;
     }
 
+    const nowIso = new Date().toISOString();
     await q(sb.from('pricebook_uploads').insert({
       id: uploadId, supplier_key: skey, fuel,
       product_key: it.product.product_key, sale_scope: it.product.sale_scope,
@@ -1949,23 +2301,11 @@ async function processOne(it) {
       source_filename: it.name, storage_path: path,
       file_sha256: fileSha, header_sha256: hSha,
       parser_key: supplier.parser_key, status: 'loading', uploaded_by: user.id,
-      uploaded_by_name: WHO, parse_started_at: new Date().toISOString(),
+      uploaded_by_name: WHO, parse_started_at: nowIso, heartbeat_at: nowIso,
+      source_received_at: it.receivedAt || null, inbox_id: it.inboxId || null,
+      quote_valid_from: valid.from, quote_valid_to: valid.to,
       notes: `sheets=${plan.map(p => p.name).join('|')} cols=${it.cols}${storeNote}`
     }), 'create upload');
-
-    it.msg = 'parsing…'; renderQueue();
-    const sheets = plan.map(p => ({ name: p.name, fuel: p.fuel, rows: sheetToRows(wb, p.name) }));
-    // saleScope comes from the product. TotalEnergies' files carry no acquisition/renewal
-    // column at all — it is only in the filename — so without this every TE row would be
-    // sale_type 'any' and a renewal book would be offered on an acquisition.
-    // saleScope and green both come from the PRODUCT. TotalEnergies' files carry neither:
-    // acquisition vs renewal and ECO vs standard are only in the filename, so without
-    // these a renewal book would be offered on an acquisition and a green book would price
-    // as brown.
-    const parsed = PricingParsers.parse({
-      parserKey: supplier.parser_key, supplierKey: skey, fuel, sheets,
-      saleScope: it.product.sale_scope, green: it.product.green });
-    const refused = parsed.refusals.length + (parsed.refusals.overflow || 0);
 
     const record = (n, e, g) => q(sb.rpc('pricebook_parse_done', {
       p_upload: uploadId, p_rows: n, p_elec: e, p_gas: g, p_refused: refused,
@@ -1973,64 +2313,57 @@ async function processOne(it) {
       p_window_open: parsed.meta.window_open, p_window_close: parsed.meta.window_close
     }), 'record parse');
 
-    if (!parsed.rows.length) {
-      // Zero rows is not a pricebook. Recorded as rejected with the reasons and NOT made
-      // live, so it cannot retire the good book it was meant to replace.
-      await record(0, 0, 0);
-      it.state = 'error';
-      it.msg = 'parsed 0 rows, nothing went live: '
-             + ([...new Set(parsed.refusals.map(r => r.reason))].slice(0,3).join(' · ')
-                || 'no reason recorded');
-      return;
-    }
-
+    // upload_id goes on in place, a batch at a time: a 550,000-row TotalEnergies book is not
+    // copied a second time just to add one field. A heartbeat every 20 batches tells the
+    // reaper this load is alive; one that stops for 15 minutes is failed and cleaned up.
     const BATCH = 1000;
-    const rows = parsed.rows.map(r => ({ ...r, upload_id: uploadId }));
-    for (let i = 0; i < rows.length; i += BATCH) {
-      const { error } = await sb.from('pricebook_rates').insert(rows.slice(i, i + BATCH));
+    const rows = parsed.rows;
+    const total = rows.length;
+    let elec = 0;
+    for (let i = 0; i < total; i += BATCH) {
+      const slice = rows.slice(i, i + BATCH);
+      for (const r of slice) { r.upload_id = uploadId; if (r.fuel === 'electricity') elec++; }
+      const { error } = await sb.from('pricebook_rates').insert(slice);
       if (error) throw new Error(`inserting rates at row ${i}: ${error.message}`);
-      it.msg = `loading ${Math.min(i + BATCH, rows.length).toLocaleString()} of ${rows.length.toLocaleString()}…`;
+      if ((i / BATCH) % 20 === 19) {
+        sb.from('pricebook_uploads').update({ heartbeat_at: new Date().toISOString() })
+          .eq('id', uploadId).then(() => {}, () => {});
+      }
+      it.msg = `loading ${Math.min(i + BATCH, total).toLocaleString()} of ${total.toLocaleString()}…`;
       renderQueue();
     }
-
-    const elec = parsed.rows.filter(r => r.fuel === 'electricity').length;
-    await record(rows.length, elec, rows.length - elec);
+    parsed.rows = null;
+    await record(total, elec, total - elec);
 
     // "It needs to always replace the previous." One RPC, one transaction: retire whatever
-    // was live for this supplier AND THIS PRODUCT, then promote this one. Keyed on the
-    // product because keying on (supplier, fuel) meant a REGO upload retired Standard.
+    // was live for this supplier AND THIS PRODUCT, then promote this one.
     const live = await q(sb.rpc('pricebook_go_live', { p_upload: uploadId }), 'go live');
     const superseded = (live && live[0] && live[0].superseded) || 0;
 
-    // Going live only re-labels the book it replaces; the rates come out here, batched.
-    // It used to delete them inside the same transaction, which meant a slow cleanup could
-    // roll back the promotion and veto a perfectly good upload.
-    it.msg = 'clearing the replaced book…'; renderQueue();
+    // The replaced book is then deleted outright: its rates, its archive file, and its row.
+    // CES (4 Nov 2026): only live books are shown, replaced ones are removed.
+    it.msg = 'deleting the replaced book…'; renderQueue();
     const swept = await sweepOrphanRates((done) => {
-      it.msg = `clearing the replaced book — ${done.toLocaleString()} rates…`; renderQueue();
+      it.msg = `deleting the replaced book: ${done.toLocaleString()} rates…`; renderQueue();
     });
-    // Its source file goes with it. Keeping the CSV a deleted book came from just moved the
-    // storage from the table to the bucket, which is where 76 MB was found sitting.
-    const sweptFiles = await sweepOrphanFiles();
+    await sweepOrphanFiles();
+    try { await sb.rpc('pricebook_purge_retired', { p_limit: 500 }); } catch (_) { /* housekeeping */ }
 
     it.state = 'done';
-    it.msg = `${rows.length.toLocaleString()} rates in ${((Date.now()-t0)/1000).toFixed(1)}s`
-           + (superseded
-              ? `, replaced the previous book and deleted its `
-                + `${swept.toLocaleString()} rates`
-                + (sweptFiles.files ? ` and ${mb(sweptFiles.bytes)} of source files` : '')
-              : `, nothing previous to replace`)
+    it.msg = `${total.toLocaleString()} rates live in ${((Date.now() - t0) / 1000).toFixed(1)}s`
+           + (superseded ? `, replaced the previous book (${swept.toLocaleString()} rates deleted)`
+                         : ', nothing previous to replace')
            + (refused ? `. ${refused.toLocaleString()} rows refused` : '');
-    it.buf = null; it.file = null;      // let the workbook go
   } catch (e) {
-    // Leave the upload visibly broken rather than silently half-loaded.
+    // Leave the upload visibly broken rather than silently half-loaded; the sweeper takes its
+    // rates and the row goes with the next tidy-up.
     if (uploadId) {
       try {
         await sb.from('pricebook_uploads')
           .update({ status: 'failed', parse_error: String(e.message).slice(0, 500),
                     parse_finished_at: new Date().toISOString() })
           .eq('id', uploadId);
-      } catch (_) { /* the message on the row is what matters */ }
+      } catch (_) { /* the message on the queue row is what matters */ }
     }
     throw e;
   }
@@ -2056,43 +2389,79 @@ async function registerLayout(id, btn) {
   }
 }
 
+/**
+ * The live pricebooks, and only those. Replaced and deleted books are deleted (CES, 4 Nov
+ * 2026: "only show live"), so the list is what the desk actually quotes from. A book still
+ * loading shows at the top while it runs.
+ *
+ * "Book of" is the day its email arrived (or the day it was dropped in by hand). "Quoted until"
+ * is the book's own last day where the supplier gives one: past it the book is not quoted
+ * (pricebook_rates_live checks), and it says so here in red rather than quietly vanishing.
+ */
 async function loadLedger() {
   const body = $('ledgerBody');
+  if (!body) return;
   let rows;
   try {
     rows = await q(sb.from('pricebook_uploads')
       .select('id,supplier_key,fuel,product_key,sale_scope,source_filename,zip_filename,'
-            + 'pricebook_version,rows_loaded,rows_refused,rows_electricity,rows_gas,'
-            + 'window_open,window_close,status,uploaded_at,uploaded_by_name,parse_error')
-      // A deleted book is gone from pricing and only matters when someone is explaining an
-      // old quote, so it does not belong in the working list. The record still exists and
-      // the Admin tab still shows it.
-      .not('status', 'eq', 'deleted')
-      .order('uploaded_at', { ascending: false }).limit(200), 'ledger');
+            + 'pricebook_version,rows_loaded,rows_refused,status,uploaded_at,uploaded_by_name,'
+            + 'source_received_at,quote_valid_to,went_live_at,notes')
+      .in('status', ['live', 'loading'])
+      .order('supplier_key').order('product_key').limit(500), 'live pricebooks');
   } catch (e) { body.innerHTML = ''; return fail($('ledgerErr'), e.message); }
   LEDGER = rows;
+  const today = todayIso();
+  const bookOf = (r) => String(r.source_received_at || r.uploaded_at || '').slice(0, 10);
+  const ageDays = (r) => Math.floor((Date.parse(today) - Date.parse(bookOf(r))) / 864e5);
+  const expired = (r) => r.quote_valid_to && String(r.quote_valid_to).slice(0, 10) < today;
+
+  // One chip per supplier: green when everything live is current, amber when the newest book
+  // is over a fortnight old, red when something has expired or the newest is over 4 weeks old.
+  const bySup = new Map();
+  for (const r of rows.filter(x => x.status === 'live')) {
+    const s = bySup.get(r.supplier_key) || { newest: '', expired: 0, books: 0 };
+    s.books++; if (expired(r)) s.expired++;
+    if (bookOf(r) > s.newest) s.newest = bookOf(r);
+    bySup.set(r.supplier_key, s);
+  }
+  const chips = [...bySup.entries()]
+    .sort((a, b) => supplierName(a[0]).localeCompare(supplierName(b[0])))
+    .map(([k, s]) => {
+      const age = Math.floor((Date.parse(today) - Date.parse(s.newest)) / 864e5);
+      const tone = s.expired === s.books || age > 28 ? 'bad' : s.expired || age > 14 ? 'warn' : 'ok';
+      const what = s.expired === s.books ? 'expired' : `${age === 0 ? 'today' : age + 'd old'}${s.expired ? `, ${s.expired} expired` : ''}`;
+      return `<span class="bk-chip" title="${s.books} live book${s.books === 1 ? '' : 's'}"><i class="${tone}"></i>${esc(supplierName(k))} <span style="font-weight:500;color:var(--muted)">${esc(what)}</span></span>`;
+    }).join('');
+  const sup = $('bkSuppliers'); if (sup) sup.innerHTML = chips;
+
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="10" style="color:var(--muted)">Nothing uploaded yet.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nothing live yet.</td></tr>';
     return;
   }
-  body.innerHTML = rows.map(r => `<tr>
-    <td>${esc(supplierName(r.supplier_key))}</td>
-    <td>${esc(prodName(r))}${r.sale_scope && r.sale_scope !== 'any'
-      ? `<div style="font-size:10px;color:var(--muted)">${esc(r.sale_scope)}</div>` : ''}</td>
-    <td style="max-width:260px;overflow-wrap:anywhere">${esc(r.source_filename)}${
-      r.zip_filename ? `<div style="font-size:10px;color:var(--muted)">from ${esc(r.zip_filename)}</div>` : ''}</td>
-    <td class="mono">${esc(r.pricebook_version || '—')}</td>
-    <td class="num">${r.rows_loaded ? r.rows_loaded.toLocaleString() : '—'}${
-      r.fuel === 'both' && r.rows_loaded
-        ? `<div style="font-size:10px;color:var(--muted)">${(r.rows_electricity||0).toLocaleString()}e / ${(r.rows_gas||0).toLocaleString()}g</div>` : ''}</td>
-    <td class="num" ${r.rows_refused ? 'style="color:var(--warn)"' : ''}>${r.rows_refused || '—'}</td>
-    <td class="mono">${uk(r.window_open)} → ${uk(r.window_close)}</td>
-    <td><span class="pill ${statusPill(r.status)}" title="${esc(statusHint(r.status))}"
-          >${esc(statusLabel(r.status))}</span>${
-      r.parse_error ? `<div style="font-size:10px;color:var(--fail);max-width:200px">${esc(r.parse_error.slice(0,120))}</div>` : ''}</td>
-    <td class="mono">${uk(r.uploaded_at)}</td>
-    <td>${uploadActions(r)}</td>
-  </tr>`).join('');
+  const loadingFirst = [...rows].sort((a, b) => (a.status === 'loading' ? -1 : 0) - (b.status === 'loading' ? -1 : 0)
+    || supplierName(a.supplier_key).localeCompare(supplierName(b.supplier_key)));
+  body.innerHTML = loadingFirst.map(r => {
+    const age = ageDays(r);
+    const vt = r.quote_valid_to ? String(r.quote_valid_to).slice(0, 10) : null;
+    const until = r.status === 'loading' ? '<span class="pill p-warn">loading</span>'
+      : !vt ? '<span style="color:var(--muted)">not given</span>'
+      : vt < today ? `<span class="pill p-fail" title="${esc((String(r.notes || '').match(/expired: [^|]+/) || [''])[0])}">ended ${uk(vt)}</span>`
+      : vt === today ? '<span class="pill p-warn">today only</span>'
+      : uk(vt);
+    return `<tr${r.status === 'loading' ? ' style="background:var(--warn-bg)"' : ''}>
+      <td>${esc(supplierName(r.supplier_key))}</td>
+      <td>${esc(prodName(r))}<div class="bk-age">${esc(r.fuel)}${r.sale_scope && r.sale_scope !== 'any' ? ' · ' + esc(r.sale_scope) : ''}</div></td>
+      <td style="max-width:300px;overflow-wrap:anywhere">${esc(r.source_filename)}${
+        r.zip_filename ? `<div class="bk-age">from ${esc(r.zip_filename)}</div>` : ''}</td>
+      <td class="mono">${uk(bookOf(r))}<div class="bk-age" style="${age > 28 ? 'color:var(--fail)' : age > 14 ? 'color:var(--warn)' : ''}">${
+        age <= 0 ? 'today' : age === 1 ? 'yesterday' : age + ' days ago'}</div></td>
+      <td>${until}</td>
+      <td class="num">${r.rows_loaded ? r.rows_loaded.toLocaleString() : '—'}</td>
+      <td style="white-space:nowrap">${r.status === 'live'
+        ? `<button class="act ghost sm" onclick="retire('${r.id}',true,this)" title="Stop quoting it and delete it">Remove</button>` : ''}</td>
+    </tr>`;
+  }).join('');
 }
 
 /**
@@ -2152,9 +2521,9 @@ async function promote(id, btn) {
  */
 async function retire(id, purge, btn) {
   const row = (LEDGER || []).find(r => r.id === id) || {};
-  if (purge && !confirm(`Delete every rate from ${row.source_filename || 'this book'}?\n\n`
-    + `${(row.rows_loaded || 0).toLocaleString()} rows go for good. Any quote that used them `
-    + `can no longer be explained. Retiring instead keeps the record.`)) return;
+  if (purge && !confirm(`Remove ${row.source_filename || 'this pricebook'} from the desk?\n\n`
+    + `It stops being quoted straight away and its ${(row.rows_loaded || 0).toLocaleString()} rates are deleted. `
+    + `${supplierName(row.supplier_key || '')} then has nothing live for this product until a new book is loaded.`)) return;
   btn.disabled = true; btn.textContent = '…';
   try {
     // The RPC only flips the status now, which is one row. It used to do the whole delete
@@ -2175,17 +2544,18 @@ async function retire(id, purge, btn) {
     }
     btn.textContent = 'files…';
     const files = await sweepOrphanFiles();
+    try { await sb.rpc('pricebook_purge_retired', { p_limit: 500 }); } catch (_) { /* the cron tidies up too */ }
 
     loadLedger(); loadAdmin(); loadStorage();
-    alert(`${r.action || 'done'} — ${removed.toLocaleString()} rates deleted`
+    alert(`Removed: ${removed.toLocaleString()} rates deleted`
         + (files.files ? ` and ${files.files} source file${files.files === 1 ? '' : 's'} `
                        + `(${mb(files.bytes)})` : '')
         + (removed < pending
-           ? `, ${(pending - removed).toLocaleString()} still to go. The Admin tab will `
-             + `finish them, and so will the next upload.`
+           ? `, ${(pending - removed).toLocaleString()} still to go. The mailbox job finishes `
+             + `them within 15 minutes, and so does the next load.`
            : '.'));
   } catch (e) {
-    btn.disabled = false; btn.textContent = purge ? 'Delete' : 'Replace';
+    btn.disabled = false; btn.textContent = purge ? 'Remove' : 'Replace';
     fail($('ledgerErr'), e.message);
     // The ledger error line sits under a table that may be scrolled away, and CES watched
     // this button flick back to "Replace" with no visible reason more than once.
@@ -2479,7 +2849,7 @@ async function loadAdmin() {
       <td><input type="checkbox" ${r.quotable ? 'checked' : ''}
                  onchange="saveProduct('${key}','quotable',this.checked,this)"></td>
       <td>${r.upload_id
-        ? `<button class="act ghost sm" onclick="retire('${r.upload_id}',false,this)">Replace</button>` : ''}</td>
+        ? `<button class="act ghost sm" onclick="retire('${r.upload_id}',true,this)" title="Stop quoting it and delete it">Remove</button>` : ''}</td>
     </tr>`;
   }).join('');
 
@@ -4026,7 +4396,9 @@ async function sweepOrphanFiles(onProgress) {
   return { files: total, bytes };
 }
 
-const mb = (b) => !b ? '0 MB' : (Number(b) / 1048576).toFixed(1) + ' MB';
+// Under a megabyte in KB: a 40 KB flat file showed as "0.0 MB".
+const mb = (b) => !b ? '0 MB' : Number(b) < 1048576 ? Math.max(1, Math.round(Number(b) / 1024)) + ' KB'
+  : (Number(b) / 1048576).toFixed(1) + ' MB';
 
 /** What the pricebook tables are costing, so this cannot creep back unnoticed. */
 async function loadStorage() {

@@ -21,7 +21,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026-11-03.1';
+  var VERSION = '2026-11-04.1';
   var PAGE = 50, BIG_PAGE = 100;
 
   var LIFE = {
@@ -89,6 +89,24 @@
     '.crm-drop{border:2px dashed var(--line-2);border-radius:12px;padding:22px 18px;text-align:center;cursor:pointer}',
     '.crm-drop.over{border-color:var(--cyan-dim);background:var(--cyan-glow)}',
     '.crm-h3{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--text-2);margin:18px 0 8px}',
+    // Portfolios (4 Nov 2026): one tile per account manager instead of 900 customers in a list.
+    '.pf-top{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px}',
+    '.pf-top>div:first-child{flex:1;min-width:240px}',
+    '.pf-strip{display:flex;flex-wrap:wrap;gap:18px;font-size:12px;color:var(--text-2);margin:0 0 16px}',
+    '.pf-strip b{font-size:15px;color:var(--text);font-variant-numeric:tabular-nums;margin-right:4px}',
+    '.pf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}',
+    // A <button> centres its content vertically; in a grid row next to a taller tile that left
+    // the name floating halfway down (seen in the screenshot, 4 Nov). Column flex keeps it top.
+    '.pf-tile{text-align:left;background:var(--panel);border:1px solid var(--line-2);border-radius:12px;padding:14px 16px;cursor:pointer;font:inherit;color:var(--text);display:flex;flex-direction:column;justify-content:flex-start}',
+    '.pf-tile:hover,.pf-tile:focus-visible{border-color:var(--cyan-dim);background:var(--cyan-glow);outline:none}',
+    '.pf-tile.me{border-color:var(--cyan);box-shadow:0 0 0 2px var(--cyan-glow)}',
+    '.pf-tile .n{font-size:14.5px;font-weight:800;margin-bottom:6px}',
+    '.pf-tile .l{font-size:12px;color:var(--text-2);line-height:1.7}',
+    '.pf-tile .l b{color:var(--text);font-variant-numeric:tabular-nums}',
+    '.pf-tile .due{color:var(--warn)} .pf-tile .gap{color:var(--fail)}',
+    '.pf-sub{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:20px 0 8px}',
+    '.pf-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:6px}',
+    '.pf-head h2{margin:0}',
   ].join('\n');
 
   function injectStyles(doc) {
@@ -106,8 +124,8 @@
     injectStyles(doc);
 
     var S = {
-      view: 'overview', overview: null,
-      cust: { page: 0, q: '', status: 'customers', am: '' },
+      view: 'portfolios', overview: null, portfolios: null,
+      cust: { page: 0, q: '', status: 'customers', am: '', sort: 'name' },
       customer: null, ctab: 'live', cpage: 0,
       k: { tab: 'live', page: 0, q: '', supplier: '', fuel: '', am: '', ces: '', within: '', notRenewed: false },
       t: { tab: 'open', page: 0, q: '', am: '' },
@@ -117,8 +135,8 @@
 
     host.innerHTML =
       '<div class="crm-sub" id="crmNav">' +
-      [['overview', 'Overview'], ['customers', 'Customers'], ['contracts', 'Contracts'], ['tenders', 'Tenders'],
-       ['quality', 'Data checks'], ['import', 'Import from UC']].map(function (v) {
+      [['portfolios', 'Portfolios'], ['contracts', 'Contracts'], ['tenders', 'Tenders'],
+       ['quality', 'Data checks'], ['overview', 'Figures'], ['import', 'Import from UC']].map(function (v) {
         return '<button data-v="' + v[0] + '">' + v[1] + '</button>';
       }).join('') + '</div><div id="crmBody"></div>';
     var body = host.querySelector('#crmBody');
@@ -135,16 +153,30 @@
     }
     function fail(e) { body.insertAdjacentHTML('afterbegin', '<div class="note bad" style="margin-bottom:12px">' + esc(e.message || String(e)) + '</div>'); }
     function setNav() {
+      var v = (S.view === 'customer' || S.view === 'customers') ? 'portfolios' : S.view;
       [].forEach.call(host.querySelectorAll('#crmNav button'), function (b) {
-        b.classList.toggle('on', b.getAttribute('data-v') === (S.view === 'customer' ? 'customers' : S.view));
+        b.classList.toggle('on', b.getAttribute('data-v') === v);
       });
     }
-    function go(view, arg) {
+    function go(view, arg, opt) {
+      var win = doc.defaultView || root;
+      var keep = opt && opt.keepScroll ? win.scrollY : null;
       S.view = view; setNav();
-      body.innerHTML = '<div class="note">Loading&hellip;</div>';
-      var f = { overview: renderOverview, customers: renderCustomers, customer: renderCustomer,
+      if (keep == null) {
+        body.innerHTML = '<div class="note">Loading&hellip;</div>';
+        // A new view starts with this menu in sight. The page keeps whatever scroll the last
+        // view (or tab) had, and the sticky header then sits over the menu: clicks on it
+        // landed on the header instead.
+        var hdr = doc.querySelector('header');
+        var cover = hdr && win.getComputedStyle(hdr).position === 'sticky' ? hdr.getBoundingClientRect().height : 0;
+        var top = host.getBoundingClientRect().top;
+        if (top < cover && win.scrollBy) win.scrollBy(0, top - cover - 8);
+      }
+      var f = { portfolios: renderPortfolios, overview: renderOverview, customers: renderCustomers, customer: renderCustomer,
                 contracts: renderContracts, tenders: renderTenders, quality: renderQuality, import: renderImport }[view];
-      return Promise.resolve().then(function () { return f(arg); }).catch(function (e) { body.innerHTML = ''; fail(e); });
+      return Promise.resolve().then(function () { return f(arg); })
+        .then(function () { if (keep != null) win.scrollTo(0, keep); })
+        .catch(function (e) { body.innerHTML = ''; fail(e); });
     }
 
     function lists() {
@@ -173,6 +205,99 @@
       [].forEach.call(el.querySelectorAll('[data-pg]'), function (b) {
         b.addEventListener('click', function () { on(Number(b.getAttribute('data-pg'))); });
       });
+    }
+
+    // ---------------------------------------------------------------- portfolios
+    // The landing view. CES, 4 Nov 2026: "I don't want a list of all customers with hundreds,
+    // I want them split by portfolio." One tile per account manager as UC holds it on the
+    // customer; the pools UC uses for unassigned business sit apart, and the portfolios of
+    // people not on the team are folded away.
+    //
+    // "On the team" is pricing_managers, the list the desk already quotes under (Adam, Alex,
+    // Jon, Robert, Vick on 4 Nov). UC still holds 17 names: a rule on size put six leavers
+    // (Gareth Castle's 28 dormant customers, Daniel Hall's 4 live contracts...) among the
+    // five real books. Without that list, a book with 10 or more live contracts counts.
+    var POOLS = { 'Unassigned': 1, '. Opportunity': 1, 'Pool Open to Brokers': 1 };
+    function pfName(am) { return am === '. Opportunity' ? 'Opportunity pool' : am; }
+    function isMine(am) {
+      var w = String(who() || '').trim().toLowerCase();
+      if (!w || !am || POOLS[am]) return false;
+      var a = String(am).toLowerCase();
+      if (a === w) return true;
+      // "Adam" on the desk is Adam Carter's portfolio; "Adam Smith" is not.
+      return w.indexOf(' ') < 0 && a.split(' ')[0] === w;
+    }
+    function renderPortfolios() {
+      var teamP = Promise.resolve(sb.from('pricing_managers').select('manager_name'))
+        .then(function (r) { return (r && !r.error && r.data) || []; }, function () { return []; });
+      return Promise.all([q(sb.rpc('crm_portfolios'), 'portfolios'), q(sb.rpc('crm_overview'), 'overview'), teamP]).then(function (r) {
+        var list = (r[0].data || []).slice(), o = r[1].data || {};
+        S.overview = o; S.portfolios = list;
+        var team = {};
+        r[2].forEach(function (m) { if (m.manager_name) team[String(m.manager_name).trim().toLowerCase()] = 1; });
+        var hasTeam = Object.keys(team).length > 0;
+        var tdue = 0, tout = 0, tlive = 0, tcust = 0;
+        list.forEach(function (p) {
+          tdue += Number(p.renewals_90) || 0; tout += Number(p.out_of_contract) || 0;
+          tlive += Number(p.live_contracts) || 0; tcust += Number(p.customers) || 0;
+        });
+        var big = function (p) {
+          if (isMine(p.account_manager)) return true;
+          return hasTeam ? !!team[String(p.account_manager || '').trim().toLowerCase()] : Number(p.live_contracts) >= 10;
+        };
+        var main = list.filter(function (p) { return !POOLS[p.account_manager] && big(p); }).sort(function (a, b) {
+          return (isMine(b.account_manager) - isMine(a.account_manager)) || (Number(b.customers) - Number(a.customers));
+        });
+        var pools = list.filter(function (p) { return POOLS[p.account_manager]; });
+        var other = list.filter(function (p) { return !POOLS[p.account_manager] && !big(p); }).sort(function (a, b) {
+          return (Number(b.customers) + Number(b.leads)) - (Number(a.customers) + Number(a.leads));
+        });
+        function tile(p) {
+          var due = Number(p.renewals_90) || 0, gap = Number(p.out_of_contract) || 0, leads = Number(p.leads) || 0;
+          return '<button class="pf-tile' + (isMine(p.account_manager) ? ' me' : '') + '" data-am="' + esc(p.account_manager) + '">' +
+            '<div class="n">' + esc(pfName(p.account_manager)) + (isMine(p.account_manager) ? ' <span class="pill p-ok">you</span>' : '') + '</div>' +
+            '<div class="l"><b>' + n0(p.customers) + '</b> customer' + (Number(p.customers) === 1 ? '' : 's') +
+            ' &middot; <b>' + n0(p.live_contracts) + '</b> live contract' + (Number(p.live_contracts) === 1 ? '' : 's') + '</div>' +
+            '<div class="l' + (due ? ' due' : '') + '"><b>' + n0(due) + '</b> renewal' + (due === 1 ? '' : 's') + ' due in 90 days</div>' +
+            (gap ? '<div class="l gap"><b>' + n0(gap) + '</b> meter' + (gap === 1 ? '' : 's') + ' with no contract</div>' : '') +
+            (p.next_ced ? '<div class="l">Next contract end ' + uk(p.next_ced) + '</div>' : '') +
+            (leads ? '<div class="l">' + n0(leads) + ' lead' + (leads === 1 ? '' : 's') + '</div>' : '') +
+            '</button>';
+        }
+        body.innerHTML = '<div class="card">' +
+          '<div class="pf-top"><div><h2>Portfolios</h2><div class="sub" style="margin-bottom:0">Every customer UtilityClick held, ' +
+          'by account manager. Open one for its customers, renewals and meters.</div></div>' +
+          '<div style="flex:1;min-width:260px;max-width:460px"><label for="pfQ">Find a customer in any portfolio</label>' +
+          '<input id="pfQ" placeholder="Name, postcode, company number or MPAN"></div></div>' +
+          '<div class="pf-strip"><span><b>' + n0(tcust) + '</b>customers</span><span><b>' + n0(tlive) + '</b>live contracts</span>' +
+          '<span><b>' + n0(tdue) + '</b>renewals due in 90 days</span><span><b>' + n0(tout) + '</b>meters with no contract</span>' +
+          (o.tenders ? '<span><b>' + n0(o.tenders.open) + '</b>open tenders</span>' : '') + '</div>' +
+          '<div class="pf-grid">' + main.map(tile).join('') + '</div>' +
+          (pools.length ? '<div class="pf-sub">Unassigned and pools</div><div class="pf-grid">' + pools.map(tile).join('') + '</div>' : '') +
+          (other.length ? '<details style="margin-top:18px"><summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--text-2)">' +
+            other.length + ' other portfolio' + (other.length === 1 ? '' : 's') + ' (people no longer on the team)</summary>' +
+            '<div class="pf-grid" style="margin-top:10px">' + other.map(tile).join('') + '</div></details>' : '') +
+          '</div>';
+        [].forEach.call(body.querySelectorAll('.pf-tile'), function (b) {
+          b.addEventListener('click', function () { openPortfolio(b.getAttribute('data-am')); });
+        });
+        var inp = body.querySelector('#pfQ');
+        inp.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' && inp.value.trim()) {
+            S.cust = { page: 0, q: inp.value.trim(), status: 'all', am: '', sort: 'name' };
+            go('customers');
+          }
+        });
+      });
+    }
+    function openPortfolio(am) {
+      // Open on what the portfolio actually holds: a leaver's book of only inactive customers,
+      // or a pool of only leads, would otherwise open on "Nothing matched".
+      var p = (S.portfolios || []).filter(function (x) { return x.account_manager === am; })[0] || {};
+      var status = Number(p.customers) > 0 ? 'customers' : Number(p.leads) > 0 ? 'leads'
+        : Number(p.inactive) > 0 ? 'inactive' : 'all';
+      S.cust = { page: 0, q: '', status: status, am: am, sort: 'ced' };
+      return go('customers');
     }
 
     // ---------------------------------------------------------------- overview
@@ -239,36 +364,54 @@
           if (f.status === 'customers') b = b.eq('is_lead', false).not('active', 'is', false);
           else if (f.status === 'inactive') b = b.eq('is_lead', false).eq('active', false);
           else if (f.status === 'leads') b = b.eq('is_lead', true);
-          if (f.am) b = b.eq('account_manager', f.am);
-          return q(b.order('name').range(f.page * PAGE, f.page * PAGE + PAGE - 1), 'customer list');
+          if (f.am === 'Unassigned') b = b.or('account_manager.is.null,account_manager.eq.');
+          else if (f.am) b = b.eq('account_manager', f.am);
+          b = f.sort === 'ced' ? b.order('next_ced', { ascending: true, nullsFirst: false }).order('name') : b.order('name');
+          return q(b.range(f.page * PAGE, f.page * PAGE + PAGE - 1), 'customer list');
         }).then(function (r) {
           var rows = r.data || [];
-          body.innerHTML = '<div class="card"><h2>Customers</h2>' +
+          var pf = f.am && S.portfolios ? S.portfolios.filter(function (p) { return p.account_manager === f.am; })[0] : null;
+          var title = f.am ? 'Portfolio: ' + esc(pfName(f.am)) : (f.q ? 'Search' : 'Customers');
+          body.innerHTML = '<div class="card">' +
+            '<button class="crm-back" id="crmPfBack">&larr; All portfolios</button>' +
+            '<div class="pf-head"><h2>' + title + '</h2></div>' +
+            (pf ? '<div class="pf-strip"><span><b>' + n0(pf.customers) + '</b>customers</span><span><b>' + n0(pf.live_contracts) + '</b>live contracts</span>' +
+              '<span><b>' + n0(pf.renewals_90) + '</b>renewals due in 90 days</span><span><b>' + n0(pf.out_of_contract) + '</b>meters with no contract</span>' +
+              (Number(pf.leads) ? '<span><b>' + n0(pf.leads) + '</b>leads</span>' : '') + '</div>' : '') +
             '<div class="row" style="margin-bottom:12px">' +
-            '<div style="flex:2"><label for="crmCq">Name, postcode, company number or MPAN</label><input id="crmCq" value="' + esc(f.q) + '" placeholder="Rymece, BR3 5LE, 1012872025440"></div>' +
+            '<div style="flex:2"><label for="crmCq">' + (f.am ? 'Find in this portfolio' : 'Name, postcode, company number or MPAN') + '</label><input id="crmCq" value="' + esc(f.q) + '" placeholder="Rymece, BR3 5LE, 1012872025440"></div>' +
             '<div><label for="crmCs">Show</label><select id="crmCs">' +
             [['customers', 'Customers (active)'], ['inactive', 'Inactive customers'], ['leads', 'Leads'], ['all', 'Everyone']].map(function (o) {
               return '<option value="' + o[0] + '"' + (o[0] === f.status ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
-            '<div><label for="crmCam">Account manager</label><select id="crmCam">' + options(L.ams, f.am, 'Anyone', 'account_manager') + '</select></div>' +
+            '<div><label for="crmCam">Portfolio</label><select id="crmCam">' + options(L.ams.concat([{ account_manager: 'Unassigned' }]), f.am, 'All portfolios', 'account_manager') + '</select></div>' +
+            '<div><label for="crmCso">Order</label><select id="crmCso">' +
+            [['ced', 'Next contract end first'], ['name', 'Name']].map(function (o) {
+              return '<option value="' + o[0] + '"' + (o[0] === (f.sort || 'name') ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
             '<div style="flex:0 0 auto;display:flex;align-items:flex-end"><button class="act" id="crmCgo">Search</button></div></div>' +
-            (rows.length ? '<div class="scroll"><table><thead><tr><th>Customer</th><th>Account manager</th><th class="num">Meters</th>' +
+            (rows.length ? '<div class="scroll"><table><thead><tr><th>Customer</th>' + (f.am ? '' : '<th>Account manager</th>') + '<th class="num">Meters</th>' +
               '<th class="num">Live contracts</th><th>Next contract end</th><th class="num">Problems</th><th>Status</th></tr></thead><tbody>' +
               rows.map(function (c) {
                 var soon = c.next_ced && c.next_ced <= plusDays(today(), 90);
                 return '<tr class="crm-click" data-c="' + esc(c.uc_customer_id) + '"><td class="crm-wrap">' + esc(c.name) +
                   (c.registered_postcode ? '<div class="crm-small">' + esc(c.registered_postcode) + '</div>' : '') + '</td>' +
-                  '<td>' + esc(c.account_manager || '') + '</td><td class="num">' + n0(c.active_meter_count) +
+                  // Inside one portfolio every row has the same account manager: no column for it.
+                  (f.am ? '' : '<td>' + esc(c.account_manager || '') + '</td>') + '<td class="num">' + n0(c.active_meter_count) +
                   (c.meter_count !== c.active_meter_count ? '<span class="crm-small"> / ' + n0(c.meter_count) + '</span>' : '') + '</td>' +
                   '<td class="num">' + n0(c.live_contracts) + '</td><td>' + (c.next_ced ? (soon ? '<b>' + uk(c.next_ced) + '</b>' : uk(c.next_ced)) : '<span class="crm-small">none live</span>') + '</td>' +
                   '<td class="num">' + (c.open_issues ? '<span class="pill p-warn">' + n0(c.open_issues) + '</span>' : '') + '</td>' +
                   '<td>' + (c.is_lead ? '<span class="pill p-mute">Lead</span>' : c.active === false ? '<span class="pill p-mute">Inactive</span>' : '<span class="pill p-ok">Active</span>') + '</td></tr>';
               }).join('') + '</tbody></table></div>' + pager(f.page, PAGE, r.count || 0)
               : '<div class="note">Nothing matched.</div>') + '</div>';
-          var run = function () { f.q = body.querySelector('#crmCq').value; f.status = body.querySelector('#crmCs').value; f.am = body.querySelector('#crmCam').value; f.page = 0; go('customers'); };
+          var run = function () {
+            f.q = body.querySelector('#crmCq').value; f.status = body.querySelector('#crmCs').value;
+            f.am = body.querySelector('#crmCam').value; f.sort = body.querySelector('#crmCso').value; f.page = 0; go('customers');
+          };
           body.querySelector('#crmCgo').addEventListener('click', run);
           body.querySelector('#crmCq').addEventListener('keydown', function (e) { if (e.key === 'Enter') run(); });
           body.querySelector('#crmCs').addEventListener('change', run);
           body.querySelector('#crmCam').addEventListener('change', run);
+          body.querySelector('#crmCso').addEventListener('change', run);
+          body.querySelector('#crmPfBack').addEventListener('click', function () { go('portfolios'); });
           wirePager(body, function (p) { f.page = p; go('customers'); });
           [].forEach.call(body.querySelectorAll('tr[data-c]'), function (tr) {
             tr.addEventListener('click', function () { go('customer', tr.getAttribute('data-c')); });
@@ -611,7 +754,7 @@
                 q(sb.from('crm_issues').update({ resolved_at: new Date().toISOString(), resolved_by: who() || 'pricing desk', resolution_note: note || null }).eq('id', i.id).select('id'), 'mark done')
                   .then(function (res) {
                     if (!res.data || !res.data.length) throw new Error('mark done: nothing was saved (permissions?)');
-                    go('quality');
+                    go('quality', null, { keepScroll: true });     // working down a list: stay put
                   }).catch(function (e) { b.disabled = false; fail(e); });
               });
             });
@@ -729,7 +872,7 @@
         });
     }
 
-    go('overview');
+    go('portfolios');
     return { go: go, state: S, VERSION: VERSION };
   }
 
