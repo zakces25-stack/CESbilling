@@ -13,7 +13,7 @@
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <!-- Bump on every push: a plain fetch of the live page can then tell this build from the last. -->
-  <meta name="build" content="pricing 2026-11-04b" />
+  <meta name="build" content="pricing 2026-11-04c" />
   <title>CES Pricing Portal</title>
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
@@ -22,30 +22,31 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <style>
-    /* Cream, blue and green. Light, but deliberately NOT white: #fff under an office light
-       for eight hours is glare, and a price you are about to quote deserves to be read on
-       paper, not on a lightbox. So the page is warm cream, the cards are a shade off white,
-       and the working surfaces (hover, sub-panels) pick up a cool green-blue so the eye can
-       tell a container from its contents without a single extra border.
-       The variable NAMES are unchanged on purpose, --cyan included, so this is a palette
-       swap and not a 3,000-line rename. --cyan is now the teal that reads as CES green.
-       Every colour below is measured against the surface it sits on: the lowest pair is
-       4.51:1, so all text on this page clears WCAG AA (4.5) including the 10.5px pills. */
+    /* Blue and white (CES, 4 Nov 2026), in the colours of the CES logo: a navy side menu, a
+       white top bar carrying the logo, white cards on a pale blue-grey canvas. The canvas is not
+       pure white on purpose: #fff wall to wall under an office light for eight hours is glare,
+       so white is kept for the things you read (cards, tables, the top bar) and the gaps between
+       them are a quiet blue-grey that tells a container from its contents without extra borders.
+       The variable NAMES are unchanged, --cyan included, so this is a palette swap and not a
+       3,000-line rename: --cyan is now CES blue. Every text colour is measured against the
+       surface it sits on by the page test (contrast section): all clear WCAG AA, 4.5:1. */
     :root {
-      --bg:#f6f3ea; --bg-2:#fffdf7;
-      --panel:#fffdf7; --panel-2:#eef3f0; --panel-3:#e3ebe7;
-      --line:#e5e0d2; --line-2:#cdd7d2;
-      --text:#16242c; --text-2:#4a5b64; --muted:#5c6b73;
-      --cyan:#0f766e; --cyan-dim:#8ec3bc; --cyan-glow:rgba(15,118,110,.09);
+      --bg:#f1f4f9; --bg-2:#ffffff;
+      --panel:#ffffff; --panel-2:#edf2f9; --panel-3:#e0e8f4;
+      --line:#dde4ef; --line-2:#c6d1e3;
+      --text:#132039; --text-2:#3d4c66; --muted:#526179;
+      --cyan:#1f4fae; --cyan-dim:#9db3e2; --cyan-glow:rgba(31,79,174,.08);
+      --navy:#1b2a50; --navy-2:#24375f; --navy-3:#2d4374; --lime:#a8c818;
       --ok:#12682f; --ok-bg:#e4f1e7;
       --fail:#b3261e; --fail-bg:#fbeae9;
       --warn:#7d5806; --warn-bg:#f7efdc;
-      --shadow:0 1px 2px rgba(28,38,44,.05), 0 8px 24px rgba(28,38,44,.06);
+      --st-green:#1d8a48; --st-amber:#c28100; --st-red:#c83a2e;
+      --shadow:0 1px 2px rgba(19,32,57,.05), 0 6px 20px rgba(19,32,57,.06);
       --field-h:35px;
     }
     *{margin:0;padding:0;box-sizing:border-box}
-    /* The header is sticky and 60px tall, so anything scrolled to the top of the viewport
-       lands UNDERNEATH it and its clicks are swallowed by the header. Verified with
+    /* The top bar is sticky and 60px tall, so anything scrolled to the top of the viewport
+       lands UNDERNEATH it and its clicks are swallowed by it. Verified with
        document.elementFromPoint: scrolling the Search button into view returned HEADER, not
        BUTTON. scroll-padding-top keeps that from happening for keyboard scrolling, anchors
        and scrollIntoView alike; the per-card margin covers programmatic scrolls. */
@@ -56,32 +57,112 @@
     .hide{display:none!important}
     a{color:var(--cyan)}
 
-    header{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:18px;
-      padding:14px 22px;background:rgba(246,243,234,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
-    header h1{font-size:15px;font-weight:700;letter-spacing:.02em}
-    header h1 span{color:var(--cyan)}
-    nav{display:flex;gap:4px;margin-left:12px}
-    nav button{background:none;border:1px solid transparent;color:var(--text-2);font:inherit;font-size:13px;
-      font-weight:600;padding:7px 14px;border-radius:8px;cursor:pointer}
-    nav button:hover{color:var(--text);background:var(--panel-2)}
-    nav button.on{color:var(--cyan);background:var(--cyan-glow);border-color:var(--cyan-dim)}
+    /* ---- the top bar: logo top left, the person and the settings gear top right */
+    header.topbar{position:sticky;top:0;z-index:30;height:60px;display:flex;align-items:center;gap:14px;
+      padding:0 18px 0 16px;background:#fff;border-bottom:1px solid var(--line);box-shadow:0 1px 3px rgba(19,32,57,.04)}
+    .brand{display:flex;align-items:center;gap:14px;text-decoration:none;color:var(--text);min-width:0}
+    .brand img{height:34px;width:auto;display:block}
+    .brand span{font-size:15px;font-weight:800;letter-spacing:.005em;color:var(--navy);padding-left:14px;
+      border-left:1px solid var(--line-2);white-space:nowrap}
     .spacer{flex:1}
-    .whoami{font-size:12px;color:var(--muted)}
-    /* Eight tabs plus the name and buttons need about 1,500px on one line without wrapping a
-       label onto two lines (measured 3 Nov 2026). Narrower than that the tab strip takes its own
-       row and scrolls sideways inside itself, so the PAGE never does. */
-    nav button, header .act{white-space:nowrap}
-    @media (max-width:1560px){
-      header{flex-wrap:wrap;row-gap:8px}
-      nav{order:3;flex:0 0 100%;margin-left:0;overflow-x:auto;scrollbar-width:thin}
-      nav button{flex:0 0 auto}
+    .whoami{font-size:12px;color:var(--muted);white-space:nowrap}
+    header .act{white-space:nowrap}
+    .gear{display:inline-grid;place-items:center;width:38px;height:38px;border-radius:10px;border:1px solid var(--line-2);
+      background:#fff;color:var(--text-2);cursor:pointer;flex:0 0 38px}
+    .gear svg{width:19px;height:19px}
+    .gear:hover{color:var(--cyan);border-color:var(--cyan-dim);background:var(--cyan-glow)}
+    .gear.on{color:#fff;background:var(--cyan);border-color:var(--cyan)}
+    .burger{display:none;place-items:center;width:38px;height:38px;border-radius:10px;border:1px solid var(--line-2);
+      background:#fff;color:var(--navy);cursor:pointer;flex:0 0 38px}
+    .burger svg{width:20px;height:20px}
+
+    /* ---- the shell: side menu on the left, the section's own tabs along the top */
+    /* The navy runs the full height of the page behind the sticky menu, so a long page never
+       shows the menu ending halfway down (seen on a full-page capture, 4 Nov 2026). */
+    .shell{display:grid;grid-template-columns:228px minmax(0,1fr);min-height:calc(100vh - 60px);
+      background:linear-gradient(90deg,var(--navy) 0,var(--navy) 228px,transparent 228px)}
+    .side{background:var(--navy);color:#dbe3f3;position:sticky;top:60px;height:calc(100vh - 60px);overflow-y:auto;
+      padding:18px 12px;display:flex;flex-direction:column;gap:4px}
+    .side-label{font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#a9b8d8;padding:4px 12px 8px}
+    .side-nav{display:flex;flex-direction:column;gap:3px}
+    .side-nav button{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:none;border:0;
+      border-left:3px solid transparent;color:#dbe3f3;font:inherit;font-size:13.5px;font-weight:700;padding:10px 12px;
+      border-radius:0 9px 9px 0;cursor:pointer}
+    .side-nav button svg{width:18px;height:18px;flex:0 0 18px;opacity:.9}
+    .side-nav button:hover{background:var(--navy-2);color:#fff}
+    .side-nav button.on{background:var(--navy-3);color:#fff;border-left-color:var(--lime)}
+    .side-nav .pill{margin-left:auto}
+    .side-status{margin-top:18px;padding:12px;border-radius:10px;background:rgba(255,255,255,.06);cursor:pointer}
+    .side-status:hover{background:rgba(255,255,255,.1)}
+    .side-status .h{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#a9b8d8;margin-bottom:8px}
+    .side-status .r{display:flex;gap:12px;font-size:12.5px;font-weight:700;color:#fff}
+    .side-status .r span{display:flex;align-items:center;gap:6px}
+    .side-status i{width:9px;height:9px;border-radius:50%;display:inline-block}
+    .side-status .w{font-size:11.5px;color:#dbe3f3;margin-top:8px;line-height:1.5}
+    .side-foot{margin-top:auto;padding:12px;font-size:11.5px;color:#a9b8d8;line-height:1.5}
+    .side-foot .act{margin-top:8px;background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.25);color:#fff}
+    .side-scrim{display:none}
+    .content{min-width:0;display:flex;flex-direction:column}
+    .subbar{background:#fff;border-bottom:1px solid var(--line);padding:16px 28px 0}
+    .subbar h1{font-size:19px;font-weight:800;letter-spacing:-.005em;color:var(--text);margin-bottom:6px;
+      display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .subbar h1 .act{margin-left:auto}
+    .subtabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:thin;margin-bottom:-1px}
+    .subtabs button{background:none;border:0;border-bottom:3px solid transparent;color:var(--text-2);font:inherit;
+      font-size:13px;font-weight:700;padding:9px 14px 10px;cursor:pointer;white-space:nowrap;flex:0 0 auto}
+    .subtabs button:hover{color:var(--text)}
+    .subtabs button.on{color:var(--cyan);border-bottom-color:var(--cyan)}
+    #termTabs{display:flex;gap:4px}
+    @media (max-width:1000px){
+      .shell{grid-template-columns:minmax(0,1fr);background:none}
+      .side{position:fixed;left:0;top:60px;bottom:0;width:260px;height:auto;z-index:40;transform:translateX(-102%);
+        transition:transform .18s ease;box-shadow:0 12px 32px rgba(0,0,0,.28)}
+      body.side-open .side{transform:none}
+      body.side-open .side-scrim{display:block;position:fixed;inset:60px 0 0 0;background:rgba(10,18,36,.35);z-index:35}
+      .burger{display:inline-grid}
     }
-    @media (max-width:600px){
-      header{padding:10px 16px;gap:10px}
+    @media (max-width:640px){
+      header.topbar{padding:0 10px;gap:8px}
+      .brand img{height:28px}
+      .brand span, .whoami, header.topbar .act{display:none}
+      .subbar{padding:12px 16px 0}
       #app main{padding:16px}          /* #app: the plain main{} rule comes later in this sheet */
     }
+    @media (min-width:641px){ .side-foot .mobile-only{display:none} }
 
-    main{max-width:1500px;margin:0 auto;padding:22px}
+    main{max-width:1500px;width:100%;margin:0 auto;padding:22px 28px}
+
+    /* ---- the supplier status bar (CES rule, 4 Nov 2026) */
+    .st-legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:11.5px;color:var(--text-2);margin:2px 0 12px}
+    .st-legend span{display:inline-flex;align-items:center;gap:6px}
+    .st-legend i{width:9px;height:9px;border-radius:50%;display:inline-block}
+    .st-bar{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:9px}
+    /* A <button> centres its content vertically, so a tile with a third line pushed its
+       neighbours' names halfway down (seen in the 4 Nov screenshot): column flex keeps every
+       name on the top line. */
+    .st{position:relative;display:flex;flex-direction:column;justify-content:flex-start;width:100%;text-align:left;background:#fff;
+      border:1px solid var(--line);border-radius:10px;padding:10px 12px 13px;overflow:hidden;cursor:pointer;font:inherit;color:var(--text)}
+    .st:hover{border-color:var(--cyan-dim);box-shadow:var(--shadow)}
+    .st .nm{font-size:12.5px;font-weight:800;display:flex;align-items:center;gap:7px;line-height:1.3}
+    .st .nm i{width:9px;height:9px;border-radius:50%;flex:0 0 9px}
+    .st .ag{font-size:11.5px;color:var(--text-2);margin-top:4px;line-height:1.4}
+    .st .wt{font-size:11px;font-weight:800;color:var(--cyan);margin-top:3px}
+    .st::after{content:"";position:absolute;left:0;right:0;bottom:0;height:5px;background:var(--st-c)}
+    .st.green{--st-c:var(--st-green)} .st.yellow{--st-c:var(--st-amber)} .st.red{--st-c:var(--st-red)}
+    .st.sel{border-color:var(--cyan);box-shadow:0 0 0 2px var(--cyan-glow)}
+    .crm-small{font-size:11px;color:var(--muted)}
+    .dot-green{background:var(--st-green)} .dot-yellow{background:var(--st-amber)} .dot-red{background:var(--st-red)}
+    .st-detail{margin-top:12px}
+
+    /* ---- settings */
+    .lock-wrap{position:fixed;inset:0;z-index:60;background:rgba(10,18,36,.45);display:grid;place-items:center;padding:16px}
+    .lock-card{width:100%;max-width:380px;background:#fff;border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.3);padding:24px}
+    .lock-card h2{font-size:18px;margin-bottom:6px}
+    .lock-card p{font-size:12.5px;color:var(--muted);line-height:1.55;margin-bottom:12px}
+    .adm-meters td{vertical-align:top}
+    .adm-meters select,.adm-meters input{height:32px;font-size:12.5px;padding:4px 8px}
+    .adm-site{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:12px;background:var(--panel-2)}
+    .adm-msg{font-size:11.5px;margin-top:3px;line-height:1.4}
     .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;
       margin-bottom:18px;box-shadow:var(--shadow)}
     .card h2{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-2);margin-bottom:4px}
@@ -126,22 +207,22 @@
     .note.warn{border-left-color:var(--warn);color:#5c4104;background:var(--warn-bg)}
     .note.good{border-left-color:var(--ok);color:#0d4a21;background:var(--ok-bg)}
 
-    /* The sign-in page. Its own door now (3 Nov 2026): a CES-branded panel on the left, the
-       sign-in card on the right, stacked on a phone. The brand panel is CES teal; every text
-       colour on it was measured against the DARKER end of the gradient AND the lighter one. */
+    /* The sign-in page. Its own door (3 Nov 2026): a CES-branded panel on the left, the sign-in
+       card on the right, stacked on a phone. The brand panel is CES navy-to-blue (4 Nov 2026,
+       was teal); every text colour on it is measured against BOTH ends of the gradient. */
     #signin{min-height:100vh;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(360px,.9fr)}
     #signin.hide{display:none!important}
-    .si-brand{background:linear-gradient(150deg,#0f766e 0%,#0b4f4a 100%);color:#fff;padding:48px 56px;
+    .si-brand{background:linear-gradient(150deg,#24479a 0%,#16244a 100%);color:#fff;padding:48px 56px;
       display:flex;flex-direction:column;justify-content:space-between;min-height:100vh}
     .si-logo{background:#fff;border-radius:14px;padding:14px 18px;display:inline-flex;align-self:flex-start;
       box-shadow:0 8px 24px rgba(0,0,0,.18)}
     .si-logo img{height:46px;width:auto;display:block}
     .si-brand h1{font-size:34px;font-weight:800;letter-spacing:-.01em;margin:36px 0 10px;color:#fff}
-    .si-brand p{font-size:14px;line-height:1.6;max-width:46ch;color:#e6f6f2}
-    .si-brand ul{list-style:none;margin-top:22px;display:grid;gap:9px;font-size:13.5px;color:#f1fbf8}
+    .si-brand p{font-size:14px;line-height:1.6;max-width:46ch;color:#e4eafa}
+    .si-brand ul{list-style:none;margin-top:22px;display:grid;gap:9px;font-size:13.5px;color:#f0f4fd}
     .si-brand li::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;
-      background:#9be6d8;margin-right:10px;vertical-align:middle}
-    .si-foot{font-size:11.5px;color:#e6f6f2;margin-top:28px}
+      background:#c3dc4f;margin-right:10px;vertical-align:middle}
+    .si-foot{font-size:11.5px;color:#e4eafa;margin-top:28px}
     .si-panel{display:grid;place-items:center;padding:32px 22px;background:var(--bg)}
     .si-card{width:100%;max-width:380px;background:var(--panel);border:1px solid var(--line);border-radius:14px;
       box-shadow:var(--shadow);padding:28px}
@@ -271,23 +352,77 @@
 </div>
 
 <div id="app" class="hide">
-  <header>
-    <h1>CES <span>Pricing Portal</span></h1>
-    <nav>
-      <button id="tab-price" class="on" onclick="showTab('price')">Pick a meter</button>
-      <button id="tab-crm" onclick="showTab('crm')">Customers</button>
-      <button id="tab-books" onclick="showTab('books')">Pricebooks <span id="inboxBadge" class="pill p-warn hide" style="margin-left:4px"></span></button>
-      <button id="tab-aq" onclick="showTab('aq')">AQ Opportunities</button>
-      <button id="tab-contracts" onclick="showTab('contracts')">Contracts</button>
-      <button id="tab-quotes" onclick="showTab('quotes')">Supplier Quotes</button>
-      <button id="tab-ref" onclick="showTab('ref')">Reference</button>
-      <button id="tab-admin" onclick="showTab('admin')">Admin</button>
-    </nav>
+  <!-- The 4 Nov 2026 shell: the CES logo top left, the person and Settings top right, the
+       sections down the left, and each section's own pages as tabs along the top. -->
+  <header class="topbar">
+    <button class="burger" id="burgerBtn" aria-label="Open the menu" aria-controls="side" onclick="toggleSide()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+    <a class="brand" href="#" onclick="openSection('pricing');return false" aria-label="CES Pricing Portal, back to Pricing">
+      <img src="/ces_logo.png" alt="Commercial Energy Solutions" onerror="this.style.display='none'" />
+      <span>Pricing Portal</span></a>
     <div class="spacer"></div>
-    <div class="whoami"><span id="whoLabel"></span> <span id="acctLabel" style="opacity:.6"></span></div>
+    <div class="whoami"><span id="whoLabel"></span> <span id="acctLabel" style="opacity:.75"></span></div>
     <button class="act ghost sm" onclick="changeWho()">Not you?</button>
     <button class="act ghost sm" onclick="signOut()">Sign out</button>
+    <button class="gear" id="gearBtn" title="Settings (admin)" aria-label="Settings" onclick="openSettings()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
   </header>
+
+  <!-- The Settings door. The password is sent to pricing_admin_unlock and checked against a
+       bcrypt hash in the database; this page never holds the answer. -->
+  <div id="adminLock" class="lock-wrap hide" role="dialog" aria-modal="true" aria-labelledby="adminLockTitle">
+    <div class="lock-card">
+      <h2 id="adminLockTitle">Settings</h2>
+      <p>Account managers, desk customers, the status bar, products and the UC import. Enter the settings password.</p>
+      <label for="adminPw">Password</label>
+      <input id="adminPw" type="password" autocomplete="current-password"
+             onkeydown="if(event.key==='Enter')unlockSettings();if(event.key==='Escape')closeLock()" />
+      <div id="adminLockErr" class="hide" style="margin-top:10px;font-size:12px;color:var(--fail)"></div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="act" id="adminUnlockBtn" onclick="unlockSettings()">Open settings</button>
+        <button class="act ghost" onclick="closeLock()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="shell">
+    <aside class="side" id="side" aria-label="Sections">
+      <div class="side-label">Pricing desk</div>
+      <nav class="side-nav">
+        <button id="tab-price" data-sec="pricing" class="on" onclick="openSection('pricing')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg>
+          <span>Pricing</span></button>
+        <button id="tab-crm" data-sec="customers" onclick="openSection('customers')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Customers</span></button>
+        <button id="tab-books" data-sec="books" onclick="openSection('books')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          <span>Pricebooks</span><span id="inboxBadge" class="pill p-warn hide" title="New files from the mailbox"></span></button>
+        <button id="tab-ref" data-sec="reference" onclick="openSection('reference')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+          <span>Reference</span></button>
+      </nav>
+      <!-- The pricebook status in one glance from every page: a forgotten book shows up red
+           here before anyone quotes off yesterday's prices. -->
+      <div class="side-status hide" id="sideStatus" role="button" tabindex="0" onclick="openSection('books','books:live')"
+           onkeydown="if(event.key==='Enter')openSection('books','books:live')">
+        <div class="h">Pricebook status</div>
+        <div class="r" id="sideStatusCounts"></div>
+        <div class="w" id="sideStatusWhy"></div>
+      </div>
+      <div class="side-foot">
+        <div class="mobile-only"><span id="whoLabel2"></span><br>
+          <button class="act ghost sm" onclick="changeWho()">Not you?</button>
+          <button class="act ghost sm" onclick="signOut()">Sign out</button></div>
+      </div>
+    </aside>
+    <div class="side-scrim" onclick="toggleSide(false)"></div>
+
+    <div class="content">
+      <div class="subbar">
+        <h1 id="secTitle">Pricing</h1>
+        <nav class="subtabs" id="subTabs" aria-label="Pages in this section"></nav>
+      </div>
 
   <main>
     <!-- ══════════════════════════════════════════════════════════════════ CUSTOMERS -->
@@ -297,10 +432,35 @@
 
     <!-- ══════════════════════════════════════════════════════════════════ PRICEBOOKS -->
     <section id="pane-books" class="hide">
-      <!-- What is live, one button to bring every supplier up to date from the mailbox, the
-           mailbox list for anything that needs a person, and a drop zone for books that never
+      <!-- The supplier status bar on top of every Pricebooks page (CES, 4 Nov 2026), then the
+           page's own content: what is live, the mailbox, or the drop zone for books that never
            come by email. Replaced and deleted books are not listed: they are deleted. -->
-      <div class="card">
+      <div class="card" id="bkStatusCard">
+        <div class="bk-head">
+          <div>
+            <h2>Supplier status</h2>
+            <div class="st-legend" id="bkLegend">
+              <span><i class="dot-green"></i>Green: newest book under 7 days old</span>
+              <span><i class="dot-yellow"></i>Yellow: 7 to 10 days</span>
+              <span><i class="dot-red"></i>Red: 11 days or more, or no book</span>
+              <span><i class="dot-green"></i>E.ON Next: green only with today&rsquo;s book</span>
+            </div>
+          </div>
+        </div>
+        <div class="st-bar" id="bkStatus"><div class="note">Reading&hellip;</div></div>
+        <div class="st-detail hide" id="bkStatusDetail"></div>
+      </div>
+
+      <!-- A load in progress, and any file waiting on a person (a new layout, a product to pick),
+           shown above whichever Pricebooks page is open: a mailbox load started on the Mailbox
+           page must not report into a card on another page. -->
+      <div id="busyNote" class="note warn hide" style="margin-bottom:14px"></div>
+      <div class="card hide" id="upInspectCard">
+        <h2>Files being loaded</h2>
+        <div id="upInspect" class="hide" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card" id="bkLive">
         <div class="bk-head">
           <div>
             <h2>Live pricebooks</h2>
@@ -312,9 +472,8 @@
             <button class="act" id="emailLoadBtn" onclick="loadLatestFromEmail()">Load the latest from email</button>
           </div>
         </div>
-        <div id="busyNote" class="note warn hide" style="margin-bottom:12px"></div>
         <div id="emailLoadPanel" class="hide"></div>
-        <div id="bkSuppliers" class="bk-sup"></div>
+        <div id="ledgerFilter" class="hide" style="margin:0 0 10px"></div>
         <div class="scroll"><table>
           <thead><tr>
             <th>Supplier</th><th>Product</th><th>File</th><th>Book of</th><th>Quoted until</th>
@@ -337,7 +496,7 @@
         <div id="inboxList" style="margin-top:10px"><div class="note">Loading&hellip;</div></div>
       </div>
 
-      <div class="card">
+      <div class="card" id="bkHand">
         <h2>Add a pricebook by hand</h2>
         <div class="sub">
           For a book that never arrives by email: British Gas (their portal), SSE and UGP when their
@@ -383,7 +542,6 @@
           </div>
           <input id="upFile" type="file" accept=".xlsx,.xlsm,.xlsb,.csv,.zip,.7z" multiple class="hide" />
         </div>
-        <div id="upInspect" class="hide" style="margin-top:16px"></div>
       </div>
     </section>
 
@@ -654,7 +812,7 @@
       </div>
     </section>
     <section id="pane-ref" class="hide">
-      <div class="card">
+      <div class="card" id="refLdz">
         <h2>Gas postcode &rarr; LDZ and exit zone</h2>
         <div class="sub">
           Full postcode, always. 348 of 3,100 national outcodes map to more than one exit
@@ -671,7 +829,7 @@
         <div id="pcOut" style="margin-top:14px"></div>
       </div>
 
-      <div class="card">
+      <div class="card" id="refBand">
         <h2>MPAN top line &rarr; TCR band and non-energy charges</h2>
         <div class="sub">
           Distributor id comes from the first two digits of the MPAN core. The LLFC carries
@@ -756,8 +914,81 @@
       <div id="sqHost"></div>
     </section>
 
+    <!-- ══════════════════════════════════════════════════════════════════ SETTINGS -->
+    <!-- Behind the gear, top right, and behind a password the DATABASE checks: every action
+         here is a pricing_admin_* function that tests the password again, so hiding this pane
+         is a convenience, not the lock. CES chose the password on 4 Nov 2026. -->
     <section id="pane-admin" class="hide">
-      <div class="card">
+      <div class="card adm" id="adm-team">
+        <h2>Account managers</h2>
+        <div class="sub">The names the desk files customers and portfolios under. Brokers with a sales portal login are on
+          the list already; add anyone else here by name (no login is created). A name taken off the list keeps its
+          customers: it only stops being offered.</div>
+        <div id="admTeamList"><div class="note">Loading&hellip;</div></div>
+        <div class="row" style="margin-top:14px;align-items:flex-end">
+          <div style="flex:2"><label for="admAmName">First and last name</label><input id="admAmName" placeholder="Laura Smith" /></div>
+          <div style="flex:2"><label for="admAmEmail">Email (optional)</label><input id="admAmEmail" placeholder="laura@cesgb.com" /></div>
+          <div style="flex:0 0 auto"><button class="act" onclick="admAddManager()">Add</button></div>
+        </div>
+        <div id="admTeamMsg" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card adm" id="adm-customers">
+        <h2>Add a customer</h2>
+        <div class="sub">For a customer who is not in UtilityClick yet. It goes on the desk at once with its sites and meters,
+          marked <b>added on the desk</b>, and a UC import never removes it. Every MPAN is checked (13 digits, the check
+          digit right) and every electricity meter&rsquo;s profile class must fit its rate type. When UC has the customer too,
+          remove the desk copy below so it is not on the desk twice.</div>
+        <div class="row">
+          <div style="flex:2"><label for="admCName">Customer name</label><input id="admCName" placeholder="Acme Bakeries Ltd" /></div>
+          <div><label for="admCAm">Account manager</label><select id="admCAm"><option value="">nobody yet</option></select></div>
+          <div><label for="admCReg">Company number</label><input id="admCReg" class="mono" placeholder="01234567" /></div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <div style="flex:2"><label for="admCAddr">Registered address</label><input id="admCAddr" placeholder="1 Oven Street, Beckenham" /></div>
+          <div><label for="admCPc">Postcode</label><input id="admCPc" placeholder="BR3 5LE" /></div>
+          <div style="flex:2"><label for="admCNotes">Notes</label><input id="admCNotes" placeholder="anything the next person needs to know" /></div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;text-transform:none;letter-spacing:0;color:var(--text-2)">
+          <input type="checkbox" id="admCLead" style="width:auto;height:auto"> A lead (no CES contract yet)</label>
+        <div id="admSites"></div>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="act ghost sm" onclick="admAddSite()">+ Another site</button>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button class="act" id="admCGo" onclick="admAddCustomer()">Add the customer</button>
+          <label id="admCDupWrap" class="hide" style="display:flex;align-items:center;gap:6px;margin:0;font-size:12px;text-transform:none;letter-spacing:0;color:var(--text-2)">
+            <input type="checkbox" id="admCDup" style="width:auto;height:auto"> add anyway (a different company with the same name)</label>
+        </div>
+        <div id="admCMsg" style="margin-top:10px"></div>
+        <div class="crm-h3" style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--text-2);margin:22px 0 8px">Customers added on the desk</div>
+        <div id="admDeskList"><div class="note">Loading&hellip;</div></div>
+      </div>
+
+      <div class="card adm" id="adm-status">
+        <h2>Pricebook status bar</h2>
+        <div class="sub">How old a supplier&rsquo;s newest live book may be before its bar changes colour. <b>Weekly</b> is CES&rsquo;s
+          rule (green under 7 days, yellow 7 to 10, red from day 11 or with no book). <b>Daily</b> is E.ON Next&rsquo;s: green only
+          with a book valid today. <b>Monthly</b> is for suppliers who issue one book a month (green under 31 days, yellow 31 to 34,
+          red from day 35): British Gas, BG Lite, ScottishPower and SEB electricity do, and under the weekly rule they turn red
+          around the 11th while their book is still the current one.</div>
+        <div id="admStatusList"><div class="note">Loading&hellip;</div></div>
+        <div id="admStatusMsg" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card adm" id="adm-password">
+        <h2>Settings password</h2>
+        <div class="sub">One password for everyone on the desk who may change settings. It is checked by the database, not by this
+          page, so changing it here changes it for everyone straight away.</div>
+        <div class="row" style="align-items:flex-end">
+          <div><label for="admPw1">New password</label><input id="admPw1" type="password" autocomplete="new-password" /></div>
+          <div><label for="admPw2">The same again</label><input id="admPw2" type="password" autocomplete="new-password" /></div>
+          <div style="flex:0 0 auto"><button class="act" onclick="admSetPassword()">Change it</button></div>
+        </div>
+        <div id="admPwMsg" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card adm" id="adm-storage">
         <h2>Storage</h2>
         <div class="sub">
           Replaced, removed and failed pricebooks are deleted outright: their rates, their archive
@@ -767,7 +998,7 @@
         </div>
         <div id="adminStorage" style="font-size:13px;line-height:1.9">Reading…</div>
       </div>
-      <div class="card">
+      <div class="card adm" id="adm-products">
         <h2>Products by supplier</h2>
         <div class="sub">
           What each supplier actually sells, and which pricebook is live for it. A product is
@@ -850,6 +1081,8 @@
 
     </section>
   </main>
+    </div>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -858,7 +1091,8 @@
 <script src="/pricing-parsers.js?v=2026-11-04.2"></script>
 <script src="/pricing-7z.js?v=2026-11-03.1"></script>
 <script src="/pricing-crm-import.js?v=2026-11-03.2"></script>
-<script src="/pricing-crm.js?v=2026-11-04.1"></script>
+<script src="/pricing-docs.js?v=2026-11-04.1"></script>
+<script src="/pricing-crm.js?v=2026-11-04.2"></script>
 <script src="/pricing-contracts.js?v=2026-09-13.1"></script>
 <script src="/supplier-quotes.js?v=2026-09-14.3"></script>
 <script>
@@ -1044,9 +1278,14 @@ function startDesk() {
     SSC_READY.then(paintSscNote);
   });
   paintTermLabel();
-  showTab('price');          // the desk's job is pricing meters; pricebooks is upkeep
-  // New books from the mailbox: a badge on the tab, and one line on the other tabs.
+  openSection('pricing', 'price');   // the desk's job is pricing meters; pricebooks is upkeep
+  // New books from the mailbox: a badge on the side menu, and one line on the other pages.
   inboxBadge();
+  // The supplier status, in the side menu from the start: a forgotten book is seen before
+  // anyone opens Pricebooks. Read again every 10 minutes while the desk is open.
+  loadStatusBar();
+  if (!window.__STATUS_TIMER) window.__STATUS_TIMER = setInterval(() => { if (!document.hidden) loadStatusBar(); }, 10 * 60 * 1000);
+  const w2 = $('whoLabel2'); if (w2) w2.textContent = WHO;
 }
 
 /**
@@ -1067,7 +1306,7 @@ function paintInboxBanner(n) {
     main.insertBefore(bar, main.firstChild);
   }
   bar.innerHTML = `<b>${n} new pricebook file${n === 1 ? '' : 's'} arrived from the mailbox.</b> `
-    + `<a href="#" onclick="showTab('books');return false">Open Pricebooks to load ${n === 1 ? 'it' : 'them'}</a>.`;
+    + `<a href="#" onclick="openSection('books','books:mail');return false">Open the mailbox to load ${n === 1 ? 'it' : 'them'}</a>.`;
   bar.classList.toggle('hide', !$('pane-books').classList.contains('hide'));
 }
 
@@ -1130,35 +1369,465 @@ function showSignIn(){
 // CES pages on billcesgb.com, so this signs out of those too, which is what "sign out" means.
 async function signOut(){ localStorage.removeItem('pricing_who'); await sb.auth.signOut(); location.href = '/pricing.html'; }
 
-function showTab(t) {
-  // A tab opens at its top: the page otherwise keeps the last tab's scroll, and the sticky
-  // header then sits over the new tab's own menu.
-  if ($('pane-' + t).classList.contains('hide') && window.scrollY > 0) window.scrollTo(0, 0);
-  for (const k of ['books','price','crm','aq','contracts','quotes','ref','admin']) {
-    $('pane-'+k).classList.toggle('hide', k !== t);
-    $('tab-'+k).classList.toggle('on', k === t);
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Navigation (CES, 4 Nov 2026): sections down the left, each section's pages as tabs along
+// the top, Settings behind the gear top right. A page is "section:page"; the panes underneath
+// are the same ones the old top tabs showed, so everything that ran on a tab still runs.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+const SECTIONS = {
+  pricing:   { title: 'Pricing', subs: [['price', 'Price a meter'], ['aq', 'AQ opportunities'], ['quotes', 'Supplier quotes'],
+                                        ['contracts', 'Contract forms']] },
+  customers: { title: 'Customers', subs: [['crm:portfolios', 'Portfolios'], ['crm:contracts', 'Contracts'], ['crm:services', 'Meter services'],
+                                          ['crm:documents', 'Signed contracts'], ['crm:tenders', 'Tenders'], ['crm:quality', 'Data checks'],
+                                          ['crm:overview', 'Figures']] },
+  books:     { title: 'Pricebooks', subs: [['books:live', 'Live pricebooks'], ['books:mail', 'Mailbox'], ['books:hand', 'Add by hand']] },
+  reference: { title: 'Reference', subs: [['ref:ldz', 'Gas postcode to LDZ'], ['ref:band', 'MPAN top line']] },
+  settings:  { title: 'Settings', subs: [['admin:team', 'Account managers'], ['admin:customers', 'Add a customer'], ['admin:status', 'Status bar'],
+                                         ['admin:products', 'Products'], ['admin:import', 'Import from UC'], ['admin:storage', 'Storage'],
+                                         ['admin:password', 'Password']] },
+};
+const SIDE_ID = { pricing: 'tab-price', customers: 'tab-crm', books: 'tab-books', reference: 'tab-ref' };
+const PANES = ['books', 'price', 'crm', 'aq', 'contracts', 'quotes', 'ref', 'admin'];
+const NAV = { sec: null, sub: null, last: {} };
+
+function paneOf(sub) {
+  if (sub === 'admin:import' || sub.startsWith('crm:')) return 'crm';
+  if (sub.startsWith('books:')) return 'books';
+  if (sub.startsWith('ref:')) return 'ref';
+  if (sub.startsWith('admin:')) return 'admin';
+  return sub;
+}
+
+/**
+ * Open a section, on a given page or the one it was last on. Clicking a section in the side
+ * menu brings it back as it was left (a customer page stays open); clicking one of its tabs
+ * opens that page afresh.
+ */
+function openSection(sec, sub) {
+  if (sec === 'settings' && !ADMIN_PW) { openSettings(); return; }
+  const S = SECTIONS[sec];
+  if (!S) return;
+  const explicit = sub != null;
+  if (!explicit) sub = NAV.last[sec] || S.subs[0][0];
+  if (!S.subs.some(s => s[0] === sub)) sub = S.subs[0][0];
+  const pane = paneOf(sub);
+  // A page opens at its top: the window otherwise keeps the last page's scroll, and the sticky
+  // top bar then sits over the new page's own controls.
+  if ((NAV.sub !== sub || $('pane-' + pane).classList.contains('hide')) && window.scrollY > 0) window.scrollTo(0, 0);
+  NAV.sec = sec; NAV.sub = sub; NAV.last[sec] = sub;
+  for (const k of PANES) $('pane-' + k).classList.toggle('hide', k !== pane);
+  for (const k in SIDE_ID) $(SIDE_ID[k]).classList.toggle('on', k === sec);
+  $('gearBtn').classList.toggle('on', sec === 'settings');
+  $('secTitle').innerHTML = esc(S.title)
+    + (sec === 'settings' ? ' <button class="act ghost sm" onclick="lockSettings()">Lock settings</button>' : '');
+  paintSubTabs();
+  toggleSide(false);
+  const bar = $('inboxBanner'); if (bar) bar.classList.toggle('hide', sec === 'books');
+
+  if (pane === 'crm') crmInit(sub === 'admin:import' ? 'import' : sub.slice(4), explicit);
+  if (pane === 'books') {
+    const part = sub.slice(6);
+    $('bkLive').classList.toggle('hide', part !== 'live');
+    $('inboxCard').classList.toggle('hide', part !== 'mail');
+    $('bkHand').classList.toggle('hide', part !== 'hand');
+    // All three read fresh, whichever page is open, as the one Pricebooks tab always did: the
+    // mailbox list feeds "Load the latest from email" and the badge, the ledger the status.
+    loadStatusBar(); loadInbox(); loadLedger();
   }
-  const bar = $('inboxBanner'); if (bar) bar.classList.toggle('hide', t === 'books');
-  if (t === 'crm') crmInit();
-  if (t === 'books') { loadInbox(); loadLedger(); }
-  if (t === 'admin') { loadAdmin(); loadStorage(); }
-  if (t === 'aq') aqInit();
-  if (t === 'contracts') contractsInit();
-  if (t === 'quotes') quotesInit();
+  if (pane === 'ref') {
+    $('refLdz').classList.toggle('hide', sub !== 'ref:ldz');
+    $('refBand').classList.toggle('hide', sub !== 'ref:band');
+  }
+  if (pane === 'admin') {
+    document.querySelectorAll('#pane-admin .adm').forEach(c => c.classList.toggle('hide', c.id !== 'adm-' + sub.slice(6)));
+    if (sub === 'admin:products') loadAdmin();
+    if (sub === 'admin:storage') loadStorage();
+    if (sub === 'admin:team') admLoadTeam();
+    if (sub === 'admin:customers') admLoadCustomers();
+    if (sub === 'admin:status') admLoadStatus();
+  }
+  if (pane === 'aq') aqInit();
+  if (pane === 'contracts') contractsInit();
+  if (pane === 'quotes') quotesInit();
+}
+
+function paintSubTabs() {
+  const S = SECTIONS[NAV.sec];
+  if (!S) return;
+  $('subTabs').innerHTML = S.subs.map(([k, label]) =>
+    `<button data-sub="${k}" class="${k === NAV.sub ? 'on' : ''}" onclick="openSection('${NAV.sec}','${k}')">${esc(label)}</button>`).join('');
+}
+
+/** The old tab names, kept so every existing call (and anyone's muscle memory in the console) still lands. */
+function showTab(t) {
+  const map = { price: ['pricing', 'price'], aq: ['pricing', 'aq'], quotes: ['pricing', 'quotes'], contracts: ['pricing', 'contracts'],
+                crm: ['customers'], books: ['books'], ref: ['reference'], admin: ['settings'] };
+  const m = map[t];
+  if (m) openSection(m[0], m[1]);
+}
+
+/** The side menu on a phone or narrow window: a drawer over the page. */
+function toggleSide(on) {
+  const want = on == null ? !document.body.classList.contains('side-open') : !!on;
+  document.body.classList.toggle('side-open', want);
+  const b = $('burgerBtn'); if (b) b.setAttribute('aria-expanded', want ? 'true' : 'false');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
-// Customers: the UtilityClick data (/pricing-crm.js, tables crm_*). Mounted on first visit.
+// Customers: the UtilityClick data (/pricing-crm.js, tables crm_*). Mounted on first visit;
+// its pages are driven by the tabs above, and it says which page it is on so they follow.
 // ═══════════════════════════════════════════════════════════════════════════════════════
-let CRM_API = null;
-function crmInit() {
-  if (CRM_API) return;
-  if (typeof CrmDesk === 'undefined') {
-    $('crmHost').innerHTML = '<div class="note bad">The Customers module did not load (pricing-crm.js). Hold Shift and reload.</div>';
+let CRM_API = null, DOCS_API = null;
+function crmInit(view, explicit) {
+  if (!CRM_API) {
+    if (typeof CrmDesk === 'undefined') {
+      $('crmHost').innerHTML = '<div class="note bad">The Customers module did not load (pricing-crm.js). Hold Shift and reload.</div>';
+      return;
+    }
+    DOCS_API = typeof CrmDocs !== 'undefined' ? CrmDocs.create({ sb, esc, who: () => WHO, loadPdfJs }) : null;
+    CRM_API = CrmDesk.mount($('crmHost'), { sb, esc, XLSX: window.XLSX, who: () => WHO, onPriceMeter: priceFromCrm,
+                                            docs: DOCS_API, nav: false, onView: crmOnView, start: view || 'portfolios' });
+    window.CRM_API = CRM_API;
     return;
   }
-  CRM_API = CrmDesk.mount($('crmHost'), { sb, esc, XLSX: window.XLSX, who: () => WHO, onPriceMeter: priceFromCrm });
-  window.CRM_API = CRM_API;
+  if (explicit && view) CRM_API.go(view);
+}
+function crmOnView(v) {
+  if (v === 'import') {
+    if (NAV.sec === 'settings') { NAV.sub = 'admin:import'; NAV.last.settings = 'admin:import'; paintSubTabs(); }
+    return;
+  }
+  const sub = 'crm:' + v;
+  if (!SECTIONS.customers.subs.some(s => s[0] === sub)) return;
+  NAV.last.customers = sub;
+  if (NAV.sec === 'customers' && NAV.sub !== sub) { NAV.sub = sub; paintSubTabs(); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// The supplier status bar (CES, 4 Nov 2026): "Green means the latest pricebook uploaded is
+// less than a week old (for all suppliers apart from E.ON Next). Yellow 7-10 days, red over
+// that or no pricebook." Worked out by the database (pricebook_supplier_status), per fuel,
+// the worst fuel winning, so the desk, the side menu and any later report agree.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+let SUP_STATUS = [];
+let LEDGER_FILTER = null;
+const ageWords = d => d == null ? '' : d <= 0 ? 'book from today' : d === 1 ? 'book 1 day old' : `book ${d} days old`;
+const FUEL_WORD = { electricity: 'Electricity', gas: 'Gas', both: 'Both fuels' };
+
+async function loadStatusBar() {
+  let rows;
+  try { rows = await q(sb.rpc('pricebook_supplier_status'), 'supplier status'); }
+  catch (e) {
+    const box = $('bkStatus'); if (box) box.innerHTML = `<div class="note bad">${esc(e.message)}</div>`;
+    return;
+  }
+  SUP_STATUS = (rows || []).slice();
+  paintStatusBar();
+  paintSideStatus();
+}
+
+function statusText(r) {
+  if (!r.book_date) return 'no book loaded';
+  if (r.cadence === 'daily') return r.status === 'green' ? "today's book" : `not today's book (${uk(r.book_date)})`;
+  return ageWords(r.age_days) + (r.note ? `, ${r.note}` : '');
+}
+function statusTitle(r) {
+  const rule = { weekly: 'Weekly rule: green under 7 days, yellow 7 to 10, red from 11',
+                 monthly: 'Monthly rule: green under 31 days, yellow 31 to 34, red from 35',
+                 daily: "Daily rule: green only with today's book" }[r.cadence] || '';
+  const fuels = (r.fuels || []).map(f => `${FUEL_WORD[f.fuel] || f.fuel}: ${f.book_date ? 'book of ' + uk(f.book_date) : 'no live book'}${f.note ? ' (' + f.note + ')' : ''}`);
+  return [rule].concat(fuels).join('\n');
+}
+
+function paintStatusBar() {
+  const box = $('bkStatus');
+  if (!box) return;
+  if (!SUP_STATUS.length) { box.innerHTML = '<div class="note">No suppliers on file.</div>'; return; }
+  box.innerHTML = SUP_STATUS.map((r, i) => `<button class="st ${esc(r.status)}${LEDGER_FILTER === r.supplier_key ? ' sel' : ''}" data-st="${i}"
+      title="${esc(statusTitle(r))}" aria-label="${esc(r.display_name)}: ${esc(r.status)}, ${esc(statusText(r))}">
+      <div class="nm"><i class="dot-${esc(r.status)}"></i>${esc(r.display_name)}</div>
+      <div class="ag">${esc(statusText(r))}</div>
+      ${r.waiting ? `<div class="wt">${r.waiting} newer file${r.waiting === 1 ? '' : 's'} in the mailbox</div>` : ''}</button>`).join('');
+  box.querySelectorAll('[data-st]').forEach(b => { b.onclick = () => showStatusDetail(SUP_STATUS[Number(b.dataset.st)]); });
+}
+
+/** A tile clicked: its fuels, its books, and the way to fix it. */
+function showStatusDetail(r) {
+  const box = $('bkStatusDetail');
+  if (!box || !r) return;
+  if (box.dataset.sup === r.supplier_key && !box.classList.contains('hide')) {
+    box.classList.add('hide'); box.dataset.sup = ''; LEDGER_FILTER = null; loadLedger(); paintStatusBar(); return;
+  }
+  box.dataset.sup = r.supplier_key;
+  const what = r.status === 'green' ? '' : r.waiting
+    ? `A newer file is waiting in the mailbox: <a href="#" onclick="openSection('books','books:mail');return false">load it from the Mailbox page</a>.`
+    : r.book_date ? `Look for a newer ${esc(r.display_name)} book: <b>Load the latest from email</b> on Live pricebooks finds it if it was emailed; otherwise
+       get it from the supplier and drop it on <a href="#" onclick="openSection('books','books:hand');return false">Add by hand</a>.`
+    : `Nothing from ${esc(r.display_name)} has been loaded in 120 days. If CES no longer quotes them, say so in Settings, Status bar.`;
+  box.classList.remove('hide');
+  box.innerHTML = `<div class="note${r.status === 'red' ? ' bad' : r.status === 'yellow' ? ' warn' : ' good'}">
+    <b>${esc(r.display_name)}</b> &middot; ${esc(statusTitle(r).split('\n')[0])}
+    ${(r.fuels || []).length ? '<br>' + r.fuels.map(f => `${esc(FUEL_WORD[f.fuel] || f.fuel)}: ${f.book_date ? 'book of ' + uk(f.book_date)
+      + ' (' + (f.age_days <= 0 ? 'today' : f.age_days + ' days old') + ', ' + f.books + ' live)' : 'no live book'}${f.note ? ' &middot; ' + esc(f.note) : ''}`).join('<br>') : ''}
+    ${what ? '<br>' + what : ''}</div>`;
+  LEDGER_FILTER = r.supplier_key;
+  paintStatusBar();
+  if (NAV.sub === 'books:live') loadLedger();
+}
+
+function paintSideStatus() {
+  const box = $('sideStatus');
+  if (!box) return;
+  const n = s => SUP_STATUS.filter(r => r.status === s).length;
+  const red = SUP_STATUS.filter(r => r.status === 'red'), yellow = SUP_STATUS.filter(r => r.status === 'yellow');
+  box.classList.toggle('hide', !SUP_STATUS.length);
+  $('sideStatusCounts').innerHTML = `<span><i class="dot-green"></i>${n('green')}</span><span><i class="dot-yellow"></i>${n('yellow')}</span>`
+    + `<span><i class="dot-red"></i>${n('red')}</span>`;
+  $('sideStatusWhy').textContent = red.length ? `Red: ${red.map(r => r.display_name).join(', ')}`
+    : yellow.length ? `Yellow: ${yellow.map(r => r.display_name).join(', ')}` : 'Every supplier is current.';
+  box.title = 'Open Pricebooks';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Settings: the gear top right. The password goes to the database (pricing_admin_unlock,
+// bcrypt) and every settings action sends it again, so the lock is the server's, not this
+// page's. Held in memory only: a reload, or Lock settings, asks again.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+let ADMIN_PW = null;
+
+function openSettings() {
+  if (ADMIN_PW) { openSection('settings', NAV.last.settings || 'admin:team'); return; }
+  $('adminLock').classList.remove('hide');
+  $('adminLockErr').classList.add('hide');
+  $('adminPw').value = '';
+  setTimeout(() => $('adminPw').focus(), 30);
+}
+function closeLock() { $('adminLock').classList.add('hide'); }
+async function unlockSettings() {
+  const pw = $('adminPw').value, btn = $('adminUnlockBtn'), err = $('adminLockErr');
+  if (!pw) { $('adminPw').focus(); return; }
+  btn.disabled = true; btn.textContent = 'Checking…';
+  let ok = false;
+  try { ok = await q(sb.rpc('pricing_admin_unlock', { p_password: pw }), 'settings password'); }
+  catch (e) { err.textContent = e.message; err.classList.remove('hide'); btn.disabled = false; btn.textContent = 'Open settings'; return; }
+  btn.disabled = false; btn.textContent = 'Open settings';
+  if (ok !== true) {
+    err.textContent = 'That is not the settings password.';
+    err.classList.remove('hide');
+    $('adminPw').select();
+    return;
+  }
+  ADMIN_PW = pw;
+  closeLock();
+  openSection('settings', NAV.last.settings || 'admin:team');
+}
+function lockSettings() { ADMIN_PW = null; openSection('pricing'); }
+
+/** Every settings action: the password goes with it, and a refusal locks the page again. */
+async function adm(fn, args, what) {
+  if (!ADMIN_PW) throw new Error('Settings are locked. Open them again from the gear, top right.');
+  try { return await q(sb.rpc(fn, Object.assign({ p_password: ADMIN_PW }, args || {})), what || fn); }
+  catch (e) {
+    if (/password is not right/i.test(e.message)) {
+      ADMIN_PW = null;
+      throw new Error('The settings password has changed since you opened Settings. Open them again from the gear.');
+    }
+    throw e;
+  }
+}
+const admNote = (el, cls, msg) => { if (el) el.innerHTML = msg ? `<div class="note ${cls}">${msg}</div>` : ''; };
+
+// ---- account managers
+let TEAM = [];
+async function admLoadTeam() {
+  const box = $('admTeamList');
+  try { TEAM = await q(sb.from('pricing_team_v').select('*').order('manager_name'), 'team'); }
+  catch (e) { box.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
+  box.innerHTML = !TEAM.length ? '<div class="note">Nobody on the list yet.</div>'
+    : `<div class="scroll"><table><thead><tr><th>Name</th><th>Email</th><th>How they are on the list</th><th></th></tr></thead><tbody>${
+      TEAM.map(t => `<tr${t.active === false ? ' style="opacity:.55"' : ''}><td><b>${esc(t.manager_name)}</b></td>
+        <td>${esc(t.manager_email || '')}</td>
+        <td>${t.source === 'login' ? '<span class="pill p-ok">sales portal login</span>'
+          : `<span class="pill p-mute">added on the desk</span>${t.active === false ? ' <span class="pill p-warn">off the list</span>' : ''}`}</td>
+        <td>${t.source === 'desk' ? `<button class="act ghost sm" onclick="admSetManager(${Number(t.desk_id)}, ${t.active === false})">${
+          t.active === false ? 'Put back on the list' : 'Take off the list'}</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`;
+}
+async function admAddManager() {
+  const name = ($('admAmName').value || '').trim(), email = ($('admAmEmail').value || '').trim(), msg = $('admTeamMsg');
+  if (!/\S+\s+\S+/.test(name)) return admNote(msg, 'warn', 'A first and a last name, please.');
+  try {
+    await adm('pricing_admin_add_manager', { p_name: name, p_email: email || null, p_by: WHO }, 'add account manager');
+    $('admAmName').value = ''; $('admAmEmail').value = '';
+    admNote(msg, 'good', `${esc(name)} is on the list. Portfolios and the customer form offer the name from now on.`);
+    admLoadTeam();
+  } catch (e) { admNote(msg, 'bad', esc(e.message)); }
+}
+async function admSetManager(id, active) {
+  try { await adm('pricing_admin_set_manager', { p_id: id, p_active: active }, 'change account manager'); admLoadTeam(); }
+  catch (e) { admNote($('admTeamMsg'), 'bad', esc(e.message)); }
+}
+
+// ---- customers added on the desk
+const PC_OPTS = ['', 0, 1, 2, 3, 4, 5, 6, 7, 8];
+const REG_OPTS = [['', 'choose'], ['single', 'Single rate'], ['day_night', 'Day / Night'], ['eve_weekend', 'Day + Evening/Weekend'],
+                  ['day_night_ew', 'Day / Night + Evening/Weekend'], ['off_peak', 'Off-peak']];
+function admMeterRow() {
+  return `<tr class="adm-m">
+    <td><select data-f="fuel" onchange="admCheck(this)"><option value="electricity">Electricity</option><option value="gas">Gas</option></select></td>
+    <td><input data-f="mpan" class="mono" placeholder="13-digit MPAN core" oninput="admCheck(this)"><div class="adm-msg" data-f="mpanMsg"></div></td>
+    <td><select data-f="pc" onchange="admCheck(this)">${PC_OPTS.map(p => `<option value="${p}">${p === '' ? 'choose' : ('0' + p).slice(-2) + (p === 0 ? ' half-hourly' : '')}</option>`).join('')}</select></td>
+    <td><select data-f="reg" onchange="admCheck(this)">${REG_OPTS.map(r => `<option value="${r[0]}">${r[1]}</option>`).join('')}</select>
+      <div class="adm-msg" data-f="ruleMsg"></div></td>
+    <td><input data-f="aq" class="mono" inputmode="numeric" placeholder="kWh a year"></td>
+    <td><button class="act ghost sm" title="Remove this meter" onclick="this.closest('tr').remove()">Remove</button></td></tr>`;
+}
+function admAddSite() {
+  const host = $('admSites');
+  const n = host.querySelectorAll('.adm-site').length;
+  const div = document.createElement('div');
+  div.className = 'adm-site';
+  div.innerHTML = `<div class="row">
+      <div style="flex:2"><label>Site name</label><input data-f="site_name" placeholder="${n ? 'Site ' + (n + 1) : 'the customer name if blank'}"></div>
+      <div style="flex:2"><label>Address</label><input data-f="address_1" placeholder="1 Oven Street, Beckenham"></div>
+      <div><label>Postcode</label><input data-f="postcode" placeholder="BR3 5LE"></div>
+      ${n ? '<div style="flex:0 0 auto;display:flex;align-items:flex-end"><button class="act ghost sm" onclick="this.closest(\'.adm-site\').remove()">Remove site</button></div>' : ''}
+    </div>
+    <div class="scroll" style="margin-top:10px"><table class="adm-meters"><thead><tr><th>Fuel</th><th>MPAN / MPRN</th><th>Profile class</th>
+      <th>Rate type</th><th>AQ (kWh)</th><th></th></tr></thead><tbody>${admMeterRow()}</tbody></table></div>
+    <button class="act ghost sm" style="margin-top:8px" onclick="this.previousElementSibling.querySelector('tbody').insertAdjacentHTML('beforeend', admMeterRow())">+ Another meter</button>`;
+  host.appendChild(div);
+}
+/** The same checks the database makes, as you type: the MPAN check digit and the PC rule. */
+function admCheck(el) {
+  const tr = el.closest('tr'); if (!tr) return true;
+  const f = k => tr.querySelector(`[data-f="${k}"]`);
+  const fuel = f('fuel').value, mpan = (f('mpan').value || '').replace(/\s/g, '');
+  const gas = fuel === 'gas';
+  f('pc').disabled = gas; f('reg').disabled = gas;
+  let ok = true;
+  const mm = f('mpanMsg');
+  if (!mpan) { mm.textContent = ''; ok = false; }
+  else if (!gas && !(typeof CrmDocs !== 'undefined' && CrmDocs.mpanOk(mpan))) {
+    mm.innerHTML = `<span style="color:var(--fail)">${/^\d{13}$/.test(mpan) ? 'the check digit does not match: a typo?' : 'an MPAN core is 13 digits'}</span>`; ok = false;
+  } else if (gas && !/^\d{6,10}$/.test(mpan)) { mm.innerHTML = '<span style="color:var(--fail)">an MPRN is 6 to 10 digits</span>'; ok = false; }
+  else mm.innerHTML = '<span style="color:var(--ok)">looks right</span>';
+  const rm = f('ruleMsg');
+  if (gas) rm.textContent = '';
+  else {
+    const pc = f('pc').value === '' ? null : Number(f('pc').value), reg = f('reg').value || null;
+    const R = CrmDesk.rules, supply = pc === 0 ? 'HH' : 'NHH';
+    const v = R.pcRule(pc, reg, supply, null);
+    if (pc == null || (!reg && pc !== 0)) { rm.innerHTML = '<span style="color:var(--muted)">pick both</span>'; ok = false; }
+    else if (v !== 'ok') { rm.innerHTML = `<span style="color:var(--fail)">${esc(R.pcReason(pc, reg, supply, null))}</span>`; ok = false; }
+    else rm.innerHTML = '<span style="color:var(--ok)">fits</span>';
+  }
+  return ok;
+}
+async function admLoadCustomers() {
+  if (!$('admSites').children.length) admAddSite();
+  // The account manager list: everyone on the team list, as in Portfolios.
+  try {
+    const team = await q(sb.from('pricing_team_v').select('manager_name, active').order('manager_name'), 'team');
+    const cur = $('admCAm').value;
+    $('admCAm').innerHTML = '<option value="">nobody yet</option>' + team.filter(t => t.active !== false)
+      .map(t => `<option${t.manager_name === cur ? ' selected' : ''}>${esc(t.manager_name)}</option>`).join('');
+  } catch (_) { /* a free-text name is not offered: the list is the list */ }
+  const box = $('admDeskList');
+  let rows = [];
+  try { rows = await q(sb.from('crm_customers_v').select('uc_customer_id,name,account_manager,meter_count,uc_created,is_lead').eq('source', 'desk').order('name'), 'desk customers'); }
+  catch (e) { box.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
+  if (!rows.length) { box.innerHTML = '<div class="note">None yet.</div>'; return; }
+  // Has UC caught up? A UC customer with the same name means the desk copy can go.
+  let inUc = new Set();
+  try {
+    const twins = await q(sb.from('crm_customers_v').select('name').eq('source', 'uc').in('name', rows.map(r => r.name)), 'UC twins');
+    inUc = new Set(twins.map(t => String(t.name).trim().toLowerCase()));
+  } catch (_) { /* the check is a nicety */ }
+  box.innerHTML = `<div class="scroll"><table><thead><tr><th>Customer</th><th>Account manager</th><th class="num">Meters</th><th>Added</th><th></th></tr></thead><tbody>${
+    rows.map(r => `<tr><td><a href="#" onclick="admOpenCustomer('${esc(r.uc_customer_id)}');return false"><b>${esc(r.name)}</b></a>${r.is_lead ? ' <span class="pill p-mute">lead</span>' : ''}
+      ${inUc.has(String(r.name).trim().toLowerCase()) ? '<div class="crm-small" style="color:var(--warn)">UC now has a customer with this name</div>' : ''}</td>
+      <td>${esc(r.account_manager || '')}</td><td class="num">${Number(r.meter_count) || 0}</td><td>${uk(r.uc_created)}</td>
+      <td><button class="act ghost sm" onclick="admRetire('${esc(r.uc_customer_id)}', this)">Remove from the desk</button></td></tr>`).join('')}</tbody></table></div>`;
+}
+function admOpenCustomer(id) {
+  openSection('customers');
+  if (CRM_API) CRM_API.go('customer', id);
+  else setTimeout(() => CRM_API && CRM_API.go('customer', id), 300);
+}
+async function admAddCustomer() {
+  const msg = $('admCMsg'), btn = $('admCGo');
+  const name = ($('admCName').value || '').trim();
+  if (name.length < 2) return admNote(msg, 'warn', 'The customer needs a name.');
+  const sites = [...document.querySelectorAll('#admSites .adm-site')].map(s => {
+    const v = k => (s.querySelector(`[data-f="${k}"]`).value || '').trim();
+    return { site_name: v('site_name') || null, address_1: v('address_1') || null, postcode: v('postcode') || null,
+      meters: [...s.querySelectorAll('tr.adm-m')].map(tr => {
+        const f = k => tr.querySelector(`[data-f="${k}"]`).value;
+        const fuel = f('fuel');
+        return { fuel, mpan: (f('mpan') || '').replace(/\s/g, ''), profile_class: fuel === 'gas' ? null : (f('pc') === '' ? null : Number(f('pc'))),
+                 registers: fuel === 'gas' ? null : (f('reg') || null), aq: f('aq') ? Number(String(f('aq')).replace(/[, ]/g, '')) : null };
+      }).filter(m => m.mpan) };
+  });
+  const bad = [...document.querySelectorAll('#admSites tr.adm-m')].filter(tr => tr.querySelector('[data-f="mpan"]').value.trim() && !admCheck(tr.querySelector('[data-f="mpan"]')));
+  if (bad.length) return admNote(msg, 'warn', `${bad.length} meter${bad.length === 1 ? ' needs' : 's need'} fixing first: see the red notes.`);
+  btn.disabled = true; btn.textContent = 'Adding…';
+  try {
+    const id = await adm('pricing_admin_add_customer', { p_by: WHO, p_customer: {
+      name, account_manager: $('admCAm').value || null, company_reg_number: ($('admCReg').value || '').trim() || null,
+      registered_address: ($('admCAddr').value || '').trim() || null, registered_postcode: ($('admCPc').value || '').trim() || null,
+      customer_notes: ($('admCNotes').value || '').trim() || null, is_lead: $('admCLead').checked,
+      allow_duplicate: $('admCDup').checked, sites } }, 'add customer');
+    const meters = sites.reduce((a, s) => a + s.meters.length, 0);
+    admNote(msg, 'good', `<b>${esc(name)}</b> is on the desk with ${meters} meter${meters === 1 ? '' : 's'}.
+      <a href="#" onclick="admOpenCustomer('${esc(id)}');return false">Open it</a>.`);
+    ['admCName', 'admCReg', 'admCAddr', 'admCPc', 'admCNotes'].forEach(i => { $(i).value = ''; });
+    $('admCLead').checked = false; $('admCDup').checked = false; $('admCDupWrap').classList.add('hide');
+    $('admSites').innerHTML = ''; admAddSite();
+    if (CRM_API && CRM_API.refreshLists) CRM_API.refreshLists();
+    admLoadCustomers();
+  } catch (e) {
+    if (/already on the desk/i.test(e.message) && /customer called/i.test(e.message)) $('admCDupWrap').classList.remove('hide');
+    admNote(msg, 'bad', esc(String(e.message).replace(/^add customer: /, '')));
+  } finally { btn.disabled = false; btn.textContent = 'Add the customer'; }
+}
+async function admRetire(id, btn) {
+  if (!confirm('Remove this customer, its sites and meters from the desk? Do this once UC has the customer, so it is not on the desk twice.')) return;
+  btn.disabled = true;
+  try { await adm('pricing_admin_retire_customer', { p_uc_customer_id: id, p_by: WHO }, 'remove customer'); admLoadCustomers(); }
+  catch (e) { btn.disabled = false; admNote($('admCMsg'), 'bad', esc(e.message)); }
+}
+
+// ---- the status bar's rule per supplier
+async function admLoadStatus() {
+  await loadStatusBar();
+  const box = $('admStatusList');
+  box.innerHTML = `<div class="scroll"><table><thead><tr><th>Supplier</th><th>Now</th><th>Rule</th></tr></thead><tbody>${
+    SUP_STATUS.map(r => `<tr><td><b>${esc(r.display_name)}</b></td>
+      <td><span class="pill ${r.status === 'green' ? 'p-ok' : r.status === 'yellow' ? 'p-warn' : 'p-fail'}">${esc(r.status)}</span>
+        <span class="crm-small">${esc(statusText(r))}</span></td>
+      <td><select onchange="admSetCadence('${esc(r.supplier_key)}', this)" style="max-width:260px">
+        ${[['weekly', 'Weekly (7 / 11 days)'], ['monthly', 'Monthly (31 / 35 days)'], ['daily', "Daily (today's book)"]]
+          .map(([v, l]) => `<option value="${v}"${r.cadence === v ? ' selected' : ''}>${l}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table></div>`;
+}
+async function admSetCadence(key, sel) {
+  sel.disabled = true;
+  try {
+    await adm('pricing_admin_set_cadence', { p_supplier: key, p_cadence: sel.value, p_by: WHO }, 'status rule');
+    admNote($('admStatusMsg'), 'good', 'Saved. The status bar uses it straight away.');
+    await admLoadStatus();
+  } catch (e) { sel.disabled = false; admNote($('admStatusMsg'), 'bad', esc(e.message)); }
+}
+
+// ---- the password itself
+async function admSetPassword() {
+  const a = $('admPw1').value, b = $('admPw2').value, msg = $('admPwMsg');
+  if (a.length < 4) return admNote(msg, 'warn', 'At least 4 characters.');
+  if (a !== b) return admNote(msg, 'warn', 'The two do not match.');
+  try {
+    await adm('pricing_admin_set_password', { p_new: a, p_by: WHO }, 'change password');
+    ADMIN_PW = a; $('admPw1').value = ''; $('admPw2').value = '';
+    admNote(msg, 'good', 'Changed, for everyone. Tell the desk.');
+  } catch (e) { admNote(msg, 'bad', esc(e.message)); }
 }
 
 const UC_REGISTERS = { single: 'single', day_night: 'day_night', eve_weekend: 'eve_weekend',
@@ -1174,7 +1843,7 @@ const UC_REGISTERS = { single: 'single', day_night: 'day_night', eve_weekend: 'e
  * be corrected before pricing. Either way the start date comes from the UC contract dates.
  */
 async function priceFromCrm(m) {
-  showTab('price');
+  openSection('pricing', 'price');
   let rows = [];
   try {
     rows = await q(sb.from('meters')
@@ -1189,6 +1858,12 @@ async function priceFromCrm(m) {
     window.__FOUND = rows;
     METER = rows[0];
     METER.crm = m;
+    // A profile class or rate type corrected on the desk (Customers, Fix) beats the portfolio's
+    // copy: it is a person's reading of the bill, kept over every UC import.
+    if (m.pc_source === 'desk') {
+      if (m.profile_class != null) METER.profile_class = m.profile_class;
+      if (UC_REGISTERS[m.registers]) { METER.rate_structure = UC_REGISTERS[m.registers]; METER.rate_structure_src = 'checked on the desk'; }
+    }
     fillMeterGaps().catch(() => showMeter());
     $('priceCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
     return;
@@ -1578,7 +2253,7 @@ function loadInboxRows(ids) {
   if (!ids.length) return Promise.resolve();
   // Only if another tab is open: "Load the latest" calls this once per file, and redrawing
   // (and scrolling) the tab under someone reading the results each time is not on.
-  if ($('pane-books').classList.contains('hide')) showTab('books');
+  if ($('pane-books').classList.contains('hide')) openSection('books');
   return exclusive(async () => {
     await reapStale();
     for (const id of ids) await loadOneInboxRow(id);
@@ -1984,8 +2659,9 @@ function renderQueue() {
   // register, a product to pick), stays: this is where that is done.
   const shown = QUEUE.filter(i => !i.inboxId || ['queued', 'busy', 'layout', 'unrouted'].includes(i.state)
                                 || (i.state === 'blocked' && !i.notQuotable));
-  if (!shown.length) { out.classList.add('hide'); out.innerHTML = ''; return; }
-  out.classList.remove('hide');
+  const card = $('upInspectCard');
+  if (!shown.length) { out.classList.add('hide'); out.innerHTML = ''; if (card) card.classList.add('hide'); return; }
+  out.classList.remove('hide'); if (card) card.classList.remove('hide');
   const skey = $('upSupplier').value;
   const ready = QUEUE.filter(i => i.state === 'queued' && i.product).length;
   const pill = s => ({ queued:'p-mute', busy:'p-warn', done:'p-ok', error:'p-fail',
@@ -2432,29 +3108,21 @@ async function loadLedger() {
   const today = todayIso();
   const bookOf = (r) => String(r.source_received_at || r.uploaded_at || '').slice(0, 10);
   const ageDays = (r) => Math.floor((Date.parse(today) - Date.parse(bookOf(r))) / 864e5);
-  const expired = (r) => r.quote_valid_to && String(r.quote_valid_to).slice(0, 10) < today;
-
-  // One chip per supplier: green when everything live is current, amber when the newest book
-  // is over a fortnight old, red when something has expired or the newest is over 4 weeks old.
-  const bySup = new Map();
-  for (const r of rows.filter(x => x.status === 'live')) {
-    const s = bySup.get(r.supplier_key) || { newest: '', expired: 0, books: 0 };
-    s.books++; if (expired(r)) s.expired++;
-    if (bookOf(r) > s.newest) s.newest = bookOf(r);
-    bySup.set(r.supplier_key, s);
-  }
-  const chips = [...bySup.entries()]
-    .sort((a, b) => supplierName(a[0]).localeCompare(supplierName(b[0])))
-    .map(([k, s]) => {
-      const age = Math.floor((Date.parse(today) - Date.parse(s.newest)) / 864e5);
-      const tone = s.expired === s.books || age > 28 ? 'bad' : s.expired || age > 14 ? 'warn' : 'ok';
-      const what = s.expired === s.books ? 'expired' : `${age === 0 ? 'today' : age + 'd old'}${s.expired ? `, ${s.expired} expired` : ''}`;
-      return `<span class="bk-chip" title="${s.books} live book${s.books === 1 ? '' : 's'}"><i class="${tone}"></i>${esc(supplierName(k))} <span style="font-weight:500;color:var(--muted)">${esc(what)}</span></span>`;
-    }).join('');
-  const sup = $('bkSuppliers'); if (sup) sup.innerHTML = chips;
+  // The supplier status bar above owns the per-supplier colours now (pricebook_supplier_status,
+  // CES's 7 / 11 day rule). A tile clicked there narrows this list to that supplier.
+  const filt = $('ledgerFilter');
+  if (LEDGER_FILTER) {
+    rows = rows.filter(r => r.supplier_key === LEDGER_FILTER);
+    if (filt) {
+      filt.classList.remove('hide');
+      filt.innerHTML = `<div class="note">Showing ${esc(supplierName(LEDGER_FILTER))} only.
+        <a href="#" onclick="LEDGER_FILTER=null;loadLedger();paintStatusBar();return false">Show every supplier</a></div>`;
+    }
+  } else if (filt) { filt.classList.add('hide'); filt.innerHTML = ''; }
 
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nothing live yet.</td></tr>';
+    body.innerHTML = `<tr><td colspan="7" style="color:var(--muted)">${LEDGER_FILTER
+      ? `No live book for ${esc(supplierName(LEDGER_FILTER))}.` : 'Nothing live yet.'}</td></tr>`;
     return;
   }
   const loadingFirst = [...rows].sort((a, b) => (a.status === 'loading' ? -1 : 0) - (b.status === 'loading' ? -1 : 0)
@@ -2933,9 +3601,9 @@ async function saveProduct(key, field, value, el) {
   if (field === 'display_name' && !String(value).trim()) { loadAdmin(); return; }
   el.style.borderColor = '';
   try {
-    await q(sb.from('pricebook_products').update({ [field]: value })
-      .eq('supplier_key', supplier_key).eq('product_key', product_key)
-      .eq('fuel', fuel).eq('sale_scope', sale_scope), 'save product');
+    // Through the settings password (4 Nov 2026): the database checks it on every change.
+    await adm('pricing_admin_product_update', { p_supplier: supplier_key, p_product: product_key, p_fuel: fuel,
+                                                p_scope: sale_scope, p_field: field, p_value: value }, 'save product');
     $('adminErr').classList.add('hide');
     el.style.outline = '2px solid var(--ok)';
     setTimeout(() => { el.style.outline = ''; }, 900);
@@ -2959,12 +3627,12 @@ async function addProduct() {
     catch (e) { return fail($('adminErr'), `Filename rule is not a valid regex: ${e.message}`); }
   }
   try {
-    await q(sb.from('pricebook_products').insert({
+    await adm('pricing_admin_product_add', { p_row: {
       supplier_key, product_key, display_name, fuel: g('npFuel'), sale_scope: g('npScope'),
       filename_match: filename_match || null, quotable: $('npQuotable').checked,
       sort_order: parseInt(g('npSort'), 10) || 100, notes: g('npNotes') || null,
       green: $('npGreen').checked ? true : null
-    }), 'add product');
+    } }, 'add product');
     ['npName','npMatch','npNotes'].forEach(i => $(i).value = '');
     $('adminErr').classList.add('hide');
     await loadSuppliers(); loadAdmin();
