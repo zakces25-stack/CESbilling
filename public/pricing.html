@@ -13,7 +13,7 @@
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <!-- Bump on every push: a plain fetch of the live page can then tell this build from the last. -->
-  <meta name="build" content="pricing 2026-11-04a" />
+  <meta name="build" content="pricing 2026-11-04b" />
   <title>CES Pricing Portal</title>
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
@@ -855,7 +855,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="/pricing-parsers.js?v=2026-11-04.1"></script>
+<script src="/pricing-parsers.js?v=2026-11-04.2"></script>
 <script src="/pricing-7z.js?v=2026-11-03.1"></script>
 <script src="/pricing-crm-import.js?v=2026-11-03.2"></script>
 <script src="/pricing-crm.js?v=2026-11-04.1"></script>
@@ -885,7 +885,7 @@
  * So the two files check each other. Bump BOTH strings together whenever a parser change
  * alters what a rate means.
  */
-const EXPECTS_PARSERS = '2026-11-04.1';
+const EXPECTS_PARSERS = '2026-11-04.2';
 
 const SUPABASE_URL  = 'https://niadffxpxdohglcyagau.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pYWRmZnhweGRvaGdsY3lhZ2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3Mzc3MTksImV4cCI6MjA5NDMxMzcxOX0.x22Zh9O408PGfcPZ6rgu-a4B7WTbyH8iyT_ysr-IfIs';
@@ -1388,7 +1388,13 @@ function readWorkbook(buf, isCsv) {
   }
   // cellDates so dates arrive as Dates rather than Excel serials. The parser reads them
   // with LOCAL getters, because SheetJS builds them in local time.
-  const wb = XLSX.read(buf, { cellDates: true });
+  //
+  // dense + no formatted text (4 Nov 2026): British Gas V313 is one 23 MB book, 433,152 rows,
+  // 6.9 million cells. The default sparse sheet took 2.3 GB and 57 s to read in Node; dense
+  // took 1.3 GB and 22 s. Proved identical before switching: every row of every sheet of 40
+  // real supplier workbooks (xlsx, xlsm with formulas, Corona's xlsb, V313 itself) came out
+  // the same through sheet_to_json(raw:true), which never reads the formatted text anyway.
+  const wb = XLSX.read(buf, { cellDates: true, dense: true, cellText: false, cellNF: false, cellHTML: false });
   return { names: wb.SheetNames, wb };
 }
 const sheetToRows = (wb, name) => wb.csv
@@ -2111,6 +2117,18 @@ async function runQueue(inboxId) {
   }
 }
 
+/**
+ * The two biggest reasons rows were refused, with their counts, so "156,096 rows refused"
+ * says "(153,216 profile class 0 (half-hourly): not priced on the desk; 2,880 ...)" instead of
+ * looking like a broken file.
+ */
+function refusedWhy(refusals) {
+  const c = refusals && refusals.counts;
+  if (!c) return '';
+  const top = Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 2);
+  return top.length ? ` (${top.map(([k, n]) => `${n.toLocaleString()} ${k}`).join('; ')})` : '';
+}
+
 /** The last day a parsed book may be quoted on, when every row says (E.ON: its own day). */
 function bookValidity(rows) {
   let from = null, to = null, all = rows.length > 0;
@@ -2353,7 +2371,7 @@ async function processOne(it) {
     it.msg = `${total.toLocaleString()} rates live in ${((Date.now() - t0) / 1000).toFixed(1)}s`
            + (superseded ? `, replaced the previous book (${swept.toLocaleString()} rates deleted)`
                          : ', nothing previous to replace')
-           + (refused ? `. ${refused.toLocaleString()} rows refused` : '');
+           + (refused ? `. ${refused.toLocaleString()} rows refused${refusedWhy(parsed.refusals)}` : '');
   } catch (e) {
     // Leave the upload visibly broken rather than silently half-loaded; the sweeper takes its
     // rates and the row goes with the next tidy-up.
