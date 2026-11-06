@@ -23,12 +23,26 @@
  * Nothing here is cached between views and every list is paged with .range(): the biggest
  * customer has 3,762 contracts, which a plain select would silently cut at 1,000 rows.
  *
+ * 6 Nov 2026 (CES: "everything has to fit fully to screen", "cleaner, organised, more
+ * efficient"):
+ *   - every list is a card that fills the window (the page sets main.fill): filters on one row,
+ *     the table scrolling inside its own box with its header pinned, the pager always in sight;
+ *   - the signed contract cell is the FIRST column of every table (View, or Upload);
+ *   - contract rows are 8 columns, not 13, so nothing scrolls sideways at 1280 px;
+ *   - the customer page is a company page: a header, then one tab at a time (Sites and meters,
+ *     Supply contracts, Meter services, Contacts, Tenders, Notes, Readings, Problems);
+ *   - new view 'nocontract': the No contract uploaded page, from crm_no_contract() (_61b).
+ *   opts.scroller()      the element that scrolls (main), so a view opens at its top
+ *   opts.onCompany(c)    told which company is open ({ id, name }), for the tab along the top
+ *   opts.openNoContract(q)  open the No contract uploaded page (it is its own section)
+ *   opts.onDocsChanged() a file was stored or removed (the side menu count)
+ *
  * ASCII only. Special characters are HTML entities, never literal.
  */
 (function (root) {
   'use strict';
 
-  var VERSION = '2026-11-04.2';
+  var VERSION = '2026-11-06.1';
   var PAGE = 50, BIG_PAGE = 100;
 
   var LIFE = {
@@ -194,6 +208,67 @@
     '.pf-sub{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:20px 0 8px}',
     '.pf-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:6px}',
     '.pf-head h2{margin:0}',
+    // ---- 6 Nov 2026: lists that fit the window. The card fills what is left under the tabs
+    // (main.fill, set by the page); its table scrolls inside .grid with the header pinned.
+    '.fillcard{display:flex;flex-direction:column}',
+    '.fc-head{flex:0 0 auto}',
+    '.fc-title{display:flex;align-items:center;gap:6px 14px;flex-wrap:wrap;margin-bottom:10px}',
+    '.fc-title h2{margin:0}',
+    '.fc-count{font-size:12.5px;color:var(--text-2)}',
+    '.fc-actions{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}',
+    '.fc-foot{flex:0 0 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-top:10px}',
+    '.fc-foot .crm-pager{margin-top:0}',
+    '.fc-sub{font-size:12px;color:var(--muted);margin:-4px 0 10px;line-height:1.5}',
+    '.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 10px}',
+    '.toolbar input,.toolbar select{height:32px;font-size:12.5px;padding:4px 9px;width:auto;min-width:0}',
+    '.toolbar .tb-q{flex:1 1 220px;max-width:340px}',
+    '.toolbar select{flex:0 1 auto;max-width:180px}',
+    '.toolbar .tb-btn{background:none;border:1px dashed var(--line-2);border-radius:8px;height:32px;padding:0 11px;font:inherit;font-size:12px;font-weight:700;color:var(--text-2);cursor:pointer;white-space:nowrap}',
+    '.toolbar .tb-btn:hover{border-color:var(--cyan-dim);color:var(--cyan)}',
+    '.toolbar .act{height:32px;padding:0 14px}',
+    '.toolbar .tb-check{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--text-2);text-transform:none;letter-spacing:0;margin:0;font-weight:600;white-space:nowrap}',
+    '.toolbar .tb-check input{width:auto;height:auto}',
+    '.grid{overflow:auto;position:relative;border:1px solid var(--line);border-radius:10px;background:#fff}',
+    '.grid table{border-collapse:separate;border-spacing:0}',
+    '.grid thead th{position:sticky;top:0;z-index:2;background:#f5f7fb;border-bottom:1px solid var(--line-2)}',
+    '.grid td{border-bottom:1px solid var(--line)}',
+    '.grid tbody tr:last-child td{border-bottom:0}',
+    '.grid .note{margin:10px}',
+    '.nowrap{white-space:nowrap}',
+    '.crm-link{color:var(--text);font-weight:700;cursor:pointer;text-decoration:none;background:none;border:0;padding:0;font:inherit;text-align:left}',
+    '.crm-link:hover{color:var(--cyan);text-decoration:underline}',
+    '.site-row td{background:var(--panel-2);font-size:12.5px;font-weight:800;color:var(--text);padding:7px 10px;border-bottom:1px solid var(--line-2)}',
+    '.site-row .crm-small{display:inline;margin-left:8px;font-weight:500}',
+    '.rates{font-size:12px;line-height:1.5}',
+    '.rates .u{color:var(--muted);font-size:11px}',
+    // Optional columns go first when the window is narrow, so nothing scrolls sideways.
+    '@media (max-width:1439px){.c-opt{display:none}}',
+    // ---- the company page
+    '.co-head{display:flex;gap:10px 18px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}',
+    '.card .co-name{font-size:19px;font-weight:800;color:var(--text);margin:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;text-transform:none;letter-spacing:0}',
+    '.co-head .crm-back{margin:2px 0 0;white-space:nowrap}',
+    '.ell{display:block;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.tb-more{display:contents}',
+    '.tb-more.hide{display:none!important}',
+    '.co-facts{font-size:12px;color:var(--text-2);margin-top:5px;line-height:1.6}',
+    '.co-facts b{color:var(--text);font-weight:700}',
+    '.co-stats{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}',
+    '.co-stat{background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:5px 11px;font-size:11.5px;color:var(--text-2);font:inherit;font-size:11.5px;text-align:left}',
+    '.co-stat b{display:block;font-size:15px;color:var(--text);font-variant-numeric:tabular-nums}',
+    '.co-stat.warn{border-color:#ecd5a6;background:#fbf4e4;color:#5c4104;cursor:pointer}',
+    '.co-stat.warn:hover{border-color:#c28100}',
+    '.co-tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:12px 0 10px;overflow-x:auto;scrollbar-width:thin}',
+    '.co-tabs button{background:none;border:0;border-bottom:3px solid transparent;color:var(--text-2);font:inherit;font-size:13px;font-weight:700;padding:7px 12px 8px;cursor:pointer;white-space:nowrap;flex:0 0 auto}',
+    '.co-tabs button:hover{color:var(--text)}',
+    '.co-tabs button.on{color:var(--cyan);border-bottom-color:var(--cyan)}',
+    '.co-tabs .c{font-weight:600;opacity:.8;margin-left:5px}',
+    '.co-tabs .bad .c{color:var(--fail);opacity:1}',
+    '.co-body{display:flex;flex-direction:column}',
+    '.co-body .crm-tabs{margin-top:0}',
+    // ---- No contract uploaded
+    '.nc-meters{font-size:12px;line-height:1.55}',
+    '.nc-meters .mono{font-size:11.5px}',
+    '.nc-more{background:none;border:0;padding:0;color:var(--cyan);font:inherit;font-size:11.5px;font-weight:700;cursor:pointer}',
   ].join('\n');
 
   function injectStyles(doc) {
@@ -218,11 +293,14 @@
       k: { group: 'supply', tab: 'live', page: 0, q: '', supplier: '', fuel: '', am: '', ces: '', within: '', notRenewed: false, docs: '', kind: '', provider: '' },
       t: { tab: 'open', page: 0, q: '', am: '' },
       iq: { sev: 'high', kind: '', page: 0 },
+      nc: { kind: '', state: '', am: '', q: '', sort: 'customer', page: 0 },
+      cview: 'sites', back: 'portfolios',
       lists: null, importFiles: [], importPlan: null, busy: false,
     };
 
     var MENU = [['portfolios', 'Portfolios'], ['contracts', 'Contracts'], ['services', 'Meter services'], ['documents', 'Signed contracts'],
-                ['tenders', 'Tenders'], ['quality', 'Data checks'], ['overview', 'Figures'], ['import', 'Import from UC']];
+                ['nocontract', 'No contract uploaded'], ['tenders', 'Tenders'], ['quality', 'Data checks'], ['overview', 'Figures'],
+                ['import', 'Import from UC']];
     host.innerHTML = (opts.nav === false ? '' : '<div class="crm-sub" id="crmNav">' + MENU.map(function (v) {
       return '<button data-v="' + v[0] + '">' + v[1] + '</button>';
     }).join('') + '</div>') + '<div id="crmBody"></div>';
@@ -242,7 +320,7 @@
     }
     function fail(e) { body.insertAdjacentHTML('afterbegin', '<div class="note bad" style="margin-bottom:12px">' + esc(e.message || String(e)) + '</div>'); }
     function menuKey() {
-      if (S.view === 'customer' || S.view === 'customers') return 'portfolios';
+      if (S.view === 'customers') return 'portfolios';
       return S.view;
     }
     function setNav() {
@@ -252,29 +330,54 @@
       });
       if (opts.onView) { try { opts.onView(v); } catch (_) { /* the page's business */ } }
     }
+    // What scrolls: the page's main box (6 Nov 2026: the window itself no longer scrolls on the
+    // desk), or the window when the module is used on an ordinary page or on a phone.
+    function scroller() {
+      var sc = opts.scroller ? opts.scroller() : null;
+      if (!sc) return null;
+      var oy = (doc.defaultView || root).getComputedStyle(sc).overflowY;
+      return oy === 'auto' || oy === 'scroll' || oy === 'hidden' ? sc : null;
+    }
+    function scrollTopOf() {
+      var sc = scroller(), win = doc.defaultView || root;
+      return sc ? sc.scrollTop : (win.scrollY || 0);
+    }
+    function gridTop() { var g = body.querySelector('.grid'); return g ? g.scrollTop : 0; }
     function go(view, arg, opt) {
       var win = doc.defaultView || root;
-      var keep = opt && opt.keepScroll ? win.scrollY : null;
+      var keep = opt && opt.keepScroll ? scrollTopOf() : null;
+      // Working down a list (an upload, a Fix, a Done): the table's own scroll is kept too.
+      var keepGrid = opt && opt.keepScroll ? gridTop() : 0;
       if (view === 'services') { S.k.group = 'meter_services'; if (SERVICE_TABS.indexOf(S.k.tab) < 0) S.k.tab = 'live'; }
       else if (view === 'contracts' && S.k.group === 'meter_services' && !(opt && opt.keepGroup)) { S.k.group = 'supply'; S.k.tab = 'live'; }
+      if (view === 'customer' && S.view !== 'customer' && S.view) S.back = S.view;
+      if (view === 'customer' && !arg && !S.customer) view = 'portfolios';
       S.view = view; setNav();
       if (keep == null) {
         body.innerHTML = '<div class="note">Loading&hellip;</div>';
-        // A new view starts with its own top in sight. The page keeps whatever scroll the last
-        // view (or section) had, and the sticky header then sits over the view's first controls:
-        // clicks on them landed on the header instead.
-        var hdr = doc.querySelector('header');
-        var cover = hdr && win.getComputedStyle(hdr).position === 'sticky' ? hdr.getBoundingClientRect().height : 0;
-        var top = host.getBoundingClientRect().top;
-        if (top < cover && win.scrollBy) win.scrollBy(0, top - cover - 8);
+        // A new view starts with its own top in sight.
+        var sc = scroller();
+        if (sc) sc.scrollTop = 0;
+        else {
+          var hdr = doc.querySelector('header');
+          var cover = hdr && win.getComputedStyle(hdr).position === 'sticky' ? hdr.getBoundingClientRect().height : 0;
+          var top = host.getBoundingClientRect().top;
+          if (top < cover && win.scrollBy) win.scrollBy(0, top - cover - 8);
+        }
       }
       var f = { portfolios: renderPortfolios, overview: renderOverview, customers: renderCustomers, customer: renderCustomer,
                 contracts: renderContracts, services: renderContracts, documents: renderDocuments, tenders: renderTenders,
-                quality: renderQuality, import: renderImport }[view];
+                quality: renderQuality, import: renderImport, nocontract: renderNoContract }[view];
       return Promise.resolve().then(function () { return f(arg); })
-        .then(function () { if (keep != null) win.scrollTo(0, keep); })
+        .then(function () {
+          if (keep == null) return;
+          var sc = scroller();
+          if (sc) sc.scrollTop = keep; else win.scrollTo(0, keep);
+          var g = body.querySelector('.grid'); if (g && keepGrid) g.scrollTop = keepGrid;
+        })
         .catch(function (e) { body.innerHTML = ''; fail(e); });
     }
+    function docsChanged() { if (opts.onDocsChanged) { try { opts.onDocsChanged(); } catch (_) { /* the page's business */ } } }
 
     function lists() {
       if (S.lists) return Promise.resolve(S.lists);
@@ -550,23 +653,23 @@
           var rows = r.data || [];
           var pf = f.am && S.portfolios ? S.portfolios.filter(function (p) { return p.account_manager === f.am; })[0] : null;
           var title = f.am ? 'Portfolio: ' + esc(pfName(f.am)) : (f.q ? 'Search' : 'Customers');
-          body.innerHTML = '<div class="card">' +
+          var sel = function (id, label, list, value) {
+            return '<select id="' + id + '" aria-label="' + label + '" title="' + label + '">' + list.map(function (o) {
+              return '<option value="' + esc(o[0]) + '"' + (o[0] === value ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>';
+          };
+          body.innerHTML = '<div class="card fillcard"><div class="fc-head">' +
             '<button class="crm-back" id="crmPfBack">&larr; All portfolios</button>' +
-            '<div class="pf-head"><h2>' + title + '</h2></div>' +
-            (pf ? '<div class="pf-strip"><span><b>' + n0(pf.customers) + '</b>customers</span><span><b>' + n0(pf.live_contracts) + '</b>live contracts</span>' +
+            '<div class="fc-title pf-head"><h2>' + title + '</h2>' +
+            (pf ? '<div class="pf-strip" style="margin:0"><span><b>' + n0(pf.customers) + '</b>customers</span><span><b>' + n0(pf.live_contracts) + '</b>live contracts</span>' +
               '<span><b>' + n0(pf.renewals_90) + '</b>renewals due in 90 days</span><span><b>' + n0(pf.out_of_contract) + '</b>meters with no contract</span>' +
-              (Number(pf.leads) ? '<span><b>' + n0(pf.leads) + '</b>leads</span>' : '') + '</div>' : '') +
-            '<div class="row" style="margin-bottom:12px">' +
-            '<div style="flex:2"><label for="crmCq">' + (f.am ? 'Find in this portfolio' : 'Name, postcode, company number or MPAN') + '</label><input id="crmCq" value="' + esc(f.q) + '" placeholder="Rymece, BR3 5LE, 1012872025440"></div>' +
-            '<div><label for="crmCs">Show</label><select id="crmCs">' +
-            [['customers', 'Customers (active)'], ['inactive', 'Inactive customers'], ['leads', 'Leads'], ['all', 'Everyone']].map(function (o) {
-              return '<option value="' + o[0] + '"' + (o[0] === f.status ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
-            '<div><label for="crmCam">Portfolio</label><select id="crmCam">' + options(L.ams.concat([{ account_manager: 'Unassigned' }]), f.am, 'All portfolios', 'account_manager') + '</select></div>' +
-            '<div><label for="crmCso">Order</label><select id="crmCso">' +
-            [['ced', 'Next contract end first'], ['name', 'Name']].map(function (o) {
-              return '<option value="' + o[0] + '"' + (o[0] === (f.sort || 'name') ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
-            '<div style="flex:0 0 auto;display:flex;align-items:flex-end"><button class="act" id="crmCgo">Search</button></div></div>' +
-            (rows.length ? '<div class="scroll"><table><thead><tr><th>Customer</th>' + (f.am ? '' : '<th>Account manager</th>') + '<th class="num">Meters</th>' +
+              (Number(pf.leads) ? '<span><b>' + n0(pf.leads) + '</b>leads</span>' : '') + '</div>' : '') + '</div>' +
+            '<div class="toolbar">' +
+            '<input id="crmCq" class="tb-q" value="' + esc(f.q) + '" placeholder="' + (f.am ? 'Find in this portfolio' : 'Name, postcode, company number or MPAN') + '" aria-label="Search">' +
+            sel('crmCs', 'Show', [['customers', 'Active customers'], ['inactive', 'Inactive customers'], ['leads', 'Leads'], ['all', 'Everyone']], f.status) +
+            '<select id="crmCam" aria-label="Portfolio" title="Portfolio">' + options(L.ams.concat([{ account_manager: 'Unassigned' }]), f.am, 'All portfolios', 'account_manager') + '</select>' +
+            sel('crmCso', 'Order', [['ced', 'Next contract end first'], ['name', 'By name']], f.sort || 'name') +
+            '<button class="act" id="crmCgo">Search</button></div></div>' +
+            (rows.length ? '<div class="grid"><table><thead><tr><th>Customer</th>' + (f.am ? '' : '<th>Account manager</th>') + '<th class="num">Meters</th>' +
               '<th class="num">Live contracts</th><th>Next contract end</th><th class="num">Problems</th><th>Status</th></tr></thead><tbody>' +
               rows.map(function (c) {
                 var soon = c.next_ced && c.next_ced <= plusDays(today(), 90);
@@ -579,7 +682,7 @@
                   '<td class="num">' + (c.open_issues ? '<span class="pill p-warn">' + n0(c.open_issues) + '</span>' : '') + '</td>' +
                   '<td>' + (c.is_lead ? '<span class="pill p-mute">Lead</span>' : c.active === false ? '<span class="pill p-mute">Inactive</span>' : '<span class="pill p-ok">Active</span>') +
                   (c.source === 'desk' ? ' <span class="pill p-warn" title="Added on the desk, not yet in UtilityClick">desk</span>' : '') + '</td></tr>';
-              }).join('') + '</tbody></table></div>' + pager(f.page, PAGE, r.count || 0)
+              }).join('') + '</tbody></table></div><div class="fc-foot">' + pager(f.page, PAGE, r.count || 0) + '</div>'
               : '<div class="note">Nothing matched.</div>') + '</div>';
           var run = function () {
             f.q = body.querySelector('#crmCq').value; f.status = body.querySelector('#crmCs').value;
@@ -599,9 +702,22 @@
       });
     }
 
-    // ---------------------------------------------------------------- one customer
+    // ---------------------------------------------------------------- one company
+    // 6 Nov 2026: a company page. A header that says who they are and where their contracts
+    // stand, then ONE tab at a time (it was eight cards stacked down one long page), the tab's
+    // table filling the rest of the window. Every meter row carries the contract in force on it.
+    var CTABS = [['sites', 'Sites and meters'], ['contracts', 'Supply contracts'], ['services', 'Meter services'],
+                 ['contacts', 'Contacts'], ['tenders', 'Tenders'], ['notes', 'Notes'], ['reads', 'Readings'], ['problems', 'Problems']];
+    function svcBoth(m) {
+      if (m.fuel !== 'electricity') return '<span class="crm-small">&ndash;</span>';
+      var one = function (label, prov, until) {
+        return '<div class="svc"><span class="crm-small">' + label + '</span> ' + (prov ? '<b>' + esc(prov) + '</b>' +
+          (until ? ' <span class="crm-small">' + (until < today() ? 'ended ' : 'to ') + uk(until) + '</span>' : '') : '<span class="crm-small">none on file</span>') + '</div>';
+      };
+      return one('MOP', m.mop_provider, m.mop_until) + one('DC/DA', m.dcda_provider, m.dcda_until);
+    }
     function renderCustomer(id) {
-      if (id && (!S.customer || S.customer.id !== id)) { S.customer = { id: id }; S.ctab = 'live'; S.cpage = 0; }
+      if (id && (!S.customer || S.customer.id !== id)) { S.customer = { id: id }; S.ctab = 'live'; S.cpage = 0; S.cview = 'sites'; }
       id = S.customer.id;
       return Promise.all([
         q(sb.from('crm_customers_v').select('*').eq('uc_customer_id', id).maybeSingle(), 'customer'),
@@ -612,136 +728,229 @@
         q(sb.from('crm_meter_reads').select('*').eq('uc_customer_id', id).order('read_date', { ascending: false }).range(0, 199), 'readings'),
         q(sb.from('crm_issues').select('*').eq('uc_customer_id', id).is('cleared_at', null).is('resolved_at', null).order('severity').range(0, 199), 'problems'),
         q(sb.from('crm_contracts_v').select('*').eq('uc_customer_id', id).eq('is_service', true).order('meter_end', { ascending: false, nullsFirst: false }).range(0, 499), 'service contracts'),
+        // The supply deals in force or lined up: the contract on each meter, and the on-file count.
+        q(sb.from('crm_contracts_v').select('id,uc_tender_id,uc_customer_id,mpan,site_name,supplier,product,meter_start,meter_end,lifecycle,term_state,service_group,signed_docs,meter_deal_status')
+          .eq('uc_customer_id', id).eq('service_group', 'supply').in('lifecycle', ['live', 'upcoming', 'pipeline'])
+          .order('meter_start', { ascending: true, nullsFirst: false }).range(0, 999), 'contracts in force'),
+        q(sb.from('crm_contracts_v').select('id', { count: 'exact', head: true }).eq('uc_customer_id', id).eq('service_group', 'supply'), 'contract count'),
       ]).then(function (r) {
         var c = r[0].data;
-        if (!c) { body.innerHTML = '<div class="note bad">That customer is not on the desk.</div>'; return; }
+        if (!c) { body.innerHTML = '<div class="note bad">That company is not on the desk.</div>'; return; }
         var contacts = r[1].data || [], meters = r[2].data || [], tenders = r[3].data || [], notes = r[4].data || [], reads = r[5].data || [], issues = r[6].data || [];
-        var services = r[7].data || [];
-        var elec = meters.some(function (m) { return m.fuel === 'electricity'; });
-        // Empty -> '' so kv() prints its own lower-case "none" (a span here took the label's capitals).
-        var addr = function (a, pc) { return a || pc ? esc([a, pc].filter(Boolean).join(', ')) : ''; };
-        var kv = function (k, v) { return '<div><span>' + k + '</span>' + (v == null || v === '' ? '<span class="crm-small" style="display:inline;text-transform:none;letter-spacing:0;font-weight:400">none</span>' : v) + '</div>'; };
-        var pcFlags = meters.filter(function (m) { return m.pc_rule === 'check' || m.pc_rule === 'missing'; }).length;
-        var html =
-          '<button class="crm-back" id="crmBack">&larr; Back to customers</button>' +
-          '<div class="card"><h2 style="text-transform:none;letter-spacing:0;font-size:18px;color:var(--text)">' + esc(c.name) + ' ' +
+        var services = r[7].data || [], cur = r[8].data || [], nSupply = r[9].count || 0;
+        S.customer.name = c.name;
+        if (opts.onCompany) { try { opts.onCompany({ id: id, name: c.name }); } catch (_) { /* the page's business */ } }
+
+        // The contract on each meter: the one in force today (the latest to start, if two
+        // overlap), else the locked-in one, else the next to start.
+        var rank = function (z) { return z.lifecycle === 'live' ? 0 : z.lifecycle === 'pipeline' ? 1 : 2; };
+        var byMpan = {};
+        cur.forEach(function (k) {
+          var x = byMpan[k.mpan];
+          if (!x || rank(k) < rank(x) || (rank(k) === rank(x) && k.lifecycle === 'live')) byMpan[k.mpan] = k;
+        });
+        var deals = {};
+        cur.forEach(function (k) { deals[k.uc_tender_id] = k; });
+        var dealList = Object.keys(deals).map(function (t) { return deals[t]; });
+        var onFile = dealList.filter(function (k) { return Number(k.signed_docs) > 0; }).length;
+        var missing = dealList.length - onFile;
+        var siteKeys = {};
+        meters.forEach(function (m) { siteKeys[m.uc_site_id || ((m.site_name || '') + '|' + (m.postcode || ''))] = 1; });
+        var nSites = Object.keys(siteKeys).length;
+
+        var addr = function (a, pc) { return [a, pc].filter(Boolean).join(', '); };
+        var facts = [
+          c.account_manager ? 'Account manager <b>' + esc(c.account_manager) + '</b>' : 'No account manager',
+          c.company_reg_number ? 'Company no. <b>' + esc(c.company_reg_number) + '</b>' : '',
+          c.loa_status ? 'LOA <b>' + esc(c.loa_status) + '</b>' + (c.loa_end ? ' to ' + uk(c.loa_end) : '') : '',
+          c.vat_status ? 'VAT ' + esc(c.vat_status) : '',
+          c.legal_status ? esc(c.legal_status) : '',
+          c.parent_name ? 'Part of <b>' + esc(c.parent_name) + '</b>' : '',
+        ].filter(Boolean).join(' &middot; ');
+        var where = addr(c.registered_address, c.registered_postcode);
+        var comm = [c.preferred_nhh_commission && 'NHH ' + esc(c.preferred_nhh_commission), c.preferred_hh_commission && 'HH ' + esc(c.preferred_hh_commission),
+                    c.preferred_gas_commission && 'Gas ' + esc(c.preferred_gas_commission)].filter(Boolean).join(', ');
+        var stat = function (v, label, cls, attr) {
+          var tag = attr ? 'button' : 'div';
+          return '<' + tag + ' class="co-stat' + (cls ? ' ' + cls : '') + '"' + (attr || '') + '><b>' + v + '</b>' + label + '</' + tag + '>';
+        };
+        var counts = { sites: meters.length, contracts: nSupply, services: services.length, contacts: contacts.length, tenders: tenders.length,
+                       notes: notes.length + (c.customer_notes ? 1 : 0), reads: reads.length, problems: issues.length };
+        var tabs = CTABS.filter(function (t) { return t[0] === 'sites' || t[0] === 'contracts' || counts[t[0]] > 0; });
+        if (!tabs.some(function (t) { return t[0] === S.cview; })) S.cview = 'sites';
+
+        body.innerHTML = '<div class="card fillcard co">' +
+          '<div class="fc-head">' +
+          '<div class="co-head"><div style="min-width:0">' +
+          '<h2 class="co-name">' + esc(c.name) + ' ' +
           (c.is_lead ? '<span class="pill p-mute">Lead</span>' : c.active === false ? '<span class="pill p-mute">Inactive</span>' : '<span class="pill p-ok">Active</span>') +
           (c.source === 'desk' ? ' <span class="pill p-warn" title="Added on the desk, not yet in UtilityClick">added on the desk</span>' : '') + '</h2>' +
-          '<div class="crm-kv" style="margin-top:12px">' +
-          kv('Account manager', esc(c.account_manager || '')) + kv('Company number', esc(c.company_reg_number || '')) +
-          kv('Legal status', esc(c.legal_status || '')) + kv('Customer type', esc(c.customer_type || '')) +
-          kv('LOA', c.loa_status ? esc(c.loa_status) + (c.loa_end ? ', ends ' + uk(c.loa_end) : '') : '') + kv('VAT', esc(c.vat_status || '')) +
-          kv('Registered address', addr(c.registered_address, c.registered_postcode)) + kv('Billing address', addr(c.billing_address, c.billing_postcode)) +
-          kv('Parent', esc(c.parent_name || '')) + kv('Meters', n0(c.active_meter_count) + ' active of ' + n0(c.meter_count)) +
-          kv('Live contracts', n0(c.live_contracts) + (c.next_ced ? ', next ends ' + uk(c.next_ced) : '')) +
-          kv('Preferred commission', [c.preferred_nhh_commission && 'NHH ' + esc(c.preferred_nhh_commission), c.preferred_hh_commission && 'HH ' + esc(c.preferred_hh_commission), c.preferred_gas_commission && 'Gas ' + esc(c.preferred_gas_commission)].filter(Boolean).join(', ')) +
-          '</div>' + (c.customer_notes ? '<div class="note" style="margin-top:12px;white-space:pre-wrap">' + esc(c.customer_notes) + '</div>' : '') + '</div>';
+          '<div class="co-facts">' + facts + (where ? '<br>' + esc(where) : '') + (comm ? ' &middot; Preferred commission ' + comm : '') + '</div>' +
+          (c.customer_notes ? '<div class="sub clamp" style="margin:6px 0 0">' + esc(c.customer_notes) + '</div>' : '') +
+          '</div><button class="crm-back" id="crmBack">&larr; Back</button></div>' +
+          '<div class="co-stats">' +
+          stat(n0(nSites), nSites === 1 ? 'site' : 'sites') +
+          stat(n0(c.active_meter_count), 'active meter' + (Number(c.active_meter_count) === 1 ? '' : 's') + (c.meter_count !== c.active_meter_count ? ' of ' + n0(c.meter_count) : '')) +
+          stat(n0(c.live_contracts), 'live contract' + (Number(c.live_contracts) === 1 ? '' : 's')) +
+          stat(c.next_ced ? uk(c.next_ced) : 'none', 'next contract end') +
+          (docs && dealList.length ? stat(n0(onFile) + ' of ' + n0(dealList.length), 'signed contracts on file') : '') +
+          (docs && missing ? stat(n0(missing), 'with no contract uploaded &rarr;', 'warn', ' id="coMissing" title="Open them on No contract uploaded"') : '') +
+          '</div>' +
+          '<div class="co-tabs" id="coTabs" role="tablist">' + tabs.map(function (t) {
+            var cls = (t[0] === S.cview ? 'on' : '') + (t[0] === 'problems' ? ' bad' : '');
+            return '<button role="tab" data-ct="' + t[0] + '"' + (cls.trim() ? ' class="' + cls.trim() + '"' : '') +
+              ' aria-selected="' + (t[0] === S.cview ? 'true' : 'false') + '">' + t[1] + '<span class="c">' + n0(counts[t[0]]) + '</span></button>';
+          }).join('') + '</div></div>' +
+          '<div class="co-body" id="crmCbody"></div></div>';
 
-        if (issues.length) {
-          html += '<div class="card"><h2>Problems in the UC data for this customer</h2><div class="scroll"><table><thead><tr><th>Severity</th><th>What</th><th>Meter</th><th>Detail</th></tr></thead><tbody>' +
-            issues.map(function (i) { return '<tr><td>' + pill(SEV, i.severity) + '</td><td>' + esc(ISSUE_LABEL[i.kind] || i.kind) + '</td><td class="mono">' + esc(i.mpan || '') + '</td><td class="crm-wrap">' + esc(i.message) + '</td></tr>'; }).join('') +
-            '</tbody></table></div></div>';
-        }
+        body.querySelector('#crmBack').addEventListener('click', function () { go(S.back && S.back !== 'customer' ? S.back : 'portfolios'); });
+        if (body.querySelector('#coMissing')) body.querySelector('#coMissing').addEventListener('click', function () {
+          if (opts.openNoContract) opts.openNoContract(c.name);
+          else { S.nc = { kind: '', state: '', am: '', q: c.name, sort: 'customer', page: 0 }; go('nocontract'); }
+        });
+        [].forEach.call(body.querySelectorAll('#coTabs [data-ct]'), function (b) {
+          b.addEventListener('click', function () {
+            S.cview = b.getAttribute('data-ct');
+            [].forEach.call(body.querySelectorAll('#coTabs [data-ct]'), function (x) {
+              x.classList.toggle('on', x === b); x.setAttribute('aria-selected', x === b ? 'true' : 'false');
+            });
+            paintCompanyTab();
+          });
+        });
 
-        html += '<div class="card"><h2>Sites and meters (' + n0(meters.length) + ')</h2>' +
-          '<div class="sub">The contract position is worked out from the contract dates today. "Price" opens the meter on Price a meter, ' +
-          'with the start date set to the day after its supply comes free.' + (pcFlags ? ' <b style="color:var(--fail)">' + pcFlags + ' meter' + (pcFlags === 1 ? '' : 's') +
-          ' with a profile class to check:</b> press Fix on the row.' : '') + '</div>' +
-          // Contract end sits under the supplier (4 Nov 2026): with MOP and DC / DA beside it the
-          // row had eleven columns and squeezed the site name to "Beckenha / m".
-          (meters.length ? '<div class="scroll"><table id="crmMeters"><thead><tr><th style="min-width:160px">Site</th><th>MPAN / MPRN</th><th>Rate type</th><th class="num">AQ</th>' +
-            '<th>Supplier now</th><th>Then</th><th>State</th>' + (elec ? '<th>MOP</th><th>DC / DA</th>' : '') + '<th></th></tr></thead><tbody>' +
-            meters.map(function (m, i) {
-              var state = m.contract_state === 'live' ? '<span class="pill p-ok">Live</span>'
-                : m.contract_state === 'upcoming' ? '<span class="pill p-warn">Starts ' + uk(m.next_start) + '</span>'
-                : m.contract_state === 'ended' ? '<span class="pill p-fail">Ended ' + uk(m.last_end) + '</span>'
-                : '<span class="pill p-mute">No contract</span>';
-              var priceable = (m.fuel === 'electricity' || m.fuel === 'gas') && m.mpan_valid;
-              var fixable = m.fuel === 'electricity';
-              var flagged = m.pc_rule === 'check' || m.pc_rule === 'missing';
-              var endOn = m.cur_end || m.last_end;
-              return '<tr data-m="' + i + '"><td class="crm-wrap" style="overflow-wrap:normal">' + esc(m.site_name || '') + '<div class="crm-small">' + esc([m.address_1, m.postcode].filter(Boolean).join(', ')) + '</div></td>' +
-                '<td class="mono">' + esc(m.mpan) + (m.active === false ? '<div class="crm-small">meter inactive</div>' : '') + '</td>' +
-                '<td>' + rateCell(m) + '</td>' +
-                '<td class="num">' + n0(m.aq) + (m.aq_unit === 'm3' ? ' m&sup3;' : '') + '</td>' +
-                '<td>' + esc(m.cur_supplier || m.last_supplier || '') + (endOn ? '<div class="crm-small">' + (m.cur_end ? 'to ' : 'ended ') + uk(endOn) + '</div>' : '') +
-                (m.cur_supplier && m.cur_via_ces === false ? '<div class="crm-small">not via CES</div>' : '') + '</td>' +
-                '<td>' + (m.next_supplier ? esc(m.next_supplier) + '<div class="crm-small">from ' + uk(m.next_start) + '</div>' : '') + '</td>' +
-                '<td>' + state + '</td>' +
-                (elec ? '<td>' + (m.fuel === 'electricity' ? svcCell(m.mop_provider, m.mop_until) : '') + '</td><td>' + (m.fuel === 'electricity' ? svcCell(m.dcda_provider, m.dcda_until) : '') + '</td>' : '') +
-                '<td style="white-space:nowrap">' + (priceable ? '<button class="act sm" data-price="' + i + '">Price</button> ' : '') +
-                (fixable ? '<button class="act ' + (flagged ? '' : 'ghost ') + 'sm" data-fix="' + i + '">' + (flagged ? 'Fix' : 'Edit') + '</button>' : '') + '</td></tr>';
-            }).join('') + '</tbody></table></div>' : '<div class="note">No meters on file.</div>') + '</div>';
+        S.customer.ctx = { c: c, contacts: contacts, meters: meters, tenders: tenders, notes: notes, reads: reads, issues: issues, services: services, byMpan: byMpan };
+        return paintCompanyTab();
+      });
+    }
 
-        html += '<div class="card"><h2>Supply contracts</h2><div class="sub">Electricity, gas and water supply. MOP, DC / DA and the other service contracts are in their own list below.</div>' +
-          '<div class="crm-tabs" id="crmCtabs"></div><div id="crmClist"><div class="note">Loading&hellip;</div></div></div>';
-
-        var meterSvc = services.filter(function (k) { return k.service_group === 'meter_services'; });
-        var otherSvc = services.filter(function (k) { return k.service_group !== 'meter_services'; });
-        html += '<div class="card"><h2>Meter services and other services (' + n0(services.length) + ')</h2>' +
-          '<div class="sub">MOP, DC / DA, data and metering contracts, kept apart from supply. The provider is read from UC&rsquo;s product name, ' +
-          'because UC files all of these under a supplier called &ldquo;Supplier X&rdquo;.</div>' +
-          (services.length ? '<div class="crm-h3">Meter services (' + meterSvc.length + ')</div><div id="crmSvcM">' + serviceTable(meterSvc, false) + '</div>' +
-            (otherSvc.length ? '<div class="crm-h3">Other services (' + otherSvc.length + ')</div><div id="crmSvcO">' + serviceTable(otherSvc, false) + '</div>' : '')
-            : '<div class="note">None on file.</div>') + '</div>';
-
-        if (contacts.length) {
-          html += '<div class="card"><h2>Contacts (' + contacts.length + ')</h2><div class="scroll"><table><thead><tr><th>Name</th><th>Job title</th><th>Phone</th><th>Mobile</th><th>Email</th><th></th></tr></thead><tbody>' +
-            contacts.map(function (p) {
-              return '<tr><td>' + esc([p.title && p.title !== 'Not Specified' ? p.title : '', p.first_name, p.last_name].filter(Boolean).join(' ')) + '</td><td>' + esc(p.job_title || '') + '</td>' +
-                '<td class="mono">' + esc(p.telephone || '') + (p.telephone_ext ? ' x' + esc(p.telephone_ext) : '') + '</td><td class="mono">' + esc(p.mobile || '') + '</td>' +
-                '<td>' + (p.email ? '<a href="mailto:' + esc(p.email) + '">' + esc(p.email) + '</a>' : '') + '</td>' +
-                '<td>' + (p.primary_contact ? '<span class="pill p-ok">Primary</span> ' : '') + (p.tps ? '<span class="pill p-warn">TPS</span> ' : '') + (p.active === false ? '<span class="pill p-mute">Inactive</span>' : '') + '</td></tr>';
-            }).join('') + '</tbody></table></div></div>';
-        }
-        if (tenders.length) {
-          html += '<div class="card"><h2>Tenders (' + tenders.length + ')</h2><div class="scroll"><table><thead><tr><th>Ref</th><th>Utility</th><th>Wanted start</th><th>Status</th><th class="num">Meters</th><th class="num">Consumption</th><th>Account manager</th><th>Last updated</th></tr></thead><tbody>' +
-            tenders.map(function (t) {
-              return '<tr><td class="mono">' + esc(t.reference || '') + '</td><td>' + esc(t.utility || '') + '</td><td>' + uk(t.contract_start) + '</td>' +
-                '<td>' + pill(LIFE, t.lifecycle) + '<div class="crm-small">' + esc(t.deal_status || '') + '</div></td><td class="num">' + n0(t.meters) + '</td>' +
-                '<td class="num">' + n0(t.total_consumption) + '</td><td>' + esc(t.account_manager || '') + '</td><td>' + uk(t.uc_last_updated) + '</td></tr>';
-            }).join('') + '</tbody></table></div></div>';
-        }
-        if (notes.length) {
-          html += '<div class="card"><h2>Notes (' + notes.length + ')</h2>' + notes.map(function (n) {
-            return '<div class="note" style="margin-bottom:8px;white-space:pre-wrap"><b>' + uk(n.added_at) + '</b> ' + esc(n.added_by || '') +
-              (n.linked_entity ? ' <span class="crm-small">on ' + esc(n.linked_to || '') + ' ' + esc(n.linked_entity) + '</span>' : '') + '<br>' + esc(n.note) + '</div>';
-          }).join('') + '</div>';
-        }
-        if (reads.length) {
-          html += '<div class="card"><h2>Meter readings (' + reads.length + ')</h2><div class="scroll"><table><thead><tr><th>Date</th><th>MPAN / MPRN</th><th>Serial</th><th>Type</th><th class="num">Reading</th><th class="num">Day</th><th class="num">Night</th><th class="num">E/W</th></tr></thead><tbody>' +
-            reads.map(function (x) {
-              return '<tr><td>' + uk(x.read_date) + '</td><td class="mono">' + esc(x.mpan || '') + '</td><td class="mono">' + esc(x.serial || '') + '</td><td>' + esc(x.reading_type || '') + '</td>' +
-                '<td class="num">' + n0(x.reading) + '</td><td class="num">' + n0(x.reading_day) + '</td><td class="num">' + n0(x.reading_night) + '</td><td class="num">' + n0(x.reading_ew) + '</td></tr>';
-            }).join('') + '</tbody></table></div></div>';
-        }
-        body.innerHTML = html;
-        body.querySelector('#crmBack').addEventListener('click', function () { go('customers'); });
-        [].forEach.call(body.querySelectorAll('[data-price]'), function (b) {
+    function paintCompanyTab() {
+      var box = body.querySelector('#crmCbody'), ctx = S.customer && S.customer.ctx;
+      if (!box || !ctx) return Promise.resolve();
+      var id = S.customer.id, c = ctx.c;
+      var again = function () { go('customer', id, { keepScroll: true }); };
+      var grid = function (inner) { return '<div class="grid">' + inner + '</div>'; };
+      var v = S.cview;
+      if (v === 'contracts') { box.innerHTML = ''; return customerContracts(id); }
+      if (v === 'sites') {
+        var meters = ctx.meters;
+        var elec = meters.some(function (m) { return m.fuel === 'electricity'; });
+        var pcFlags = meters.filter(function (m) { return m.pc_rule === 'check' || m.pc_rule === 'missing'; }).length;
+        var dealRows = meters.map(function (m) { return ctx.byMpan[m.mpan] || null; });
+        var cols = (docs ? 1 : 0) + 5 + (elec ? 1 : 0) + 1;
+        var keyOf = function (x) { return x.uc_site_id || ((x.site_name || '') + '|' + (x.postcode || '')); };
+        var lastSite = null, rows = [];
+        meters.forEach(function (m, i) {
+          var sk = keyOf(m);
+          if (sk !== lastSite) {
+            lastSite = sk;
+            var n = meters.filter(function (x) { return keyOf(x) === sk; }).length;
+            rows.push('<tr class="site-row"><td colspan="' + cols + '">' + esc(m.site_name || 'Site with no name') +
+              '<span class="crm-small">' + esc([m.address_1, m.postcode].filter(Boolean).join(', ')) + (n > 1 ? ' &middot; ' + n + ' meters' : '') + '</span></td></tr>');
+          }
+          var state = m.contract_state === 'live' ? '<span class="pill p-ok">Live</span>'
+            : m.contract_state === 'upcoming' ? '<span class="pill p-warn">Starts ' + uk(m.next_start) + '</span>'
+            : m.contract_state === 'ended' ? '<span class="pill p-fail">Ended ' + uk(m.last_end) + '</span>'
+            : '<span class="pill p-mute">No contract</span>';
+          var priceable = (m.fuel === 'electricity' || m.fuel === 'gas') && m.mpan_valid;
+          var fixable = m.fuel === 'electricity';
+          var flagged = m.pc_rule === 'check' || m.pc_rule === 'missing';
+          var endOn = m.cur_end || m.last_end;
+          rows.push('<tr data-m="' + i + '">' + (docs ? (dealRows[i] ? docs.cell(dealRows[i], i) : '<td class="dc-cell"><span class="crm-small">no contract</span></td>') : '') +
+            '<td class="nowrap"><span class="mono">' + esc(m.mpan) + '</span>' + (m.active === false ? '<div class="crm-small">meter inactive</div>' : '') + '</td>' +
+            '<td>' + rateCell(m) + '</td>' +
+            '<td>' + esc(m.cur_supplier || m.last_supplier || '') + (endOn ? '<div class="crm-small">' + (m.cur_end ? 'to ' : 'ended ') + uk(endOn) + '</div>' : '') +
+            (m.cur_supplier && m.cur_via_ces === false ? '<div class="crm-small">not via CES</div>' : '') +
+            (m.next_supplier ? '<div class="crm-small">then <b>' + esc(m.next_supplier) + '</b> from ' + uk(m.next_start) + '</div>' : '') + '</td>' +
+            '<td>' + state + '</td>' +
+            '<td class="num">' + n0(m.aq) + (m.aq_unit === 'm3' ? ' m&sup3;' : '') + '</td>' +
+            (elec ? '<td>' + svcBoth(m) + '</td>' : '') +
+            '<td class="nowrap">' + (priceable ? '<button class="act sm" data-price="' + i + '">Price</button> ' : '') +
+            (fixable ? '<button class="act ' + (flagged ? '' : 'ghost ') + 'sm" data-fix="' + i + '">' + (flagged ? 'Fix' : 'Edit') + '</button>' : '') + '</td></tr>');
+        });
+        box.innerHTML = (pcFlags ? '<div class="note bad" style="margin:0 0 10px;padding:7px 12px">' + pcFlags + ' meter' + (pcFlags === 1 ? '' : 's') +
+            ' with a profile class to check: press <b>Fix</b> on the row.</div>' : '') +
+          (meters.length ? grid('<table id="crmMeters"><thead><tr>' + (docs ? '<th class="dc-cell">Contract</th>' : '') +
+            '<th>MPAN / MPRN</th><th>Rate type</th><th>Supplier now</th><th>State</th><th class="num">AQ</th>' +
+            (elec ? '<th>MOP and DC / DA</th>' : '') + '<th></th></tr></thead><tbody>' + rows.join('') + '</tbody></table>')
+            : '<div class="note">No meters on file.</div>');
+        [].forEach.call(box.querySelectorAll('[data-price]'), function (b) {
           b.addEventListener('click', function () {
             var m = meters[Number(b.getAttribute('data-price'))];
             if (opts.onPriceMeter) opts.onPriceMeter(Object.assign({}, m, { customer_name: c.name, account_manager: c.account_manager }));
           });
         });
-        [].forEach.call(body.querySelectorAll('[data-fix]'), function (b) {
-          b.addEventListener('click', function () {
-            var m = meters[Number(b.getAttribute('data-fix'))];
-            openFix(b.closest('tr'), m, function () { go('customer', id, { keepScroll: true }); });
-          });
+        [].forEach.call(box.querySelectorAll('[data-fix]'), function (b) {
+          b.addEventListener('click', function () { openFix(b.closest('tr'), meters[Number(b.getAttribute('data-fix'))], again); });
         });
+        if (docs && box.querySelector('#crmMeters')) docs.wire(box.querySelector('#crmMeters'), dealRows, function () { docsChanged(); again(); });
+        return Promise.resolve();
+      }
+      if (v === 'services') {
+        var meterSvc = ctx.services.filter(function (k) { return k.service_group === 'meter_services'; });
+        var otherSvc = ctx.services.filter(function (k) { return k.service_group !== 'meter_services'; });
+        box.innerHTML = '<div class="grid">' +
+          '<div class="crm-h3" style="margin:10px 10px 6px">Meter services (' + meterSvc.length + ')</div><div id="crmSvcM">' + serviceTable(meterSvc, false) + '</div>' +
+          (otherSvc.length ? '<div class="crm-h3" style="margin:14px 10px 6px">Other services (' + otherSvc.length + ')</div><div id="crmSvcO">' + serviceTable(otherSvc, false) + '</div>' : '') +
+          '</div>';
         if (docs) {
-          if (body.querySelector('#crmSvcM')) docs.wire(body.querySelector('#crmSvcM'), meterSvc, function () { go('customer', id, { keepScroll: true }); });
-          if (body.querySelector('#crmSvcO')) docs.wire(body.querySelector('#crmSvcO'), otherSvc, function () { go('customer', id, { keepScroll: true }); });
+          docs.wire(box.querySelector('#crmSvcM'), meterSvc, function () { docsChanged(); again(); });
+          if (box.querySelector('#crmSvcO')) docs.wire(box.querySelector('#crmSvcO'), otherSvc, function () { docsChanged(); again(); });
         }
-        return customerContracts(id);
-      });
+        return Promise.resolve();
+      }
+      if (v === 'contacts') {
+        box.innerHTML = grid('<table><thead><tr><th>Name</th><th>Job title</th><th>Phone</th><th>Mobile</th><th>Email</th><th></th></tr></thead><tbody>' +
+          ctx.contacts.map(function (p) {
+            return '<tr><td>' + esc([p.title && p.title !== 'Not Specified' ? p.title : '', p.first_name, p.last_name].filter(Boolean).join(' ')) + '</td><td>' + esc(p.job_title || '') + '</td>' +
+              '<td class="mono">' + esc(p.telephone || '') + (p.telephone_ext ? ' x' + esc(p.telephone_ext) : '') + '</td><td class="mono">' + esc(p.mobile || '') + '</td>' +
+              '<td class="crm-wrap">' + (p.email ? '<a href="mailto:' + esc(p.email) + '">' + esc(p.email) + '</a>' : '') + '</td>' +
+              '<td>' + (p.primary_contact ? '<span class="pill p-ok">Primary</span> ' : '') + (p.tps ? '<span class="pill p-warn">TPS</span> ' : '') + (p.active === false ? '<span class="pill p-mute">Inactive</span>' : '') + '</td></tr>';
+          }).join('') + '</tbody></table>');
+        return Promise.resolve();
+      }
+      if (v === 'tenders') {
+        box.innerHTML = grid('<table><thead><tr><th>Ref</th><th>Utility</th><th>Wanted start</th><th>Status</th><th class="num">Meters</th><th class="num">Consumption</th><th>Account manager</th><th>Last updated</th></tr></thead><tbody>' +
+          ctx.tenders.map(function (t) {
+            return '<tr><td class="mono">' + esc(t.reference || '') + '</td><td>' + esc(t.utility || '') + '</td><td>' + uk(t.contract_start) + '</td>' +
+              '<td>' + pill(LIFE, t.lifecycle) + '<div class="crm-small">' + esc(t.deal_status || '') + '</div></td><td class="num">' + n0(t.meters) + '</td>' +
+              '<td class="num">' + n0(t.total_consumption) + '</td><td>' + esc(t.account_manager || '') + '</td><td>' + uk(t.uc_last_updated) + '</td></tr>';
+          }).join('') + '</tbody></table>');
+        return Promise.resolve();
+      }
+      if (v === 'notes') {
+        box.innerHTML = '<div class="grid" style="padding:10px">' + (c.customer_notes ? '<div class="note" style="margin:0 0 8px;white-space:pre-wrap"><b>On the customer record</b><br>' + esc(c.customer_notes) + '</div>' : '') +
+          ctx.notes.map(function (n) {
+            return '<div class="note" style="margin:0 0 8px;white-space:pre-wrap"><b>' + uk(n.added_at) + '</b> ' + esc(n.added_by || '') +
+              (n.linked_entity ? ' <span class="crm-small">on ' + esc(n.linked_to || '') + ' ' + esc(n.linked_entity) + '</span>' : '') + '<br>' + esc(n.note) + '</div>';
+          }).join('') + '</div>';
+        return Promise.resolve();
+      }
+      if (v === 'reads') {
+        box.innerHTML = grid('<table><thead><tr><th>Date</th><th>MPAN / MPRN</th><th>Serial</th><th>Type</th><th class="num">Reading</th><th class="num">Day</th><th class="num">Night</th><th class="num">E/W</th></tr></thead><tbody>' +
+          ctx.reads.map(function (x) {
+            return '<tr><td>' + uk(x.read_date) + '</td><td class="mono">' + esc(x.mpan || '') + '</td><td class="mono">' + esc(x.serial || '') + '</td><td>' + esc(x.reading_type || '') + '</td>' +
+              '<td class="num">' + n0(x.reading) + '</td><td class="num">' + n0(x.reading_day) + '</td><td class="num">' + n0(x.reading_night) + '</td><td class="num">' + n0(x.reading_ew) + '</td></tr>';
+          }).join('') + '</tbody></table>');
+        return Promise.resolve();
+      }
+      if (v === 'problems') {
+        box.innerHTML = grid('<table><thead><tr><th>Severity</th><th>What</th><th>Meter</th><th>Detail</th></tr></thead><tbody>' +
+          ctx.issues.map(function (i) { return '<tr><td>' + pill(SEV, i.severity) + '</td><td>' + esc(ISSUE_LABEL[i.kind] || i.kind) + '</td><td class="mono">' + esc(i.mpan || '') + '</td><td class="crm-wrap">' + esc(i.message) + '</td></tr>'; }).join('') +
+          '</tbody></table>');
+        return Promise.resolve();
+      }
+      return Promise.resolve();
     }
 
     function customerContracts(id) {
-      var box = body.querySelector('#crmClist'), tabs = body.querySelector('#crmCtabs');
+      var box = body.querySelector('#crmCbody');
       if (!box) return Promise.resolve();
+      if (!box.querySelector('#crmClist')) {
+        box.innerHTML = '<div class="crm-tabs" id="crmCtabs"></div><div class="grid" id="crmClist"><div class="note">Loading&hellip;</div></div><div class="fc-foot" id="crmCfoot"></div>';
+      }
+      var tabs = box.querySelector('#crmCtabs'), list = box.querySelector('#crmClist'), foot = box.querySelector('#crmCfoot');
       return Promise.all(CONTRACT_TABS.map(function (l) {
-        return q(sb.from('crm_contracts_v').select('id', { count: 'exact', head: true }).eq('uc_customer_id', id).eq('lifecycle', l), 'contract count')
+        return q(sb.from('crm_contracts_v').select('id', { count: 'exact', head: true }).eq('uc_customer_id', id).eq('service_group', 'supply').eq('lifecycle', l), 'contract count')
           .then(function (r) { return [l, r.count || 0]; });
       })).then(function (counts) {
         if (!counts.some(function (x) { return x[0] === S.ctab && x[1]; })) {
@@ -755,72 +964,94 @@
           b.addEventListener('click', function () { S.ctab = b.getAttribute('data-t'); S.cpage = 0; customerContracts(id); });
         });
         var total = (counts.find(function (x) { return x[0] === S.ctab; }) || [0, 0])[1];
-        return q(sb.from('crm_contracts_v').select('*').eq('uc_customer_id', id).eq('lifecycle', S.ctab)
+        return q(sb.from('crm_contracts_v').select('*').eq('uc_customer_id', id).eq('service_group', 'supply').eq('lifecycle', S.ctab)
           .order(S.ctab === 'ended' || S.ctab === 'lost' ? 'meter_end' : 'meter_start', { ascending: S.ctab === 'upcoming' })
           .range(S.cpage * BIG_PAGE, S.cpage * BIG_PAGE + BIG_PAGE - 1), 'contracts').then(function (r) {
           var rows = r.data || [];
-          box.innerHTML = contractTable(rows, false) + pager(S.cpage, BIG_PAGE, total);
-          wirePager(box, function (p) { S.cpage = p; customerContracts(id); });
-          if (docs) docs.wire(box, rows, function () { customerContracts(id); });
+          list.innerHTML = contractTable(rows, false);
+          list.scrollTop = 0;
+          foot.innerHTML = total > BIG_PAGE ? pager(S.cpage, BIG_PAGE, total) : '';
+          wirePager(foot, function (p) { S.cpage = p; customerContracts(id); });
+          if (docs) docs.wire(list, rows, function () { docsChanged(); customerContracts(id); });
         });
       });
     }
 
-    function rates(k) {
-      var parts = [];
-      if (k.unit_rate_p_kwh != null) parts.push(n2(k.unit_rate_p_kwh, 3));
-      if (k.day_rate_p_kwh != null) parts.push('D ' + n2(k.day_rate_p_kwh, 3));
-      if (k.night_rate_p_kwh != null) parts.push('N ' + n2(k.night_rate_p_kwh, 3));
-      if (k.ew_rate_p_kwh != null) parts.push('E/W ' + n2(k.ew_rate_p_kwh, 3));
-      if (k.water_rate_gbp_m3 != null) parts.push('&pound;' + n2(k.water_rate_gbp_m3, 3) + '/m&sup3;');
-      return parts.join('<br>');
+    // Each figure keeps its unit beside it (never broken apart); a narrow window wraps between
+    // figures, not inside one. Capacity is per kVA per month, never per day.
+    function ratesCell(k) {
+      var lines = [], p3 = function (v) { return n2(v, 3); };
+      var fig = function (s) { return '<span class="nowrap">' + s + '</span>'; };
+      if (k.unit_rate_p_kwh != null) lines.push(fig(p3(k.unit_rate_p_kwh) + ' <span class="u">p/kWh</span>'));
+      var dn = [];
+      if (k.day_rate_p_kwh != null) dn.push('D ' + p3(k.day_rate_p_kwh));
+      if (k.night_rate_p_kwh != null) dn.push('N ' + p3(k.night_rate_p_kwh));
+      if (k.ew_rate_p_kwh != null) dn.push('E/W ' + p3(k.ew_rate_p_kwh));
+      if (dn.length) lines.push(dn.map(function (x, j) { return fig(x + (j === dn.length - 1 ? ' <span class="u">p/kWh</span>' : '')); }).join(' &middot; '));
+      if (k.water_rate_gbp_m3 != null) lines.push(fig('&pound;' + p3(k.water_rate_gbp_m3) + ' <span class="u">per m&sup3;</span>'));
+      if (k.standing_charge_p_day != null) lines.push(fig('SC ' + n2(k.standing_charge_p_day, 2) + ' <span class="u">p/day</span>'));
+      if (k.capacity_p_kva_month != null) lines.push(fig('Capacity ' + n2(k.capacity_p_kva_month, 2) + ' <span class="u">p/kVA/month</span>'));
+      else if (k.capacity_raw) lines.push('<span title="The UC figure is not believable: see Data checks">capacity: check UC</span>');
+      return lines.length ? '<div class="rates">' + lines.join('<br>') + '</div>' : '<span class="crm-small">none in UC</span>';
     }
     function docCell(k, i) { return docs ? docs.cell(k, i) : ''; }
+    // Customer and site on two short lines; the site is cut with an ellipsis, in full on hover.
+    function custCell(k) {
+      return '<td class="crm-wrap"><button class="crm-link" data-cust="' + esc(k.uc_customer_id) + '">' + esc(k.customer_name || '') + '</button>' +
+        (k.site_name ? '<span class="crm-small ell" title="' + esc(k.site_name) + '">' + esc(k.site_name) + '</span>' : '') + '</td>';
+    }
+    // Start and end on one line, the days left under it while it is live.
+    function termCell(start, end, days, live) {
+      return '<span class="nowrap">' + uk(start) + ' &ndash;</span> <span class="nowrap">' + uk(end) + '</span>' +
+        (live && days != null ? '<div class="crm-small">' + (days === 0 ? 'ends today' : n0(days) + ' days left') + '</div>' : '');
+    }
+    // The status pill, and UC's own words only when they say something the pill does not.
+    function statusCell(map, key, ucStatus) {
+      var p = map[key] || [key || '', 'p-mute'];
+      return pill(map, key) + (ucStatus && String(ucStatus).trim().toLowerCase() !== String(p[0]).toLowerCase()
+        ? '<div class="crm-small">' + esc(ucStatus) + '</div>' : '');
+    }
 
+    /**
+     * Supply contracts: eight columns, the signed contract first (6 Nov 2026; it was the 13th of
+     * 13, past the right edge of the screen). Units stay on every figure: p/kWh, p/day, and
+     * capacity in p/kVA/month, never per day.
+     */
     function contractTable(rows, withCustomer) {
       if (!rows.length) return '<div class="note">None.</div>';
-      return '<div class="scroll"><table><thead><tr>' + (withCustomer ? '<th>Customer</th>' : '') +
-        '<th>MPAN / MPRN</th><th>Supplier</th><th>Term</th><th>Status</th><th>Then</th><th class="num">AQ</th>' +
-        '<th class="num">Unit rates p/kWh</th><th class="num">Standing p/day</th><th class="num">Capacity p/kVA/month</th><th class="num">Commission</th><th>Account manager</th>' +
-        (docs ? '<th>Signed contract</th>' : '') + '</tr></thead><tbody>' +
+      return '<table><thead><tr>' + (docs ? '<th class="dc-cell">Contract</th>' : '') + (withCustomer ? '<th>Customer</th>' : '') +
+        '<th>Meter</th><th>Supplier</th><th>Term</th><th>Status</th><th>Rates</th><th class="num c-opt">AQ and commission</th></tr></thead><tbody>' +
         rows.map(function (k, i) {
-          var days = k.days_to_end;
-          // Start and end in one column (4 Nov 2026), so the signed contract fits on the row.
-          var term = '<span style="white-space:nowrap">' + uk(k.meter_start) + '</span><div style="white-space:nowrap">to ' + uk(k.meter_end) + '</div>' +
-            (k.lifecycle === 'live' && days != null ? '<div class="crm-small">' + (days === 0 ? 'ends today' : n0(days) + ' days left') + '</div>' : '');
-          return '<tr>' + (withCustomer ? '<td class="crm-wrap crm-click" data-cust="' + esc(k.uc_customer_id) + '">' + esc(k.customer_name || '') + '</td>' : '') +
-            '<td class="mono">' + esc(k.mpan) + '<div class="crm-small">' + esc(k.supply_type || k.utility || '') + '</div></td>' +
-            '<td>' + esc(k.supplier || '') + '<div class="crm-small">' + esc(k.product || '') + (k.via_ces === false ? ', not via CES' : '') + '</div></td>' +
-            '<td>' + term + '</td>' +
-            '<td>' + pill(LIFE, k.lifecycle) + '<div class="crm-small">' + esc(k.meter_deal_status || '') + '</div></td>' +
-            '<td>' + (k.next_supplier ? esc(k.next_supplier) + '<div class="crm-small">' + uk(k.next_start) + ', ' + esc(k.next_status || '') + '</div>' : '') + '</td>' +
-            '<td class="num">' + n0(k.aq) + '</td><td class="num">' + rates(k) + '</td>' +
-            '<td class="num">' + (k.standing_charge_p_day != null ? n2(k.standing_charge_p_day, 2) : '') + '</td>' +
-            '<td class="num">' + (k.capacity_p_kva_month != null ? n2(k.capacity_p_kva_month, 2) : (k.capacity_raw ? '<span class="crm-small" title="UC figure not believable, see Data checks">check UC</span>' : '')) + '</td>' +
-            '<td class="num">' + (k.commission_rate != null ? n2(k.commission_rate, 2) + '<div class="crm-small">' + esc(k.commission_uom || '') + '</div>' : '') + '</td>' +
-            '<td>' + esc(k.account_manager || '') + '</td>' + docCell(k, i) + '</tr>';
-        }).join('') + '</tbody></table></div>';
+          return '<tr>' + docCell(k, i) + (withCustomer ? custCell(k) : '') +
+            '<td class="nowrap"><span class="mono">' + esc(k.mpan) + '</span><div class="crm-small">' + esc(k.supply_type || k.utility || '') + '</div>' +
+            (!withCustomer && k.site_name ? '<span class="crm-small ell" title="' + esc(k.site_name) + '">' + esc(k.site_name) + '</span>' : '') + '</td>' +
+            '<td>' + esc(k.supplier || '') + '<span class="crm-small ell" style="max-width:140px" title="' + esc(k.product || '') + '">' + esc(k.product || '') + '</span>' +
+            (k.via_ces === false ? '<div class="crm-small">not via CES</div>' : '') + '</td>' +
+            '<td>' + termCell(k.meter_start, k.meter_end, k.days_to_end, k.lifecycle === 'live') + '</td>' +
+            '<td>' + statusCell(LIFE, k.lifecycle, k.meter_deal_status) +
+            (k.next_supplier ? '<div class="crm-small">then <b>' + esc(k.next_supplier) + '</b> ' + uk(k.next_start) + (k.next_status ? ', ' + esc(k.next_status) : '') + '</div>' : '') + '</td>' +
+            '<td>' + ratesCell(k) + '</td>' +
+            '<td class="num c-opt">' + n0(k.aq) + (k.aq != null ? ' <span class="crm-small">' + (k.aq_unit === 'm3' ? 'm&sup3;' : 'kWh') + '</span>' : '') +
+            (k.commission_rate != null ? '<div class="crm-small">' + n2(k.commission_rate, 2) + ' ' + esc(k.commission_uom || '') + '</div>' : '') + '</td></tr>';
+        }).join('') + '</tbody></table>';
     }
 
     /** MOP, DC / DA and the other services: who provides it and for how long, not rates. */
     function serviceTable(rows, withCustomer) {
       if (!rows.length) return '<div class="note">None.</div>';
-      return '<div class="scroll"><table><thead><tr>' + (withCustomer ? '<th>Customer</th>' : '') +
-        '<th>MPAN / MPRN</th><th>Service</th><th>Provider</th><th>Start</th><th>End</th><th>Status</th><th class="num">Charge</th><th>Account manager</th>' +
-        (docs ? '<th>Signed contract</th>' : '') + '</tr></thead><tbody>' +
+      return '<table><thead><tr>' + (docs ? '<th class="dc-cell">Contract</th>' : '') + (withCustomer ? '<th>Customer</th>' : '') +
+        '<th>Meter</th><th>Service</th><th>Provider</th><th>Term</th><th>Status</th><th class="num">Charge</th></tr></thead><tbody>' +
         rows.map(function (k, i) {
           var days = k.days_to_end;
           var charge = k.standing_charge_p_day != null ? n2(k.standing_charge_p_day, 2) + '<div class="crm-small">p/day</div>'
             : k.total_contract_cost_gbp != null ? '&pound;' + n2(k.total_contract_cost_gbp, 2) + '<div class="crm-small">contract</div>' : '';
-          return '<tr>' + (withCustomer ? '<td class="crm-wrap crm-click" data-cust="' + esc(k.uc_customer_id) + '">' + esc(k.customer_name || '') + '</td>' : '') +
-            '<td class="mono">' + esc(k.mpan) + '<div class="crm-small">' + esc(k.site_name || '') + '</div></td>' +
+          return '<tr>' + docCell(k, i) + (withCustomer ? custCell(k) : '') +
+            '<td class="nowrap"><span class="mono">' + esc(k.mpan) + '</span>' + (!withCustomer && k.site_name ? '<div class="crm-small" style="white-space:normal">' + esc(k.site_name) + '</div>' : '') + '</td>' +
             '<td><b>' + esc(KIND[k.service_kind] || k.service_kind || '') + '</b><div class="crm-small">' + esc(k.product || '') + '</div></td>' +
             '<td>' + (k.service_provider ? esc(k.service_provider) : '<span class="crm-small">not named in UC</span>') + '</td>' +
-            '<td>' + uk(k.meter_start) + '</td>' +
-            '<td>' + uk(k.meter_end) + (k.term_state === 'live' && days != null ? '<div class="crm-small">' + (days === 0 ? 'today' : n0(days) + ' days') + '</div>' : '') + '</td>' +
-            '<td>' + pill(LIFE, k.term_state) + '</td><td class="num">' + charge + '</td>' +
-            '<td>' + esc(k.account_manager || '') + '</td>' + docCell(k, i) + '</tr>';
-        }).join('') + '</tbody></table></div>';
+            '<td>' + termCell(k.meter_start, k.meter_end, days, k.term_state === 'live') + '</td>' +
+            '<td>' + pill(LIFE, k.term_state) + '</td><td class="num">' + charge + '</td></tr>';
+        }).join('') + '</tbody></table>';
     }
 
     // ---------------------------------------------------------------- contracts register
@@ -874,41 +1105,43 @@
             .then(function (r) {
               var rows = r.data || [];
               var total = (counts.find(function (x) { return x[0] === f.tab; }) || [0, 0])[1];
-              var sel = function (id, list, value) {
-                return '<select id="' + id + '">' + list.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === value ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>';
+              var more = !!(f.more || f.fuel || f.ces || f.notRenewed);
+              // Filters on one row, labelled by their first option (6 Nov 2026: the labelled grid
+              // of boxes took a third of a laptop screen before the first contract).
+              var sel = function (id, label, list, value) {
+                return '<select id="' + id + '" aria-label="' + label + '" title="' + label + '">' + list.map(function (o) {
+                  return '<option value="' + esc(o[0]) + '"' + (o[0] === value ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>';
               };
-              body.innerHTML = '<div class="card"><h2>' + (group === 'meter_services' ? 'Meter services: MOP and DC / DA' : 'Contracts') + '</h2>' +
-                '<div class="crm-seg" id="crmGroups">' + gcounts.map(function (x) {
+              body.innerHTML = '<div class="card fillcard"><div class="fc-head">' +
+                '<div class="fc-title"><h2>' + (group === 'meter_services' ? 'Meter services: MOP and DC / DA' : 'Contracts') + '</h2>' +
+                '<div class="crm-seg" id="crmGroups" style="margin:0">' + gcounts.map(function (x) {
                   return '<button data-g="' + x[0] + '"' + (x[0] === group ? ' class="on"' : '') + '>' + GROUPS[x[0]] + '<span class="c">' + n0(x[1]) + ' live</span></button>';
                 }).join('') + '</div>' +
-                '<div class="sub">' + (supply
-                  ? 'Supply contracts only: one row per meter per contract. Live means the contract dates cover today; Upcoming has not started; Ended is history. ' +
-                    '&ldquo;Never progressed&rdquo; are deals UC still shows as in progress whose dates have passed. Rates are as UC holds them: standing charges in p/day, ' +
-                    'capacity in p/kVA/month, and anything not believable left empty and listed under Data checks.'
-                  : group === 'meter_services'
-                  ? 'Meter operator (MOP), data collector and aggregator (DC / DA), data and metering contracts. Live ones ending soonest come first: this is the renewals list. ' +
-                    'The provider comes from UC&rsquo;s product name, because UC files all of these under &ldquo;Supplier X&rdquo;.'
-                  : 'Everything else UC holds as a service: ESOS and SECR, REGO, water services, solar and consultancy.') + '</div>' +
-                '<div class="row" style="margin-bottom:10px">' +
-                '<div style="flex:2"><label for="crmKq">Customer, site or MPAN</label><input id="crmKq" value="' + esc(f.q) + '"></div>' +
+                '<span class="fc-actions"><button class="act ghost sm" id="crmKx">Download (Excel)</button></span></div>' +
+                '<div class="toolbar">' +
+                '<input id="crmKq" class="tb-q" value="' + esc(f.q) + '" placeholder="Customer, site or MPAN" aria-label="Customer, site or MPAN">' +
                 (supply
-                  ? '<div><label for="crmKs">Supplier</label><select id="crmKs">' + options(L.suppliers, f.supplier, 'Any supplier', 'supplier') + '</select></div>' +
-                    '<div><label for="crmKf">Fuel</label>' + sel('crmKf', [['', 'Any'], ['electricity', 'Electricity'], ['gas', 'Gas'], ['water', 'Water']], f.fuel) + '</div>'
-                  : '<div><label for="crmKk">Service</label>' + sel('crmKk', [['', 'Any']].concat(Object.keys(KIND).filter(function (k) {
+                  ? '<select id="crmKs" aria-label="Supplier" title="Supplier">' + options(L.suppliers, f.supplier, 'Any supplier', 'supplier') + '</select>'
+                  : sel('crmKk', 'Service', [['', 'Any service']].concat(Object.keys(KIND).filter(function (k) {
                       return group === 'meter_services' ? ['mop', 'dcda', 'mop_dcda', 'data', 'metering_works', 'meter_services'].indexOf(k) >= 0
                         : ['compliance', 'green', 'water', 'solar', 'ces_service', 'consultancy', 'other'].indexOf(k) >= 0;
-                    }).map(function (k) { return [k, KIND[k]]; })), f.kind) + '</div>' +
-                    '<div><label for="crmKp">Provider</label>' + sel('crmKp', [['', 'Anyone']].concat(provs.map(function (p) { return [p.provider, p.provider]; })), f.provider) + '</div>') +
-                '<div><label for="crmKa">Account manager</label><select id="crmKa">' + options(L.ams, f.am, 'Anyone', 'account_manager') + '</select></div>' +
-                (supply ? '<div><label for="crmKc">Placed by</label>' + sel('crmKc', [['', 'Anyone'], ['ces', 'CES'], ['other', 'Someone else']], f.ces) + '</div>' : '') +
-                '<div><label for="crmKw">Ends within</label>' + sel('crmKw', [['', 'Any time'], ['30', '30 days'], ['60', '60 days'], ['90', '90 days'], ['180', '6 months'], ['365', '12 months']], f.within) + '</div>' +
-                (docs ? '<div><label for="crmKd">Signed contract</label>' + sel('crmKd', [['', 'Either'], ['missing', 'Not on file'], ['on_file', 'On file']], f.docs) + '</div>' : '') +
-                (supply ? '<div style="flex:0 0 auto;display:flex;align-items:flex-end;gap:8px"><label style="display:flex;gap:6px;align-items:center;margin:0 0 9px;text-transform:none;letter-spacing:0;font-size:12px;color:var(--text-2)">' +
-                  '<input type="checkbox" id="crmKn"' + (f.notRenewed ? ' checked' : '') + ' style="width:auto"> nothing lined up after it</label></div>' : '') +
-                '<div style="flex:0 0 auto;display:flex;align-items:flex-end;gap:8px"><button class="act" id="crmKgo">Apply</button>' +
-                '<button class="act ghost" id="crmKx">Download (Excel)</button></div></div>' +
+                    }).map(function (k) { return [k, KIND[k]]; })), f.kind) +
+                    sel('crmKp', 'Provider', [['', 'Any provider']].concat(provs.map(function (p) { return [p.provider, p.provider]; })), f.provider)) +
+                '<select id="crmKa" aria-label="Account manager" title="Account manager">' + options(L.ams, f.am, 'Any account manager', 'account_manager') + '</select>' +
+                sel('crmKw', 'Ends within', [['', 'Ends any time'], ['30', 'Ends within 30 days'], ['60', 'Ends within 60 days'], ['90', 'Ends within 90 days'],
+                  ['180', 'Ends within 6 months'], ['365', 'Ends within 12 months']], f.within) +
+                (docs ? sel('crmKd', 'Signed contract', [['', 'Contract: either'], ['missing', 'Contract not on file'], ['on_file', 'Contract on file']], f.docs) : '') +
+                // The filters used least sit behind "More filters", open whenever one is in use.
+                (supply ? '<button type="button" class="tb-btn" id="crmKmore" aria-expanded="' + (more ? 'true' : 'false') + '">' + (more ? 'Fewer filters' : 'More filters') + '</button>' +
+                  '<span class="tb-more' + (more ? '' : ' hide') + '" id="crmKmoreBox">' +
+                  sel('crmKf', 'Fuel', [['', 'Any fuel'], ['electricity', 'Electricity'], ['gas', 'Gas'], ['water', 'Water']], f.fuel) +
+                  sel('crmKc', 'Placed by', [['', 'Placed by anyone'], ['ces', 'Placed by CES'], ['other', 'Placed by someone else']], f.ces) +
+                  '<label class="tb-check"><input type="checkbox" id="crmKn"' + (f.notRenewed ? ' checked' : '') + '> nothing lined up after it</label></span>' : '') +
+                '<button class="act" id="crmKgo">Search</button></div>' +
                 '<div class="crm-tabs">' + counts.map(function (x) { return '<button data-t="' + x[0] + '"' + (x[0] === f.tab ? ' class="on"' : '') + '>' + LIFE[x[0]][0] + '<span class="c">' + n0(x[1]) + '</span></button>'; }).join('') + '</div>' +
-                '<div id="crmKlist">' + (supply ? contractTable(rows, true) : serviceTable(rows, true)) + '</div>' + pager(f.page, BIG_PAGE, total) + '<div id="crmKmsg" style="margin-top:10px"></div></div>';
+                '</div>' +
+                '<div class="grid" id="crmKlist">' + (supply ? contractTable(rows, true) : serviceTable(rows, true)) + '</div>' +
+                '<div class="fc-foot">' + pager(f.page, BIG_PAGE, total) + '<div id="crmKmsg"></div></div></div>';
               var val = function (id) { var e = body.querySelector('#' + id); return e ? e.value : ''; };
               var read = function () {
                 f.q = val('crmKq'); f.supplier = supply ? val('crmKs') : ''; f.fuel = supply ? val('crmKf') : '';
@@ -919,7 +1152,15 @@
               var again = function () { go(group === 'meter_services' ? 'services' : 'contracts', null, { keepGroup: true }); };
               body.querySelector('#crmKgo').addEventListener('click', function () { read(); again(); });
               body.querySelector('#crmKq').addEventListener('keydown', function (e) { if (e.key === 'Enter') { read(); again(); } });
+              // A pick in a filter applies at once: no Apply to remember.
+              [].forEach.call(body.querySelectorAll('.toolbar select, .toolbar input[type=checkbox]'), function (s) {
+                s.addEventListener('change', function () { read(); again(); });
+              });
               body.querySelector('#crmKx').addEventListener('click', function () { read(); exportContracts(f, total); });
+              if (body.querySelector('#crmKmore')) body.querySelector('#crmKmore').addEventListener('click', function () {
+                var box = body.querySelector('#crmKmoreBox'), open = box.classList.toggle('hide') === false;
+                f.more = open; this.textContent = open ? 'Fewer filters' : 'More filters'; this.setAttribute('aria-expanded', open ? 'true' : 'false');
+              });
               [].forEach.call(body.querySelectorAll('#crmGroups [data-g]'), function (b) {
                 b.addEventListener('click', function () {
                   var g = b.getAttribute('data-g');
@@ -930,11 +1171,11 @@
               [].forEach.call(body.querySelectorAll('.crm-tabs [data-t]'), function (b) {
                 b.addEventListener('click', function () { read(); f.tab = b.getAttribute('data-t'); again(); });
               });
-              [].forEach.call(body.querySelectorAll('[data-cust]'), function (td) {
-                td.addEventListener('click', function () { go('customer', td.getAttribute('data-cust')); });
+              [].forEach.call(body.querySelectorAll('[data-cust]'), function (el) {
+                el.addEventListener('click', function () { go('customer', el.getAttribute('data-cust')); });
               });
               wirePager(body, function (p) { f.page = p; again(); });
-              if (docs) docs.wire(body.querySelector('#crmKlist'), rows, function () { go(group === 'meter_services' ? 'services' : 'contracts', null, { keepScroll: true, keepGroup: true }); });
+              if (docs) docs.wire(body.querySelector('#crmKlist'), rows, function () { docsChanged(); go(group === 'meter_services' ? 'services' : 'contracts', null, { keepScroll: true, keepGroup: true }); });
             });
         });
       });
@@ -984,10 +1225,13 @@
       if (!docs) { body.innerHTML = '<div class="note bad">The signed contracts module did not load (pricing-docs.js). Hold Shift and reload.</div>'; return Promise.resolve(); }
       return docs.renderLibrary(body, {
         openCustomer: function (id) { go('customer', id); },
+        // The live contracts with nothing on file are their own page now (6 Nov 2026).
         openMissing: function () {
-          S.k = { group: 'supply', tab: 'live', page: 0, q: '', supplier: '', fuel: '', am: '', ces: '', within: '', notRenewed: false, docs: 'missing', kind: '', provider: '' };
-          go('contracts');
+          if (opts.openNoContract) return opts.openNoContract('');
+          S.nc = { kind: '', state: '', am: '', q: '', sort: 'customer', page: 0 };
+          return go('nocontract');
         },
+        onStored: function () { docsChanged(); },
       });
     }
 
@@ -1006,22 +1250,24 @@
             return q(base(f.tab, false).order('contract_start', { ascending: f.tab === 'open', nullsFirst: false }).range(f.page * BIG_PAGE, f.page * BIG_PAGE + BIG_PAGE - 1), 'tenders')
               .then(function (r) {
                 var rows = r.data || [], total = (counts.find(function (x) { return x[0] === f.tab; }) || [0, 0])[1];
-                body.innerHTML = '<div class="card"><h2>Tenders</h2><div class="sub">UC&rsquo;s opportunities that never became a contract row. ' +
+                body.innerHTML = '<div class="card fillcard"><div class="fc-head"><div class="fc-title"><h2>Tenders</h2></div>' +
+                  '<div class="sub">UC&rsquo;s opportunities that never became a contract row. ' +
                   'Most of the open ones are UC&rsquo;s automatic renewal backlog for 2027 to 2032. Stale means open but the wanted start date is more than 30 days gone.</div>' +
-                  '<div class="row" style="margin-bottom:10px"><div style="flex:2"><label for="crmTq">Customer or reference</label><input id="crmTq" value="' + esc(f.q) + '"></div>' +
-                  '<div><label for="crmTa">Account manager</label><select id="crmTa">' + options(L.ams, f.am, 'Anyone', 'account_manager') + '</select></div>' +
-                  '<div style="flex:0 0 auto;display:flex;align-items:flex-end"><button class="act" id="crmTgo">Apply</button></div></div>' +
-                  '<div class="crm-tabs">' + counts.map(function (x) { return '<button data-t="' + x[0] + '"' + (x[0] === f.tab ? ' class="on"' : '') + '>' + LIFE[x[0]][0] + '<span class="c">' + n0(x[1]) + '</span></button>'; }).join('') + '</div>' +
-                  (rows.length ? '<div class="scroll"><table><thead><tr><th>Customer</th><th>Ref</th><th>Utility</th><th>Wanted start</th><th>UC status</th><th class="num">Days at status</th><th class="num">Meters</th><th class="num">Consumption</th><th>Account manager</th><th>Last updated</th></tr></thead><tbody>' +
+                  '<div class="toolbar"><input id="crmTq" class="tb-q" value="' + esc(f.q) + '" placeholder="Customer or reference" aria-label="Customer or reference">' +
+                  '<select id="crmTa" aria-label="Account manager" title="Account manager">' + options(L.ams, f.am, 'Any account manager', 'account_manager') + '</select>' +
+                  '<button class="act" id="crmTgo">Search</button></div>' +
+                  '<div class="crm-tabs">' + counts.map(function (x) { return '<button data-t="' + x[0] + '"' + (x[0] === f.tab ? ' class="on"' : '') + '>' + LIFE[x[0]][0] + '<span class="c">' + n0(x[1]) + '</span></button>'; }).join('') + '</div></div>' +
+                  (rows.length ? '<div class="grid"><table><thead><tr><th>Customer</th><th>Ref</th><th>Utility</th><th>Wanted start</th><th>UC status</th><th class="num">Days at status</th><th class="num">Meters</th><th class="num c-opt">Consumption</th><th>Account manager</th><th class="c-opt">Last updated</th></tr></thead><tbody>' +
                     rows.map(function (t) {
                       return '<tr><td class="crm-wrap crm-click" data-cust="' + esc(t.uc_customer_id || '') + '">' + esc(t.customer_name || '') + '</td><td class="mono">' + esc(t.reference || '') + '</td>' +
                         '<td>' + esc(t.utility || '') + '</td><td>' + uk(t.contract_start) + '</td><td>' + esc(t.deal_status || '') + (t.reason_for_loss ? '<div class="crm-small">' + esc(t.reason_for_loss) + '</div>' : '') + '</td>' +
-                        '<td class="num">' + n0(t.days_at_status) + '</td><td class="num">' + n0(t.meters) + '</td><td class="num">' + n0(t.total_consumption) + '</td>' +
-                        '<td>' + esc(t.account_manager || '') + '</td><td>' + uk(t.uc_last_updated) + '</td></tr>';
-                    }).join('') + '</tbody></table></div>' + pager(f.page, BIG_PAGE, total) : '<div class="note">None.</div>') + '</div>';
+                        '<td class="num">' + n0(t.days_at_status) + '</td><td class="num">' + n0(t.meters) + '</td><td class="num c-opt">' + n0(t.total_consumption) + '</td>' +
+                        '<td>' + esc(t.account_manager || '') + '</td><td class="c-opt">' + uk(t.uc_last_updated) + '</td></tr>';
+                    }).join('') + '</tbody></table></div><div class="fc-foot">' + pager(f.page, BIG_PAGE, total) + '</div>' : '<div class="note">None.</div>') + '</div>';
                 var run = function () { f.q = body.querySelector('#crmTq').value; f.am = body.querySelector('#crmTa').value; f.page = 0; go('tenders'); };
                 body.querySelector('#crmTgo').addEventListener('click', run);
                 body.querySelector('#crmTq').addEventListener('keydown', function (e) { if (e.key === 'Enter') run(); });
+                body.querySelector('#crmTa').addEventListener('change', run);
                 [].forEach.call(body.querySelectorAll('.crm-tabs [data-t]'), function (b) { b.addEventListener('click', function () { f.tab = b.getAttribute('data-t'); f.page = 0; go('tenders'); }); });
                 [].forEach.call(body.querySelectorAll('[data-cust]'), function (td) { if (td.getAttribute('data-cust')) td.addEventListener('click', function () { go('customer', td.getAttribute('data-cust')); }); });
                 wirePager(body, function (p) { f.page = p; go('tenders'); });
@@ -1047,13 +1293,14 @@
         .concat([q(pcQuery(true), 'profile class count').then(function (r) { return ['pc', r.count || 0]; })]))
         .then(function (counts) {
           var total = (counts.find(function (x) { return x[0] === f.sev; }) || [0, 0])[1];
-          var head = '<div class="card"><h2>Data checks</h2><div class="sub">What the import found wrong or worth a look in the UC data. ' +
+          var head = '<div class="card fillcard"><div class="fc-head"><div class="fc-title"><h2>Data checks</h2></div>' +
+            '<div class="sub">What the import found wrong or worth a look in the UC data. ' +
             'High: an active meter whose last contract ended with nothing after it (out of contract, or renewed without CES and UC was never told), a gap you are in right now, ' +
             'or a contract that ends before it starts. Profile class: an electricity meter whose profile class and rate type contradict each other, or that has none. ' +
             'Each one is re-checked on every import; mark one done (or fix it) when you have dealt with it.</div>' +
-            (f.sev === 'pc' ? '' : '<div class="row" style="margin-bottom:10px"><div><label for="crmIk">What</label><select id="crmIk"><option value="">Everything</option>' +
-              Object.keys(ISSUE_LABEL).map(function (k) { return '<option value="' + k + '"' + (k === f.kind ? ' selected' : '') + '>' + ISSUE_LABEL[k] + '</option>'; }).join('') + '</select></div></div>') +
-            '<div class="crm-tabs">' + counts.map(function (x) { return '<button data-s="' + x[0] + '"' + (x[0] === f.sev ? ' class="on"' : '') + '>' + SEV[x[0]][0] + '<span class="c">' + n0(x[1]) + '</span></button>'; }).join('') + '</div>';
+            (f.sev === 'pc' ? '' : '<div class="toolbar"><select id="crmIk" aria-label="What" title="What"><option value="">Every kind of problem</option>' +
+              Object.keys(ISSUE_LABEL).map(function (k) { return '<option value="' + k + '"' + (k === f.kind ? ' selected' : '') + '>' + ISSUE_LABEL[k] + '</option>'; }).join('') + '</select></div>') +
+            '<div class="crm-tabs">' + counts.map(function (x) { return '<button data-s="' + x[0] + '"' + (x[0] === f.sev ? ' class="on"' : '') + '>' + SEV[x[0]][0] + '<span class="c">' + n0(x[1]) + '</span></button>'; }).join('') + '</div></div>';
           var wireTabs = function () {
             [].forEach.call(body.querySelectorAll('.crm-tabs [data-s]'), function (b) { b.addEventListener('click', function () { f.sev = b.getAttribute('data-s'); f.page = 0; go('quality'); }); });
             [].forEach.call(body.querySelectorAll('[data-cust]'), function (td) { if (td.getAttribute('data-cust')) td.addEventListener('click', function () { go('customer', td.getAttribute('data-cust')); }); });
@@ -1063,14 +1310,14 @@
           if (f.sev === 'pc') {
             return q(pcQuery(false).order('customer_name').order('mpan').range(f.page * BIG_PAGE, f.page * BIG_PAGE + BIG_PAGE - 1), 'profile class checks').then(function (r) {
               var rows = r.data || [];
-              body.innerHTML = head + (rows.length ? '<div class="scroll"><table><thead><tr><th>Customer</th><th>MPAN</th><th>Site</th><th>Rate type and profile class</th><th>UC says</th><th></th></tr></thead><tbody>' +
+              body.innerHTML = head + (rows.length ? '<div class="grid"><table><thead><tr><th>Customer</th><th>MPAN</th><th>Site</th><th>Rate type and profile class</th><th>UC says</th><th></th></tr></thead><tbody>' +
                 rows.map(function (m, i) {
                   return '<tr><td class="crm-wrap crm-click" data-cust="' + esc(m.uc_customer_id) + '">' + esc(m.customer_name || '') + '</td>' +
                     '<td class="mono">' + esc(m.mpan) + '</td><td class="crm-wrap">' + esc(m.site_name || '') + '<div class="crm-small">' + esc(m.postcode || '') + '</div></td>' +
                     '<td>' + rateCell(m) + '</td><td class="crm-small">' + esc(m.supply_type || '') + (m.meter_type ? ', ' + esc(m.meter_type) : '') +
                     (m.measurement_class ? '<br>' + esc(m.measurement_class) : '') + '</td>' +
                     '<td><button class="act sm" data-fix="' + i + '">Fix</button></td></tr>';
-                }).join('') + '</tbody></table></div>' + pager(f.page, BIG_PAGE, total) : '<div class="note good">Every electricity meter&rsquo;s profile class fits its rate type.</div>') + '</div>';
+                }).join('') + '</tbody></table></div><div class="fc-foot">' + pager(f.page, BIG_PAGE, total) + '</div>' : '<div class="note good">Every electricity meter&rsquo;s profile class fits its rate type.</div>') + '</div>';
               wireTabs();
               [].forEach.call(body.querySelectorAll('[data-fix]'), function (b) {
                 b.addEventListener('click', function () {
@@ -1082,12 +1329,12 @@
           return q(base(f.sev, false).order('kind').order('customer_name').range(f.page * BIG_PAGE, f.page * BIG_PAGE + BIG_PAGE - 1), 'problems').then(function (r) {
             var rows = r.data || [];
             body.innerHTML = head +
-              (rows.length ? '<div class="scroll"><table><thead><tr><th>What</th><th>Customer</th><th>MPAN / MPRN</th><th>Detail</th><th>Found</th><th></th></tr></thead><tbody>' +
+              (rows.length ? '<div class="grid"><table><thead><tr><th></th><th>What</th><th>Customer</th><th>MPAN / MPRN</th><th>Detail</th><th class="c-opt">Found</th></tr></thead><tbody>' +
                 rows.map(function (i, ix) {
-                  return '<tr><td>' + esc(ISSUE_LABEL[i.kind] || i.kind) + '</td><td class="crm-wrap crm-click" data-cust="' + esc(i.uc_customer_id || '') + '">' + esc(i.customer_name || '') + '</td>' +
-                    '<td class="mono">' + esc(i.mpan || '') + '</td><td class="crm-wrap">' + esc(i.message) + '</td><td>' + uk(i.first_seen_at) + '</td>' +
-                    '<td><button class="act ghost sm" data-res="' + ix + '">Done</button></td></tr>';
-                }).join('') + '</tbody></table></div>' + pager(f.page, BIG_PAGE, total) : '<div class="note good">Nothing here.</div>') + '</div>';
+                  return '<tr><td class="nowrap"><button class="act ghost sm" data-res="' + ix + '">Done</button></td><td>' + esc(ISSUE_LABEL[i.kind] || i.kind) + '</td>' +
+                    '<td class="crm-wrap crm-click" data-cust="' + esc(i.uc_customer_id || '') + '">' + esc(i.customer_name || '') + '</td>' +
+                    '<td class="mono">' + esc(i.mpan || '') + '</td><td class="crm-wrap">' + esc(i.message) + '</td><td class="c-opt">' + uk(i.first_seen_at) + '</td></tr>';
+                }).join('') + '</tbody></table></div><div class="fc-foot">' + pager(f.page, BIG_PAGE, total) + '</div>' : '<div class="note good">Nothing here.</div>') + '</div>';
             wireTabs();
             [].forEach.call(body.querySelectorAll('[data-res]'), function (b) {
               b.addEventListener('click', function () {
@@ -1104,6 +1351,141 @@
             });
           });
         });
+    }
+
+    // ---------------------------------------------------------------- no contract uploaded
+    // CES, 6 Nov 2026: "a page called No contract uploaded, where we can see all the sites we
+    // have with no contract". From crm_no_contract() (_61b): the deals CES placed that are live,
+    // starting later, or locked in and not live yet, with no signed contract on the desk. One
+    // row per contract as it was signed (customer, supplier, start date, kind), with every site
+    // and meter it covers: one Upload on the row attaches the PDF to all of them.
+    var NC_KINDS = [['', 'All'], ['electricity', 'Electricity'], ['gas', 'Gas'], ['water', 'Water'],
+                    ['meter_services', 'Meter services'], ['other_services', 'Other services']];
+    var NC_STATE = { live: ['Live', 'p-ok'], upcoming: ['Starts later', 'p-warn'], pipeline: ['Locked in, not live', 'p-warn'] };
+    var NC_PAGE = 100;
+    function ncArgs(f, limit, offset) {
+      return { p_kind: f.kind || null, p_state: f.state || null, p_am: f.am || null, p_q: (f.q || '').trim() || null,
+               p_sort: f.sort || 'customer', p_limit: limit, p_offset: offset };
+    }
+    function renderNoContract() {
+      var f = S.nc;
+      return Promise.all([lists(), q(sb.rpc('crm_no_contract', ncArgs(f, NC_PAGE, f.page * NC_PAGE)), 'no contract list')]).then(function (r) {
+        var L = r[0], d = r[1].data || {};
+        var groups = d.groups || [], tot = d.total || {}, kinds = d.kinds || {}, states = d.states || {};
+        var allKinds = Object.keys(kinds).reduce(function (a, k) { return a + (Number(kinds[k]) || 0); }, 0);
+        var sel = function (id, label, list, value) {
+          return '<select id="' + id + '" aria-label="' + label + '" title="' + label + '">' + list.map(function (o) {
+            return '<option value="' + esc(o[0]) + '"' + (o[0] === value ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>';
+        };
+        // The deal the Upload button stands on: the group's first, which is all the sibling
+        // picker needs (customer, supplier, start date, kind) to tick every meter signed with it.
+        var rows = groups.map(function (g) {
+          var first = (g.rows || [])[0] || {};
+          return { uc_tender_id: first.t, mpan: first.m, uc_customer_id: g.uc_customer_id, supplier: g.supplier, meter_start: g.meter_start,
+                   service_group: g.service_group, signed_docs: 0, customer_name: g.customer_name };
+        });
+        var meterLine = function (x) {
+          return '<div><span class="mono">' + esc(x.m) + '</span> ' + esc(x.s || '') + (x.f && x.f !== 'electricity' && x.f !== 'gas' ? ' <span class="crm-small">' + esc(x.f) + '</span>' : '') + '</div>';
+        };
+        var table = groups.length ? '<table id="ncTable"><thead><tr>' + (docs ? '<th class="dc-cell">Contract</th>' : '') +
+          '<th>Customer</th><th>Supplier</th><th>Sites and meters</th><th>Term</th><th>Status</th></tr></thead><tbody>' +
+          groups.map(function (g, i) {
+            var list = g.rows || [], shown = list.slice(0, 2);
+            var what = g.service_group === 'supply' ? (g.product || '') : (KIND[g.service_kind] || g.service_kind || '') + (g.product ? ', ' + g.product : '');
+            var st = NC_STATE[g.state] || [g.state, 'p-mute'];
+            var ucs = {};
+            list.forEach(function (x) { if (x.u) ucs[x.u] = 1; });
+            return '<tr data-g="' + i + '">' + (docs ? docs.cell(rows[i], i) : '') +
+              '<td class="crm-wrap"><button class="crm-link" data-cust="' + esc(g.uc_customer_id) + '">' + esc(g.customer_name || '') + '</button>' +
+              (g.account_manager ? '<div class="crm-small">' + esc(g.account_manager) + '</div>' : '') + '</td>' +
+              '<td>' + esc(g.service_group === 'supply' ? (g.supplier || '') : (g.service_provider || g.supplier || '')) + '<div class="crm-small">' + esc(what) + '</div></td>' +
+              '<td class="nc-meters">' + (Number(g.meters) > 1 ? '<b>' + n0(g.meters) + ' meters</b>' +
+                (Number(g.sites) > 1 ? ' <span class="crm-small">at ' + n0(g.sites) + ' sites</span>' : '') : '') +
+              shown.map(meterLine).join('') +
+              (list.length > 2 ? '<div class="nc-rest hide">' + list.slice(2).map(meterLine).join('') + '</div>' +
+                '<button class="nc-more" data-more="' + i + '">and ' + (list.length - 2) + ' more</button>' : '') + '</td>' +
+              '<td>' + termCell(g.meter_start, g.meter_end, g.days_to_end, g.state === 'live') + '</td>' +
+              '<td><span class="pill ' + st[1] + '">' + (g.state === 'upcoming' ? 'Starts ' + uk(g.meter_start) : st[0]) + '</span>' +
+              (Object.keys(ucs).filter(function (u) { return u.toLowerCase() !== 'live'; }).length
+                ? '<div class="crm-small">' + esc(Object.keys(ucs).join(', ')) + '</div>' : '') + '</td></tr>';
+          }).join('') + '</tbody></table>'
+          : '<div class="note good" style="margin:10px">' + (f.q || f.kind || f.state || f.am ? 'Nothing matches those filters.' : 'Every live contract has its signed contract on the desk.') + '</div>';
+
+        // The page title is in the bar above (the section's name), so the card starts with the count.
+        body.innerHTML = '<div class="card fillcard nc"><div class="fc-head">' +
+          '<div class="fc-title"><span class="fc-count" id="ncCount"><b>' + n0(tot.deals) + '</b> meter contract' + (Number(tot.deals) === 1 ? '' : 's') +
+          ' (' + n0(tot.groups) + ' signed contract' + (Number(tot.groups) === 1 ? '' : 's') + ') at <b>' + n0(tot.customers) + '</b> customer' + (Number(tot.customers) === 1 ? '' : 's') + ' with no signed contract on the desk</span>' +
+          '<span class="fc-actions"><button class="act ghost sm" id="ncX">Download (Excel)</button></span></div>' +
+          '<div class="sub">Live, starting later, or locked in and not live yet; placed by CES. Upload the signed contract on a row and it covers every meter signed with it; the row then leaves this list.</div>' +
+          '<div class="crm-seg" id="ncKinds" style="margin:0 0 10px">' + NC_KINDS.map(function (k) {
+            var n = k[0] ? (Number(kinds[k[0]]) || 0) : allKinds;
+            return '<button data-k="' + k[0] + '"' + (k[0] === (f.kind || '') ? ' class="on"' : '') + '>' + k[1] + '<span class="c">' + n0(n) + '</span></button>';
+          }).join('') + '</div>' +
+          '<div class="toolbar">' +
+          '<input id="ncQ" class="tb-q" value="' + esc(f.q) + '" placeholder="Customer, site, supplier or MPAN" aria-label="Customer, site, supplier or MPAN">' +
+          sel('ncState', 'Status', [['', 'Any status'], ['live', 'Live (' + n0(states.live || 0) + ')'], ['upcoming', 'Starts later (' + n0(states.upcoming || 0) + ')'],
+                                    ['pipeline', 'Locked in, not live (' + n0(states.pipeline || 0) + ')']], f.state) +
+          '<select id="ncAm" aria-label="Account manager" title="Account manager">' + options(L.ams, f.am, 'Any account manager', 'account_manager') + '</select>' +
+          sel('ncSort', 'Order', [['customer', 'Customer A to Z'], ['ending', 'Ending soonest'], ['newest', 'Newest start first'], ['meters', 'Most meters first']], f.sort) +
+          '<button class="act" id="ncGo">Search</button></div></div>' +
+          '<div class="grid" id="ncList">' + table + '</div>' +
+          '<div class="fc-foot">' + (Number(tot.groups) > NC_PAGE ? pager(f.page, NC_PAGE, Number(tot.groups) || 0) : '') + '<div id="ncMsg"></div></div></div>';
+
+        var again = function (keep) { go('nocontract', null, keep ? { keepScroll: true } : null); };
+        var read = function () {
+          f.q = body.querySelector('#ncQ').value; f.state = body.querySelector('#ncState').value;
+          f.am = body.querySelector('#ncAm').value; f.sort = body.querySelector('#ncSort').value; f.page = 0;
+        };
+        body.querySelector('#ncGo').addEventListener('click', function () { read(); again(); });
+        body.querySelector('#ncQ').addEventListener('keydown', function (e) { if (e.key === 'Enter') { read(); again(); } });
+        [].forEach.call(body.querySelectorAll('.toolbar select'), function (s) { s.addEventListener('change', function () { read(); again(); }); });
+        [].forEach.call(body.querySelectorAll('#ncKinds [data-k]'), function (b) {
+          b.addEventListener('click', function () { read(); f.kind = b.getAttribute('data-k'); again(); });
+        });
+        [].forEach.call(body.querySelectorAll('[data-more]'), function (b) {
+          b.addEventListener('click', function () {
+            var rest = b.previousElementSibling;
+            var open = rest.classList.toggle('hide') === false;
+            b.textContent = open ? 'show fewer' : 'and ' + rest.children.length + ' more';
+          });
+        });
+        [].forEach.call(body.querySelectorAll('[data-cust]'), function (el) {
+          el.addEventListener('click', function () { go('customer', el.getAttribute('data-cust')); });
+        });
+        wirePager(body, function (p) { f.page = p; again(); });
+        body.querySelector('#ncX').addEventListener('click', function () { read(); exportNoContract(f); });
+        if (docs && body.querySelector('#ncTable')) docs.wire(body.querySelector('#ncTable'), rows, function () { docsChanged(); again(true); });
+      });
+    }
+
+    /** Every row of the current filter, one line per meter, for someone to work through. */
+    function exportNoContract(f) {
+      var msg = body.querySelector('#ncMsg');
+      var X = opts.XLSX || root.XLSX;
+      if (!X) { msg.innerHTML = '<div class="note bad">The spreadsheet library did not load.</div>'; return Promise.resolve(); }
+      var out = [], page = 0, size = 500;
+      msg.innerHTML = '<span class="crm-small">Reading&hellip;</span>';
+      function next() {
+        return q(sb.rpc('crm_no_contract', ncArgs(f, size, page * size)), 'export').then(function (r) {
+          var d = r.data || {}, gs = d.groups || [];
+          gs.forEach(function (g) {
+            (g.rows || []).forEach(function (x) {
+              out.push({ Customer: g.customer_name, 'Account manager': g.account_manager, Kind: g.service_group === 'supply' ? (x.f || '') : (GROUPS[g.service_group] || g.service_group),
+                Supplier: g.service_group === 'supply' ? g.supplier : (g.service_provider || g.supplier), Product: g.product,
+                'Contract start': g.meter_start, 'Contract end': g.meter_end, Status: (NC_STATE[x.st] || [x.st])[0], 'UC deal status': x.u,
+                'MPAN/MPRN': x.m, Site: x.s });
+            });
+          });
+          page++;
+          if (gs.length === size) return next();
+        });
+      }
+      return next().then(function () {
+        var wb = X.utils.book_new();
+        X.utils.book_append_sheet(wb, X.utils.json_to_sheet(out), 'No contract uploaded');
+        X.writeFile(wb, 'CES no contract uploaded ' + today() + '.xlsx');
+        msg.innerHTML = '<span class="crm-small">' + n0(out.length) + ' meters downloaded.</span>';
+      }).catch(function (e) { msg.innerHTML = '<div class="note bad">' + esc(e.message) + '</div>'; });
     }
 
     // ---------------------------------------------------------------- import
@@ -1217,7 +1599,14 @@
     }
 
     if (opts.start !== false) go(opts.start || 'portfolios');
-    return { go: go, state: S, VERSION: VERSION, refreshLists: function () { S.lists = null; S.providers = null; } };
+    return { go: go, state: S, VERSION: VERSION, refreshLists: function () { S.lists = null; S.providers = null; },
+             // The No contract uploaded page, optionally searched for one company (6 Nov 2026).
+             noContract: function (term) {
+               if (term != null) S.nc = { kind: '', state: '', am: '', q: term || '', sort: 'customer', page: 0 };
+               return go('nocontract');
+             },
+             company: function () { return S.customer ? { id: S.customer.id, name: S.customer.name || '' } : null; },
+             closeCompany: function () { S.customer = null; } };
   }
 
   root.CrmDesk = {

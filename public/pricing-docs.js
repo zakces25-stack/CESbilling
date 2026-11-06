@@ -20,7 +20,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026-11-04.1';
+  var VERSION = '2026-11-06.1';
   var BUCKET = 'crm-documents';
   var MAX_BYTES = 50 * 1024 * 1024;
   var TYPES = {
@@ -79,10 +79,21 @@
   function kb(b) { b = Number(b) || 0; return b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB'; }
   function chunk(a, n) { var out = []; for (var i = 0; i < a.length; i += n) out.push(a.slice(i, i + n)); return out; }
 
+  // The contract cell is the FIRST column of every list (6 Nov 2026: CES had to scroll to the
+  // bottom of a 100-row table and slide right to reach View). One button says what there is:
+  // View when the signed contract is on file, Upload when it is not; download and "add another
+  // file" are small icons beside View.
+  var ICON_DL = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>';
+  var ICON_ADD = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+
   var STYLES = [
-    '.dc-cell{white-space:nowrap}',
-    '.dc-cell .act{margin:0 4px 4px 0}',
-    '.dc-list{margin-top:6px;font-size:11.5px;line-height:1.7}',
+    '.dc-cell{white-space:nowrap;width:1%}',
+    '.dc-btns{display:flex;gap:4px;align-items:center}',
+    '.dc-cell .act{margin:0}',
+    '.dc-cell .act.sm{padding:5px 11px}',
+    '.dc-cell .dc-ico{display:inline-grid;place-items:center;padding:4px 5px;line-height:0}',
+    '.dc-cell .dc-up{min-width:66px}',
+    '.dc-list{margin-top:6px;font-size:11.5px;line-height:1.7;white-space:normal;min-width:200px}',
     '.dc-list a{cursor:pointer}',
     '.dc-pick{background:var(--panel-2);border:1px solid var(--line-2);border-radius:10px;padding:12px 14px;margin:6px 0}',
     '.dc-pick label{display:flex;gap:8px;align-items:flex-start;text-transform:none;letter-spacing:0;font-size:12.5px;font-weight:500;color:var(--text);margin:4px 0}',
@@ -222,12 +233,16 @@
     // -------------------------------------------------------------- the cell on a contract row
     function cell(k, i) {
       var n = Number(k.signed_docs) || 0;
-      return '<td class="dc-cell" data-doc-cell="' + i + '">' +
-        (n ? '<button class="act ghost sm" data-doc-view="' + i + '">View</button>' +
-             '<button class="act ghost sm" data-doc-dl="' + i + '">Download</button>' +
-             (n > 1 ? '<span class="crm-small">' + n + ' files</span>' : '')
-           : '<span class="crm-small" style="display:block;margin-bottom:3px">not on file</span>') +
-        '<button class="act ghost sm" data-doc-up="' + i + '">' + (n ? 'Add' : 'Upload') + '</button></td>';
+      if (!k || !k.uc_tender_id) return '<td class="dc-cell"><span class="crm-small">no contract</span></td>';
+      if (n) {
+        return '<td class="dc-cell" data-doc-cell="' + i + '"><div class="dc-btns">' +
+          '<button class="act sm" data-doc-view="' + i + '" title="Open the signed contract in a new tab">View' + (n > 1 ? ' (' + n + ')' : '') + '</button>' +
+          '<button class="act ghost sm dc-ico" data-doc-dl="' + i + '" title="Download the signed contract" aria-label="Download">' + ICON_DL + '</button>' +
+          '<button class="act ghost sm dc-ico" data-doc-up="' + i + '" title="Add another file to this contract" aria-label="Add another file">' + ICON_ADD + '</button>' +
+          '</div></td>';
+      }
+      return '<td class="dc-cell" data-doc-cell="' + i + '"><button class="act ghost sm dc-up" data-doc-up="' + i + '" ' +
+        'title="No signed contract on file: upload it">Upload</button></td>';
     }
 
     function wire(el, rows, onChange) {
@@ -426,7 +441,7 @@
           'Counted per meter contract: UtilityClick holds a multi-site contract as one deal per meter, so one PDF usually covers several.</div>' +
           '<div class="dc-cov">' + tile('Supply, live', 'supply', 'live') + tile('Supply, starting later', 'supply', 'upcoming') +
           tile('Meter services, live', 'meter_services', 'live') + tile('Other services, live', 'other_services', 'live') + '</div>' +
-          (cb.openMissing ? '<div style="margin-top:12px"><button class="act ghost sm" id="dcMissing">List the live supply contracts with nothing on file</button></div>' : '') +
+          (cb.openMissing ? '<div style="margin-top:12px"><button class="act ghost sm" id="dcMissing">Open No contract uploaded</button></div>' : '') +
           '</div>' +
           '<div class="card"><h2>Add signed contracts in bulk</h2><div class="sub">Drop up to 50 files at a time (PDF, Word, images or a saved email). Each one is read for ' +
           'meter numbers, in its name and in the text of a PDF, and matched to the contracts those meters are on. Nothing is stored until you have checked the matches ' +
@@ -444,13 +459,14 @@
           'would save days. With that list the matching is exact and needs no checking.<br><br>' +
           '<b>Keep it current from today.</b> When a new contract is signed, upload it on its contract row the same day; then the backlog only ever shrinks.' +
           '</div></details></div>' +
-          '<div class="card"><h2>Recently added</h2>' + (recent.length ? '<div class="scroll"><table><thead><tr><th>File</th><th>Customer</th>' +
+          '<div class="card"><h2>Recently added</h2>' + (recent.length ? '<div class="scroll"><table><thead><tr><th class="dc-cell">Contract</th><th>File</th><th>Customer</th>' +
             '<th class="num">Contracts</th><th>Added</th><th></th></tr></thead><tbody>' + recent.map(function (d, j) {
-              return '<tr><td class="crm-wrap">' + esc(d.file_name) + '<div class="crm-small">' + kb(d.size_bytes) + (d.matched_by ? ', matched by ' + esc(d.matched_by) : '') + '</div></td>' +
+              return '<tr><td class="dc-cell"><div class="dc-btns"><button class="act sm" data-rv="' + j + '">View</button>' +
+                '<button class="act ghost sm dc-ico" data-rd="' + j + '" title="Download" aria-label="Download">' + ICON_DL + '</button></div></td>' +
+                '<td class="crm-wrap">' + esc(d.file_name) + '<div class="crm-small">' + kb(d.size_bytes) + (d.matched_by ? ', matched by ' + esc(d.matched_by) : '') + '</div></td>' +
                 '<td class="crm-wrap"><a data-cust="' + esc(d.uc_customer_id) + '" style="cursor:pointer">' + esc(d.customer_name || 'open the customer') + '</a></td>' +
                 '<td class="num">' + n0((d.uc_tender_ids || []).length) + '</td><td>' + uk(d.uploaded_at) + '<div class="crm-small">' + esc(d.uploaded_by_name || '') + '</div></td>' +
-                '<td style="white-space:nowrap"><button class="act ghost sm" data-rv="' + j + '">View</button> <button class="act ghost sm" data-rd="' + j + '">Download</button> ' +
-                '<button class="act ghost sm" data-rx="' + j + '">Remove</button></td></tr>';
+                '<td style="white-space:nowrap"><button class="act ghost sm" data-rx="' + j + '">Remove</button></td></tr>';
             }).join('') + '</tbody></table></div>' : '<div class="note">Nothing on file yet.</div>') + '<div id="dcRecentMsg"></div></div>';
 
         var custNames = {};

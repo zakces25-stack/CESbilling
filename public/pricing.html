@@ -13,7 +13,7 @@
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <!-- Bump on every push: a plain fetch of the live page can then tell this build from the last. -->
-  <meta name="build" content="pricing 2026-11-04c" />
+  <meta name="build" content="pricing 2026-11-06a" />
   <title>CES Pricing Portal</title>
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
@@ -281,6 +281,74 @@
 .ctrow input { height:28px; font-size:12px; padding:0 8px; }
 .ctrow.fixed input { color:var(--muted); background:var(--panel-2); }
 .ctrow.blank label::after { content:' · blank'; color:var(--muted); font-weight:400; }
+
+    /* ==== 6 Nov 2026: the desk fits the window ==========================================
+       CES: "everything has to fit fully to screen" (the View button on the contracts list
+       sat under the bottom of a 100-row table, behind a sideways scrollbar). On a laptop or a
+       desktop the window itself no longer scrolls: the top bar and the section's tabs stay
+       put, the page scrolls inside <main>, and a list page (main.fill) fits its card to what
+       is left, the table scrolling inside it with its header pinned, so the first row, its
+       buttons and the pager are always on screen. A phone is an ordinary scrolling page. */
+    .shell{grid-template-columns:212px minmax(0,1fr);
+      background:linear-gradient(90deg,var(--navy) 0,var(--navy) 212px,transparent 212px)}
+    main{max-width:none;padding:16px 22px}
+    main > section{max-width:1640px;margin:0 auto}
+    main > #pane-crm{max-width:none}
+    /* The section title and its pages on ONE row: the old two-row bar cost 40 px on every page. */
+    .subbar{display:flex;align-items:flex-end;gap:4px 20px;flex-wrap:wrap;padding:0 22px}
+    .subbar h1{font-size:17px;margin:0;padding:13px 0 12px;white-space:nowrap}
+    .subtabs{flex:1 1 auto;min-width:0}
+    .subtabs:empty{display:none}
+    .subtabs button{padding:14px 12px 12px}
+    .subtabs button.co{color:var(--navy);max-width:280px;overflow:hidden;text-overflow:ellipsis}
+    .subtabs button.co .x{display:inline-block;margin-left:8px;padding:0 5px;border-radius:5px;color:var(--muted);font-weight:800}
+    .subtabs button.co .x:hover{background:var(--panel-3);color:var(--fail)}
+    @media (min-width:641px){
+      body.desk-on{height:100vh;height:100dvh;overflow:hidden}
+      body.desk-on #app{height:100%;display:flex;flex-direction:column}
+      body.desk-on header.topbar{position:relative;flex:0 0 60px}
+      body.desk-on .shell{flex:1 1 auto;min-height:0;background:none}
+      body.desk-on .content{min-height:0}
+      body.desk-on main{flex:1 1 auto;min-height:0;overflow:auto;scroll-padding-top:10px}
+      body.desk-on .card, body.desk-on section{scroll-margin-top:10px}
+      body.desk-on main.fill{overflow:hidden;display:flex;flex-direction:column;padding-bottom:14px}
+      main.fill > .note{flex:0 0 auto}
+      main.fill > section:not(.hide){flex:1 1 auto;min-height:0;width:100%;display:flex;flex-direction:column}
+      main.fill #crmHost, main.fill #crmBody{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+      main.fill #crmBody > .note{flex:0 0 auto}
+      main.fill .fillcard{flex:1 1 auto;min-height:0;margin-bottom:0}
+      main.fill .fillcard > .grid, main.fill .co-body{flex:1 1 auto;min-height:0}
+      main.fill .co-body > .grid{flex:1 1 auto;min-height:0}
+    }
+    /* The side menu runs the full height beside the page (it is a drawer below 1001 px). */
+    @media (min-width:1001px){ body.desk-on .side{position:relative;top:0;height:auto} }
+    @media (max-width:1000px){ .shell{grid-template-columns:minmax(0,1fr);background:none} }
+    @media (max-width:640px){ .subbar{padding:0 14px} .subbar h1{padding:10px 0 8px} }
+
+    /* One line of help under a card's title; click it for the rest (6 Nov 2026: "too much all
+       over the place"). Nothing is removed, it is folded. */
+    /* Only the help line straight under a title (and .sub.clamp): result notes, such as a
+       quote's assumptions or the AQ analysis notes, are never folded. */
+    .card h2 + .sub:not(.keep), .fc-title + .sub, .sub.clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden;cursor:pointer}
+    .card h2 + .sub.open, .fc-title + .sub.open, .sub.clamp.open{display:block;-webkit-line-clamp:none;cursor:auto}
+
+    /* ---- find a company, from any page (top bar) */
+    .gsearch{position:relative;flex:1 1 auto;max-width:460px;min-width:0;margin-left:10px}
+    .gsearch input{height:38px;width:100%;padding:0 12px 0 36px;border-radius:10px;background:var(--panel-2);border:1px solid var(--line-2);font-size:13px}
+    .gsearch input:focus{background:#fff}
+    .gsearch .gs-ico{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--muted);pointer-events:none}
+    .gs-list{position:absolute;left:0;right:0;top:calc(100% + 6px);background:#fff;border:1px solid var(--line-2);border-radius:12px;
+      box-shadow:0 14px 34px rgba(19,32,57,.18);z-index:55;max-height:min(440px,70vh);overflow:auto;padding:6px}
+    .gs-item{display:block;width:100%;text-align:left;background:none;border:0;border-radius:8px;padding:8px 10px;cursor:pointer;font:inherit;color:var(--text)}
+    .gs-item:hover,.gs-item.on{background:var(--cyan-glow)}
+    .gs-item .n{font-size:13px;font-weight:800}
+    .gs-item .m{display:block;font-size:11.5px;color:var(--muted);margin-top:2px}
+    .gs-empty{padding:10px 12px;font-size:12.5px;color:var(--muted)}
+    .side-nav .cnt{margin-left:auto;font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;background:#f2d27a;color:#3d2c00}
+    @media (max-width:640px){
+      .gsearch{margin-left:0}
+      .gsearch input{font-size:16px}          /* below 16 px a phone zooms the page on focus */
+    }
 </style>
 </head>
 <body>
@@ -335,7 +403,7 @@
 <div id="whoami" class="hide">
   <div class="card">
     <h2>Who's on the desk?</h2>
-    <div class="sub">
+    <div class="sub keep">
       Everyone shares this login, so your name goes on what you do here. Pick yours.
     </div>
     <!-- The pick list the desk maintains itself. Free text still works, because on the
@@ -360,6 +428,14 @@
     <a class="brand" href="#" onclick="openSection('pricing');return false" aria-label="CES Pricing Portal, back to Pricing">
       <img src="/ces_logo.png" alt="Commercial Energy Solutions" onerror="this.style.display='none'" />
       <span>Pricing Portal</span></a>
+    <!-- Find a company from any page (CES, 6 Nov 2026): its name, a postcode, a company number
+         or an MPAN, then straight to the company page with every site and meter. -->
+    <div class="gsearch" id="gsWrap" role="search">
+      <svg class="gs-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>
+      <input id="gsQ" type="search" autocomplete="off" spellcheck="false" placeholder="Find a company, postcode or MPAN"
+             aria-label="Find a company" role="combobox" aria-expanded="false" aria-controls="gsList" aria-autocomplete="list" />
+      <div id="gsList" class="gs-list hide" role="listbox" aria-label="Companies"></div>
+    </div>
     <div class="spacer"></div>
     <div class="whoami"><span id="whoLabel"></span> <span id="acctLabel" style="opacity:.75"></span></div>
     <button class="act ghost sm" onclick="changeWho()">Not you?</button>
@@ -395,6 +471,10 @@
         <button id="tab-crm" data-sec="customers" onclick="openSection('customers')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           <span>Customers</span></button>
+        <!-- CES, 6 Nov 2026: every live contract with no signed contract on the desk, in one list. -->
+        <button id="tab-nc" data-sec="nocontract" onclick="openSection('nocontract')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9.5 12.5l5 5M14.5 12.5l-5 5"/></svg>
+          <span>No contract uploaded</span><span id="ncBadge" class="cnt hide" title="Live contracts with no signed contract on the desk"></span></button>
         <button id="tab-books" data-sec="books" onclick="openSection('books')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
           <span>Pricebooks</span><span id="inboxBadge" class="pill p-warn hide" title="New files from the mailbox"></span></button>
@@ -1091,8 +1171,8 @@
 <script src="/pricing-parsers.js?v=2026-11-04.2"></script>
 <script src="/pricing-7z.js?v=2026-11-03.1"></script>
 <script src="/pricing-crm-import.js?v=2026-11-03.2"></script>
-<script src="/pricing-docs.js?v=2026-11-04.1"></script>
-<script src="/pricing-crm.js?v=2026-11-04.2"></script>
+<script src="/pricing-docs.js?v=2026-11-06.1"></script>
+<script src="/pricing-crm.js?v=2026-11-06.1"></script>
 <script src="/pricing-contracts.js?v=2026-09-13.1"></script>
 <script src="/supplier-quotes.js?v=2026-09-14.3"></script>
 <script>
@@ -1258,6 +1338,9 @@ function startDesk() {
   $('signin').classList.add('hide');
   $('whoami').classList.add('hide');
   $('app').classList.remove('hide');
+  document.body.classList.add('desk-on');       // the desk fits the window (6 Nov 2026)
+  gsInit();
+  loadNoContractBadge();
   $('whoLabel').textContent = WHO;
   const mismatch = parserMismatch();
   if (mismatch) {
@@ -1323,6 +1406,7 @@ function changeWho() {
   localStorage.removeItem('pricing_who');
   WHO = '';
   $('app').classList.add('hide');
+  document.body.classList.remove('desk-on');
   $('whoami').classList.remove('hide');
   $('whoName').value = '';
   $('whoName').focus();
@@ -1363,6 +1447,7 @@ function showSignIn(){
   $('signin').classList.remove('hide');
   $('whoami').classList.add('hide');
   $('app').classList.add('hide');
+  document.body.classList.remove('desk-on');
 }
 // The pricing portal has its own sign-in page again (3 Nov 2026, with Turnstile), so signing
 // out comes back here rather than going to the sales login. The session is shared across the
@@ -1377,18 +1462,24 @@ async function signOut(){ localStorage.removeItem('pricing_who'); await sb.auth.
 const SECTIONS = {
   pricing:   { title: 'Pricing', subs: [['price', 'Price a meter'], ['aq', 'AQ opportunities'], ['quotes', 'Supplier quotes'],
                                         ['contracts', 'Contract forms']] },
+  // crm:customer is the open company's own tab, shown only while a company is open (6 Nov 2026).
   customers: { title: 'Customers', subs: [['crm:portfolios', 'Portfolios'], ['crm:contracts', 'Contracts'], ['crm:services', 'Meter services'],
                                           ['crm:documents', 'Signed contracts'], ['crm:tenders', 'Tenders'], ['crm:quality', 'Data checks'],
-                                          ['crm:overview', 'Figures']] },
+                                          ['crm:overview', 'Figures'], ['crm:customer', '']] },
+  nocontract: { title: 'No contract uploaded', subs: [['crm:nocontract', '']] },
   books:     { title: 'Pricebooks', subs: [['books:live', 'Live pricebooks'], ['books:mail', 'Mailbox'], ['books:hand', 'Add by hand']] },
   reference: { title: 'Reference', subs: [['ref:ldz', 'Gas postcode to LDZ'], ['ref:band', 'MPAN top line']] },
   settings:  { title: 'Settings', subs: [['admin:team', 'Account managers'], ['admin:customers', 'Add a customer'], ['admin:status', 'Status bar'],
                                          ['admin:products', 'Products'], ['admin:import', 'Import from UC'], ['admin:storage', 'Storage'],
                                          ['admin:password', 'Password']] },
 };
-const SIDE_ID = { pricing: 'tab-price', customers: 'tab-crm', books: 'tab-books', reference: 'tab-ref' };
+const SIDE_ID = { pricing: 'tab-price', customers: 'tab-crm', nocontract: 'tab-nc', books: 'tab-books', reference: 'tab-ref' };
 const PANES = ['books', 'price', 'crm', 'aq', 'contracts', 'quotes', 'ref', 'admin'];
 const NAV = { sec: null, sub: null, last: {} };
+// The company open on the Customers section (its tab along the top), or null.
+let COMPANY = null;
+// The Customers pages that are lists: their card fills the window and the table scrolls inside.
+const FILL_VIEWS = new Set(['customers', 'customer', 'contracts', 'services', 'tenders', 'quality', 'nocontract']);
 
 function paneOf(sub) {
   if (sub === 'admin:import' || sub.startsWith('crm:')) return 'crm';
@@ -1397,23 +1488,30 @@ function paneOf(sub) {
   if (sub.startsWith('admin:')) return 'admin';
   return sub;
 }
+/** What scrolls on the desk: <main> on a laptop or desktop, the window on a phone. */
+function deskScroller() { return document.querySelector('#app main'); }
+function setFill(on) { const m = deskScroller(); if (m) m.classList.toggle('fill', !!on); }
 
 /**
  * Open a section, on a given page or the one it was last on. Clicking a section in the side
- * menu brings it back as it was left (a customer page stays open); clicking one of its tabs
- * opens that page afresh.
+ * menu brings it back as it was left (a company page stays open); clicking one of its tabs
+ * opens that page afresh. arg goes to the page (the company to open, or a search).
  */
-function openSection(sec, sub) {
+function openSection(sec, sub, arg) {
   if (sec === 'settings' && !ADMIN_PW) { openSettings(); return; }
   const S = SECTIONS[sec];
   if (!S) return;
   const explicit = sub != null;
   if (!explicit) sub = NAV.last[sec] || S.subs[0][0];
   if (!S.subs.some(s => s[0] === sub)) sub = S.subs[0][0];
+  if (sub === 'crm:customer' && !COMPANY && !arg) sub = 'crm:portfolios';
   const pane = paneOf(sub);
-  // A page opens at its top: the window otherwise keeps the last page's scroll, and the sticky
-  // top bar then sits over the new page's own controls.
-  if ((NAV.sub !== sub || $('pane-' + pane).classList.contains('hide')) && window.scrollY > 0) window.scrollTo(0, 0);
+  // A page opens at its top: the box otherwise keeps the last page's scroll.
+  const sc = deskScroller();
+  if (NAV.sub !== sub || $('pane-' + pane).classList.contains('hide')) {
+    if (sc && sc.scrollTop) sc.scrollTop = 0;
+    if (window.scrollY > 0) window.scrollTo(0, 0);
+  }
   NAV.sec = sec; NAV.sub = sub; NAV.last[sec] = sub;
   for (const k of PANES) $('pane-' + k).classList.toggle('hide', k !== pane);
   for (const k in SIDE_ID) $(SIDE_ID[k]).classList.toggle('on', k === sec);
@@ -1424,7 +1522,15 @@ function openSection(sec, sub) {
   toggleSide(false);
   const bar = $('inboxBanner'); if (bar) bar.classList.toggle('hide', sec === 'books');
 
-  if (pane === 'crm') crmInit(sub === 'admin:import' ? 'import' : sub.slice(4), explicit);
+  if (pane === 'crm') {
+    const view = sub === 'admin:import' ? 'import' : sub.slice(4);
+    setFill(FILL_VIEWS.has(view));
+    // The Customers pages and No contract uploaded share one module: coming back to a section,
+    // its own page is drawn again if the other section's page is the one on screen.
+    const cur = CRM_API && CRM_API.state.view;
+    const same = cur === view || (view === 'portfolios' && cur === 'customers');
+    crmInit(view, explicit || !same || arg != null, arg);
+  } else setFill(false);
   if (pane === 'books') {
     const part = sub.slice(6);
     $('bkLive').classList.toggle('hide', part !== 'live');
@@ -1454,8 +1560,11 @@ function openSection(sec, sub) {
 function paintSubTabs() {
   const S = SECTIONS[NAV.sec];
   if (!S) return;
-  $('subTabs').innerHTML = S.subs.map(([k, label]) =>
-    `<button data-sub="${k}" class="${k === NAV.sub ? 'on' : ''}" onclick="openSection('${NAV.sec}','${k}')">${esc(label)}</button>`).join('');
+  const tabs = S.subs.filter(([k, label]) => label || (k === 'crm:customer' && COMPANY));
+  $('subTabs').innerHTML = tabs.length < 2 && !tabs.some(([k]) => k === 'crm:customer') ? '' : tabs.map(([k, label]) => k === 'crm:customer'
+    ? `<button data-sub="${k}" class="co${k === NAV.sub ? ' on' : ''}" title="${esc(COMPANY.name)}" onclick="openSection('${NAV.sec}','${k}')">${esc(COMPANY.name.length > 34 ? COMPANY.name.slice(0, 32) + '...' : COMPANY.name)}`
+      + `<span class="x" role="button" aria-label="Close ${esc(COMPANY.name)}" title="Close" onclick="event.stopPropagation();closeCompany()">&times;</span></button>`
+    : `<button data-sub="${k}" class="${k === NAV.sub ? 'on' : ''}" onclick="openSection('${NAV.sec}','${k}')">${esc(label)}</button>`).join('');
 }
 
 /** The old tab names, kept so every existing call (and anyone's muscle memory in the console) still lands. */
@@ -1478,7 +1587,7 @@ function toggleSide(on) {
 // its pages are driven by the tabs above, and it says which page it is on so they follow.
 // ═══════════════════════════════════════════════════════════════════════════════════════
 let CRM_API = null, DOCS_API = null;
-function crmInit(view, explicit) {
+function crmInit(view, explicit, arg) {
   if (!CRM_API) {
     if (typeof CrmDesk === 'undefined') {
       $('crmHost').innerHTML = '<div class="note bad">The Customers module did not load (pricing-crm.js). Hold Shift and reload.</div>';
@@ -1486,22 +1595,159 @@ function crmInit(view, explicit) {
     }
     DOCS_API = typeof CrmDocs !== 'undefined' ? CrmDocs.create({ sb, esc, who: () => WHO, loadPdfJs }) : null;
     CRM_API = CrmDesk.mount($('crmHost'), { sb, esc, XLSX: window.XLSX, who: () => WHO, onPriceMeter: priceFromCrm,
-                                            docs: DOCS_API, nav: false, onView: crmOnView, start: view || 'portfolios' });
+                                            docs: DOCS_API, nav: false, onView: crmOnView, start: false,
+                                            scroller: deskScroller, onCompany: crmOnCompany,
+                                            openNoContract: (term) => openSection('nocontract', 'crm:nocontract', { search: term || '' }),
+                                            onDocsChanged: () => loadNoContractBadge() });
     window.CRM_API = CRM_API;
-    return;
+    explicit = true;
   }
-  if (explicit && view) CRM_API.go(view);
+  if (!explicit || !view) return;
+  if (view === 'customer') { CRM_API.go('customer', arg && arg.company ? arg.company : null); return; }
+  if (view === 'nocontract') { CRM_API.noContract(arg && arg.search != null ? arg.search : null); return; }
+  CRM_API.go(view);
 }
 function crmOnView(v) {
+  setFill(FILL_VIEWS.has(v));
   if (v === 'import') {
     if (NAV.sec === 'settings') { NAV.sub = 'admin:import'; NAV.last.settings = 'admin:import'; paintSubTabs(); }
     return;
   }
+  if (v === 'nocontract') {
+    if (NAV.sec !== 'nocontract') {
+      NAV.sec = 'nocontract'; NAV.sub = 'crm:nocontract'; NAV.last.nocontract = 'crm:nocontract';
+      for (const k in SIDE_ID) $(SIDE_ID[k]).classList.toggle('on', k === 'nocontract');
+      $('secTitle').textContent = SECTIONS.nocontract.title;
+      paintSubTabs();
+    }
+    return;
+  }
+  // Any other page of the module is a Customers page: a company opened from No contract
+  // uploaded takes the side menu back to Customers with it.
   const sub = 'crm:' + v;
   if (!SECTIONS.customers.subs.some(s => s[0] === sub)) return;
   NAV.last.customers = sub;
-  if (NAV.sec === 'customers' && NAV.sub !== sub) { NAV.sub = sub; paintSubTabs(); }
+  if (NAV.sec !== 'customers') {
+    NAV.sec = 'customers';
+    for (const k in SIDE_ID) $(SIDE_ID[k]).classList.toggle('on', k === 'customers');
+    $('secTitle').textContent = SECTIONS.customers.title;
+  }
+  if (NAV.sub !== sub) { NAV.sub = sub; }
+  paintSubTabs();
 }
+function crmOnCompany(c) {
+  COMPANY = c && c.id ? { id: c.id, name: c.name || 'Company' } : null;
+  if (NAV.sec === 'customers') paintSubTabs();
+}
+/** The × on the company's tab: back to Portfolios. */
+function closeCompany() {
+  COMPANY = null;
+  if (CRM_API) CRM_API.closeCompany();
+  openSection('customers', 'crm:portfolios');
+}
+/** Open one company's page from anywhere (the search box, a link). */
+function openCompany(id) {
+  gsShow(false);
+  openSection('customers', 'crm:customer', { company: id });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Find a company (CES, 6 Nov 2026): the box in the top bar, from any page. Name, postcode,
+// company number, or an MPAN / MPRN (with or without spaces). Arrow keys and Enter work.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+const GS = { t: null, seq: 0, items: [], on: -1 };
+function gsInit() {
+  const box = $('gsQ');
+  if (!box || box.dataset.wired) return;
+  box.dataset.wired = '1';
+  box.addEventListener('input', () => { clearTimeout(GS.t); GS.t = setTimeout(gsRun, 200); });
+  box.addEventListener('keydown', gsKey);
+  box.addEventListener('focus', () => { if (GS.items.length && box.value.trim().length >= 2) gsShow(true); });
+  document.addEventListener('mousedown', (e) => { if (!e.target.closest('#gsWrap')) gsShow(false); });
+}
+function gsShow(on) {
+  const list = $('gsList'); if (!list) return;
+  list.classList.toggle('hide', !on);
+  $('gsQ').setAttribute('aria-expanded', on ? 'true' : 'false');
+}
+async function gsRun() {
+  const term = $('gsQ').value.trim(), my = ++GS.seq;
+  if (term.length < 2) { GS.items = []; gsShow(false); return; }
+  let rows;
+  try {
+    const compact = term.replace(/\s/g, '');
+    let ids = null;
+    if (/^\d{6,}$/.test(compact)) {
+      const m = await q(sb.from('crm_meters').select('uc_customer_id').ilike('mpan', `%${compact}%`).limit(60), 'meter search');
+      ids = [...new Set((m || []).map(x => x.uc_customer_id))];
+    }
+    let b = sb.from('crm_customers_v').select('uc_customer_id,name,registered_postcode,account_manager,active_meter_count,live_contracts,is_lead,active');
+    if (ids) b = b.in('uc_customer_id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']);
+    else {
+      const like = `%${term.replace(/[%_,()]/g, '%')}%`;
+      b = b.or(`name.ilike.${like},registered_postcode.ilike.${like},company_reg_number.ilike.${like}`);
+    }
+    rows = await q(b.order('name').limit(40), 'company search');
+  } catch (e) {
+    if (my !== GS.seq) return;
+    GS.items = []; $('gsList').innerHTML = `<div class="gs-empty">${esc(e.message)}</div>`; gsShow(true);
+    return;
+  }
+  if (my !== GS.seq) return;          // a newer search is already under way
+  const t = term.toLowerCase();
+  const rank = (c) => (String(c.name || '').toLowerCase().startsWith(t) ? 0 : 1) + (c.is_lead ? 2 : c.active === false ? 1 : 0);
+  rows = (rows || []).slice().sort((a, b) => rank(a) - rank(b) || String(a.name).localeCompare(String(b.name)));
+  GS.items = rows.slice(0, 12); GS.on = GS.items.length ? 0 : -1;
+  gsPaint(rows.length);
+}
+function gsPaint(total) {
+  const list = $('gsList');
+  if (!GS.items.length) { list.innerHTML = '<div class="gs-empty">No company matches that.</div>'; gsShow(true); return; }
+  list.innerHTML = GS.items.map((c, i) => `<button type="button" class="gs-item${i === GS.on ? ' on' : ''}" role="option" data-i="${i}"
+      aria-selected="${i === GS.on}"><span class="n">${esc(c.name)}</span>
+      <span class="m">${[c.registered_postcode, c.account_manager, (Number(c.active_meter_count) || 0) + ' meters',
+        (Number(c.live_contracts) || 0) + ' live contracts', c.is_lead ? 'lead' : c.active === false ? 'inactive' : ''].filter(Boolean).map(esc).join(' &middot; ')}</span></button>`).join('')
+    + (total > GS.items.length ? `<div class="gs-empty">${total - GS.items.length} more: type more of the name.</div>` : '');
+  list.querySelectorAll('[data-i]').forEach(b => {
+    b.addEventListener('mousedown', (e) => e.preventDefault());          // keep focus: the click must land
+    b.addEventListener('click', () => gsPick(Number(b.dataset.i)));
+  });
+  gsShow(true);
+}
+function gsKey(e) {
+  if (e.key === 'Escape') { gsShow(false); return; }
+  if (!GS.items.length) { if (e.key === 'Enter') gsRun(); return; }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    GS.on = (GS.on + (e.key === 'ArrowDown' ? 1 : -1) + GS.items.length) % GS.items.length;
+    $('gsList').querySelectorAll('[data-i]').forEach(b => { const on = Number(b.dataset.i) === GS.on; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); if (on) b.scrollIntoView({ block: 'nearest' }); });
+  }
+  if (e.key === 'Enter') { e.preventDefault(); gsPick(GS.on < 0 ? 0 : GS.on); }
+}
+function gsPick(i) {
+  const c = GS.items[i];
+  if (!c) return;
+  $('gsQ').value = ''; GS.items = []; gsShow(false); $('gsQ').blur();
+  openCompany(c.uc_customer_id);
+}
+
+/** The count beside No contract uploaded in the side menu. Never in the way: a failure hides it. */
+async function loadNoContractBadge() {
+  const el = $('ncBadge'); if (!el) return;
+  try {
+    const r = await q(sb.rpc('crm_no_contract', { p_limit: 1, p_offset: 0 }), 'no contract count');
+    const n = Number(r && r.total && r.total.deals) || 0;
+    el.textContent = n ? n.toLocaleString('en-GB') : '';
+    el.classList.toggle('hide', !n);
+  } catch (_) { el.classList.add('hide'); }
+}
+
+/** One line of help under each card; a click opens the rest (and closes it again). */
+document.addEventListener('click', (e) => {
+  const s = e.target.closest('.card h2 + .sub, .fc-title + .sub, .sub.clamp');
+  if (!s || e.target.closest('a, button, input, select, label')) return;
+  s.classList.toggle('open');
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
 // The supplier status bar (CES, 4 Nov 2026): "Green means the latest pricebook uploaded is
