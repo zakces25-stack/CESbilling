@@ -13,7 +13,7 @@
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <!-- Bump on every push: a plain fetch of the live page can then tell this build from the last. -->
-  <meta name="build" content="pricing 2026-11-07b" />
+  <meta name="build" content="pricing 2026-11-08a" />
   <title>CES Pricing Portal</title>
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
@@ -488,6 +488,7 @@
     <button class="act ghost sm hide" id="notYouBtn" onclick="changeWho()">Not you?</button>
     <!-- A personal login with no Microsoft account joined yet. -->
     <button class="act ghost sm hide" id="linkMsBtn" onclick="linkMicrosoft()" title="Join your Microsoft work account to this login, then sign in with it from now on">Link Microsoft</button>
+    <span data-portal-switch data-ps-style="menu" data-ps-class="act ghost sm"></span>
     <button class="act ghost sm" onclick="signOut()">Sign out</button>
     <button class="gear" id="gearBtn" title="Settings (admin)" aria-label="Settings" onclick="openSettings()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
@@ -538,6 +539,10 @@
         <button id="tab-crm" data-sec="customers" onclick="openSection('customers')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           <span>Customers</span></button>
+        <!-- 8 Nov 2026 (08a): drop a signed contract, Claude reads it, a person checks it, it goes on the desk. -->
+        <button id="tab-upload" data-sec="upload" class="hide" onclick="openSection('upload')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+          <span>Upload contract</span></button>
         <!-- CES, 6 Nov 2026: every live contract with no signed contract on the desk, in one list. -->
         <button id="tab-nc" data-sec="nocontract" onclick="openSection('nocontract')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9.5 12.5l5 5M14.5 12.5l-5 5"/></svg>
@@ -581,6 +586,9 @@
     <!-- 7 Nov 2026, /pricing-team.js: My renewals (brokers), Requests and My requests (pricing),
          People (admins). Mounted on first visit. -->
     <section id="pane-team" class="hide"><div id="teamHost"></div></section>
+
+    <!-- 8 Nov 2026 (08a), /pricing-upload.js: Upload contract. Mounted on first visit. -->
+    <section id="pane-upload" class="hide"><div id="uploadHost"></div></section>
 
     <!-- ══════════════════════════════════════════════════════════════════ PRICEBOOKS -->
     <section id="pane-books" class="hide">
@@ -1243,10 +1251,12 @@
 <script src="/pricing-7z.js?v=2026-11-03.1"></script>
 <script src="/pricing-crm-import.js?v=2026-11-03.2"></script>
 <script src="/pricing-docs.js?v=2026-11-07.1"></script>
-<script src="/pricing-crm.js?v=2026-11-07.2"></script>
+<script src="/pricing-crm.js?v=2026-11-08.1"></script>
 <script src="/pricing-team.js?v=2026-11-07.2"></script>
 <script src="/pricing-contracts.js?v=2026-09-13.1"></script>
 <script src="/supplier-quotes.js?v=2026-09-14.3"></script>
+<script src="/pricing-upload.js?v=2026-11-08.1"></script>
+<script src="/portal-switch.js?v=2026-11-08.1" data-portal="pricing"></script>
 <script>
 // ═══════════════════════════════════════════════════════════════════════════════════════
 // CES Pricing Desk
@@ -1510,19 +1520,21 @@ async function afterSignIn() {
 }
 
 /** Which side entries, buttons and pages this person sees. The database decides what they can read. */
-const BROKER_SUBS = new Set(['team:mine', 'team:mybook', 'crm:portfolios', 'crm:contracts', 'crm:services', 'crm:tenders', 'crm:overview', 'crm:customer']);
+// 8 Nov 2026 (08a): brokers price meters and keep their own quotes (Price a meter, Saved quotes).
+const BROKER_SUBS = new Set(['team:mine', 'team:mybook', 'crm:portfolios', 'crm:contracts', 'crm:services', 'crm:tenders', 'crm:overview', 'crm:customer',
+                             'price', 'crm:saved']);
 function secAllowed(sec) {
   if (!ME) return false;
   // An admin has it too, to see anyone's page as they see it (07b).
   if (sec === 'mine') return !!(ME.broker || (ME.staff && ME.staff.uc_name) || ME.admin);
-  if (sec === 'customers') return true;
+  if (sec === 'customers' || sec === 'pricing') return true;
   return isPricing();
 }
 function subAllowed(sub) { return isPricing() || BROKER_SUBS.has(sub); }
 function applyRoles() {
   const P = isPricing();
-  const show = { 'tab-mine': secAllowed('mine'), 'tab-today': P, 'tab-req': P, 'tab-price': P, 'tab-ren': P,
-                 'tab-crm': true, 'tab-nc': P, 'tab-books': P, 'tab-ref': P };
+  const show = { 'tab-mine': secAllowed('mine'), 'tab-today': P, 'tab-req': P, 'tab-price': secAllowed('pricing'), 'tab-ren': P,
+                 'tab-crm': true, 'tab-upload': P, 'tab-nc': P, 'tab-books': P, 'tab-ref': P };
   for (const id in show) { const el = $(id); if (el) el.classList.toggle('hide', !show[id]); }
   $('gearBtn').classList.toggle('hide', !P);
   if (!P) $('sideStatus').classList.add('hide');
@@ -1547,7 +1559,15 @@ function startDesk() {
   if (OAUTH_ERR) deskNote(oauthWords(OAUTH_ERR), 'bad');
   if (!isPricing()) {
     // A broker: their own page first, the Customers pages read-only, Ask Claude top right.
+    // 8 Nov 2026 (08a): and Price a meter, so what pricing reads is loaded too (never the ledger).
     loadMineBadge();
+    loadSuppliers().then(() => {
+      if ($('xSupplier')) manualFuelChanged();
+      SSC_READY = loadSscSuppliers();
+      SSC_READY.then(paintSscNote);
+    });
+    paintTermLabel();
+    loadPaused();
     openSection(HOME());
     return;
   }
@@ -1574,6 +1594,7 @@ function startDesk() {
     SSC_READY.then(paintSscNote);
   });
   paintTermLabel();
+  loadPaused();
   // The desk opens on Today (6 Nov 2026): what needs pricing, what is waiting for an answer, and
   // what is missing, each one click from its list. Price a meter is one click from there.
   openSection(HOME());
@@ -1689,6 +1710,8 @@ const SECTIONS = {
                                           ['crm:documents', 'Signed contracts'], ['crm:tenders', 'Tenders'], ['crm:quality', 'Data checks'],
                                           ['crm:overview', 'Figures'], ['crm:customer', '']] },
   nocontract: { title: 'No contract uploaded', subs: [['crm:nocontract', '']] },
+  // 8 Nov 2026 (08a): drop a contract, Claude reads it, a person checks it and says live / locked in / awaiting.
+  upload:    { title: 'Upload contract', subs: [['upload', '']] },
   books:     { title: 'Pricebooks', subs: [['books:live', 'Live pricebooks'], ['books:mail', 'Mailbox'], ['books:hand', 'Add by hand']] },
   reference: { title: 'Reference', subs: [['ref:ldz', 'Gas postcode to LDZ'], ['ref:band', 'MPAN top line']] },
   settings:  { title: 'Settings', subs: [['team:staff', 'People'], ['admin:team', 'Account managers'], ['admin:customers', 'Add a customer'], ['admin:status', 'Status bar'],
@@ -1696,11 +1719,11 @@ const SECTIONS = {
                                          ['admin:password', 'Password']] },
 };
 const SIDE_ID = { mine: 'tab-mine', today: 'tab-today', requests: 'tab-req', pricing: 'tab-price', renewals: 'tab-ren', customers: 'tab-crm',
-                  nocontract: 'tab-nc', books: 'tab-books', reference: 'tab-ref' };
+                  upload: 'tab-upload', nocontract: 'tab-nc', books: 'tab-books', reference: 'tab-ref' };
 // The module's pages that belong to a section other than Customers: [section, its tab].
 const VIEW_SECTION = { nocontract: ['nocontract', 'crm:nocontract'], saved: ['pricing', 'crm:saved'],
                        renewals: ['renewals', 'crm:renewals'], today: ['today', 'crm:today'] };
-const PANES = ['books', 'price', 'crm', 'team', 'aq', 'contracts', 'quotes', 'ref', 'admin'];
+const PANES = ['books', 'price', 'crm', 'team', 'aq', 'contracts', 'quotes', 'ref', 'admin', 'upload'];
 const NAV = { sec: null, sub: null, last: {} };
 // The company open on the Customers section (its tab along the top), or null.
 let COMPANY = null;
@@ -1787,6 +1810,7 @@ function openSection(sec, sub, arg) {
   if (pane === 'aq') aqInit();
   if (pane === 'contracts') contractsInit();
   if (pane === 'quotes') quotesInit();
+  if (pane === 'upload') uploadInit();
 }
 
 function paintSubTabs() {
@@ -1830,6 +1854,7 @@ function crmInit(view, explicit, arg) {
     const readOnly = !isPricing();
     DOCS_API = typeof CrmDocs !== 'undefined' ? CrmDocs.create({ sb, esc, who: () => WHO, loadPdfJs, readOnly }) : null;
     CRM_API = CrmDesk.mount($('crmHost'), { sb, esc, XLSX: window.XLSX, who: () => WHO, onPriceMeter: priceFromCrm, readOnly,
+                                            canPrice: true,     // 8 Nov 2026 (08a): every desk login prices
                                             docs: DOCS_API, nav: false, onView: crmOnView, start: false,
                                             scroller: deskScroller, onCompany: crmOnCompany,
                                             openNoContract: (term) => openSection('nocontract', 'crm:nocontract', { search: term || '' }),
@@ -2115,7 +2140,8 @@ function paintStatusBar() {
       title="${esc(statusTitle(r))}" aria-label="${esc(r.display_name)}: ${esc(r.status)}, ${esc(statusText(r))}">
       <div class="nm"><i class="dot-${esc(r.status)}"></i>${esc(r.display_name)}</div>
       <div class="ag">${esc(statusText(r))}</div>
-      ${r.waiting ? `<div class="wt">${r.waiting} newer file${r.waiting === 1 ? '' : 's'} in the mailbox</div>` : ''}</button>`).join('');
+      ${r.waiting ? `<div class="wt">${r.waiting} newer file${r.waiting === 1 ? '' : 's'} in the mailbox</div>` : ''}${
+        PAUSED.some(p => p.live && p.supplier_key === r.supplier_key) ? '<div class="wt" style="color:var(--fail)">paused: not quoting</div>' : ''}</button>`).join('');
   box.querySelectorAll('[data-st]').forEach(b => { b.onclick = () => showStatusDetail(SUP_STATUS[Number(b.dataset.st)]); });
 }
 
@@ -2151,8 +2177,10 @@ function paintSideStatus() {
   box.classList.toggle('hide', !SUP_STATUS.length);
   $('sideStatusCounts').innerHTML = `<span><i class="dot-green"></i>${n('green')}</span><span><i class="dot-yellow"></i>${n('yellow')}</span>`
     + `<span><i class="dot-red"></i>${n('red')}</span>`;
-  $('sideStatusWhy').textContent = red.length ? `Red: ${red.map(r => r.display_name).join(', ')}`
-    : yellow.length ? `Yellow: ${yellow.map(r => r.display_name).join(', ')}` : 'Every supplier is current.';
+  const paused = [...new Set(PAUSED.filter(p => p.live).map(p => supplierName(p.supplier_key)))];
+  $('sideStatusWhy').textContent = (red.length ? `Red: ${red.map(r => r.display_name).join(', ')}`
+    : yellow.length ? `Yellow: ${yellow.map(r => r.display_name).join(', ')}` : 'Every supplier is current.')
+    + (paused.length ? ` Paused: ${paused.join(', ')}.` : '');
   box.title = 'Open Pricebooks';
 }
 
@@ -2402,6 +2430,86 @@ const UC_REGISTERS = { single: 'single', day_night: 'day_night', eve_weekend: 'e
                        day_night_ew: 'day_night_ew' };
 
 /**
+ * Which meter type a meter is priced as (CES, 7 Nov 2026: 1012780684160 priced as
+ * day/night/evening-weekend when UtilityClick and the bill said Economy 7, and nothing on the
+ * page could change it). Every portfolio electricity meter's type was GUESSED from the rates on
+ * its last contract (rate_structure_src 'inferred_from_rates'); 112 disagree with UC's own meter
+ * type. In order:
+ *   a type a person set on Price a meter (saved as 'pricing_desk');
+ *   a profile class and rate type corrected under Customers, Fix (pc_source 'desk');
+ *   UC's meter type, over the portfolio's guess (the facts panel says the two disagree);
+ *   the guess.
+ * The Meter type box on the facts panel changes it either way, before pricing.
+ */
+function applyUcRegisters(m) {
+  if (!METER || !m || METER.utility !== 'electricity') return;
+  if (METER.rate_structure_src === 'pricing_desk') return;
+  const uc = UC_REGISTERS[m.registers];
+  if (m.pc_source === 'desk') {
+    if (m.profile_class != null) METER.profile_class = m.profile_class;
+    if (uc) { METER.rate_structure = uc; METER.rate_structure_src = 'checked on the desk'; }
+    return;
+  }
+  if (uc && METER.rate_structure !== uc && (!METER.rate_structure || METER.rate_structure_src === 'inferred_from_rates')) {
+    METER.struct_was = METER.rate_structure || null;
+    METER.rate_structure = uc;
+    METER.rate_structure_src = 'utilityclick';
+  }
+}
+const STRUCT_OPTIONS = [['', 'Not known'], ['single', 'Single rate'], ['day_night', 'Day / night (Economy 7)'],
+                        ['eve_weekend', 'Day / evening-weekend'], ['day_night_ew', 'Day / night / evening-weekend'],
+                        ['off_peak', 'Off-peak only']];
+const STRUCT_LABEL = Object.fromEntries(STRUCT_OPTIONS.filter(o => o[0]));
+function structBadge() {
+  const s = METER && METER.rate_structure_src;
+  if (s === 'pricing_desk') return ' <span class="pill p-ok">set on the desk</span>';
+  if (s === 'saving') return ' <span class="pill p-mute">saving&hellip;</span>';
+  if (s === 'this quote only') return ' <span class="pill p-mute">this quote only, not saved to the meter</span>';
+  if (s === 'checked on the desk') return ' <span class="pill p-ok">checked on the desk (Customers, Fix)</span>';
+  if (s === 'utilityclick') return `<div class="note warn" style="margin:6px 0 0;padding:6px 10px;font-size:12px;font-family:inherit">UtilityClick says
+      <b>${esc(STRUCT_LABEL[METER.rate_structure] || METER.rate_structure)}</b>; the portfolio guessed ${esc(STRUCT_LABEL[METER.struct_was] || 'nothing')}
+      from the last contract's rates. Priced as UtilityClick says: change it here if the bill says otherwise.</div>`;
+  if (s === 'inferred_from_rates') return `<div class="note warn" style="margin:6px 0 0;padding:6px 10px;font-size:12px;font-family:inherit">Guessed
+      from the last contract's rates. Check it against the bill and change it here if it is wrong.</div>`;
+  return '';
+}
+/** The kWh of a register the new type does not have goes to its first register: nothing is lost. */
+function foldKwh(k, regs) {
+  const out = {};
+  if (regs.length === 1 && regs[0] === 'total') { out.total = k.total || ''; return out; }
+  let spare = k.regs.length === 1 && k.regs[0] === 'total' ? (k.total || 0) : 0;
+  for (const r of ['day', 'night', 'ew']) {
+    if (regs.includes(r)) out[r] = k[r] || '';
+    else spare += k[r] || 0;
+  }
+  if (spare) out[regs[0]] = (Number(out[regs[0]]) || 0) + spare;
+  return out;
+}
+/**
+ * The Meter type box. The pricing team's choice is saved to the portfolio meter
+ * (pricing_set_rate_structure); a broker's, or "Not known", is for this quote only.
+ */
+async function setMeterStructure(v) {
+  if (!METER) return;
+  const before = readKwh();
+  METER.rate_structure = v || null;
+  const save = !!v && isPricing() && !METER.manual && !!METER.id && METER.utility === 'electricity';
+  METER.rate_structure_src = save ? 'saving' : 'this quote only';
+  paintKwhBoxes(foldKwh(before, meterRegisters()));
+  paintMeterFacts();
+  if ($('quoteCard') && !$('quoteCard').classList.contains('hide')) $('priceMsg').textContent = 'The meter type changed: price it again.';
+  if (!save) return;
+  try {
+    await q(sb.rpc('pricing_set_rate_structure', { p_meter_id: METER.id, p_rate_structure: v }), 'save the meter type');
+    METER.rate_structure_src = 'pricing_desk';
+  } catch (e) {
+    METER.rate_structure_src = 'this quote only';
+    deskNote('The meter type was not saved to the meter (' + e.message + '). It is used for this quote only.', 'warn');
+  }
+  paintMeterFacts();
+}
+
+/**
  * Price a meter picked on the Customers tab.
  *
  * A meter the broker portfolio already carries goes through the normal path, because the
@@ -2428,12 +2536,7 @@ async function priceFromCrm(m) {
     window.__FOUND = rows;
     METER = rows[0];
     METER.crm = m;
-    // A profile class or rate type corrected on the desk (Customers, Fix) beats the portfolio's
-    // copy: it is a person's reading of the bill, kept over every UC import.
-    if (m.pc_source === 'desk') {
-      if (m.profile_class != null) METER.profile_class = m.profile_class;
-      if (UC_REGISTERS[m.registers]) { METER.rate_structure = UC_REGISTERS[m.registers]; METER.rate_structure_src = 'checked on the desk'; }
-    }
+    applyUcRegisters(m);
     fillMeterGaps().catch(() => showMeter());
     $('priceCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
     return;
@@ -2495,6 +2598,29 @@ function quotesInit() {
   }
   SQ_API = SupplierQuotes.mount($('sqHost'), { sb, esc });
   window.SQ_API = SQ_API;
+}
+
+// Upload contract (8 Nov 2026, 08a): /pricing-upload.js, mounted on the first visit. Claude reads
+// the contract (edge function contract-read); a person checks it, says live / locked in / awaiting
+// lock-in and presses Add (crm_add_desk_contract); the PDF is filed on the deal as its signed
+// contract. The page refreshes what the add changed (lists, badges) and opens the company.
+let UPLOAD_API = null;
+function uploadInit() {
+  if (UPLOAD_API) return;
+  if (typeof ContractUpload === 'undefined') {
+    $('uploadHost').innerHTML = '<div class="note bad">The Upload contract module did not load (pricing-upload.js). Hold Shift and reload.</div>';
+    return;
+  }
+  UPLOAD_API = ContractUpload.mount($('uploadHost'), {
+    sb, esc, who: () => WHO, loadPdfJs,
+    docs: () => DOCS_API || (DOCS_API = typeof CrmDocs !== 'undefined' ? CrmDocs.create({ sb, esc, who: () => WHO, loadPdfJs, readOnly: !isPricing() }) : null),
+    openCompany: (id) => openCompany(id),
+    onAdded: () => {
+      if (CRM_API && CRM_API.refreshLists) CRM_API.refreshLists();
+      loadNoContractBadge(); loadRenewalsBadge();
+    },
+  });
+  window.UPLOAD_API = UPLOAD_API;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -3670,7 +3796,7 @@ async function loadLedger() {
     rows = await q(sb.from('pricebook_uploads')
       .select('id,supplier_key,fuel,product_key,sale_scope,source_filename,zip_filename,'
             + 'pricebook_version,rows_loaded,rows_refused,status,uploaded_at,uploaded_by_name,'
-            + 'source_received_at,quote_valid_to,went_live_at,notes')
+            + 'source_received_at,quote_valid_to,went_live_at,notes,paused_at,paused_by_name,paused_reason')
       .in('status', ['live', 'loading'])
       .order('supplier_key').order('product_key').limit(500), 'live pricebooks');
   } catch (e) { body.innerHTML = ''; return fail($('ledgerErr'), e.message); }
@@ -3705,19 +3831,75 @@ async function loadLedger() {
       : vt < today ? `<span class="pill p-fail" title="${esc((String(r.notes || '').match(/expired: [^|]+/) || [''])[0])}">ended ${uk(vt)}</span>`
       : vt === today ? '<span class="pill p-warn">today only</span>'
       : uk(vt);
-    return `<tr${r.status === 'loading' ? ' style="background:var(--warn-bg)"' : ''}>
+    return `<tr${r.status === 'loading' || r.paused_at ? ' style="background:var(--warn-bg)"' : ''}>
       <td>${esc(supplierName(r.supplier_key))}</td>
-      <td>${esc(prodName(r))}<div class="bk-age">${esc(r.fuel)}${r.sale_scope && r.sale_scope !== 'any' ? ' · ' + esc(r.sale_scope) : ''}</div></td>
+      <td>${esc(prodName(r))}<div class="bk-age">${esc(r.fuel)}${r.sale_scope && r.sale_scope !== 'any' ? ' · ' + esc(r.sale_scope) : ''}</div>${r.paused_at
+        ? `<div class="bk-age" style="color:var(--fail)"><b>Paused, not quoting</b>: ${esc(r.paused_reason || '')} (${esc(r.paused_by_name || 'the desk')}, ${uk(r.paused_at)})</div>` : ''}</td>
       <td style="max-width:300px;overflow-wrap:anywhere">${esc(r.source_filename)}${
         r.zip_filename ? `<div class="bk-age">from ${esc(r.zip_filename)}</div>` : ''}</td>
       <td class="mono">${uk(bookOf(r))}<div class="bk-age" style="${age > 28 ? 'color:var(--fail)' : age > 14 ? 'color:var(--warn)' : ''}">${
         age <= 0 ? 'today' : age === 1 ? 'yesterday' : age + ' days ago'}</div></td>
       <td>${until}</td>
       <td class="num">${r.rows_loaded ? r.rows_loaded.toLocaleString() : '—'}</td>
-      <td style="white-space:nowrap">${r.status === 'live'
-        ? `<button class="act ghost sm" onclick="retire('${r.id}',true,this)" title="Stop quoting it and delete it">Remove</button>` : ''}</td>
+      <td style="white-space:nowrap">${r.status === 'live' ? (r.paused_at
+          ? `<button class="act sm" onclick="resumeBook('${r.id}',this)" title="Quote from it again">Resume</button> `
+          : `<button class="act ghost sm" onclick="pauseBook('${r.id}',this)" title="Stop quoting it for now, keep it loaded">Pause</button> `)
+        + `<button class="act ghost sm" onclick="retire('${r.id}',true,this)" title="Stop quoting it and delete it">Remove</button>` : ''}</td>
     </tr>`;
   }).join('');
+}
+
+/**
+ * Pause a pricebook (CES, 7 Nov 2026: "pause a pricebook quoting if they notice it does not match
+ * up with portal rates"; Corona's portal would not price Gold Leaf Properties while the desk did).
+ * A paused book stays loaded and stops quoting for everyone at once (pricebook_rates_live leaves
+ * it out). The pause belongs to that book: the supplier's next book quotes again (CES's choice),
+ * and Price a meter says a paused book was replaced, so its prices get checked against the portal.
+ */
+let PAUSED = [];
+async function loadPaused() {
+  try { PAUSED = (await q(sb.rpc('pricebook_paused'), 'paused pricebooks')) || []; }
+  catch (_) { PAUSED = []; }
+  return PAUSED;
+}
+function pausedNote(fuel) {
+  const mine = PAUSED.filter(p => !fuel || p.fuel === fuel);
+  const live = mine.filter(p => p.live), gone = mine.filter(p => !p.live);
+  if (!live.length && !gone.length) return '';
+  const one = (p) => `${esc(supplierName(p.supplier_key))} ${esc(prodName(p))} (${esc(p.paused_by_name || 'the desk')}, ${uk(p.paused_at)}: ${esc(p.paused_reason || 'no reason given')})`;
+  return `<div class="note warn" style="margin:0 0 10px">${live.length
+      ? `<b>Paused, so not in this quote:</b> ${live.map(one).join('; ')}.` : ''}${live.length && gone.length ? '<br>' : ''}${gone.length
+      ? `<b>A newer book replaced a paused one and is quoting again:</b> ${gone.map(one).join('; ')}. Check its prices against the supplier's portal before this goes out.` : ''}</div>`;
+}
+async function pauseBook(id, btn) {
+  const row = (LEDGER || []).find(r => r.id === id) || {};
+  const why = prompt(`Pause ${supplierName(row.supplier_key || '')} ${prodName(row)}?\n\n`
+    + 'It stops quoting straight away, for everyone, until someone resumes it or a newer book replaces it.\n\n'
+    + "Why? (for example: the supplier's portal will not price it)", '');
+  if (why == null) return;
+  if (why.trim().length < 3) { alert('Say why, so the rest of the desk knows.'); return; }
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    await q(sb.rpc('pricebook_pause', { p_upload: id, p_reason: why.trim(), p_by: WHO || null }), 'pause');
+    await loadPaused();
+    loadLedger(); paintStatusBar(); paintSideStatus();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Pause';
+    fail($('ledgerErr'), e.message);
+    alert('Could not pause it.\n\n' + e.message);
+  }
+}
+async function resumeBook(id, btn) {
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    await q(sb.rpc('pricebook_resume', { p_upload: id, p_by: WHO || null }), 'resume');
+    await loadPaused();
+    loadLedger(); paintStatusBar(); paintSideStatus();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Resume';
+    fail($('ledgerErr'), e.message);
+    alert('Could not resume it.\n\n' + e.message);
+  }
 }
 
 /**
@@ -4223,7 +4405,8 @@ async function loadCustNames(ids) {
   const want = [...new Set((ids || []).filter((id) => id && !CUST_NAMES.has(id)))];
   for (let i = 0; i < want.length; i += 100) {
     try {
-      const rows = await q(sb.from('customers').select('customer_id,company_name').in('customer_id', want.slice(i, i + 100)), 'customer names');
+      // 08a: through customer_names(), so a broker sees every name and not only their own customers'.
+      const rows = await q(sb.rpc('customer_names', { p_ids: want.slice(i, i + 100) }), 'customer names');
       for (const r of rows || []) if (r.company_name && String(r.company_name).trim()) CUST_NAMES.set(r.customer_id, String(r.company_name).trim());
     } catch (_) { /* a nicety: the id, in words, still shows */ }
   }
@@ -4250,8 +4433,8 @@ async function findMeters() {
   // The customer's real name finds it too (7 Nov 2026), and words find a slug ("tidemill yacht").
   let nameIds = [];
   try {
-    nameIds = (await q(sb.from('customers').select('customer_id').ilike('company_name', like).limit(50), 'customer search'))
-      .map((r) => r.customer_id).filter((id) => /^[\w.-]+$/.test(String(id || '')));
+    nameIds = (await q(sb.rpc('customer_ids_by_name', { p_like: like }), 'customer search'))
+      .map((r) => (typeof r === 'string' ? r : r && (r.customer_id || r.customer_ids_by_name))).filter((id) => /^[\w.-]+$/.test(String(id || '')));
   } catch (_) { nameIds = []; }
   const slugLike = like.replace(/\s+/g, '%');
   let rows;
@@ -4594,6 +4777,14 @@ async function fillMeterGaps() {
   // facts now, so an early return here is a blank card: the typed-meter path returned
   // before rendering and the page simply stopped.
   if (!METER || METER.manual) { await showMeter(); return; }
+  // A portfolio meter picked from the search: UC's meter type, as priceFromCrm does (08a).
+  if (METER.utility === 'electricity' && !METER.crm && METER.rate_structure_src !== 'pricing_desk' && METER.mpan) {
+    try {
+      const uc = await q(sb.from('crm_meters_v').select('registers,profile_class,pc_source').eq('mpan', METER.mpan).limit(3), 'UC meter type');
+      // The same MPAN under two customers (it happens) only counts when both say the same.
+      if (uc.length && uc.every(r => r.registers === uc[0].registers && r.pc_source === uc[0].pc_source)) applyUcRegisters(uc[0]);
+    } catch (_) { /* the portfolio's own type stands, and the box can change it */ }
+  }
   const digits = String(METER.mpan || '').replace(/\D/g, '');
   if (METER.utility !== 'gas' && !METER.dno_id && digits.length >= 2) {
     const d = digits.slice(0, 2);
@@ -5065,7 +5256,8 @@ async function setMeterTopLine(v) {
       } catch (e) { console.warn('band lookup:', e.message); }
     }
   }
-  if (!METER.manual && METER.id && METER.top_line) {
+  // A broker's top line is for this quote only (08a): saving it to the meter is the pricing team's.
+  if (!METER.manual && METER.id && METER.top_line && isPricing()) {
     try {
       const saved = await q(sb.rpc('pricing_set_top_line', { p_meter_id: METER.id, p_top_line: METER.top_line }), 'save the top line');
       const s = Array.isArray(saved) ? saved[0] : saved;
@@ -6008,7 +6200,7 @@ function paintMeterFacts() {
   if (METER.utility === 'electricity') {
     if (!METER.dno_id && !/^\d{2}/.test(METER.mpan || '')) missing.push('distributor id');
     if (METER.profile_class == null) missing.push('profile class');
-    if (!METER.rate_structure) missing.push('rate structure');
+    if (!METER.rate_structure) missing.push('meter type');
   } else {
     if (!METER.ldz && !METER.exit_zone) missing.push('LDZ / exit zone');
   }
@@ -6041,9 +6233,12 @@ function paintMeterFacts() {
             ? ' <span class="pill p-mute" title="Derived from this meter\'s LLFC and its'
               + ' distributor, not supplied by anyone. The band moves the price by about'
               + ' 2.26 p/kWh between band 1 and band 4.">from the LLFC</span>' : ''}</dd>
-        <dt>Rate structure</dt><dd>${esc(METER.rate_structure || '—')}
-          ${METER.rate_structure_src === 'inferred_from_rates'
-            ? ' <span class="pill p-warn">inferred from the last contract, check it</span>' : ''}</dd>`
+        <dt>Meter type</dt><dd>
+          <select id="mStruct" onchange="setMeterStructure(this.value)" aria-label="Meter type to price as"
+                  title="The registers this meter has. It decides which rates are matched and which kWh boxes there are."
+                  style="width:auto;padding:3px 8px;font-size:12.5px;height:auto">
+            ${STRUCT_OPTIONS.map(([v, l]) => `<option value="${v}"${v === (METER.rate_structure || '') ? ' selected' : ''}>${esc(l)}</option>`).join('')}
+          </select>${structBadge()}</dd>`
       : `<dt>LDZ</dt><dd>${esc(METER.ldz || '—')}${
              METER.zone_src === 'postcode' ? ' <span class="pill p-mute">from the postcode</span>' : ''}</dd>
          <dt>Exit zone</dt><dd>${esc(METER.exit_zone || '—')}</dd>`}
@@ -6084,6 +6279,7 @@ async function priceMeter() {
   const btn = $('priceBtn'), msg = $('priceMsg');
   if (!METER) return;
   btn.disabled = true; msg.textContent = 'Matching…';
+  const pausedP = loadPaused();     // which books are paused, for the note under the quote (08a)
   try {
     const start  = $('qStart').value;
     const terms  = TERMS.slice();
@@ -6179,6 +6375,7 @@ async function priceMeter() {
     }
 
     const raw = await q(sel, 'match rates');
+    await pausedP;
 
     // ── Say so if the match hit the ceiling. ───────────────────────────────────────────
     // PostgREST stops at 1,000 rows. A full page means there may be rows it never sent, so
@@ -6195,7 +6392,7 @@ async function priceMeter() {
       msg.textContent = '';
       $('quoteCard').classList.remove('hide');
       $('termTabs').innerHTML = ''; $('quoteTables').innerHTML = '';
-      $('quoteAssumptions').innerHTML = `<div class="note bad">Nothing matched. That means
+      $('quoteAssumptions').innerHTML = pausedNote(METER.utility) + `<div class="note bad">Nothing matched. That means
         either no pricebook is live for this fuel, or this meter's attributes fall outside
         every band on file. It does <b>not</b> mean the meter is expensive.
         ${droppedWrongSale ? `<br>${droppedWrongSale.toLocaleString()}
@@ -6467,7 +6664,7 @@ function renderQuotes() {
 
   const dn = list.some(x => x.r.d && x.r.nt);
   const noProduct = list.filter(x => !x.r.product_display).length;
-  $('quoteAssumptions').innerHTML = `
+  $('quoteAssumptions').innerHTML = `${pausedNote(METER.utility)}
     <b>${groups.length}</b> supplier${groups.length === 1 ? '' : 's'} can price this meter over
     ${QUOTE_TERM} months${list.length !== groups.length
       ? `, shown as <b>${list.length}</b> quotes because a no standing charge option is
@@ -7326,6 +7523,10 @@ async function reopenSavedQuote(row) {
   if (m.crm) METER.crm = m.crm;
   $('mSearch').value = m.mpan || '';
   await fillMeterGaps();
+  if (m.rate_structure && METER.utility === 'electricity' && m.rate_structure !== METER.rate_structure) {
+    METER.rate_structure = m.rate_structure; METER.rate_structure_src = 'this quote only';
+    paintMeterFacts();
+  }
   $('qCustomer').value = row.customer_name || $('qCustomer').value;
   QCUST_FOR = meterKeyOf(METER);
   if (inp.manager && inp.manager.name) {

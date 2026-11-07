@@ -1964,6 +1964,7 @@ button{transition:all .14s ease}
     <div class="fx-sidebtns">
       <button id="fxLogBtn" onclick="fxToggleDrawer()" title="Open the live edit log on the right">&#128203; Log<span class="bdg"></span></button>
       <button onclick="flexReload()" title="Re-fetch the latest data">&#8635; Refresh</button>
+      <span data-portal-switch data-ps-style="menu"></span>
       <button onclick="FLEX.sb.auth.signOut().then(()=>location.reload())" title="Sign out">Sign out</button>
     </div>
   </div>
@@ -2138,7 +2139,17 @@ let DATA = null;
 const FLEX = (() => {
   const URL = 'https://niadffxpxdohglcyagau.supabase.co';
   const ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pYWRmZnhweGRvaGdsY3lhZ2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3Mzc3MTksImV4cCI6MjA5NDMxMzcxOX0.x22Zh9O408PGfcPZ6rgu-a4B7WTbyH8iyT_ysr-IfIs';
-  const sb = supabase.createClient(URL, ANON, { auth: { persistSession: true, storageKey: 'ces-flex-auth', autoRefreshToken: true } });
+  // 8 Nov 2026 (08a): one sign-in across the CES portals. This page kept its session under its own
+  // key ('ces-flex-auth'), so crossing from Sales or Pricing to Flex meant signing in again (CES,
+  // 7 Nov: "so he doesnt have to relogin each time"). It now uses the same key as every other CES
+  // page. A session saved under the old key is moved across once, so nobody is signed out by it.
+  try {
+    const OLD = 'ces-flex-auth', NEW = 'sb-niadffxpxdohglcyagau-auth-token';
+    const old = localStorage.getItem(OLD);
+    if (old && !localStorage.getItem(NEW)) localStorage.setItem(NEW, old);
+    if (old) localStorage.removeItem(OLD);
+  } catch (e) { /* storage blocked: nothing to move */ }
+  const sb = supabase.createClient(URL, ANON, { auth: { persistSession: true, autoRefreshToken: true } });
   return { sb };
 })();
 function _num(x) { return (x === null || x === undefined || x === '') ? null : +x; }
@@ -9879,7 +9890,7 @@ async function flexReload() { await loadFlexData(); rerenderCurrent(); fxCheckAl
 // dead end. Runs first in flexStart(), which covers both a fresh sign-in and
 // an existing session on page load.
 //
-// Both pages share the ces-flex-auth storage key so the session survives the
+// Both pages share one storage key (since 08a the same one as every CES page) so the session survives the
 // hop. The two redirect conditions are mutually exclusive (this one needs a
 // customer_id, flexclient.html's needs a null one), so no loop is possible —
 // the ?r=1 guard is belt and braces in case that ever stops being true.
@@ -10373,4 +10384,5 @@ async function FLEEX_SAFE(){ try { return await FLEX.sb.auth.getSession(); } cat
   setTimeout(sync,2500);
 })();
 </script>
+<script src="/portal-switch.js?v=2026-11-08.1" data-portal="flex"></script>
 </body></html>

@@ -48,7 +48,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026-11-07.2';
+  var VERSION = '2026-11-08.1';
   var PAGE = 50, BIG_PAGE = 100;
 
   var LIFE = {
@@ -356,6 +356,9 @@
     var who = opts.who || function () { return ''; };
     var docs = opts.docs || null;
     var RO = !!opts.readOnly;     // a broker: read everything, change nothing (7 Nov 2026)
+    // 8 Nov 2026 (08a): brokers price meters and keep their own quotes (CES: "Brokers should also
+    // have the option to price meters"). Pricing is its own permission; fixing and filing stay RO.
+    var CAN_PRICE = opts.canPrice != null ? !!opts.canPrice : !RO;
     injectStyles(doc);
 
     var S = {
@@ -892,7 +895,7 @@
         };
         var counts = { sites: meters.length, contracts: nSupply, quotes: nQuotes, services: services.length, contacts: contacts.length, tenders: tenders.length,
                        notes: notes.length + (c.customer_notes ? 1 : 0), reads: reads.length, problems: issues.length };
-        var tabs = CTABS.filter(function (t) { return (t[0] === 'sites' || t[0] === 'contracts' || counts[t[0]] > 0) && !(RO && t[0] === 'quotes'); });
+        var tabs = CTABS.filter(function (t) { return (t[0] === 'sites' || t[0] === 'contracts' || counts[t[0]] > 0) && !(!CAN_PRICE && t[0] === 'quotes'); });
         if (!tabs.some(function (t) { return t[0] === S.cview; })) S.cview = 'sites';
 
         body.innerHTML = '<div class="card fillcard co">' +
@@ -1066,7 +1069,7 @@
             '<td class="nx">' + nextCell + '</td>' +
             '<td class="num">' + n0(m.aq) + (isM3(m.aq_unit) ? ' m&sup3;' : '') + '</td>' +
             (elec ? '<td class="c-opt">' + svcBoth(m) + '</td>' : '') +
-            '<td class="nowrap">' + (priceable && !RO ? '<button class="act sm" data-price="' + i + '">Price</button> ' : '') +
+            '<td class="nowrap">' + (priceable && CAN_PRICE ? '<button class="act sm" data-price="' + i + '">Price</button> ' : '') +
             (fixable && !RO ? '<button class="act ' + (flagged ? '' : 'ghost ') + 'sm" data-fix="' + i + '">' + (flagged ? 'Fix' : 'Edit') + '</button>' : '') + '</td></tr>');
         });
         box.innerHTML = (pcFlags && !RO ? '<div class="note bad" style="margin:0 0 10px;padding:7px 12px">' + pcFlags + ' meter' + (pcFlags === 1 ? '' : 's') +
@@ -1087,13 +1090,13 @@
           var m = meters[i], tr = box.querySelector('tr[data-m="' + i + '"]'), k = dealRows[i];
           var viewBtn = tr && tr.querySelector('[data-doc-view]'), upBtn = tr && tr.querySelector('[data-doc-up]'), fixBtn = tr && tr.querySelector('[data-fix]');
           return [
-            (m.fuel === 'electricity' || m.fuel === 'gas') && m.mpan_valid && !RO ? ['Price this meter', function () { priceIt(m); }] : null,
+            (m.fuel === 'electricity' || m.fuel === 'gas') && m.mpan_valid && CAN_PRICE ? ['Price this meter', function () { priceIt(m); }] : null,
             m.mpan ? ['Copy the meter number', function () { return copyText(m.mpan); }] : null,
             viewBtn ? ['View the signed contract', function () { viewBtn.click(); }] : null,
             docs && k && Number(k.signed_docs) ? ['Download every file (zip)', function () { return docs.downloadAll(k); }] : null,
             upBtn && !RO ? [k && Number(k.signed_docs) ? 'Add a file to this contract' : 'Upload the signed contract', function () { upBtn.click(); }] : null,
             fixBtn && !RO ? ['Profile class and rate type', function () { fixBtn.click(); }] : null,
-            m.mpan && !RO ? ['Saved quotes for this meter', function () { S.sq = Object.assign({}, S.sq, { status: 'all', q: m.mpan, page: 0, sel: null }); go('saved'); }] : null,
+            m.mpan && CAN_PRICE ? ['Saved quotes for this meter', function () { S.sq = Object.assign({}, S.sq, { status: 'all', q: m.mpan, page: 0, sel: null }); go('saved'); }] : null,
           ];
         });
         return Promise.resolve();
@@ -1851,7 +1854,7 @@
     }
     /** The usual jobs on a contract row: price, company, MPAN, its contract file. */
     function contractMenu(k, tr) {
-      var priceable = (k.fuel === 'electricity' || k.fuel === 'gas') && k.mpan && !RO;
+      var priceable = (k.fuel === 'electricity' || k.fuel === 'gas') && k.mpan && CAN_PRICE;
       var viewBtn = tr && tr.querySelector('[data-doc-view]'), upBtn = RO ? null : tr && tr.querySelector('[data-doc-up]');
       return [
         priceable ? ['Price this meter', function () { return priceMpan(k.mpan, k.uc_customer_id); }] : null,
@@ -1860,7 +1863,7 @@
         viewBtn ? ['View the signed contract', function () { viewBtn.click(); }] : null,
         docs && k.uc_tender_id && Number(k.signed_docs) ? ['Download every file (zip)', function () { return docs.downloadAll(k); }] : null,
         upBtn ? [Number(k.signed_docs) ? 'Add a file to this contract' : 'Upload the signed contract', function () { upBtn.click(); }] : null,
-        k.mpan && !RO ? ['Saved quotes for this meter', function () { S.sq = Object.assign({}, S.sq, { status: 'all', q: k.mpan, page: 0, sel: null }); go('saved'); }] : null,
+        k.mpan && CAN_PRICE ? ['Saved quotes for this meter', function () { S.sq = Object.assign({}, S.sq, { status: 'all', q: k.mpan, page: 0, sel: null }); go('saved'); }] : null,
       ];
     }
 
@@ -1900,7 +1903,7 @@
       var b = sb.from('pricing_quotes').select(head ? 'id' : SQ_COLS, head ? { count: 'exact', head: true } : { count: 'exact' });
       tab = tab || f.status || 'waiting';
       if (tab === 'waiting') b = b.in('status', ['open', 'sent']); else if (tab !== 'all') b = b.eq('status', tab);
-      if (f.mine && who()) b = b.ilike('desk_user', who());
+      if ((f.mine || RO) && who()) b = b.ilike('desk_user', who());
       if (f.fuel) b = b.eq('fuel', f.fuel);
       if (f.cust) {
         var ms = (f.mpans || []).filter(function (m) { return /^[0-9A-Za-z]+$/.test(m); }).slice(0, 300);
@@ -2057,7 +2060,7 @@
           '<div class="fc-title"><h2>Saved quotes</h2><span class="fc-count">Every price run is kept. Pick one to see its prices, mark it, send it again or price it again.</span></div>' +
           '<div class="toolbar">' +
           '<input id="sqQ" class="tb-q" value="' + esc(f.q || '') + '" placeholder="Customer, site, MPAN, supplier or who" aria-label="Search saved quotes">' +
-          sel('sqMine', 'Whose', [['', 'Everyone\'s quotes'], ['1', 'Only mine']], f.mine ? '1' : '') +
+          (RO ? '' : sel('sqMine', 'Whose', [['', 'Everyone\'s quotes'], ['1', 'Only mine']], f.mine ? '1' : '')) +
           sel('sqFuel', 'Fuel', [['', 'Any fuel'], ['electricity', 'Electricity'], ['gas', 'Gas']], f.fuel || '') +
           '<button class="act" id="sqGo">Search</button></div>' +
           '<div class="crm-tabs" id="sqTabs">' + counts.map(function (x) {
@@ -2067,7 +2070,7 @@
           '<div class="sv" id="sqSv"><div class="sv-main"><div class="grid sq-list"></div><div class="fc-foot sq-foot"></div></div>' +
           '<div class="sv-detail" aria-live="polite"></div></div></div>';
         var read = function () {
-          f.q = body.querySelector('#sqQ').value; f.mine = body.querySelector('#sqMine').value === '1';
+          f.q = body.querySelector('#sqQ').value; f.mine = RO || body.querySelector('#sqMine').value === '1';
           f.fuel = body.querySelector('#sqFuel').value; f.page = 0; f.sel = null;
         };
         var again = function () { go('saved'); };
@@ -2137,7 +2140,7 @@
     }
     function renewalRows(rows, lq, compact) {
       return rows.map(function (k, i) {
-        var priceable = (k.fuel === 'electricity' || k.fuel === 'gas') && !RO;
+        var priceable = (k.fuel === 'electricity' || k.fuel === 'gas') && CAN_PRICE;
         return '<tr data-r="' + i + '">' + rmCell(i) +
           '<td class="nowrap">' + (priceable ? '<button class="act sm" data-price="' + i + '">Price</button>' : '') + '</td>' +
           '<td class="crm-wrap"><button class="crm-link ell" data-cust="' + esc(k.uc_customer_id) + '" title="' + esc(k.customer_name || '') + '">' + esc(k.customer_name || '') + '</button>' +

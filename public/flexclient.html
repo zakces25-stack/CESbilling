@@ -784,6 +784,7 @@ input.cx-cell{width:100%;min-width:62px;font-family:var(--font-mono);font-size:v
     <div class="co" id="coName">&mdash;<small>CES flex portal</small></div>
     <div class="top-r">
       <button class="gbtn" onclick="cxReload()">Refresh</button>
+      <span data-portal-switch data-ps-style="menu" data-ps-class="gbtn"></span>
       <button class="gbtn" onclick="cxSignOut()">Sign out</button>
     </div>
   </header>
@@ -814,7 +815,7 @@ input.cx-cell{width:100%;min-width:62px;font-family:var(--font-mono);font-size:v
    NO LOGIN PAGE. flex.html is the single front door for staff and clients
    alike; it signs people in and bounces clients here. If this page is opened
    without a session it sends you straight back there, and signing out returns
-   there too. Both pages share the ces-flex-auth storage key.
+   there too. Both pages share one storage key (since 08a the same as every CES page).
 
    Read-only about the BOOK, by construction:
      · reads only flex_client_* views + flex_reports + own customers row
@@ -833,8 +834,18 @@ const LOGIN_PAGE = 'flex.html';
 const CX = (() => {
   const SB_URL = 'https://niadffxpxdohglcyagau.supabase.co';
   const ANON   = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pYWRmZnhweGRvaGdsY3lhZ2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3Mzc3MTksImV4cCI6MjA5NDMxMzcxOX0.x22Zh9O408PGfcPZ6rgu-a4B7WTbyH8iyT_ysr-IfIs';
+  // 8 Nov 2026 (08a): one sign-in across the CES portals. This page kept its session under its own
+  // key ('ces-flex-auth'), so crossing from Sales or Pricing to Flex meant signing in again (CES,
+  // 7 Nov: "so he doesnt have to relogin each time"). It now uses the same key as every other CES
+  // page. A session saved under the old key is moved across once, so nobody is signed out by it.
+  try {
+    const OLD = 'ces-flex-auth', NEW = 'sb-niadffxpxdohglcyagau-auth-token';
+    const old = localStorage.getItem(OLD);
+    if (old && !localStorage.getItem(NEW)) localStorage.setItem(NEW, old);
+    if (old) localStorage.removeItem(OLD);
+  } catch (e) { /* storage blocked: nothing to move */ }
   const sb = supabase.createClient(SB_URL, ANON, {
-    auth:{ persistSession:true, storageKey:'ces-flex-auth', autoRefreshToken:true }
+    auth:{ persistSession:true, autoRefreshToken:true }
   });
   return { sb, company:'' };
 })();
@@ -3025,4 +3036,5 @@ window.addEventListener('resize',()=>{
 drawSceneBase();   // turbines turning before the first query returns
 start();
 </script>
+<script src="/portal-switch.js?v=2026-11-08.1" data-portal="flexclient"></script>
 </body></html>
