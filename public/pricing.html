@@ -13,7 +13,7 @@
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <!-- Bump on every push: a plain fetch of the live page can then tell this build from the last. -->
-  <meta name="build" content="pricing 2026-11-07a" />
+  <meta name="build" content="pricing 2026-11-07b" />
   <title>CES Pricing Portal</title>
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
@@ -515,10 +515,11 @@
       <div class="side-label" id="sideLabel">Pricing desk</div>
       <nav class="side-nav">
         <!-- 7 Nov 2026: a broker's own landing page: their contracts ending with nothing lined up,
-             a tick for what happened to each, and who has the requests they sent to pricing. -->
+             a tick for what happened to each, and who has the requests they sent to pricing.
+             07b: and every customer in their book (All my customers). -->
         <button id="tab-mine" data-sec="mine" class="hide" onclick="openSection('mine')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-          <span>My renewals</span><span id="mineBadge" class="cnt hide" title="Your contracts ending in the next 30 days with nothing lined up and no tick"></span></button>
+          <span>My customers</span><span id="mineBadge" class="cnt hide" title="Your contracts ending in the next 30 days with nothing lined up and no tick"></span></button>
         <!-- 6 Nov 2026: the morning check (renewals due, quotes waiting, contracts and LOAs missing). -->
         <button id="tab-today" data-sec="today" onclick="openSection('today')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
@@ -1242,8 +1243,8 @@
 <script src="/pricing-7z.js?v=2026-11-03.1"></script>
 <script src="/pricing-crm-import.js?v=2026-11-03.2"></script>
 <script src="/pricing-docs.js?v=2026-11-07.1"></script>
-<script src="/pricing-crm.js?v=2026-11-07.1"></script>
-<script src="/pricing-team.js?v=2026-11-07.1"></script>
+<script src="/pricing-crm.js?v=2026-11-07.2"></script>
+<script src="/pricing-team.js?v=2026-11-07.2"></script>
 <script src="/pricing-contracts.js?v=2026-09-13.1"></script>
 <script src="/supplier-quotes.js?v=2026-09-14.3"></script>
 <script>
@@ -1509,10 +1510,11 @@ async function afterSignIn() {
 }
 
 /** Which side entries, buttons and pages this person sees. The database decides what they can read. */
-const BROKER_SUBS = new Set(['team:mine', 'crm:portfolios', 'crm:contracts', 'crm:services', 'crm:tenders', 'crm:overview', 'crm:customer']);
+const BROKER_SUBS = new Set(['team:mine', 'team:mybook', 'crm:portfolios', 'crm:contracts', 'crm:services', 'crm:tenders', 'crm:overview', 'crm:customer']);
 function secAllowed(sec) {
   if (!ME) return false;
-  if (sec === 'mine') return !!(ME.broker || (ME.staff && ME.staff.uc_name));
+  // An admin has it too, to see anyone's page as they see it (07b).
+  if (sec === 'mine') return !!(ME.broker || (ME.staff && ME.staff.uc_name) || ME.admin);
   if (sec === 'customers') return true;
   return isPricing();
 }
@@ -1674,7 +1676,8 @@ async function signOut(){ localStorage.removeItem('pricing_who'); await sb.auth.
 // ═══════════════════════════════════════════════════════════════════════════════════════
 const SECTIONS = {
   // 7 Nov 2026: a broker's own page, and the requests from pricingteam@ (team:* is /pricing-team.js).
-  mine:      { title: 'My renewals', subs: [['team:mine', '']] },
+  // 07b: and every customer in the book, renewed or not (a customer given to someone on the desk).
+  mine:      { title: 'My customers', subs: [['team:mine', 'Renewals due'], ['team:mybook', 'All my customers']] },
   requests:  { title: 'Requests', subs: [['team:requests', 'All requests'], ['team:myrequests', 'My requests']] },
   // 6 Nov 2026: Today (the morning check), Saved quotes (every price run, kept), Renewals to price.
   today:     { title: 'Today', subs: [['crm:today', '']] },
@@ -1911,6 +1914,8 @@ function teamInit(view, arg) {
     TEAM_API = TeamDesk.mount($('teamHost'), { sb, esc, me: ME, logo: crmLogo, openCompany,
       priceMeter: (m) => priceFromCrm(m),
       onCounts: (c) => { if (c.requestsNew != null) paintCount('reqBadge', c.requestsNew); if (c.mine30 != null) paintCount('mineBadge', c.mine30); },
+      // People > See their page (an admin, 07b): their Renewals due, as they see it.
+      onViewAs: () => openSection('mine', 'team:mine'),
       ask: (text, ctx) => { initAsk(); if (ASK) ASK.ask(text, ctx); } });
     window.TEAM_API = TEAM_API;
   }
@@ -3885,7 +3890,7 @@ async function contractOpen(i) {
   if (!form) return;
   $('ctPickCard').classList.add('hide'); $('ctEditor').classList.remove('hide');
   $('ctTitle').textContent = form.label;
-  $('ctSub').textContent = `${QUOTE.customer || METER.customer_id || ''} · ${METER.mpan || ''} · ${row.term_months} months from ${uk(QUOTE.start)}`;
+  $('ctSub').textContent = `${QUOTE.customer || custName(METER) || ''} · ${METER.mpan || ''} · ${row.term_months} months from ${uk(QUOTE.start)}`;
   $('ctDownloadXlsx').classList.toggle('hide', form.kind !== 'xlsx');
   CT.form = form; CT.sel = null; CT.zoom = 1;
   CT.data = PricingContracts.buildContractData({
@@ -4025,7 +4030,7 @@ function ctRenderList() {
 }
 
 async function contractDownload(kind) {
-  const who = (QUOTE.customer || METER.customer_id || 'contract').replace(/[^\w &'\-]/g, '').slice(0, 50);
+  const who = (QUOTE.customer || custName(METER) || 'contract').replace(/[^\w &'\-]/g, '').slice(0, 50);
   const stem = `${who} - ${CT.form.key === 'bg_lite' ? 'BGL' : CT.form.key === 'edf' ? 'EDF' : 'BG'} ${CT.data.contract.term_months}m ${CT.data.fuel === 'gas' ? 'Gas' : 'Electricity'} Contract`;
   try {
     if (kind === 'xlsx') {
@@ -4205,6 +4210,32 @@ async function addProduct() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
+// Billing customer names (CES, 7 Nov 2026: "show the regular customer name and remove the
+// dashes"). A portfolio meter (public.meters) carries its customer's id, which is a slug
+// ('tidemill-yacht-harbour-limited'); the name is customers.company_name. A slug with no row is
+// turned into words as a last resort, never shown as it is.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+const CUST_NAMES = new Map();
+function slugWords(s) {
+  return String(s || '').replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b([a-z])/g, (m, c) => c.toUpperCase());
+}
+async function loadCustNames(ids) {
+  const want = [...new Set((ids || []).filter((id) => id && !CUST_NAMES.has(id)))];
+  for (let i = 0; i < want.length; i += 100) {
+    try {
+      const rows = await q(sb.from('customers').select('customer_id,company_name').in('customer_id', want.slice(i, i + 100)), 'customer names');
+      for (const r of rows || []) if (r.company_name && String(r.company_name).trim()) CUST_NAMES.set(r.customer_id, String(r.company_name).trim());
+    } catch (_) { /* a nicety: the id, in words, still shows */ }
+  }
+  for (const id of want) if (!CUST_NAMES.has(id)) CUST_NAMES.set(id, slugWords(id));
+}
+function custName(m) {
+  if (!m) return '';
+  if (m.manual) return m.customer_id || '';
+  return CUST_NAMES.get(m.customer_id) || (m.crm && m.crm.customer_name) || slugWords(m.customer_id);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
 // Price a meter
 // ═══════════════════════════════════════════════════════════════════════════════════════
 async function findMeters() {
@@ -4216,6 +4247,13 @@ async function findMeters() {
   // A comma or bracket would end the .or() filter early (PostgREST syntax) and the search
   // errored on "Smith, Jones & Co" or "Acme (UK) Ltd": they become wildcards instead.
   const like = `%${term.replace(/[%_]/g,'').replace(/[,()]/g, '%')}%`;
+  // The customer's real name finds it too (7 Nov 2026), and words find a slug ("tidemill yacht").
+  let nameIds = [];
+  try {
+    nameIds = (await q(sb.from('customers').select('customer_id').ilike('company_name', like).limit(50), 'customer search'))
+      .map((r) => r.customer_id).filter((id) => /^[\w.-]+$/.test(String(id || '')));
+  } catch (_) { nameIds = []; }
+  const slugLike = like.replace(/\s+/g, '%');
   let rows;
   try {
     rows = await q(sb.from('meters')
@@ -4223,10 +4261,12 @@ async function findMeters() {
             + 'est_annual_consumption,profile_class,rate_structure,rate_structure_src,tcr_band,tcr_band_src,'
             + 'ssc,ssc_status,ssc_note,ssc_src,top_line,meter_serial,'
             + 'dno_id,llfc,ldz,exit_zone,priceable,price_block_reason,supplier,contract_end_date')
-      .or(`mpan.ilike.${like},customer_id.ilike.${like},site_name.ilike.${like},site_address.ilike.${like}`)
+      .or(`mpan.ilike.${like},customer_id.ilike.${slugLike},site_name.ilike.${like},site_address.ilike.${like}`
+        + (nameIds.length ? `,customer_id.in.(${nameIds.join(',')})` : ''))
       .in('utility', ['electricity','gas'])
       .limit(50), 'meter search');
   } catch (e) { return fail(out, e.message); }
+  await loadCustNames(rows.map((m) => m.customer_id));
   if (!rows.length) {
     out.innerHTML = '<div class="note">Nothing in a broker portfolio matched.</div>';
     window.__FOUND = [];
@@ -4236,7 +4276,7 @@ async function findMeters() {
       <th>Customer</th><th>MPAN / MPRN</th><th>Fuel</th><th>Type</th><th>Site</th>
       <th class="num">EAC</th><th>Priceable</th><th></th></tr></thead><tbody>` +
     rows.map((m,i) => `<tr>
-      <td>${esc(m.customer_id)}</td>
+      <td>${esc(custName(m))}</td>
       <td class="mono">${esc(m.mpan)}</td>
       <td>${esc(m.utility)}</td>
       <td>${esc(m.supply_type || '—')}</td>
@@ -5293,7 +5333,8 @@ async function aqLookup() {
                 `SSC ${esc(AQ_METER.ssc || 'unknown')}`);
     }
     note.className = 'note';
-    note.innerHTML = `<b>${esc(AQ_METER.customer_id || 'this meter')}</b> &mdash;
+    await loadCustNames([AQ_METER.customer_id]);
+    note.innerHTML = `<b>${esc(custName(AQ_METER) || 'this meter')}</b> &mdash;
       ${esc(AQ_METER.site_name || '')} ${esc(AQ_METER.postcode || '')}.
       ${esc(AQ_METER.utility)}, ${bits.join(', ')}.
       ${AQ_METER.supplier ? `Currently with <b>${esc(AQ_METER.supplier)}</b>.` : ''}
@@ -5884,6 +5925,8 @@ function pickedManager() {
  */
 async function showMeter() {
   loadCurrentContract();
+  // The customer's real name for the facts below (7 Nov 2026), never the id slug.
+  if (METER && !METER.manual && METER.customer_id) await loadCustNames([METER.customer_id]);
   $('priceCard').classList.remove('hide');
   $('quoteCard').classList.add('hide');
   // A different meter is a different quote: the next run is saved as a new one. (Price again
@@ -5974,7 +6017,7 @@ function paintMeterFacts() {
   const top = meterTopLine(METER);
   $('meterFacts').innerHTML = `
     <dl class="kv">
-      <dt>Customer</dt><dd>${esc(METER.customer_id)}${METER.manual
+      <dt>Customer</dt><dd><span id="meterCustName">${esc(custName(METER))}</span>${METER.manual
         ? ' <span class="pill p-warn">typed in, nothing saved</span>' : ''}</dd>
       <dt>${METER.utility === 'gas' ? 'MPRN' : 'MPAN'}</dt><dd>${esc(METER.mpan)}</dd>
       ${METER.utility === 'electricity' ? `

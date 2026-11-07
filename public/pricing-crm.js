@@ -40,12 +40,15 @@
  *                        be read and its files opened, but nothing is priced, fixed, uploaded or
  *                        marked here (the database refuses those writes for a broker anyway).
  *
+ * 7 Nov 2026 (07b): the company page's account manager can be changed by the pricing team
+ * (crm_set_account_manager), shown "set on the desk" with what UtilityClick says.
+ *
  * ASCII only. Special characters are HTML entities, never literal.
  */
 (function (root) {
   'use strict';
 
-  var VERSION = '2026-11-07.1';
+  var VERSION = '2026-11-07.2';
   var PAGE = 50, BIG_PAGE = 100;
 
   var LIFE = {
@@ -131,6 +134,10 @@
     var s = String(iso).slice(0, 10).split('-');
     return s.length === 3 ? s[2] + '/' + s[1] + '/' + s[0] : String(iso);
   }
+  // A cubic metre: the contracts export writes it 'm' + U+00B3, the meters export 'm3' (7 Nov 2026:
+  // 925 water contracts read as kWh because only 'm3' was tested).
+  var CUBED = String.fromCharCode(179);
+  function isM3(u) { u = String(u || '').trim().toLowerCase(); return u === 'm3' || u === 'm' + CUBED; }
   function n0(v) { return v == null || v === '' ? '' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: 0 }); }
   function n2(v, dp) {
     if (v == null || v === '') return '';
@@ -865,7 +872,11 @@
 
         var addr = function (a, pc) { return [a, pc].filter(Boolean).join(', '); };
         var facts = [
-          c.account_manager ? 'Account manager <b>' + esc(c.account_manager) + '</b>' : 'No account manager',
+          // 7 Nov 2026: the pricing team can give a customer to someone else on the desk (CES: Thaxted
+          // Primary School is Zak's); the change survives every UtilityClick import.
+          '<span id="coAm">' + (c.account_manager ? 'Account manager <b>' + esc(c.account_manager) + '</b>' : 'No account manager') +
+            (RO ? '' : ' <button class="crm-link" id="coAmEdit" style="font-size:12px;font-weight:700">change</button>') +
+            '<span id="coAmNote"></span></span>',
           c.company_reg_number ? 'Company no. <b>' + esc(c.company_reg_number) + '</b>' : '',
           loaPill(c),
           c.vat_status ? 'VAT ' + esc(c.vat_status) : '',
@@ -912,6 +923,7 @@
           '<div class="co-body" id="crmCbody"></div></div>';
 
         body.querySelector('#crmBack').addEventListener('click', function () { go(S.back && S.back !== 'customer' ? S.back : 'portfolios'); });
+        amOverride(id, c);
         if (body.querySelector('#coMissing')) body.querySelector('#coMissing').addEventListener('click', function () {
           if (opts.openNoContract) opts.openNoContract(c.name);
           else { S.nc = { kind: '', state: '', am: '', q: c.name, sort: 'customer', page: 0 }; go('nocontract'); }
@@ -929,6 +941,53 @@
         S.customer.ctx = { c: c, contacts: contacts, meters: meters, tenders: tenders, notes: notes, reads: reads, issues: issues, services: services, byMpan: byMpan,
                            nowBy: nowBy, nextBy: nextBy };
         return paintCompanyTab();
+      });
+    }
+
+    /**
+     * The account manager set on the desk (7 Nov 2026). Shows when the desk's name differs from
+     * UtilityClick's, and lets the pricing team change it: a pick from the names already in use, or
+     * back to UtilityClick's. crm_set_account_manager() checks the person is on the pricing team.
+     * Never in the way: a failed read shows nothing extra.
+     */
+    function amOverride(id, c) {
+      var note = body.querySelector('#coAmNote');
+      Promise.resolve(sb.from('crm_account_overrides').select('account_manager,uc_account_manager,set_by_name,set_at').eq('uc_customer_id', id).limit(1))
+        .then(function (r) {
+          var o = r && !r.error && r.data && r.data[0];
+          if (!o || !note) return;
+          note.innerHTML = ' <span class="pill p-warn" title="Set on the desk by ' + esc(o.set_by_name || '') + ' on ' + uk(o.set_at) +
+            '; UtilityClick imports keep it">set on the desk</span> <span class="crm-small">UtilityClick says ' + esc(o.uc_account_manager || 'nobody') + '</span>';
+          note.setAttribute('data-uc', o.uc_account_manager || '');
+        }).catch(function () { /* the badge only */ });
+      var btn = body.querySelector('#coAmEdit');
+      if (!btn) return;
+      btn.addEventListener('click', function () {
+        var box = body.querySelector('#coAm');
+        var ucSays = note && note.hasAttribute('data-uc') ? note.getAttribute('data-uc') : (c.account_manager || '');
+        box.innerHTML = 'Account manager <select id="coAmSel" aria-label="Account manager" style="height:28px;font-size:12px;padding:2px 6px;width:auto">' +
+          '<option value="">Loading names...</option></select> <button class="act sm" id="coAmSave">Save</button> ' +
+          '<button class="act ghost sm" id="coAmCancel">Cancel</button> <span class="crm-small" id="coAmMsg"></span>';
+        var sel = box.querySelector('#coAmSel'), msg = box.querySelector('#coAmMsg');
+        Promise.all([
+          q(sb.from('crm_account_managers_v').select('account_manager'), 'account managers'),
+          Promise.resolve(sb.from('staff_members').select('uc_name').eq('active', true)).then(function (r) { return (r && r.data) || []; }).catch(function () { return []; }),
+        ]).then(function (r) {
+          var names = {};
+          (r[0].data || []).forEach(function (x) { if (x.account_manager) names[x.account_manager] = 1; });
+          r[1].forEach(function (x) { if (x.uc_name) names[x.uc_name] = 1; });
+          var list = Object.keys(names).sort(function (a, b) { return a.localeCompare(b); });
+          sel.innerHTML = '<option value="">' + esc(ucSays ? 'UtilityClick\'s: ' + ucSays : 'UtilityClick\'s (nobody)') + '</option>' +
+            list.map(function (n) { return '<option value="' + esc(n) + '"' + (n === c.account_manager && n !== ucSays ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('');
+        }).catch(function (e) { msg.innerHTML = '<span style="color:var(--fail)">' + esc(e.message) + '</span>'; });
+        box.querySelector('#coAmCancel').addEventListener('click', function () { go('customer', id, { keepScroll: true }); });
+        box.querySelector('#coAmSave').addEventListener('click', function () {
+          msg.textContent = 'Saving...';
+          q(sb.rpc('crm_set_account_manager', { p_uc_customer_id: id, p_account_manager: sel.value || null }), 'account manager')
+            .then(function () { go('customer', id, { keepScroll: true }); })
+            .catch(function (e) { msg.innerHTML = '<span style="color:var(--fail)">' + esc(e.message) + '</span>'; });
+        });
+        sel.focus();
       });
     }
 
@@ -1005,7 +1064,7 @@
               '<div style="margin-top:3px">' + rateCell(m) + '</div></td>' +
             '<td class="nx">' + nowCell + '</td>' +
             '<td class="nx">' + nextCell + '</td>' +
-            '<td class="num">' + n0(m.aq) + (m.aq_unit === 'm3' ? ' m&sup3;' : '') + '</td>' +
+            '<td class="num">' + n0(m.aq) + (isM3(m.aq_unit) ? ' m&sup3;' : '') + '</td>' +
             (elec ? '<td class="c-opt">' + svcBoth(m) + '</td>' : '') +
             '<td class="nowrap">' + (priceable && !RO ? '<button class="act sm" data-price="' + i + '">Price</button> ' : '') +
             (fixable && !RO ? '<button class="act ' + (flagged ? '' : 'ghost ') + 'sm" data-fix="' + i + '">' + (flagged ? 'Fix' : 'Edit') + '</button>' : '') + '</td></tr>');
@@ -1192,7 +1251,7 @@
             '<td>' + statusCell(LIFE, k.lifecycle, k.meter_deal_status) +
             (k.next_supplier ? '<div class="crm-small">then <b>' + esc(k.next_supplier) + '</b> ' + uk(k.next_start) + (k.next_status ? ', ' + esc(k.next_status) : '') + '</div>' : '') + '</td>' +
             '<td>' + ratesCell(k) + '</td>' +
-            '<td class="num c-opt">' + n0(k.aq) + (k.aq != null ? ' <span class="crm-small">' + (k.aq_unit === 'm3' ? 'm&sup3;' : 'kWh') + '</span>' : '') +
+            '<td class="num c-opt">' + n0(k.aq) + (k.aq != null ? ' <span class="crm-small">' + (isM3(k.aq_unit) ? 'm&sup3;' : 'kWh') + '</span>' : '') +
             (k.commission_rate != null ? '<div class="crm-small">' + n2(k.commission_rate, 2) + ' ' + esc(k.commission_uom || '') + '</div>' : '') +
             (k.total_commission_gbp != null && Number(k.total_commission_gbp) ? '<div class="crm-small">' + gbp(k.total_commission_gbp) + ' over the term</div>' : '') + '</td></tr>';
         }).join('') + '</tbody></table>';
@@ -1681,7 +1740,7 @@
      */
     function commYear(k) {
       var rate = Number(k.commission_rate), aq = Number(k.aq), fixed = Number(k.commission_gbp_meter_year) || 0;
-      if (rate > 0 && aq > 0 && /p\/kwh/i.test(k.commission_uom || '') && k.aq_unit !== 'm3') return rate * aq / 100 + fixed;
+      if (rate > 0 && aq > 0 && /p\/kwh/i.test(k.commission_uom || '') && !isM3(k.aq_unit)) return rate * aq / 100 + fixed;
       var tot = Number(k.total_commission_gbp), m = Number(k.duration_months);
       if (tot > 0 && m > 0) return tot / (m / 12);
       return fixed || null;
@@ -1718,7 +1777,7 @@
      */
     function annualOf(k, aq, kva) {
       var a = Number(aq != null ? aq : k.aq);
-      if (!a || k.aq_unit === 'm3') return null;
+      if (!a || isM3(k.aq_unit)) return null;
       var u = k.unit_rate_p_kwh;
       if (u == null) {
         if (k.day_rate_p_kwh != null && k.night_rate_p_kwh == null && k.ew_rate_p_kwh == null) u = k.day_rate_p_kwh;
@@ -2092,7 +2151,7 @@
             (k.via_ces === false ? '<div class="crm-small">not via CES</div>' : '') + '</td>' +
           '<td class="nowrap">' + endsCell(k) + '</td>' +
           (compact ? '' : '<td class="c-opt">' + ratesCell(k) + '</td>') +
-          (compact ? '' : '<td class="num nowrap">' + (k.aq != null ? n0(k.aq) + ' <span class="crm-small">' + (k.aq_unit === 'm3' ? 'm&sup3;' : 'kWh') + '</span>' : '') +
+          (compact ? '' : '<td class="num nowrap">' + (k.aq != null ? n0(k.aq) + ' <span class="crm-small">' + (isM3(k.aq_unit) ? 'm&sup3;' : 'kWh') + '</span>' : '') +
             (commYear(k) ? '<div class="crm-small">' + gbp(commYear(k)) + ' a year to CES</div>' : '') + '</td>' +
             '<td>' + lastQuoteCell(lq[k.mpan]) + '</td>') + '</tr>';
       }).join('');
