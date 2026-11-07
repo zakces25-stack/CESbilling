@@ -13,7 +13,7 @@
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <!-- Bump on every push: a plain fetch of the live page can then tell this build from the last. -->
-  <meta name="build" content="pricing 2026-11-06a" />
+  <meta name="build" content="pricing 2026-11-07a" />
   <title>CES Pricing Portal</title>
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
@@ -75,6 +75,11 @@
     .burger{display:none;place-items:center;width:38px;height:38px;border-radius:10px;border:1px solid var(--line-2);
       background:#fff;color:var(--navy);cursor:pointer;flex:0 0 38px}
     .burger svg{width:20px;height:20px}
+    /* 7 Nov 2026: Ask Claude from any page, and the person's own colour beside their name. */
+    header .ask-btn{display:inline-flex;align-items:center;gap:7px}
+    header .ask-btn svg{width:16px;height:16px;flex:0 0 16px}
+    .who-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;border:1px solid rgba(0,0,0,.15)}
+    @media (max-width:640px){ header.topbar .act.ask-btn{display:inline-flex;padding:0 9px} header .ask-btn span{display:none} }
 
     /* ---- the shell: side menu on the left, the section's own tabs along the top */
     /* The navy runs the full height of the page behind the sticky menu, so a long page never
@@ -118,6 +123,9 @@
       .side{position:fixed;left:0;top:60px;bottom:0;width:260px;height:auto;z-index:40;transform:translateX(-102%);
         transition:transform .18s ease;box-shadow:0 12px 32px rgba(0,0,0,.28)}
       body.side-open .side{transform:none}
+      /* A closing drawer takes no taps (6 Nov 2026): for its 180 ms slide it still covered the tabs,
+         and a quick tap on a tab landed on Today, the drawer's first entry, underneath it. */
+      body:not(.side-open) .side{pointer-events:none}
       body.side-open .side-scrim{display:block;position:fixed;inset:60px 0 0 0;background:rgba(10,18,36,.35);z-index:35}
       .burger{display:inline-grid}
     }
@@ -232,6 +240,13 @@
     .si-card .cf-turnstile{margin:16px 0 2px;min-height:65px;display:flex;justify-content:center}
     .si-card button.act{width:100%;margin-top:12px}
     .si-help{font-size:11.5px;color:var(--muted);margin-top:14px;line-height:1.5;text-align:center}
+    /* 7 Nov 2026: CES staff sign in with their Microsoft work account; the username form stays. */
+    .si-card button.act.ms{margin-top:14px;background:#fff;color:var(--navy);border:1px solid var(--line-2);font-weight:800}
+    .si-card button.act.ms:hover{border-color:var(--cyan-dim);background:var(--cyan-glow)}
+    .si-card button.act.ms:disabled{opacity:.6;cursor:not-allowed}
+    .si-or{display:flex;align-items:center;gap:10px;margin:18px 0 2px;font-size:11.5px;color:var(--muted)}
+    .si-or:before,.si-or:after{content:"";flex:1;height:1px;background:var(--line)}
+    #msNote{margin-top:8px;text-align:left}
     .si-links{font-size:12px;margin-top:14px;text-align:center;color:var(--muted)}
     @media (max-width:860px){
       #signin{grid-template-columns:1fr}
@@ -316,6 +331,8 @@
       main.fill > section:not(.hide){flex:1 1 auto;min-height:0;width:100%;display:flex;flex-direction:column}
       main.fill #crmHost, main.fill #crmBody{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
       main.fill #crmBody > .note{flex:0 0 auto}
+      main.fill #teamHost, main.fill #teamBody{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+      main.fill #teamBody > .note{flex:0 0 auto}
       main.fill .fillcard{flex:1 1 auto;min-height:0;margin-bottom:0}
       main.fill .fillcard > .grid, main.fill .co-body{flex:1 1 auto;min-height:0}
       main.fill .co-body > .grid{flex:1 1 auto;min-height:0}
@@ -345,9 +362,28 @@
     .gs-item .m{display:block;font-size:11.5px;color:var(--muted);margin-top:2px}
     .gs-empty{padding:10px 12px;font-size:12.5px;color:var(--muted)}
     .side-nav .cnt{margin-left:auto;font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;background:#f2d27a;color:#3d2c00}
+    /* ---- the results bar (6 Nov 2026, saved quotes): exports, uplift, commission, saved */
+    .pb-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .pb-row .act{height:34px;padding:0 14px;margin:0}
+    .pb-menu{position:relative}
+    .pb-pop{position:absolute;z-index:45;top:calc(100% + 4px);left:0;width:340px;background:#fff;border:1px solid var(--line-2);
+      border-radius:12px;box-shadow:0 14px 34px rgba(19,32,57,.18);padding:6px}
+    .pb-pop button{display:block;width:100%;text-align:left;background:none;border:0;border-radius:8px;padding:8px 10px;cursor:pointer;font:inherit;color:var(--text)}
+    .pb-pop button:hover,.pb-pop button:focus-visible{background:var(--cyan-glow);outline:none}
+    .pb-pop button b{display:block;font-size:13px}
+    .pb-pop button span{display:block;font-size:11.5px;color:var(--text-2);margin-top:2px}
+    .pb-pop-note{font-size:11.5px;color:var(--muted);padding:6px 10px 4px;border-top:1px solid var(--line);margin-top:4px}
+    .pb-up{display:flex;gap:6px;align-items:center;margin:0 0 0 6px;font-size:12px;font-weight:700;color:var(--text-2);text-transform:none;letter-spacing:0}
+    .pb-up input{width:68px;height:34px;padding:0 8px;font-size:13px;text-align:right}
+    .pb-saved{margin-left:auto;font-size:12px;white-space:nowrap}
+    .pb-ok{color:var(--ok);font-weight:800}.pb-bad{color:var(--fail);font-weight:700;white-space:normal}.pb-dim{color:var(--muted)}
+    .pb-comm{font-size:12.5px;color:var(--text-2);margin-top:8px;line-height:1.5}
+    .pb-comm b{color:var(--text)}
     @media (max-width:640px){
       .gsearch{margin-left:0}
       .gsearch input{font-size:16px}          /* below 16 px a phone zooms the page on focus */
+      .pb-saved{margin-left:0}
+      .pb-pop{width:min(340px,86vw)}
     }
 </style>
 </head>
@@ -360,12 +396,12 @@
            onerror="this.parentNode.style.display='none'" /></div>
       <h1>Pricing Portal</h1>
       <p>Supplier pricebooks, portfolio pricing and the customer record that used to live in
-         UtilityClick, in one place for the CES pricing team.</p>
+         UtilityClick, in one place for the CES pricing team and brokers.</p>
       <ul>
         <li>Price any meter off the live supplier books</li>
-        <li>New pricebooks collected from the pricing mailbox</li>
-        <li>Customers, contracts and renewals from the UC data</li>
-        <li>Quotes and contracts ready to send</li>
+        <li>Requests from the pricing mailbox, each with a name on it</li>
+        <li>Brokers: your contracts ending, and who has your requests</li>
+        <li>Ask Claude about any customer, contract or renewal</li>
       </ul>
     </div>
     <div class="si-foot">&copy; Commercial Energy Solutions Ltd &middot; CES internal</div>
@@ -373,7 +409,13 @@
   <div class="si-panel">
     <div class="si-card">
       <h2>Sign in</h2>
-      <div class="si-sub">Use the pricing team login.</div>
+      <div class="si-sub">CES staff: your Microsoft work account. Each person gets their own pages.</div>
+      <!-- 7 Nov 2026. Supabase's Azure provider, locked to the CES tenant. A person signs in with a
+           username once and presses "Link Microsoft" (top right), so their Microsoft account joins
+           the login their sales figures already hang off; after that this button is all they need. -->
+      <button class="act ms" id="msBtn" onclick="signInMicrosoft()">Sign in with Microsoft</button>
+      <div id="msNote" class="si-help hide"></div>
+      <div class="si-or">or a portal username</div>
       <label for="u">Username</label>
       <input id="u" autocomplete="username" autocapitalize="none" spellcheck="false" />
       <label for="p">Password</label>
@@ -425,7 +467,7 @@
   <header class="topbar">
     <button class="burger" id="burgerBtn" aria-label="Open the menu" aria-controls="side" onclick="toggleSide()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
-    <a class="brand" href="#" onclick="openSection('pricing');return false" aria-label="CES Pricing Portal, back to Pricing">
+    <a class="brand" href="#" onclick="openSection(HOME());return false" aria-label="CES Pricing Portal, back to your first page">
       <img src="/ces_logo.png" alt="Commercial Energy Solutions" onerror="this.style.display='none'" />
       <span>Pricing Portal</span></a>
     <!-- Find a company from any page (CES, 6 Nov 2026): its name, a postcode, a company number
@@ -437,8 +479,15 @@
       <div id="gsList" class="gs-list hide" role="listbox" aria-label="Companies"></div>
     </div>
     <div class="spacer"></div>
+    <!-- 7 Nov 2026: Ask Claude (desk-assistant) from every page, answering as the signed-in person. -->
+    <button class="act sm ask-btn" id="askBtn" onclick="openAsk()" title="Ask Claude about customers, contracts, renewals or requests" aria-label="Ask Claude">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <span>Ask Claude</span></button>
     <div class="whoami"><span id="whoLabel"></span> <span id="acctLabel" style="opacity:.75"></span></div>
-    <button class="act ghost sm" onclick="changeWho()">Not you?</button>
+    <!-- The shared pricing login only: the name on the desk is a pick, not a person's own login. -->
+    <button class="act ghost sm hide" id="notYouBtn" onclick="changeWho()">Not you?</button>
+    <!-- A personal login with no Microsoft account joined yet. -->
+    <button class="act ghost sm hide" id="linkMsBtn" onclick="linkMicrosoft()" title="Join your Microsoft work account to this login, then sign in with it from now on">Link Microsoft</button>
     <button class="act ghost sm" onclick="signOut()">Sign out</button>
     <button class="gear" id="gearBtn" title="Settings (admin)" aria-label="Settings" onclick="openSettings()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
@@ -463,11 +512,28 @@
 
   <div class="shell">
     <aside class="side" id="side" aria-label="Sections">
-      <div class="side-label">Pricing desk</div>
+      <div class="side-label" id="sideLabel">Pricing desk</div>
       <nav class="side-nav">
-        <button id="tab-price" data-sec="pricing" class="on" onclick="openSection('pricing')">
+        <!-- 7 Nov 2026: a broker's own landing page: their contracts ending with nothing lined up,
+             a tick for what happened to each, and who has the requests they sent to pricing. -->
+        <button id="tab-mine" data-sec="mine" class="hide" onclick="openSection('mine')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <span>My renewals</span><span id="mineBadge" class="cnt hide" title="Your contracts ending in the next 30 days with nothing lined up and no tick"></span></button>
+        <!-- 6 Nov 2026: the morning check (renewals due, quotes waiting, contracts and LOAs missing). -->
+        <button id="tab-today" data-sec="today" onclick="openSection('today')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          <span>Today</span></button>
+        <!-- 7 Nov 2026: requests Claude found in pricingteam@, taken by name, coloured in Outlook. -->
+        <button id="tab-req" data-sec="requests" class="hide" onclick="openSection('requests')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M22 6l-10 7L2 6"/></svg>
+          <span>Requests</span><span id="reqBadge" class="cnt hide" title="New requests nobody has taken yet"></span></button>
+        <button id="tab-price" data-sec="pricing" onclick="openSection('pricing')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg>
           <span>Pricing</span></button>
+        <!-- 6 Nov 2026: live supply ending soon with nothing lined up, soonest first, a Price button on each. -->
+        <button id="tab-ren" data-sec="renewals" onclick="openSection('renewals')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18 2v4h-4"/><path d="M6 22v-4h4"/></svg>
+          <span>Renewals to price</span><span id="renBadge" class="cnt hide" title="Live supply contracts ending in the next 30 days with nothing lined up"></span></button>
         <button id="tab-crm" data-sec="customers" onclick="openSection('customers')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           <span>Customers</span></button>
@@ -492,7 +558,7 @@
       </div>
       <div class="side-foot">
         <div class="mobile-only"><span id="whoLabel2"></span><br>
-          <button class="act ghost sm" onclick="changeWho()">Not you?</button>
+          <button class="act ghost sm hide" id="notYouBtn2" onclick="changeWho()">Not you?</button>
           <button class="act ghost sm" onclick="signOut()">Sign out</button></div>
       </div>
     </aside>
@@ -509,6 +575,11 @@
     <!-- Everything UtilityClick held (customers, sites, meters, contracts, tenders), from
          /pricing-crm.js. Mounted on first visit. -->
     <section id="pane-crm" class="hide"><div id="crmHost"></div></section>
+
+    <!-- ══════════════════════════════════════════════════════════════════ PERSONAL PAGES -->
+    <!-- 7 Nov 2026, /pricing-team.js: My renewals (brokers), Requests and My requests (pricing),
+         People (admins). Mounted on first visit. -->
+    <section id="pane-team" class="hide"><div id="teamHost"></div></section>
 
     <!-- ══════════════════════════════════════════════════════════════════ PRICEBOOKS -->
     <section id="pane-books" class="hide">
@@ -796,8 +867,7 @@
       <div id="quoteCard" class="card hide">
         <h2>Results</h2>
         <nav id="termTabs" style="margin:0 0 4px;border-bottom:1px solid var(--line)"></nav>
-        <div id="pickBar" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;
-             margin:12px 0 10px"></div>
+        <div id="pickBar" style="margin:12px 0 10px"></div>
         <div id="quoteTables"></div>
         <div class="sub" id="quoteAssumptions" style="margin-top:16px"></div>
       </div>
@@ -1171,8 +1241,9 @@
 <script src="/pricing-parsers.js?v=2026-11-04.2"></script>
 <script src="/pricing-7z.js?v=2026-11-03.1"></script>
 <script src="/pricing-crm-import.js?v=2026-11-03.2"></script>
-<script src="/pricing-docs.js?v=2026-11-06.1"></script>
-<script src="/pricing-crm.js?v=2026-11-06.1"></script>
+<script src="/pricing-docs.js?v=2026-11-07.1"></script>
+<script src="/pricing-crm.js?v=2026-11-07.1"></script>
+<script src="/pricing-team.js?v=2026-11-07.1"></script>
 <script src="/pricing-contracts.js?v=2026-09-13.1"></script>
 <script src="/supplier-quotes.js?v=2026-09-14.3"></script>
 <script>
@@ -1310,28 +1381,158 @@ async function signIn() {
   await afterSignIn();
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Personal logins (CES, 6 Nov 2026: "a personalised login for everyone. Different people should
+// have different pages"). Microsoft sign-in is Supabase's Azure provider, locked to the CES
+// tenant; a username still works. Either way staff_whoami() (_63a) says who this is and what they
+// may see: the pricing team gets the desk, a broker their own renewals and read-only Customers.
+// The shared 'pricing' login keeps the name picker, because it is nobody in particular.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+let ME = null;      // staff_whoami(): { user_id, email, microsoft, staff{id,name,roles,uc_name,colour}, pricing, broker, admin, shared, name }
+let MS_ON = null;   // is the Azure provider switched on in Supabase (null until asked)
+const isPricing = () => !!(ME && ME.pricing);
+const HOME = () => (isPricing() ? 'today' : 'mine');
+
+/** Any error Microsoft or Supabase handed back on the address bar, read once and cleared. */
+const OAUTH_ERR = (() => {
+  const read = (s) => { try { const p = new URLSearchParams(s); return p.get('error_description') || p.get('error'); } catch (_) { return null; } };
+  const m = read(location.search.slice(1)) || read(location.hash.slice(1));
+  if (m) { try { history.replaceState(null, '', location.pathname); } catch (_) { /* old browser */ } }
+  return m ? String(m).replace(/\+/g, ' ') : null;
+})();
+function oauthWords(m) {
+  const t = String(m || '').toLowerCase();
+  if (/signups? not allowed|signup.*disabled|user not found/.test(t)) {
+    return 'Your Microsoft account is not joined to a portal login yet. Sign in once with your username below, '
+      + 'then press Link Microsoft at the top right. No username? Ask a portal admin.';
+  }
+  if (/already|identity_already_exists|linked to another/.test(t)) return 'That Microsoft account is already joined to a different portal login. Ask a portal admin.';
+  if (/manual link/.test(t)) return 'Joining Microsoft accounts is not switched on yet (Supabase: allow manual linking). Ask a portal admin.';
+  if (/aadsts50020|not exist in tenant|tenant/.test(t)) return 'Only CES Microsoft accounts can sign in here.';
+  return 'Microsoft sign-in did not finish: ' + m;
+}
+
+/** Asked before anyone clicks, so a switched-off provider is a sentence, not Supabase's JSON page. */
+async function checkMicrosoft() {
+  try {
+    const r = await fetch(SUPABASE_URL + '/auth/v1/settings', { headers: { apikey: SUPABASE_ANON } });
+    const s = await r.json();
+    MS_ON = !!(s && s.external && s.external.azure);
+  } catch (_) { MS_ON = null; }
+  const btn = $('msBtn'), note = $('msNote');
+  if (btn && MS_ON === false) {
+    btn.disabled = true;
+    note.textContent = 'Microsoft sign-in is not switched on yet. Use your username below.';
+    note.classList.remove('hide');
+  }
+  if (ME) applyRoles();
+}
+
+async function signInMicrosoft() {
+  const err = $('loginErr'), btn = $('msBtn');
+  err.classList.add('hide');
+  btn.disabled = true; btn.textContent = 'Opening Microsoft…';
+  let error = null;
+  try {
+    ({ error } = await sb.auth.signInWithOAuth({ provider: 'azure',
+      options: { scopes: 'email openid profile', redirectTo: location.origin + location.pathname } }));
+  } catch (e) { error = e; }
+  if (error) {
+    btn.disabled = false; btn.textContent = 'Sign in with Microsoft';
+    err.textContent = oauthWords(error.message || String(error));
+    err.classList.remove('hide');
+  }
+}
+
+/** Join the signed-in person's Microsoft account to THIS login (their sales figures hang off it). */
+async function linkMicrosoft() {
+  const b = $('linkMsBtn');
+  b.disabled = true; b.textContent = 'Opening Microsoft…';
+  try {
+    if (typeof sb.auth.linkIdentity !== 'function') throw new Error('this page has an old copy of the sign-in library: hold Shift and reload');
+    const { error } = await sb.auth.linkIdentity({ provider: 'azure',
+      options: { scopes: 'email openid profile', redirectTo: location.origin + location.pathname } });
+    if (error) throw error;
+  } catch (e) {
+    b.disabled = false; b.textContent = 'Link Microsoft';
+    deskNote(oauthWords(e.message || String(e)), 'bad');
+  }
+}
+
+/** A one-off line at the top of the desk (a sign-in or link problem), with a close button. */
+function deskNote(text, kind) {
+  const main = document.querySelector('#app main');
+  if (!main) return;
+  const bar = document.createElement('div');
+  bar.className = 'note ' + (kind || 'warn');
+  bar.style.cssText = 'margin:0 0 12px;font-size:13px;display:flex;gap:10px;align-items:flex-start';
+  bar.innerHTML = `<span style="flex:1">${esc(text)}</span><button class="act ghost sm" aria-label="Close">Close</button>`;
+  bar.querySelector('button').onclick = () => bar.remove();
+  main.insertBefore(bar, main.firstChild);
+}
+
 async function afterSignIn() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return showSignIn();
-  let prof;
-  try {
-    prof = await q(sb.from('profiles').select('pricing_team, is_admin, display_name')
-                     .eq('id', user.id).maybeSingle(), 'profile');
-  } catch (e) { return fail($('loginErr'), e.message); }
-  if (!prof || !(prof.pricing_team || prof.is_admin)) {
+  // Back from Microsoft: the code or tokens on the address bar are spent; do not leave them there.
+  if (/[?&]code=|access_token=/.test(location.search + location.hash)) {
+    try { history.replaceState(null, '', location.pathname); } catch (_) { /* old browser */ }
+  }
+  let me;
+  try { me = await q(sb.rpc('staff_whoami'), 'who is signed in'); }
+  catch (e) { return fail($('loginErr'), e.message); }
+  if (!me || !(me.pricing || me.broker)) {
     await sb.auth.signOut();
     showSignIn();
     const err = $('loginErr');
-    err.textContent = 'That login works, but it is not on the pricing team. Brokers price from the sales portal.';
+    err.textContent = me && me.microsoft
+      ? 'You are signed in with Microsoft, but you are not on the portal staff list yet. Ask a portal admin to add you (Settings, People).'
+      : 'That login works, but it is not a member of the pricing team or a broker. Ask a portal admin.';
     err.classList.remove('hide');
     return;
   }
-  $('acctLabel').textContent = prof.display_name || user.email.replace('@'+LOGIN_DOMAIN,'');
+  ME = me;
   $('qStart').value = new Date(Date.now() + 30*864e5).toISOString().slice(0,10);
-  WHO = localStorage.getItem('pricing_who') || '';
-  loadDeskMembers();                       // so the name screen can already show the list
-  if (WHO) startDesk();
-  else { $('signin').classList.add('hide'); $('whoami').classList.remove('hide'); $('whoName').focus(); }
+  if (me.shared) {
+    // The shared desk login: who is at the keyboard is a pick, remembered on this computer.
+    $('acctLabel').textContent = '(pricing login)';
+    WHO = localStorage.getItem('pricing_who') || '';
+    loadDeskMembers();                     // so the name screen can already show the list
+    if (WHO) startDesk();
+    else { $('signin').classList.add('hide'); $('whoami').classList.remove('hide'); $('whoName').focus(); }
+    return;
+  }
+  // A person's own login: their name goes on everything they do, no question asked.
+  $('acctLabel').textContent = '';
+  WHO = me.name || String(me.email || '').split('@')[0];
+  startDesk();
+}
+
+/** Which side entries, buttons and pages this person sees. The database decides what they can read. */
+const BROKER_SUBS = new Set(['team:mine', 'crm:portfolios', 'crm:contracts', 'crm:services', 'crm:tenders', 'crm:overview', 'crm:customer']);
+function secAllowed(sec) {
+  if (!ME) return false;
+  if (sec === 'mine') return !!(ME.broker || (ME.staff && ME.staff.uc_name));
+  if (sec === 'customers') return true;
+  return isPricing();
+}
+function subAllowed(sub) { return isPricing() || BROKER_SUBS.has(sub); }
+function applyRoles() {
+  const P = isPricing();
+  const show = { 'tab-mine': secAllowed('mine'), 'tab-today': P, 'tab-req': P, 'tab-price': P, 'tab-ren': P,
+                 'tab-crm': true, 'tab-nc': P, 'tab-books': P, 'tab-ref': P };
+  for (const id in show) { const el = $(id); if (el) el.classList.toggle('hide', !show[id]); }
+  $('gearBtn').classList.toggle('hide', !P);
+  if (!P) $('sideStatus').classList.add('hide');
+  const shared = !!(ME && ME.shared);
+  $('notYouBtn').classList.toggle('hide', !shared);
+  const nb2 = $('notYouBtn2'); if (nb2) nb2.classList.toggle('hide', !shared);
+  // Link Microsoft: a person's own login with no Microsoft account joined, once Supabase has it on.
+  $('linkMsBtn').classList.toggle('hide', !(ME && !shared && !ME.microsoft && MS_ON === true));
+  $('sideLabel').textContent = P ? 'Pricing desk' : 'My desk';
+  const tag = (ME && ME.staff && ME.staff.colour) ? `<span class="who-dot" style="background:${esc(ME.staff.colour)}"></span>` : '';
+  $('whoLabel').innerHTML = tag + esc(WHO);
+  const w2 = $('whoLabel2'); if (w2) w2.textContent = WHO;
 }
 
 function startDesk() {
@@ -1339,9 +1540,19 @@ function startDesk() {
   $('whoami').classList.add('hide');
   $('app').classList.remove('hide');
   document.body.classList.add('desk-on');       // the desk fits the window (6 Nov 2026)
+  applyRoles();
   gsInit();
+  if (OAUTH_ERR) deskNote(oauthWords(OAUTH_ERR), 'bad');
+  if (!isPricing()) {
+    // A broker: their own page first, the Customers pages read-only, Ask Claude top right.
+    loadMineBadge();
+    openSection(HOME());
+    return;
+  }
   loadNoContractBadge();
-  $('whoLabel').textContent = WHO;
+  loadRenewalsBadge();
+  loadRequestsBadge();
+  if (!window.__REQ_TIMER) window.__REQ_TIMER = setInterval(() => { if (!document.hidden) loadRequestsBadge(); }, 3 * 60 * 1000);
   const mismatch = parserMismatch();
   if (mismatch) {
     // Loud, and on the page they land on, because every quote is wrong until it is fixed.
@@ -1361,14 +1572,15 @@ function startDesk() {
     SSC_READY.then(paintSscNote);
   });
   paintTermLabel();
-  openSection('pricing', 'price');   // the desk's job is pricing meters; pricebooks is upkeep
+  // The desk opens on Today (6 Nov 2026): what needs pricing, what is waiting for an answer, and
+  // what is missing, each one click from its list. Price a meter is one click from there.
+  openSection(HOME());
   // New books from the mailbox: a badge on the side menu, and one line on the other pages.
   inboxBadge();
   // The supplier status, in the side menu from the start: a forgotten book is seen before
   // anyone opens Pricebooks. Read again every 10 minutes while the desk is open.
   loadStatusBar();
   if (!window.__STATUS_TIMER) window.__STATUS_TIMER = setInterval(() => { if (!document.hidden) loadStatusBar(); }, 10 * 60 * 1000);
-  const w2 = $('whoLabel2'); if (w2) w2.textContent = WHO;
 }
 
 /**
@@ -1403,6 +1615,7 @@ function setWho() {
 }
 
 function changeWho() {
+  if (ME && !ME.shared) return;     // a person's own login is who it says it is
   localStorage.removeItem('pricing_who');
   WHO = '';
   $('app').classList.add('hide');
@@ -1460,8 +1673,14 @@ async function signOut(){ localStorage.removeItem('pricing_who'); await sb.auth.
 // are the same ones the old top tabs showed, so everything that ran on a tab still runs.
 // ═══════════════════════════════════════════════════════════════════════════════════════
 const SECTIONS = {
-  pricing:   { title: 'Pricing', subs: [['price', 'Price a meter'], ['aq', 'AQ opportunities'], ['quotes', 'Supplier quotes'],
-                                        ['contracts', 'Contract forms']] },
+  // 7 Nov 2026: a broker's own page, and the requests from pricingteam@ (team:* is /pricing-team.js).
+  mine:      { title: 'My renewals', subs: [['team:mine', '']] },
+  requests:  { title: 'Requests', subs: [['team:requests', 'All requests'], ['team:myrequests', 'My requests']] },
+  // 6 Nov 2026: Today (the morning check), Saved quotes (every price run, kept), Renewals to price.
+  today:     { title: 'Today', subs: [['crm:today', '']] },
+  pricing:   { title: 'Pricing', subs: [['price', 'Price a meter'], ['crm:saved', 'Saved quotes'], ['aq', 'AQ opportunities'],
+                                        ['quotes', 'Supplier quotes'], ['contracts', 'Contract forms']] },
+  renewals:  { title: 'Renewals to price', subs: [['crm:renewals', '']] },
   // crm:customer is the open company's own tab, shown only while a company is open (6 Nov 2026).
   customers: { title: 'Customers', subs: [['crm:portfolios', 'Portfolios'], ['crm:contracts', 'Contracts'], ['crm:services', 'Meter services'],
                                           ['crm:documents', 'Signed contracts'], ['crm:tenders', 'Tenders'], ['crm:quality', 'Data checks'],
@@ -1469,19 +1688,25 @@ const SECTIONS = {
   nocontract: { title: 'No contract uploaded', subs: [['crm:nocontract', '']] },
   books:     { title: 'Pricebooks', subs: [['books:live', 'Live pricebooks'], ['books:mail', 'Mailbox'], ['books:hand', 'Add by hand']] },
   reference: { title: 'Reference', subs: [['ref:ldz', 'Gas postcode to LDZ'], ['ref:band', 'MPAN top line']] },
-  settings:  { title: 'Settings', subs: [['admin:team', 'Account managers'], ['admin:customers', 'Add a customer'], ['admin:status', 'Status bar'],
+  settings:  { title: 'Settings', subs: [['team:staff', 'People'], ['admin:team', 'Account managers'], ['admin:customers', 'Add a customer'], ['admin:status', 'Status bar'],
                                          ['admin:products', 'Products'], ['admin:import', 'Import from UC'], ['admin:storage', 'Storage'],
                                          ['admin:password', 'Password']] },
 };
-const SIDE_ID = { pricing: 'tab-price', customers: 'tab-crm', nocontract: 'tab-nc', books: 'tab-books', reference: 'tab-ref' };
-const PANES = ['books', 'price', 'crm', 'aq', 'contracts', 'quotes', 'ref', 'admin'];
+const SIDE_ID = { mine: 'tab-mine', today: 'tab-today', requests: 'tab-req', pricing: 'tab-price', renewals: 'tab-ren', customers: 'tab-crm',
+                  nocontract: 'tab-nc', books: 'tab-books', reference: 'tab-ref' };
+// The module's pages that belong to a section other than Customers: [section, its tab].
+const VIEW_SECTION = { nocontract: ['nocontract', 'crm:nocontract'], saved: ['pricing', 'crm:saved'],
+                       renewals: ['renewals', 'crm:renewals'], today: ['today', 'crm:today'] };
+const PANES = ['books', 'price', 'crm', 'team', 'aq', 'contracts', 'quotes', 'ref', 'admin'];
 const NAV = { sec: null, sub: null, last: {} };
 // The company open on the Customers section (its tab along the top), or null.
 let COMPANY = null;
 // The Customers pages that are lists: their card fills the window and the table scrolls inside.
-const FILL_VIEWS = new Set(['customers', 'customer', 'contracts', 'services', 'tenders', 'quality', 'nocontract']);
+const FILL_VIEWS = new Set(['customers', 'customer', 'contracts', 'services', 'tenders', 'quality', 'nocontract',
+                            'saved', 'renewals', 'today']);
 
 function paneOf(sub) {
+  if (sub.startsWith('team:')) return 'team';
   if (sub === 'admin:import' || sub.startsWith('crm:')) return 'crm';
   if (sub.startsWith('books:')) return 'books';
   if (sub.startsWith('ref:')) return 'ref';
@@ -1498,12 +1723,15 @@ function setFill(on) { const m = deskScroller(); if (m) m.classList.toggle('fill
  * opens that page afresh. arg goes to the page (the company to open, or a search).
  */
 function openSection(sec, sub, arg) {
+  // A page this person does not have (a broker following a pricing link) lands on their own first page.
+  if (ME && !secAllowed(sec)) { sec = HOME(); sub = null; arg = null; }
   if (sec === 'settings' && !ADMIN_PW) { openSettings(); return; }
   const S = SECTIONS[sec];
   if (!S) return;
+  const first = (S.subs.find(s => subAllowed(s[0])) || S.subs[0])[0];
   const explicit = sub != null;
-  if (!explicit) sub = NAV.last[sec] || S.subs[0][0];
-  if (!S.subs.some(s => s[0] === sub)) sub = S.subs[0][0];
+  if (!explicit) sub = NAV.last[sec] || first;
+  if (!S.subs.some(s => s[0] === sub) || !subAllowed(sub)) sub = first;
   if (sub === 'crm:customer' && !COMPANY && !arg) sub = 'crm:portfolios';
   const pane = paneOf(sub);
   // A page opens at its top: the box otherwise keeps the last page's scroll.
@@ -1531,6 +1759,7 @@ function openSection(sec, sub, arg) {
     const same = cur === view || (view === 'portfolios' && cur === 'customers');
     crmInit(view, explicit || !same || arg != null, arg);
   } else setFill(false);
+  if (pane === 'team') { setFill(true); teamInit(sub.slice(5), arg); }
   if (pane === 'books') {
     const part = sub.slice(6);
     $('bkLive').classList.toggle('hide', part !== 'live');
@@ -1560,7 +1789,7 @@ function openSection(sec, sub, arg) {
 function paintSubTabs() {
   const S = SECTIONS[NAV.sec];
   if (!S) return;
-  const tabs = S.subs.filter(([k, label]) => label || (k === 'crm:customer' && COMPANY));
+  const tabs = S.subs.filter(([k, label]) => subAllowed(k) && (label || (k === 'crm:customer' && COMPANY)));
   $('subTabs').innerHTML = tabs.length < 2 && !tabs.some(([k]) => k === 'crm:customer') ? '' : tabs.map(([k, label]) => k === 'crm:customer'
     ? `<button data-sub="${k}" class="co${k === NAV.sub ? ' on' : ''}" title="${esc(COMPANY.name)}" onclick="openSection('${NAV.sec}','${k}')">${esc(COMPANY.name.length > 34 ? COMPANY.name.slice(0, 32) + '...' : COMPANY.name)}`
       + `<span class="x" role="button" aria-label="Close ${esc(COMPANY.name)}" title="Close" onclick="event.stopPropagation();closeCompany()">&times;</span></button>`
@@ -1593,19 +1822,30 @@ function crmInit(view, explicit, arg) {
       $('crmHost').innerHTML = '<div class="note bad">The Customers module did not load (pricing-crm.js). Hold Shift and reload.</div>';
       return;
     }
-    DOCS_API = typeof CrmDocs !== 'undefined' ? CrmDocs.create({ sb, esc, who: () => WHO, loadPdfJs }) : null;
-    CRM_API = CrmDesk.mount($('crmHost'), { sb, esc, XLSX: window.XLSX, who: () => WHO, onPriceMeter: priceFromCrm,
+    // A broker reads every customer, meter and contract and opens their files; pricing, fixing and
+    // uploading are the pricing team's (7 Nov 2026). The database refuses those writes regardless.
+    const readOnly = !isPricing();
+    DOCS_API = typeof CrmDocs !== 'undefined' ? CrmDocs.create({ sb, esc, who: () => WHO, loadPdfJs, readOnly }) : null;
+    CRM_API = CrmDesk.mount($('crmHost'), { sb, esc, XLSX: window.XLSX, who: () => WHO, onPriceMeter: priceFromCrm, readOnly,
                                             docs: DOCS_API, nav: false, onView: crmOnView, start: false,
                                             scroller: deskScroller, onCompany: crmOnCompany,
                                             openNoContract: (term) => openSection('nocontract', 'crm:nocontract', { search: term || '' }),
-                                            onDocsChanged: () => loadNoContractBadge() });
+                                            onDocsChanged: () => loadNoContractBadge(),
+                                            // 6 Nov 2026: logos, saved quotes, and the pages Today opens.
+                                            logo: crmLogo,
+                                            quotes: { reopen: reopenSavedQuote,
+                                                      pdf: (row, internal) => quotePdf(savedQuoteCtx(row), { internal: !!internal }),
+                                                      xlsx: (row, withCommission) => quoteXlsx(savedQuoteCtx(row), !!withCommission) },
+                                            pricebookStatus: () => SUP_STATUS,
+                                            open: (sec, sub, arg) => openSection(sec, sub, arg),
+                                            onRenewalsCount: (n) => paintRenewalsBadge(n) });
     window.CRM_API = CRM_API;
     explicit = true;
   }
   if (!explicit || !view) return;
   if (view === 'customer') { CRM_API.go('customer', arg && arg.company ? arg.company : null); return; }
   if (view === 'nocontract') { CRM_API.noContract(arg && arg.search != null ? arg.search : null); return; }
-  CRM_API.go(view);
+  CRM_API.go(view, arg || null);
 }
 function crmOnView(v) {
   setFill(FILL_VIEWS.has(v));
@@ -1613,13 +1853,17 @@ function crmOnView(v) {
     if (NAV.sec === 'settings') { NAV.sub = 'admin:import'; NAV.last.settings = 'admin:import'; paintSubTabs(); }
     return;
   }
-  if (v === 'nocontract') {
-    if (NAV.sec !== 'nocontract') {
-      NAV.sec = 'nocontract'; NAV.sub = 'crm:nocontract'; NAV.last.nocontract = 'crm:nocontract';
-      for (const k in SIDE_ID) $(SIDE_ID[k]).classList.toggle('on', k === 'nocontract');
-      $('secTitle').textContent = SECTIONS.nocontract.title;
-      paintSubTabs();
+  // A page that belongs to its own section (No contract uploaded, Saved quotes, Renewals, Today):
+  // the side menu and the tabs follow it, however it was opened.
+  if (VIEW_SECTION[v]) {
+    const [sec, sub] = VIEW_SECTION[v];
+    if (NAV.sec !== sec || NAV.sub !== sub) {
+      NAV.sec = sec; NAV.sub = sub; NAV.last[sec] = sub;
+      for (const k in SIDE_ID) $(SIDE_ID[k]).classList.toggle('on', k === sec);
+      $('secTitle').textContent = SECTIONS[sec].title;
+      for (const k of PANES) $('pane-' + k).classList.toggle('hide', k !== 'crm');
     }
+    paintSubTabs();
     return;
   }
   // Any other page of the module is a Customers page: a company opened from No contract
@@ -1649,6 +1893,63 @@ function closeCompany() {
 function openCompany(id) {
   gsShow(false);
   openSection('customers', 'crm:customer', { company: id });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// The personal pages (/pricing-team.js, 7 Nov 2026): My renewals, Requests, My requests, People.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+let TEAM_API = null, ASK = null;
+function teamInit(view, arg) {
+  if (!TEAM_API) {
+    if (typeof TeamDesk === 'undefined') {
+      $('teamHost').innerHTML = '<div class="note bad">The personal pages did not load (pricing-team.js). Hold Shift and reload.</div>';
+      return;
+    }
+    // The list styles (cards, grids, tabs) are the Customers module's; added without mounting it,
+    // so Customers still draws its first page when it is opened.
+    if (typeof CrmDesk !== 'undefined' && CrmDesk.styles) CrmDesk.styles(document);
+    TEAM_API = TeamDesk.mount($('teamHost'), { sb, esc, me: ME, logo: crmLogo, openCompany,
+      priceMeter: (m) => priceFromCrm(m),
+      onCounts: (c) => { if (c.requestsNew != null) paintCount('reqBadge', c.requestsNew); if (c.mine30 != null) paintCount('mineBadge', c.mine30); },
+      ask: (text, ctx) => { initAsk(); if (ASK) ASK.ask(text, ctx); } });
+    window.TEAM_API = TEAM_API;
+  }
+  TEAM_API.go(view, arg || null);
+}
+function paintCount(id, n) {
+  const el = $(id); if (!el) return;
+  el.textContent = n ? Number(n).toLocaleString('en-GB') : '';
+  el.classList.toggle('hide', !n);
+}
+/** New requests nobody has taken: the count beside Requests. Never in the way: a failure hides it. */
+async function loadRequestsBadge() {
+  try { const s = await q(sb.rpc('requests_summary'), 'requests'); paintCount('reqBadge', Number(s && s['new']) || 0); }
+  catch (_) { paintCount('reqBadge', 0); }
+}
+/** A broker's own contracts ending in 30 days, nothing lined up, no tick yet. */
+async function loadMineBadge() {
+  const uc = ME && ME.staff && ME.staff.uc_name;
+  if (!uc) return paintCount('mineBadge', 0);
+  try {
+    const r = await sb.from('renewal_watch_v').select('id', { count: 'exact', head: true })
+      .eq('account_manager', uc).is('outcome', null).eq('lifecycle', 'live').lte('days_to_end', 30);
+    if (r.error) throw r.error;
+    paintCount('mineBadge', r.count || 0);
+  } catch (_) { paintCount('mineBadge', 0); }
+}
+
+/** Ask Claude: the drawer on the right, the desk-assistant edge function, as the signed-in person. */
+function initAsk() {
+  if (ASK || typeof TeamDesk === 'undefined') return;
+  ASK = TeamDesk.chat({ sb, esc, me: () => ME || {},
+    context: () => ({ page: NAV.sub || NAV.sec || '',
+                      company_id: NAV.sub === 'crm:customer' && COMPANY ? COMPANY.id : null,
+                      mpan: NAV.sub === 'price' && METER && METER.mpan ? METER.mpan : null }) });
+}
+function openAsk() {
+  initAsk();
+  if (ASK) ASK.open();
+  else deskNote('The assistant did not load (pricing-team.js). Hold Shift and reload.', 'bad');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -1729,6 +2030,22 @@ function gsPick(i) {
   if (!c) return;
   $('gsQ').value = ''; GS.items = []; gsShow(false); $('gsQ').blur();
   openCompany(c.uc_customer_id);
+}
+
+/** The count beside Renewals to price: live supply ending within 30 days, nothing lined up. */
+function paintRenewalsBadge(n) {
+  const el = $('renBadge'); if (!el) return;
+  el.textContent = n ? Number(n).toLocaleString('en-GB') : '';
+  el.classList.toggle('hide', !n);
+}
+async function loadRenewalsBadge() {
+  try {
+    // renewal_watch_v (7 Nov 2026): the same rows as the queue, so a broker's tick takes one off here too.
+    const r = await sb.from('renewal_watch_v').select('id', { count: 'exact', head: true })
+      .eq('open_for_pricing', true).eq('lifecycle', 'live').lte('days_to_end', 30).in('fuel', ['electricity', 'gas']);
+    if (r.error) throw r.error;
+    paintRenewalsBadge(r.count || 0);
+  } catch (_) { paintRenewalsBadge(0); }
 }
 
 /** The count beside No contract uploaded in the side menu. Never in the way: a failure hides it. */
@@ -2088,15 +2405,17 @@ const UC_REGISTERS = { single: 'single', day_night: 'day_night', eve_weekend: 'e
  * the hand-typed path with every field filled in from the UC record, so it is visible and can
  * be corrected before pricing. Either way the start date comes from the UC contract dates.
  */
+// The portfolio meter's columns the pricing pane reads (priceFromCrm and Price again).
+const METER_COLS = 'id,customer_id,mpan,utility,supply_type,site_name,site_address,postcode,'
+  + 'est_annual_consumption,profile_class,rate_structure,rate_structure_src,tcr_band,tcr_band_src,'
+  + 'ssc,ssc_status,ssc_note,ssc_src,top_line,meter_serial,'
+  + 'dno_id,llfc,ldz,exit_zone,priceable,price_block_reason,supplier,contract_end_date';
 async function priceFromCrm(m) {
   openSection('pricing', 'price');
   let rows = [];
   try {
     rows = await q(sb.from('meters')
-      .select('id,customer_id,mpan,utility,supply_type,site_name,site_address,postcode,'
-            + 'est_annual_consumption,profile_class,rate_structure,rate_structure_src,tcr_band,tcr_band_src,'
-            + 'ssc,ssc_status,ssc_note,ssc_src,top_line,meter_serial,'
-            + 'dno_id,llfc,ldz,exit_zone,priceable,price_block_reason,supplier,contract_end_date')
+      .select(METER_COLS)
       .eq('mpan', m.mpan).in('utility', ['electricity', 'gas']).limit(5), 'portfolio meter');
   } catch (e) { rows = []; }
   if (rows.length) {
@@ -5567,6 +5886,9 @@ async function showMeter() {
   loadCurrentContract();
   $('priceCard').classList.remove('hide');
   $('quoteCard').classList.add('hide');
+  // A different meter is a different quote: the next run is saved as a new one. (Price again
+  // on a saved quote sets SAVED itself, after this, so it carries on updating that quote.)
+  if (SAVED.key !== meterKeyOf(METER)) SAVED = { id: null, key: null, pdf: false };
 
   // Who the quote is for, and who looks after them. A portfolio meter brings both from the
   // sales portal; a hand-typed one gets an empty name box, because "typed in by hand" on a
@@ -5583,7 +5905,7 @@ async function showMeter() {
     // A meter picked from the UC data brings its customer's name even on the hand-typed path.
     $('qCustomer').value = METER.manual
       ? (METER.crm ? tradingName(METER.crm.customer_name || '') : '')
-      : tradingName((cust && cust.company_name) || '');
+      : tradingName((cust && cust.company_name) || (METER.crm && METER.crm.customer_name) || '');
     QCUST_FOR = meterKey;
   }
   // ...and its account manager, when the portfolio has none and UC's name is a broker on the list.
@@ -5940,6 +6262,9 @@ async function priceMeter() {
     renderQuotes();
     $('quoteCard').classList.remove('hide');
     msg.textContent = '';
+    // Every run is kept (6 Nov 2026: the desk had saved 0 quotes against UtilityClick's 3,212).
+    // Not awaited: a failed save is said on the bar and never costs the broker the prices.
+    saveQuote();
   } catch (e) {
     msg.textContent = '';
     $('quoteCard').classList.remove('hide');
@@ -6159,12 +6484,15 @@ function renderQuotes() {
  */
 let PICKED = new Set();
 
+// Keyed on the supplier's OWN rates, not the rates with CES's uplift on top (6 Nov 2026): a
+// change of uplift re-prices every line, and the broker's ticks must survive it.
 const pickKey = (r) => [r.supplier_key, r.product_key, r.product_name, r.term_months,
-                        n2(r.u, 4), n2(r.d, 4), n2(r.standing_charge_p_day, 4)].join('|');
+                        n2(r.unit_rate_p_kwh, 4), n2(r.day_rate_p_kwh, 4), n2(r.standing_charge_p_day, 4)].join('|');
 
 function togglePick(key, on) {
   if (on) PICKED.add(key); else PICKED.delete(key);
   paintPickBar();
+  savePicked();
 }
 
 function pickAllOnTab(on) {
@@ -6176,6 +6504,7 @@ function pickAllOnTab(on) {
     }
   }
   renderQuotes();
+  savePicked();
 }
 
 /** Every ticked quote, in the order a customer should read them: term, then price. */
@@ -6186,16 +6515,62 @@ function pickedQuotes() {
     .sort((a, b) => a.term_months - b.term_months || a.annual - b.annual);
 }
 
+/**
+ * The bar over the results (6 Nov 2026): the customer PDF, the other exports, the uplift (one
+ * box, re-prices every line without scrolling back up), the commission in pounds, and whether
+ * this run is saved.
+ *
+ * Commission is the same sum CES's disclosure page prints: uplift x consumption, a year, and
+ * that times the years of the term. With one uplift on the run it is the same on every line of
+ * a term, so it is said once per term rather than repeated down a column.
+ */
 function paintPickBar() {
   const bar = $('pickBar');
-  if (!bar) return;
-  const n = pickedQuotes().length;
+  if (!bar || !QUOTE) return;
+  const n = pickedQuotes().length, all = QUOTE.shortlist.reduce((a, x) => a + 1 + (x.lowSc ? 1 : 0), 0);
+  const per = Number(QUOTE.uplift || 0) * Number(QUOTE.aq || 0) / 100;
+  const money = (v) => '£' + Math.round(v).toLocaleString('en-GB');
+  const termTxt = QUOTE_TERM ? `, <b>${money(per * QUOTE_TERM / 12)}</b> over ${QUOTE_TERM} months` : '';
   bar.innerHTML = `
-    <button class="act" ${n ? '' : 'disabled'} onclick="downloadQuotePdf()">
-      ${n ? `Download a quote for the customer (${n})` : 'Tick the quotes to present'}</button>
-    ${n ? `<button class="act ghost" onclick="PICKED=new Set();renderQuotes()">Clear</button>` : ''}
-    <span style="font-size:11.5px;color:var(--muted)">
-      Ticks are kept when you switch term tabs, so you can build a quote across 12, 24 and 36.</span>`;
+    <div class="pb-row">
+      <button class="act" id="pbPdf" ${n ? '' : 'disabled'} onclick="downloadQuotePdf()">
+        ${n ? `Customer PDF (${n})` : 'Tick the quotes to present'}</button>
+      <div class="pb-menu">
+        <button class="act ghost" id="pbMore" aria-haspopup="true" aria-expanded="false" onclick="togglePbMenu()">More exports &#9662;</button>
+        <div class="pb-pop hide" id="pbPop" role="menu">
+          <button role="menuitem" onclick="exportLive('pdf-internal')"><b>Internal PDF</b><span>the customer sheet plus a page of CES commission, marked internal</span></button>
+          <button role="menuitem" onclick="exportLive('xlsx')"><b>Excel for the customer</b><span>rates, annual cost and saving; commission only in the disclosure</span></button>
+          <button role="menuitem" onclick="exportLive('xlsx-commission')"><b>Excel for CES, with commission</b><span>adds the supplier's own rates and commission per line</span></button>
+          <div class="pb-pop-note">${n ? `${n} ticked quote${n === 1 ? '' : 's'}` : `Nothing ticked, so all ${all} lines`}.</div>
+        </div>
+      </div>
+      ${n ? `<button class="act ghost" onclick="PICKED=new Set();renderQuotes();savePicked()">Clear ticks</button>` : ''}
+      <label class="pb-up" for="pbUplift">Uplift
+        <input id="pbUplift" class="mono" value="${Number(QUOTE.uplift || 0).toFixed(2)}" inputmode="decimal"
+               onkeydown="if(event.key==='Enter')repriceUplift()"> p/kWh</label>
+      <button class="act ghost" onclick="repriceUplift()" title="Price every line again at this uplift. Ticks are kept.">Re-price</button>
+      <span id="savedNote" class="pb-saved">${savedNoteHtml()}</span>
+    </div>
+    <div class="pb-comm">Commission at <b>${Number(QUOTE.uplift || 0).toFixed(2)} p/kWh</b> on
+      ${Number(QUOTE.aq || 0).toLocaleString('en-GB')} kWh: <b>${money(per)}</b> a year${termTxt}.
+      <span style="color:var(--muted)">Ticks are kept when you switch term tabs or change the uplift.</span></div>`;
+}
+function togglePbMenu(on) {
+  const pop = $('pbPop'), b = $('pbMore');
+  if (!pop) return;
+  const open = on == null ? pop.classList.contains('hide') : !!on;
+  pop.classList.toggle('hide', !open);
+  if (b) b.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+document.addEventListener('mousedown', (e) => { if (!e.target.closest('.pb-menu')) togglePbMenu(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') togglePbMenu(false); });
+
+/** The uplift box on the results bar: copy it up to the form and price again. */
+function repriceUplift() {
+  const v = Number(String(($('pbUplift') || {}).value || '').replace(/[^0-9.\-]/g, ''));
+  if (!isFinite(v) || v < 0 || v > 10) { alert('An uplift between 0 and 10 p/kWh, please.'); return; }
+  $('qUplift').value = v.toFixed(2);
+  priceMeter();
 }
 
 /**
@@ -6281,17 +6656,19 @@ const COMMISSION_DISCLOSURE_TAIL = [
 ];
 
 /** "Non Half Hourly Electric", "Half Hourly Electric", "Gas" — as the sheet words it. */
-function utilityLabel() {
-  if (!METER) return '';
-  if (METER.utility === 'gas') return 'Gas';
-  const hh = String(METER.supply_type || '').toUpperCase() === 'HH'
-          || String(METER.profile_class) === '0' || String(METER.profile_class) === '00';
+function utilityLabel(m) {
+  m = m || METER;
+  if (!m) return '';
+  if (m.utility === 'gas') return 'Gas';
+  const hh = String(m.supply_type || '').toUpperCase() === 'HH'
+          || String(m.profile_class) === '0' || String(m.profile_class) === '00';
   return (hh ? 'Half Hourly' : 'Non Half Hourly') + ' Electric';
 }
 
 /** "Standard (Single Rate)", "Day / Night", "Day + Evening/Weekend". */
-function meterTypeLabel() {
-  const rs = String((METER && METER.rate_structure) || '').toLowerCase();
+function meterTypeLabel(m) {
+  m = m || METER;
+  const rs = String((m && m.rate_structure) || '').toLowerCase();
   if (rs === 'day_night') return 'Day / Night';
   if (rs === 'day_night_ew' || rs === 'three_rate') return 'Day / Night / Evening & Weekend';
   if (rs === 'day_ew') return 'Day + Evening/Weekend';
@@ -6299,23 +6676,126 @@ function meterTypeLabel() {
   return '—';
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// A quote as a document (6 Nov 2026). One context object, built from the run on screen or
+// from a saved quote, so the PDF and the Excel come out the same either way, and a quote
+// saved last month can be sent again without the meter being open.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+const r4 = (v) => (v == null || v === '' || !isFinite(Number(v)) ? null : Math.round(Number(v) * 1e4) / 1e4);
+const r2 = (v) => (v == null || v === '' || !isFinite(Number(v)) ? null : Math.round(Number(v) * 100) / 100);
+// todayIso() is the one defined with the pricebook loader (local date, not UTC).
+
+/** One priced line as a saved quote keeps it. Rates include the uplift; b* are the supplier's own. */
+function lineOf(r) {
+  return {
+    k: pickKey(r), key: r.supplier_key, name: supplierName(r.supplier_key),
+    product: r.product_display || r.product_name || '', pname: r.product_name || '', code: r.product_code || null,
+    term: r.term_months, sale: r.sale_type || null, rs: r.rate_structure || null,
+    u: r4(r.u), d: r4(r.d), nt: r4(r.nt), ew: r4(r.ew),
+    sc: r4(r.standing_charge_p_day), cap: r4(r.capacity_p_kva_month), annual: r2(r.annual),
+    green: !!r.green, sct: r.sc_type || null, bands: r.bands ? [...r.bands] : [],
+    bu: r4(r.unit_rate_p_kwh), bd: r4(r.day_rate_p_kwh), bnt: r4(r.night_rate_p_kwh), bew: r4(r.eve_weekend_p_kwh),
+  };
+}
+/** What a saved quote needs to know about the meter: enough to print it and to price it again. */
+function meterSnapshot(m) {
+  if (!m) return {};
+  const c = m.crm || null;
+  return {
+    id: m.id || null, mpan: m.mpan || null, utility: m.utility || null, supply_type: m.supply_type || null,
+    site_name: m.site_name || null, site_address: m.site_address || null, postcode: m.postcode || null,
+    profile_class: m.profile_class ?? null, rate_structure: m.rate_structure || null, ssc: m.ssc || null,
+    llfc: m.llfc || null, tcr_band: m.tcr_band || null, dno_id: m.dno_id || null, ldz: m.ldz || null,
+    exit_zone: m.exit_zone || null, supplier: m.supplier || null, customer_id: m.customer_id || null,
+    est_annual_consumption: m.est_annual_consumption ?? null, manual: !!m.manual,
+    crm: c ? { uc_customer_id: c.uc_customer_id || null, customer_name: c.customer_name || null,
+               account_manager: c.account_manager || null, mpan: c.mpan || null, fuel: c.fuel || null,
+               registers: c.registers || null, profile_class: c.profile_class ?? null, pc_source: c.pc_source || null,
+               ssc: c.ssc || null, llfc: c.llfc || null, postcode: c.postcode || null, aq: c.aq ?? null } : null,
+  };
+}
+function currentSnapshot() {
+  if (!CURRENT) return null;
+  const C = CURRENT;
+  return { supplier: C.supplier || '', product: C.product || '', u: r4(C.u), d: r4(C.d), nt: r4(C.nt), ew: r4(C.ew),
+           sc: r4(C.sc), term_months: C.term_months || null, ends: C.ends || null, source: C.source || null, edited: !!C.edited };
+}
+
+/** The run on screen as a document. scope 'picked' = the ticked lines, 'all' = every line. */
+function liveQuoteCtx(scope) {
+  if (!QUOTE || !METER) return null;
+  const all = QUOTE.shortlist.flatMap(x => [x.win, x.lowSc].filter(Boolean))
+    .sort((a, b) => a.term_months - b.term_months || a.annual - b.annual);
+  const rows = scope === 'all' ? all : all.filter(r => PICKED.has(pickKey(r)));
+  return { customer: QUOTE.customer, manager: QUOTE.manager, start: QUOTE.start, aq: QUOTE.aq, kwh: QUOTE.kwh,
+           uplift: QUOTE.uplift, meter: meterSnapshot(METER), current: currentSnapshot(),
+           curAnnual: currentAnnual(QUOTE.kwh), lines: rows.map(lineOf), quotedOn: todayIso(), by: WHO || '' };
+}
+/** A saved quote as a document: its ticked lines, or every line when none were ticked. */
+function savedQuoteCtx(row, scope) {
+  const inp = row.inputs || {}, lines = Array.isArray(row.lines) ? row.lines : [];
+  const picked = new Set(row.picked || []);
+  const use = scope === 'all' || !picked.size ? lines : lines.filter(l => picked.has(l.k));
+  return { customer: row.customer_name || '', manager: inp.manager || null, start: inp.start || row.start_date,
+           aq: inp.aq ?? row.aq, kwh: inp.kwh || { regs: ['total'], total: Number(row.aq) || 0, day: 0, night: 0, ew: 0 },
+           uplift: inp.uplift ?? row.uplift ?? 0, meter: inp.meter || { mpan: row.mpan, utility: row.fuel },
+           current: inp.current || null, curAnnual: inp.cur_annual ?? row.cur_annual ?? null,
+           lines: use.slice().sort((a, b) => a.term - b.term || a.annual - b.annual),
+           quotedOn: String(row.created_at || '').slice(0, 10) || todayIso(), by: row.desk_user || '', savedId: row.id };
+}
+
+/** The file name both exports share: "Acme Ltd - Electric NHH Quote - ... - 2026-11-06". */
+function quoteFileStem(ctx, extra) {
+  const m = ctx.meter || {};
+  const who = String(ctx.customer || m.site_name || 'quote').replace(/[^\w &'\-]/g, '').slice(0, 50);
+  const kind = m.utility === 'gas' ? 'Gas' : `Electric ${utilityLabel(m).startsWith('Half') ? 'HH' : 'NHH'}`;
+  return `${who} - ${kind} Quote${extra ? ' - ' + extra : ''} - Commercial Energy Solutions - ${todayIso()}`.replace(/\s+/g, ' ');
+}
+
+/** The customer PDF of the ticked quotes on screen. */
 async function downloadQuotePdf() {
-  const rows = pickedQuotes();
-  if (!rows.length) return;
-  const btn = $('pickBar').querySelector('button');
-  const was = btn.textContent;
-  btn.disabled = true; btn.textContent = 'Building…';
+  const ctx = liveQuoteCtx('picked');
+  if (!ctx || !ctx.lines.length) return;
+  const name = await quotePdf(ctx, { btn: $('pbPdf') });
+  if (name) markPdf(name);
+}
+
+/** The other exports, from the More exports menu: the ticked lines, or every line if none. */
+async function exportLive(kind) {
+  togglePbMenu(false);
+  const ctx = liveQuoteCtx(pickedQuotes().length ? 'picked' : 'all');
+  if (!ctx || !ctx.lines.length) return;
+  if (kind === 'pdf-internal') { await quotePdf(ctx, { internal: true, btn: $('pbMore') }); return; }
+  try { quoteXlsx(ctx, kind === 'xlsx-commission'); }
+  catch (e) { alert('Could not build the spreadsheet: ' + e.message); }
+}
+
+/**
+ * The quote sheet, in CES's own format (see the notes above QUOTE_DECLARATION).
+ *
+ * opt.internal adds a final page of CES commission (the supplier's own rate, the uplift, the
+ * commission a year and over the term) and stamps every page INTERNAL. The customer copy is
+ * exactly the sheet CES already sends. Returns the file name, or null when it failed.
+ */
+async function quotePdf(ctx, opt) {
+  opt = opt || {};
+  const rows = (ctx && ctx.lines) || [];
+  if (!rows.length) return null;
+  const btn = opt.btn || null;
+  const was = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Building…'; }
   try {
     await loadOnce(`https://cdnjs.cloudflare.com/ajax/libs/jspdf/${JSPDF_VER}/jspdf.umd.min.js`);
     const JSPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
     if (!JSPDF) throw new Error('the PDF library did not load');
 
+    const MT = ctx.meter || {}, CU = ctx.current || null;
     // Every logo the sheet needs, the current supplier's included. All same-origin: a
     // cross-origin image drawn through a canvas taints it, toDataURL throws, and the logo
     // silently comes back null — which is why the CES logo was missing from the sheet.
-    const curKey = CURRENT ? supplierKeyOf(CURRENT.supplier || METER.supplier) : null;
+    const curKey = CU ? supplierKeyOf(CU.supplier || MT.supplier) : null;
     const logos = {};
-    for (const k of [...new Set([...rows.map(r => r.supplier_key), curKey].filter(Boolean))]) {
+    for (const k of [...new Set([...rows.map(r => r.key), curKey].filter(Boolean))]) {
       const f = SUPPLIER_LOGO[k];
       if (f) logos[k] = await imageData('/supplier-logos/' + f);
     }
@@ -6331,8 +6811,8 @@ async function downloadQuotePdf() {
     const F = 'helvetica';
     doc.setFont(F, 'normal');
 
-    const K = QUOTE.kwh;
-    const curAnnual = currentAnnual(K);
+    const K = ctx.kwh || { regs: ['total'] };
+    const curAnnual = ctx.curAnnual;
 
     /** Draw an image to FIT a box, never stretched: scale by whichever side binds. */
     const fit = (img, x, y, maxW, maxH, align) => {
@@ -6376,7 +6856,7 @@ async function downloadQuotePdf() {
       let y = M - 4 + boxH + 9;
       doc.setFontSize(15); doc.setFont(F, 'normal'); doc.setTextColor(...INK);
       // Never the customer_id here: it is a slug ("uko-glass-limited"), not a name.
-      doc.text(`Quote Results for ${QUOTE.customer || 'your business'}`, M, y);
+      doc.text(`Quote Results for ${ctx.customer || 'your business'}`, M, y);
       return y + 9;
     };
 
@@ -6455,14 +6935,14 @@ async function downloadQuotePdf() {
 
     // The supply on the left, CES on the right. "Label: value" on one line, as CES's sheets.
     const facts = [
-      ['Utility Type', utilityLabel()],
-      ['Site Address', [METER.site_name, METER.site_address, METER.postcode].filter(Boolean).join(', ') || '—'],
-      ['Meter Number', METER.mpan || '—'],
-      ['Meter Type', meterTypeLabel()],
-      ['Contract Start Date', uk(QUOTE.start)],
-      ['Consumption (Annual)', Number(QUOTE.aq).toLocaleString() + ' kWh'
-         + (K.regs.length > 1 ? `  (${splitText(K)})` : '')],
-      ['Date Quoted', uk(new Date().toISOString().slice(0, 10))],
+      ['Utility Type', utilityLabel(MT)],
+      ['Site Address', [MT.site_name, MT.site_address, MT.postcode].filter(Boolean).join(', ') || '—'],
+      ['Meter Number', MT.mpan || '—'],
+      ['Meter Type', meterTypeLabel(MT)],
+      ['Contract Start Date', uk(ctx.start)],
+      ['Consumption (Annual)', Number(ctx.aq).toLocaleString() + ' kWh'
+         + (K.regs && K.regs.length > 1 ? `  (${splitText(K)})` : '')],
+      ['Date Quoted', uk(ctx.quotedOn)],
     ];
     const factTop = y;
     doc.setFontSize(9); doc.setTextColor(...INK); doc.setFont(F, 'normal');
@@ -6473,7 +6953,7 @@ async function downloadQuotePdf() {
     let cy = factTop;
     for (const l of CES_CONTACT.lines) { doc.text(l, W - M, cy, { align: 'right' }); cy += 4.6; }
     cy += 3;
-    const mgr = QUOTE.manager;
+    const mgr = ctx.manager;
     if (mgr && mgr.name) { doc.text('Account Manager: ' + mgr.name, W - M, cy, { align: 'right' }); cy += 4.6; }
     doc.text(CES_CONTACT.phone, W - M, cy, { align: 'right' }); cy += 4.6;
     if (mgr && mgr.email) { doc.text(mgr.email, W - M, cy, { align: 'right' }); cy += 4.6; }
@@ -6488,33 +6968,33 @@ async function downloadQuotePdf() {
     const newPage = () => { doc.addPage(); return colHead(M + 4); };
 
     // The current contract first: every Annual Diff is measured against it.
-    if (curAnnual != null) {
+    if (curAnnual != null && CU) {
       y = line(y, { cur: true, key: curKey,
-                    supplier: CURRENT.supplier || METER.supplier || 'Current supplier',
-                    term: CURRENT.term_months ? `${CURRENT.term_months} months` : 'Current',
+                    supplier: CU.supplier || MT.supplier || 'Current supplier',
+                    term: CU.term_months ? `${CU.term_months} months` : 'Current',
                     product: 'CURRENT CONTRACT',
-                    day: CURRENT.u != null ? CURRENT.u : CURRENT.d, night: CURRENT.nt,
-                    ew: CURRENT.ew, sc: CURRENT.sc, annual: curAnnual });
+                    day: CU.u != null ? CU.u : CU.d, night: CU.nt,
+                    ew: CU.ew, sc: CU.sc, annual: curAnnual });
     }
     for (const r of rows) {
       if (y + ROW > bottom) y = newPage();
-      y = line(y, { key: r.supplier_key, supplier: supplierName(r.supplier_key),
-                    term: `${r.term_months} months`,
-                    product: [r.product_display || r.product_name,
-                              Number(r.standing_charge_p_day) === 0 ? '(no standing charge)' : '',
+      y = line(y, { key: r.key, supplier: r.name,
+                    term: `${r.term} months`,
+                    product: [r.product,
+                              Number(r.sc) === 0 ? '(no standing charge)' : '',
                               r.green ? '(renewable)' : ''].filter(Boolean).join(' '),
                     day: r.u != null ? r.u : r.d, night: r.nt, ew: r.ew,
-                    sc: r.standing_charge_p_day, annual: r.annual });
+                    sc: r.sc, annual: r.annual });
     }
 
     // What the figures assume, under the table.
     const notes = [
-      `Annual cost is ${Number(QUOTE.aq).toLocaleString()} kWh over 365 days at the rates shown, `
+      `Annual cost is ${Number(ctx.aq).toLocaleString()} kWh over 365 days at the rates shown, `
         + 'plus the standing charge. Your actual bill will follow your actual consumption.',
-      K.regs.length > 1
-        ? `Consumption by register: ${[K.regs.includes('day') ? K.day.toLocaleString() + ' kWh day' : '',
-                                      K.regs.includes('night') ? K.night.toLocaleString() + ' kWh night' : '',
-                                      K.regs.includes('ew') ? K.ew.toLocaleString() + ' kWh evening/weekend' : '']
+      K.regs && K.regs.length > 1
+        ? `Consumption by register: ${[K.regs.includes('day') ? Number(K.day).toLocaleString() + ' kWh day' : '',
+                                      K.regs.includes('night') ? Number(K.night).toLocaleString() + ' kWh night' : '',
+                                      K.regs.includes('ew') ? Number(K.ew).toLocaleString() + ' kWh evening/weekend' : '']
             .filter(Boolean).join(', ')} (${splitText(K, true)}). A different split changes the annual cost but not the rates.`
         : null,
       curAnnual != null
@@ -6533,8 +7013,8 @@ async function downloadQuotePdf() {
     doc.addPage();
     const DISCLOSURE_TITLE = 'Commissions Disclosure';
     fit(ces, W - M - 54, M - 5, 54, 20, 'right');
-    const up = Number(QUOTE.uplift) || 0;
-    const annualCommission = up * Number(QUOTE.aq) / 100;
+    const up = Number(ctx.uplift) || 0;
+    const annualCommission = up * Number(ctx.aq) / 100;
     const money = (v) => '£' + (v >= 100 ? Math.round(v).toLocaleString() : v.toFixed(2));
     const paras = [
       `The prices quoted include ${up.toFixed(2)} p/kwh or estimated annual value of `
@@ -6560,26 +7040,294 @@ async function downloadQuotePdf() {
     let ty = by + PAD + TITLE_H + 3.2;
     for (const ls of wrapped) { doc.text(ls, BX + PAD, ty); ty += ls.length * LH + GAP; }
 
+    // ── The internal copy: one more page, CES's commission line by line. ───────────────
+    if (opt.internal) {
+      doc.addPage();
+      fit(ces, W - M - 54, M - 5, 54, 20, 'right');
+      doc.setFont(F, 'bold'); doc.setFontSize(13); doc.setTextColor(...RED);
+      doc.text('CES internal: commission on this quote', M, M + 4);
+      doc.setFont(F, 'normal'); doc.setFontSize(8.8); doc.setTextColor(...INK);
+      doc.text(`Uplift ${up.toFixed(2)} p/kWh on ${Number(ctx.aq).toLocaleString()} kWh a year: `
+        + `${money(annualCommission)} a year. Quoted ${uk(ctx.quotedOn)}${ctx.by ? ' by ' + ctx.by : ''}. Not for the customer.`, M, M + 11);
+      const IC = [['Supplier', M, 40], ['Term', M + 42, 20], ['Product', M + 64, 62], ['Supplier rate\np/kWh', M + 128, 26],
+                  ['Uplift\np/kWh', M + 156, 20], ['Annual cost', M + 178, 26], ['Commission\na year', M + 206, 28],
+                  ['Commission over\nthe term', M + 236, 33]];
+      let yy = M + 22;
+      doc.setFontSize(7.4); doc.setTextColor(...GREY);
+      IC.forEach(([t, x]) => String(t).split('\n').forEach((l, i) => doc.text(l, x, yy + i * 3.2)));
+      yy += 8;
+      doc.setDrawColor(...RULE); doc.setLineWidth(0.25); doc.line(M, yy - 3.5, W - M, yy - 3.5);
+      doc.setFontSize(8.5); doc.setTextColor(...INK);
+      for (const r of rows) {
+        if (yy > H - 22) { doc.addPage(); yy = M + 6; }
+        const own = r.bu != null ? r.bu : r.bd;
+        const vals = [doc.splitTextToSize(r.name || '', 39)[0] || '', `${r.term} months`,
+                      doc.splitTextToSize(r.product || '', 61)[0] || '', own == null ? '-' : n2(own, 4), up.toFixed(2),
+                      '£' + Math.round(r.annual).toLocaleString(), money(annualCommission), money(annualCommission * r.term / 12)];
+        IC.forEach(([, x], i) => doc.text(String(vals[i]), x, yy));
+        doc.setDrawColor(...RULE); doc.setLineWidth(0.15); doc.line(M, yy + 2.6, W - M, yy + 2.6);
+        yy += 7;
+      }
+    }
+
     // ── Footer on every page. ────────────────────────────────────────────────────────
     const pages = doc.getNumberOfPages();
     for (let p = 1; p <= pages; p++) {
       doc.setPage(p);
       doc.setFont(F, 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GREY);
       doc.text(`Page ${p} of ${pages}`, W - M, H - 7, { align: 'right' });
+      if (opt.internal) {
+        doc.setFont(F, 'bold'); doc.setTextColor(...RED);
+        doc.text('INTERNAL COPY with CES commission. Not for the customer.', M, H - 7);
+      }
     }
 
-    const who = (QUOTE.customer || METER.site_name || 'quote')
-      .replace(/[^\w &'\-]/g, '').slice(0, 50);
-    const kind = METER.utility === 'gas' ? 'Gas' : `Electric ${utilityLabel().startsWith('Half') ? 'HH' : 'NHH'}`;
-    doc.save(`${who} - ${kind} Quote - Commercial Energy Solutions - `
-           + `${new Date().toISOString().slice(0, 10)}.pdf`.replace(/\s+/g, ' '));
+    const name = quoteFileStem(ctx, opt.internal ? 'INTERNAL with commission' : '') + '.pdf';
+    doc.save(name);
+    return name;
   } catch (e) {
     alert('Could not build the PDF: ' + e.message);
+    return null;
   } finally {
-    btn.disabled = false; btn.textContent = was;
+    if (btn) { btn.disabled = false; btn.innerHTML = was; }
   }
 }
 
+/**
+ * The quote as a spreadsheet (6 Nov 2026, from UtilityClick's Export Quotes).
+ *
+ * For the customer: what the PDF says, as rows, with the same commission disclosure the PDF
+ * carries (CES's own wording, nothing added). With commission: CES's working copy, adding the
+ * supplier's own rate, the uplift and the commission a year and over the term on every line.
+ * Units are in the headings, never in the cells, so every figure stays a number.
+ */
+function quoteXlsx(ctx, withCommission) {
+  const X = window.XLSX;
+  if (!X) throw new Error('the spreadsheet library did not load');
+  const m = ctx.meter || {}, K = ctx.kwh || { regs: ['total'] };
+  const up = Number(ctx.uplift) || 0, aq = Number(ctx.aq) || 0, per = r2(up * aq / 100);
+  const head = [
+    ['Quote for', ctx.customer || ''],
+    ['Site', [m.site_name, m.site_address, m.postcode].filter(Boolean).join(', ')],
+    [m.utility === 'gas' ? 'MPRN' : 'MPAN', m.mpan || ''],
+    ['Utility', utilityLabel(m)],
+    ['Meter type', meterTypeLabel(m)],
+    ['Contract start', uk(ctx.start)],
+    ['Annual consumption (kWh)', aq],
+  ];
+  if (K.regs && K.regs.length > 1) head.push(['Consumption split', splitText(K, true)]);
+  head.push(['Date quoted', uk(ctx.quotedOn)]);
+  if (ctx.manager && ctx.manager.name) head.push(['Account manager', ctx.manager.name + (ctx.manager.email ? ', ' + ctx.manager.email : '')]);
+  if (withCommission) {
+    head.push(['Quoted by', ctx.by || '']);
+    head.push(['CES uplift (p/kWh)', up]);
+    head.push(['Commission a year (£)', per]);
+    head.push(['INTERNAL', 'Shows CES commission. Not for the customer.']);
+  }
+  head.push([]);
+  const cols = ['Supplier', 'Product', 'Term (months)', 'Sale type', 'Unit rate (p/kWh)', 'Day rate (p/kWh)',
+                'Night rate (p/kWh)', 'Evening and weekend rate (p/kWh)', 'Standing charge (p/day)',
+                'Capacity (p/kVA/month)', 'Annual cost (£)', 'Difference from current contract (£)', 'Difference (%)'];
+  if (withCommission) cols.push("Supplier's own unit or day rate (p/kWh)", 'Uplift (p/kWh)', 'Commission a year (£)', 'Commission over the term (£)');
+  const body = [];
+  const cur = ctx.current, ca = ctx.curAnnual;
+  if (cur && ca != null) {
+    body.push([cur.supplier || 'Current supplier', 'CURRENT CONTRACT', cur.term_months || null, null,
+               cur.u, cur.d, cur.nt, cur.ew, cur.sc, null, r2(ca), null, null]);
+  }
+  for (const l of ctx.lines) {
+    const diff = ca != null ? r2(l.annual - ca) : null;
+    const pct = ca ? Math.round((l.annual - ca) / ca * 1000) / 10 : null;
+    const row = [l.name, l.product + (Number(l.sc) === 0 ? ' (no standing charge)' : '') + (l.green ? ' (renewable)' : ''),
+                 l.term, l.sale === 'any' ? null : l.sale, l.u, l.d, l.nt, l.ew, l.sc, l.cap, l.annual, diff, pct];
+    if (withCommission) row.push(l.bu != null ? l.bu : l.bd, up, per, r2(per * l.term / 12));
+    body.push(row);
+  }
+  const foot = [[], ['Annual cost is the consumption above over 365 days at the rates shown, plus the standing charge.']];
+  if (!withCommission) {
+    foot.push([QUOTE_DECLARATION]);
+    foot.push([`The prices quoted include ${up.toFixed(2)} p/kwh or estimated annual value of £${per >= 100 ? Math.round(per).toLocaleString() : (per || 0).toFixed(2)} commission for Commercial Energy Solutions Ltd (CES).`]);
+    for (const t of COMMISSION_DISCLOSURE_TAIL) foot.push([t]);
+  }
+  const ws = X.utils.aoa_to_sheet([...head, cols, ...body, ...foot]);
+  ws['!cols'] = [{ wch: 26 }, { wch: 40 }, { wch: 9 }, { wch: 11 }, ...Array(6).fill({ wch: 11 }), { wch: 12 }, { wch: 14 }, { wch: 10 },
+                 ...(withCommission ? [{ wch: 14 }, { wch: 9 }, { wch: 12 }, { wch: 14 }] : [])];
+  const wb = X.utils.book_new();
+  X.utils.book_append_sheet(wb, ws, 'Quote');
+  const name = quoteFileStem(ctx, withCommission ? 'INTERNAL with commission' : '') + '.xlsx';
+  X.writeFile(wb, name);
+  return name;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Saved quotes (6 Nov 2026). pricing_quotes existed from September and held 0 rows: the page
+// never wrote to it, so every quote lived only on the screen it was priced on, and the team
+// kept pricing in UtilityClick (3,212 saved instant quotes). Now every run is kept.
+//
+// One saved quote per meter per sitting: pricing the same meter again (a new uplift, another
+// term) UPDATES that quote, until its customer PDF has been downloaded; after that the next
+// run starts a new quote, because the one the customer was sent must stay as it was sent.
+// The writes go one after another (SAVE_CHAIN) so two quick runs can never make two rows.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+let SAVED = { id: null, key: null, pdf: false };
+let SAVE_STATE = { state: 'idle', msg: '' };
+let SAVE_CHAIN = Promise.resolve();
+
+function meterKeyOf(m) { return !m ? '' : m.manual ? 'manual:' + (m.mpan || '') : String(m.id || m.mpan || ''); }
+
+/** The UtilityClick company of a meter, so the company page can list its quotes. One or none. */
+async function ucCustomerFor(m) {
+  if (m && m.crm && m.crm.uc_customer_id) return m.crm.uc_customer_id;
+  if (!m || m.manual || !m.mpan) return null;
+  try {
+    const r = await q(sb.from('crm_meters').select('uc_customer_id').eq('mpan', m.mpan).is('uc_removed_at', null).limit(5), 'company of the meter');
+    const ids = [...new Set((r || []).map(x => x.uc_customer_id).filter(Boolean))];
+    return ids.length === 1 ? ids[0] : null;          // a meter on two companies is not guessed
+  } catch (_) { return null; }
+}
+
+function savedNoteHtml() {
+  const s = SAVE_STATE;
+  if (s.state === 'saving') return '<span class="pb-dim">Saving…</span>';
+  if (s.state === 'saved') return `<span class="pb-ok">Saved</span> to <a href="#" onclick="openSavedQuotes();return false">Saved quotes</a>`;
+  if (s.state === 'failed') return `<span class="pb-bad" title="${esc(s.msg)}">Not saved: ${esc(s.msg).slice(0, 90)}</span>`;
+  return '';
+}
+function paintSaved(state, msg) {
+  SAVE_STATE = { state, msg: msg || '' };
+  const el = $('savedNote'); if (el) el.innerHTML = savedNoteHtml();
+}
+function openSavedQuotes(id) { openSection('pricing', 'crm:saved', id ? { select: id } : null); }
+
+/** Keep this run. Snapshots everything now, writes in order. */
+function saveQuote() {
+  if (!QUOTE || !METER) return Promise.resolve();
+  const Q = QUOTE, Mtr = METER, key = meterKeyOf(Mtr);
+  const lines = Q.shortlist.flatMap(x => [x.win, x.lowSc].filter(Boolean))
+    .sort((a, b) => a.term_months - b.term_months || a.annual - b.annual).map(lineOf);
+  const best = lines.slice().sort((a, b) => a.annual - b.annual)[0] || null;
+  const curA = currentAnnual(Q.kwh);
+  const row = {
+    desk_user: WHO || null,
+    meter_id: Mtr.manual ? null : (Mtr.id || null),
+    customer_id: Mtr.manual ? null : (Mtr.customer_id || null),
+    customer_name: Q.customer || null,
+    mpan: Mtr.mpan || null, fuel: Mtr.utility || 'electricity',
+    inputs: { v: 1, start: Q.start, terms: Q.terms, uplift: Q.uplift, aq: Q.aq, kwh: Q.kwh, manager: Q.manager,
+              days_ahead: Q.daysAhead, incumbent: Q.incumbent || null, meter: meterSnapshot(Mtr),
+              current: currentSnapshot(), cur_annual: r2(curA) },
+    lines, rows_matched: Q.matched, capped: !!Q.capped, picked: [...PICKED],
+    site_name: Mtr.site_name || null, postcode: Mtr.postcode || null, start_date: Q.start || null,
+    aq: Q.aq, uplift: Q.uplift, terms: Q.terms, n_lines: lines.length,
+    best_annual: best ? best.annual : null, best_supplier: best ? best.name : null, best_term: best ? best.term : null,
+    cur_annual: r2(curA), cur_supplier: (CURRENT && CURRENT.supplier) || Mtr.supplier || null,
+  };
+  paintSaved('saving');
+  SAVE_CHAIN = SAVE_CHAIN.then(async () => {
+    row.uc_customer_id = await ucCustomerFor(Mtr);
+    let id = null;
+    if (SAVED.id && SAVED.key === key && !SAVED.pdf) {
+      const r = await q(sb.from('pricing_quotes').update(row).eq('id', SAVED.id).select('id'), 'update the saved quote');
+      if (r && r.length) id = r[0].id;
+    }
+    if (!id) {
+      const r = await q(sb.from('pricing_quotes').insert(row).select('id'), 'save the quote');
+      id = r && r[0] && r[0].id;
+      if (!id) throw new Error('nothing came back from the save (permissions?)');
+    }
+    SAVED = { id, key, pdf: SAVED.id === id ? SAVED.pdf : false };
+    if (QUOTE === Q) paintSaved('saved');
+  }).catch(e => { if (QUOTE === Q) paintSaved('failed', e.message); });
+  return SAVE_CHAIN;
+}
+
+/** The ticks, onto the saved quote, half a second after the last click. */
+let PICK_TIMER = null;
+function savePicked() {
+  clearTimeout(PICK_TIMER);
+  PICK_TIMER = setTimeout(() => {
+    const picked = [...PICKED];
+    SAVE_CHAIN = SAVE_CHAIN.then(async () => {
+      if (!SAVED.id) return;
+      await q(sb.from('pricing_quotes').update({ picked }).eq('id', SAVED.id).select('id'), 'save the ticks');
+    }).catch(e => paintSaved('failed', e.message));
+  }, 500);
+}
+
+/** The customer PDF went out of the door: record it, and the next run is a new quote. */
+function markPdf(name) {
+  SAVE_CHAIN = SAVE_CHAIN.then(async () => {
+    if (!SAVED.id) return;
+    await q(sb.from('pricing_quotes').update({ pdf_file: name, pdf_at: new Date().toISOString(), picked: [...PICKED] })
+      .eq('id', SAVED.id).select('id'), 'record the PDF');
+    SAVED.pdf = true;
+  }).catch(e => paintSaved('failed', e.message));
+}
+
+/**
+ * Price a saved quote again: the same meter, customer, manager, terms, uplift and consumption,
+ * at today's pricebooks. A start date that has passed cannot be priced, so the meter's own
+ * default is used instead and the start note says so.
+ */
+async function reopenSavedQuote(row) {
+  const inp = row.inputs || {}, m = inp.meter || {};
+  openSection('pricing', 'price');
+  let meter = null;
+  if (m.id && !m.manual) {
+    try {
+      const r = await q(sb.from('meters').select(METER_COLS).eq('id', m.id).limit(1), 'the saved meter');
+      if (r && r.length) meter = r[0];
+    } catch (_) { /* priced from the snapshot below */ }
+  }
+  METER = meter || Object.assign({}, m, { manual: true, customer_id: m.customer_id || 'typed in by hand' });
+  if (m.crm) METER.crm = m.crm;
+  $('mSearch').value = m.mpan || '';
+  await fillMeterGaps();
+  $('qCustomer').value = row.customer_name || $('qCustomer').value;
+  QCUST_FOR = meterKeyOf(METER);
+  if (inp.manager && inp.manager.name) {
+    const o = [...$('qManager').options].find(x => x.value === inp.manager.name);
+    if (o) $('qManager').value = o.value;
+  }
+  if (inp.start && inp.start > todayIso()) { $('qStart').value = inp.start; paintStartNote(); }
+  if (Array.isArray(inp.terms) && inp.terms.length) { TERMS = inp.terms.slice(); paintTermLabel(); }
+  $('qUplift').value = Number(inp.uplift || 0).toFixed(2);
+  const k = inp.kwh;
+  if (k && k.regs) {
+    paintKwhBoxes(k.regs.length === 1 && k.regs[0] === 'total' ? { total: k.total } : { day: k.day, night: k.night, ew: k.ew });
+    KWH_SOURCE = k.source || null;
+    paintKwhNote();
+  }
+  SAVED = { id: row.id, key: meterKeyOf(METER), pdf: !!row.pdf_at };
+  PICKED = new Set(row.picked || []);
+  await priceMeter();
+  $('quoteCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/** The logo of a supplier written any way UtilityClick writes it, or nothing. Never a guess. */
+const LOGO_BY_NAME = [
+  [/british gas lite|\bbg ?lite\b/i, 'bgl.png'], [/british gas/i, 'bg.png'], [/brook ?green/i, 'brookgreen.png'],
+  [/castle ?water/i, 'castlewater.png'], [/corona/i, 'corona.png'], [/\bcrown\b/i, 'crown.png'],
+  [/\bdrax\b|haven power/i, 'drax.png'], [/ecotricity/i, 'ecotricity.png'], [/\bedf\b/i, 'edf.png'],
+  [/\be\.? ?on\b/i, 'eonnext.png'], [/good energy/i, 'goodenergy.png'], [/marble/i, 'marblepower.png'],
+  [/npower/i, 'npower.png'], [/pozitive|\bpe solutions\b/i, 'pe.png'], [/regent gas|\bregent\b/i, 'regent.png'],
+  [/scottish ?power/i, 'scottishpower.png'], [/\bsefe\b|gazprom/i, 'sefe.png'], [/\bshell\b/i, 'shellenergy.png'],
+  [/smartest/i, 'smartestenergy.png'], [/\bsse\b/i, 'sse.png'], [/total ?energies|total gas/i, 'totalenergies.png'],
+  [/\bugp\b|united gas/i, 'ugp.png'], [/utilita/i, 'utilita.png'], [/water ?plus/i, 'waterplus.png'],
+  [/water2business/i, 'Water2Business.png'], [/\bwave\b/i, 'wave.png'], [/\byu\b/i, 'yuenergy.webp'],
+];
+function logoFileFor(name) {
+  if (!name) return null;
+  const k = supplierKeyOf(name);
+  if (k && SUPPLIER_LOGO[k]) return SUPPLIER_LOGO[k];
+  if (SUPPLIER_LOGO[name]) return SUPPLIER_LOGO[name];          // a pricebook key itself
+  const hit = LOGO_BY_NAME.find(([re]) => re.test(String(name)));
+  return hit ? hit[1] : null;
+}
+function crmLogo(name) {
+  const f = logoFileFor(name);
+  return f ? `<img class="lg" src="/supplier-logos/${f}" alt="" loading="lazy" onerror="this.remove()">` : '';
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
 // Reference lookups
@@ -6693,7 +7441,13 @@ document.addEventListener('click', (e) => {
 
 $('whoName').addEventListener('keydown', (e) => { if (e.key === 'Enter') setWho(); });
 ['u','p'].forEach(id => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') signIn(); }));
-sb.auth.getSession().then(({ data: { session } }) => { if (session) afterSignIn(); });
+checkMicrosoft();
+// Coming back from Microsoft, supabase-js reads the session off the address bar while it starts;
+// getSession() waits for that. An error handed back instead is said on the sign-in card.
+sb.auth.getSession().then(({ data: { session } }) => {
+  if (session) return afterSignIn();
+  if (OAUTH_ERR) { const err = $('loginErr'); err.textContent = oauthWords(OAUTH_ERR); err.classList.remove('hide'); }
+});
 </script>
 </body>
 </html>

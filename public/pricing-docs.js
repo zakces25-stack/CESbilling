@@ -20,7 +20,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026-11-06.1';
+  var VERSION = '2026-11-07.1';
   var BUCKET = 'crm-documents';
   var MAX_BYTES = 50 * 1024 * 1024;
   var TYPES = {
@@ -28,7 +28,63 @@
     tiff: 'image/tiff', heic: 'image/heic', doc: 'application/msword',
     docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     msg: 'application/vnd.ms-outlook', eml: 'message/rfc822',
+    // 6 Nov 2026: a call recording (the verbal contract) is a document of the deal too.
+    mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4',
   };
+  // What a file on a deal is (6 Nov 2026, from UtilityClick's Contract Overview slots). A signed
+  // or counter-signed contract counts as "the contract on file" (crm_signed_doc_count, _62b);
+  // the rest are kept with the deal but never take it off No contract uploaded.
+  var KINDS = [['signed_contract', 'Signed contract'], ['counter_signed', 'Counter-signed contract'],
+               ['dd_mandate', 'Direct Debit mandate'], ['vat_declaration', 'VAT declaration'],
+               ['call_recording', 'Call recording'], ['terms', 'Supplier terms and conditions'],
+               ['loa', 'Letter of authority'], ['termination', 'Termination'], ['other', 'Other']];
+  var KIND_LABEL = {};
+  KINDS.forEach(function (k) { KIND_LABEL[k[0]] = k[1]; });
+  function isSigned(d) { return d && (d.kind === 'signed_contract' || d.kind === 'counter_signed'); }
+
+  // ------------------------------------------------------------------ a zip, for Download all
+  // Stored, not compressed: the files are PDFs and scans that do not shrink, and this way it is
+  // forty lines with no library. UTF-8 names (flag 0x0800).
+  var CRC_T = null;
+  function crc32(u8) {
+    if (!CRC_T) {
+      CRC_T = new Uint32Array(256);
+      for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; CRC_T[n] = c >>> 0; }
+    }
+    var crc = 0xFFFFFFFF;
+    for (var i = 0; i < u8.length; i++) crc = CRC_T[(crc ^ u8[i]) & 0xFF] ^ (crc >>> 8);
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+  /** files: [{ name, bytes: Uint8Array, date }] -> the bytes of a .zip (Uint8Array). */
+  function zipStore(files) {
+    var enc = new TextEncoder(), parts = [], central = [], offset = 0;
+    files.forEach(function (f) {
+      var name = enc.encode(f.name), data = f.bytes, crc = crc32(data), d = f.date || new Date();
+      var time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+      var date = ((Math.max(1980, d.getFullYear()) - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+      var lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+      lh.setUint16(10, time, true); lh.setUint16(12, date, true); lh.setUint32(14, crc, true);
+      lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+      parts.push(new Uint8Array(lh.buffer), name, data);
+      var ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true);
+      ch.setUint16(10, 0, true); ch.setUint16(12, time, true); ch.setUint16(14, date, true); ch.setUint32(16, crc, true);
+      ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true); ch.setUint16(28, name.length, true);
+      ch.setUint16(30, 0, true); ch.setUint16(32, 0, true); ch.setUint16(34, 0, true); ch.setUint16(36, 0, true);
+      ch.setUint32(38, 0, true); ch.setUint32(42, offset, true);
+      central.push(new Uint8Array(ch.buffer), name);
+      offset += 30 + name.length + data.length;
+    });
+    var cdSize = central.reduce(function (a, x) { return a + x.length; }, 0);
+    var end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+    end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+    var all = parts.concat(central, [new Uint8Array(end.buffer)]);
+    var out = new Uint8Array(all.reduce(function (a, x) { return a + x.length; }, 0)), at = 0;
+    all.forEach(function (x) { out.set(x, at); at += x.length; });
+    return out;
+  }
   var PRIMES = [3, 5, 7, 13, 17, 19, 23, 29, 31, 37, 41, 43];
 
   // ------------------------------------------------------------------ pure helpers (tested)
@@ -73,6 +129,8 @@
     var s = String(name || 'document').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/_+/g, '_');
     return s.length > 100 ? s.slice(-100) : s;
   }
+  // A name a person reads (spaces kept), with only what a file system refuses taken out.
+  function zipName(name) { return String(name || 'file').replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').trim().slice(-120) || 'file'; }
   function hex(buf) { return Array.prototype.map.call(new Uint8Array(buf), function (b) { return ('0' + b.toString(16)).slice(-2); }).join(''); }
   function uk(iso) { if (!iso) return ''; var s = String(iso).slice(0, 10).split('-'); return s.length === 3 ? s[2] + '/' + s[1] + '/' + s[0] : String(iso); }
   function n0(v) { return v == null || v === '' ? '' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: 0 }); }
@@ -119,6 +177,8 @@
   function create(o) {
     var sb = o.sb, esc = o.esc, who = o.who || function () { return ''; };
     var doc = root.document;
+    // 7 Nov 2026: a broker opens and downloads the files on a contract, and stores nothing.
+    var ro = !!o.readOnly;
     injectStyles(doc);
 
     function q(builder, what) {
@@ -158,9 +218,40 @@
         return u;
       });
     }
+    /** Every file on a deal, the signed contract first (6 Nov 2026: every kind, not just the contract). */
     function docsForDeal(tenderId) {
       return q(sb.from('crm_documents').select('*').contains('uc_tender_ids', [tenderId]).is('removed_at', null)
-        .eq('kind', 'signed_contract').order('uploaded_at', { ascending: false }), 'signed contracts').then(function (r) { return r.data || []; });
+        .order('uploaded_at', { ascending: false }), 'documents').then(function (r) {
+        return (r.data || []).slice().sort(function (a, b) { return (isSigned(b) ? 1 : 0) - (isSigned(a) ? 1 : 0); });
+      });
+    }
+
+    /** Download all: every file on the deal in one zip, named for the customer, supplier and start. */
+    function downloadAll(k) {
+      return docsForDeal(k.uc_tender_id).then(function (ds) {
+        if (!ds.length) throw new Error('No files on this contract.');
+        var used = {};
+        return Promise.all(ds.map(function (d) {
+          return signedUrl(d, false).then(function (u) { return root.fetch(u); }).then(function (r) {
+            if (!r.ok) throw new Error('Could not fetch ' + d.file_name + ' (' + r.status + ')');
+            return r.arrayBuffer();
+          }).then(function (buf) {
+            var nm = (KIND_LABEL[d.kind] || 'File') + ' - ' + zipName(d.file_name), base = nm, i = 2;
+            while (used[nm.toLowerCase()]) { nm = base.replace(/(\.[a-z0-9]{2,5})?$/i, ' (' + (i++) + ')$1'); }
+            used[nm.toLowerCase()] = 1;
+            return { name: nm, bytes: new Uint8Array(buf), date: d.uploaded_at ? new Date(d.uploaded_at) : new Date() };
+          });
+        })).then(function (files) {
+          var bytes = zipStore(files);
+          var stem = [k.customer_name, k.supplier, k.meter_start ? uk(k.meter_start).replace(/\//g, '-') : ''].filter(Boolean).join(' - ') || 'contract';
+          var blob = new Blob([bytes], { type: 'application/zip' });
+          var a = doc.createElement('a');
+          a.href = URL.createObjectURL(blob); a.download = zipName(stem + ' - documents') + '.zip';
+          doc.body.appendChild(a); a.click(); a.remove();
+          setTimeout(function () { URL.revokeObjectURL(a.href); }, 30000);
+          return files.length;
+        });
+      });
     }
 
     /**
@@ -168,6 +259,7 @@
      * SHA-256) is not stored twice: if it covers other deals it is refused with a pointer to it.
      */
     function store(file, links, how) {
+      if (ro) return Promise.reject(new Error('Files are added by the pricing team.'));
       if (!file) return Promise.reject(new Error('No file.'));
       if (file.size > MAX_BYTES) return Promise.reject(new Error(file.name + ' is ' + kb(file.size) + '; the limit is 50 MB.'));
       if (!TYPES[extOf(file.name)] && !/^(application\/pdf|image\/)/.test(file.type || '')) {
@@ -198,7 +290,7 @@
             if (u.error) throw new Error('Upload of ' + file.name + ' failed: ' + u.error.message);
             return q(sb.from('crm_documents').insert({
               uc_customer_id: links.uc_customer_id, uc_tender_ids: links.uc_tender_ids, mpans: links.mpans || [],
-              kind: 'signed_contract', file_name: file.name, storage_path: path, sha256: sha, size_bytes: file.size,
+              kind: KIND_LABEL[links.kind] ? links.kind : 'signed_contract', file_name: file.name, storage_path: path, sha256: sha, size_bytes: file.size,
               content_type: typeOf(file), source: how && how.bulk ? 'bulk' : 'upload', matched_by: (how && how.matchedBy) || null,
               uploaded_by_name: who() || 'pricing desk',
             }).select('id'), 'record the file').then(function (r) {
@@ -213,6 +305,7 @@
       });
     }
     function removeDoc(d) {
+      if (ro) return Promise.reject(new Error('Files are removed by the pricing team.'));
       return q(sb.from('crm_documents').update({ removed_at: new Date().toISOString(), removed_by_name: who() || 'pricing desk' })
         .eq('id', d.id).select('id'), 'remove').then(function (r) {
         if (!r.data || !r.data.length) throw new Error('Nothing was removed (permissions?).');
@@ -238,9 +331,12 @@
         return '<td class="dc-cell" data-doc-cell="' + i + '"><div class="dc-btns">' +
           '<button class="act sm" data-doc-view="' + i + '" title="Open the signed contract in a new tab">View' + (n > 1 ? ' (' + n + ')' : '') + '</button>' +
           '<button class="act ghost sm dc-ico" data-doc-dl="' + i + '" title="Download the signed contract" aria-label="Download">' + ICON_DL + '</button>' +
-          '<button class="act ghost sm dc-ico" data-doc-up="' + i + '" title="Add another file to this contract" aria-label="Add another file">' + ICON_ADD + '</button>' +
+          // Adding another file (a DD mandate, a recording) lives in the row menu since 6 Nov 2026
+          // evening; this hidden button is what the menu presses, so the upload path is one path.
+          (ro ? '' : '<button class="hide" data-doc-up="' + i + '" tabindex="-1" aria-hidden="true">Add a file</button>') +
           '</div></td>';
       }
+      if (ro) return '<td class="dc-cell" data-doc-cell="' + i + '"><span class="crm-small" title="No signed contract on file">not on file</span></td>';
       return '<td class="dc-cell" data-doc-cell="' + i + '"><button class="act ghost sm dc-up" data-doc-up="' + i + '" ' +
         'title="No signed contract on file: upload it">Upload</button></td>';
     }
@@ -261,6 +357,7 @@
           if (!dl && Number(k.signed_docs) === 1) {
             var w = root.open ? root.open('', '_blank') : null;
             docsForDeal(k.uc_tender_id).then(function (ds) {
+              ds = ds.filter(isSigned);
               if (!ds.length) { if (w) w.close(); throw new Error('The file is no longer on file.'); }
               return signedUrl(ds[0], false).then(function (u) { if (w) w.location.href = u; else root.location.assign(u); });
             }).catch(function (e) { if (w) w.close(); errBox(td, e); });
@@ -271,9 +368,14 @@
             var box = td.querySelector('.dc-list') || td.appendChild(doc.createElement('div'));
             box.className = 'dc-list';
             box.innerHTML = ds.map(function (d, j) {
-              return '<div>' + esc(d.file_name) + ' <span class="crm-small">' + uk(d.uploaded_at) + '</span> ' +
+              return '<div><b>' + esc(KIND_LABEL[d.kind] || d.kind || 'File') + '</b> ' + esc(d.file_name) + ' <span class="crm-small">' + uk(d.uploaded_at) + '</span> ' +
                 '<a data-v="' + j + '">view</a> &middot; <a data-d="' + j + '">download</a></div>';
-            }).join('') || '<div class="crm-small">none</div>';
+            }).join('') + (ds.length > 1 ? '<div><a data-all>Download all ' + ds.length + ' (zip)</a></div>' : '') || '<div class="crm-small">none</div>';
+            var allA = box.querySelector('a[data-all]');
+            if (allA) allA.addEventListener('click', function () {
+              allA.textContent = 'Building the zip...';
+              downloadAll(k).then(function (n) { allA.textContent = n + ' files downloaded'; }).catch(function (e) { allA.textContent = 'Download all'; errBox(td, e); });
+            });
             [].forEach.call(box.querySelectorAll('a[data-v]'), function (a) { a.addEventListener('click', function () { view(ds[Number(a.getAttribute('data-v'))]).catch(function (e) { errBox(td, e); }); }); });
             [].forEach.call(box.querySelectorAll('a[data-d]'), function (a) { a.addEventListener('click', function () { download(ds[Number(a.getAttribute('data-d'))]).catch(function (e) { errBox(td, e); }); }); });
           }).catch(function (e) { errBox(td, e); });
@@ -285,7 +387,7 @@
           var k = rows[Number(b.getAttribute('data-doc-up'))];
           var td = b.closest('td'), tr = b.closest('tr');
           var input = doc.createElement('input');
-          input.type = 'file'; input.accept = '.pdf,.doc,.docx,.jpg,.jpeg,.png,.tif,.tiff,.heic,.msg,.eml';
+          input.type = 'file'; input.accept = '.pdf,.doc,.docx,.jpg,.jpeg,.png,.tif,.tiff,.heic,.msg,.eml,.mp3,.wav,.m4a';
           input.className = 'hide';
           td.appendChild(input);
           input.addEventListener('change', function () {
@@ -306,9 +408,19 @@
       row.innerHTML = '<td colspan="' + cols + '"><div class="dc-pick">Reading the contracts signed with this one&hellip;</div></td>';
       tr.parentNode.insertBefore(row, tr.nextSibling);
       var box = row.querySelector('.dc-pick');
-      siblings(k).then(function (sib) {
+      Promise.all([siblings(k), docsForDeal(k.uc_tender_id).catch(function () { return []; })]).then(function (pre) {
+        var sib = pre[0], have = pre[1];
         if (!sib.some(function (x) { return x.uc_tender_id === k.uc_tender_id; })) sib.unshift(k);
+        // What the file is: the signed contract when none is on file yet, else the person says.
+        var guess = /record|call|\.(mp3|wav|m4a)$/i.test(file.name) ? 'call_recording' : /direct ?debit|\bdd\b|mandate/i.test(file.name) ? 'dd_mandate'
+          : /\bvat\b/i.test(file.name) ? 'vat_declaration' : /terms|t ?& ?c/i.test(file.name) ? 'terms' : /counter/i.test(file.name) ? 'counter_signed'
+          : have.some(isSigned) ? '' : 'signed_contract';
         box.innerHTML = '<b>' + esc(file.name) + '</b> <span class="crm-small">' + kb(file.size) + '</span>' +
+          '<div style="margin:6px 0"><label style="display:inline-flex;gap:8px;align-items:center">What is it? <select data-kind style="width:auto;height:30px">' +
+          (guess ? '' : '<option value="">Pick one</option>') + KINDS.map(function (x) {
+            return '<option value="' + x[0] + '"' + (x[0] === guess ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label></div>' +
+          (have.length ? '<div class="crm-small" style="margin:0 0 6px">Already on this contract: ' + have.map(function (d) {
+            return esc(KIND_LABEL[d.kind] || d.kind) + ' (' + esc(d.file_name) + ')'; }).join(', ') + '</div>' : '') +
           '<div class="crm-small" style="margin:4px 0 6px">Which contracts does it cover? These were signed with ' + esc(k.supplier || 'the same supplier') +
           ' for the same start date; untick any it does not cover.</div>' +
           sib.map(function (x, j) {
@@ -322,9 +434,11 @@
         box.querySelector('[data-go]').addEventListener('click', function () {
           var btn = this, msg = box.querySelector('[data-msg]');
           var picked = sib.filter(function (x, j) { var c = box.querySelector('[data-sib="' + j + '"]'); return c && c.checked; });
+          var kind = box.querySelector('[data-kind]').value;
+          if (!kind) { msg.innerHTML = '<span class="dc-bad">Pick what the file is first.</span>'; return; }
           btn.disabled = true; msg.textContent = 'Uploading...';
           store(file, { uc_customer_id: k.uc_customer_id, uc_tender_ids: picked.map(function (x) { return x.uc_tender_id; }),
-                        mpans: picked.map(function (x) { return x.mpan; }) }, { matchedBy: 'picked on the contract' })
+                        mpans: picked.map(function (x) { return x.mpan; }), kind: kind }, { matchedBy: 'picked on the contract' })
             .then(function (res) {
               msg.innerHTML = '<span class="dc-ok">' + (res.widened ? 'Already on file; now attached to these contracts too.' : 'Stored.') + '</span>';
               if (onChange) setTimeout(onChange, 300);
@@ -608,8 +722,10 @@
     }
 
     return { VERSION: VERSION, BUCKET: BUCKET, cell: cell, wire: wire, renderLibrary: renderLibrary, store: store, view: view,
-             download: download, docsForDeal: docsForDeal, analyse: analyse, _review: function () { return REVIEW; } };
+             download: download, docsForDeal: docsForDeal, downloadAll: downloadAll, analyse: analyse, KINDS: KINDS,
+             _review: function () { return REVIEW; } };
   }
 
-  root.CrmDocs = { VERSION: VERSION, create: create, mpanOk: mpanOk, candidatesIn: candidatesIn, safeName: safeName };
+  root.CrmDocs = { VERSION: VERSION, create: create, mpanOk: mpanOk, candidatesIn: candidatesIn, safeName: safeName,
+                   KINDS: KINDS, zipStore: zipStore, crc32: crc32 };
 })(typeof window !== 'undefined' ? window : globalThis);
