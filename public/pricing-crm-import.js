@@ -32,7 +32,7 @@
   'use strict';
 
   // .2 (3 Nov, before any push): capacity problems are worded in p/kVA/month only.
-  var VERSION = '2026-11-03.2';
+  var VERSION = '2026-11-09.1';
   var P_KVA_DAY_TO_MONTH = 365 / 12;          // the house conversion, as pricing-parsers.js
   var CAPACITY_MAX_P_KVA_MONTH = 3000;        // ~100 p/kVA/day: above this it is a label error
   var RATE_MAX_P_KWH = 200;                   // above this a "p/kWh" figure is not p/kWh
@@ -224,8 +224,8 @@
         // printed before it (1.14 GBP gave "3468 ... probably 34.67" the other way).
         ? 'probably ' + (u.perDay && u.pence ? v : Math.round(m) / 100) + ' p/kVA/month: '
           + (!u.pence ? 'pence, not pounds' : 'a monthly figure with a per-day label')
-        : 'check UC';
-      return { value: null, problem: 'capacity ' + v + ' (UC unit "' + u.uc + '") is ' + Math.round(m) +
+        : 'check the record';
+      return { value: null, problem: 'capacity ' + v + ' (unit on record "' + u.uc + '") is ' + Math.round(m) +
         ' p/kVA/month as labelled, which is not a real charge; ' + likely };
     }
     return { value: round(m, 4), problem: null };
@@ -387,7 +387,7 @@
             site_last_updated: date(P.get(prow, 'site last updated')),
           };
           siteById[sid] = s; out.sites.push(s);
-          if (!s.postcode) issue('postcode_missing', 'low', 'site', sid, 'postcode', 'Site has no postcode in UC', { uc_customer_id: cid, customer_name: cust.name });
+          if (!s.postcode) issue('postcode_missing', 'low', 'site', sid, 'postcode', 'Site has no postcode', { uc_customer_id: cid, customer_name: cust.name });
         }
         var u = utility(P.get(prow, 'utility type'));
         var mi = meterId(P.get(prow, 'mpan/mprn/spid'), u.fuel);
@@ -529,15 +529,15 @@
         if (group === 'unknown') issue('status_unknown', 'medium', 'contract', kkey, 'meter_deal_status', 'Deal status "' + mds + '" is not one this import knows; shown as unknown', kwho);
         if (!cmi.valid && group !== 'service') issue('meter_id_invalid', supplyish ? 'medium' : 'low', 'contract', kkey, 'mpan', 'Meter number problem: ' + cmi.problem, kwho);
         if (!ms || !me) issue('dates_missing', 'medium', 'contract', kkey, 'meter_start,meter_end', 'Contract has no start or end date', kwho);
-        if (ms && ms < '1990-01-01') issue('csd_placeholder', 'low', 'contract', kkey, 'meter_start', 'Start date ' + ms + ' is a UC placeholder, not a real date', kwho);
-        if (ms && me && me < ms) issue('ced_before_csd', me >= asOf ? 'high' : 'low', 'contract', kkey, 'meter_start,meter_end', 'Ends ' + me + ' before it starts ' + ms + ' (probably a typo in UC)', kwho);
+        if (ms && ms < '1990-01-01') issue('csd_placeholder', 'low', 'contract', kkey, 'meter_start', 'Start date ' + ms + ' is a placeholder, not a real date', kwho);
+        if (ms && me && me < ms) issue('ced_before_csd', me >= asOf ? 'high' : 'low', 'contract', kkey, 'meter_start,meter_end', 'Ends ' + me + ' before it starts ' + ms + ' (probably a typo in the record)', kwho);
         [['unit rate', ur], ['day rate', dr], ['night rate', nr], ['E/W rate', er]].forEach(function (p) {
           if (p[1].problem) issue('rate_implausible', supplyish && me && me >= asOf ? 'medium' : 'low', 'contract', kkey, p[0], p[1].problem, kwho);
         });
         if (scc.problem) issue('standing_charge_unit', 'low', 'contract', kkey, 'standing_charge', scc.problem, kwho);
         if (cap.problem) issue('capacity_implausible', supplyish && me && me >= asOf ? 'medium' : 'low', 'contract', kkey, 'capacity', cap.problem, kwho);
         if (group === 'pipeline' && me && me < asOf) issue('stale_pipeline', 'info', 'contract', kkey, 'meter_deal_status', '"' + mds + '" but the contract would already have ended ' + me + ': never progressed', kwho);
-        if (supplyish && k.aq != null && k.aq <= 100 && cu.fuel !== 'water' && me && me >= asOf) issue('aq_placeholder', 'info', 'contract', kkey, 'aq', 'Annual consumption ' + k.aq + ' ' + (k.aq_unit || '') + ' looks like a UC placeholder', kwho);
+        if (supplyish && k.aq != null && k.aq <= 100 && cu.fuel !== 'water' && me && me >= asOf) issue('aq_placeholder', 'info', 'contract', kkey, 'aq', 'Annual consumption ' + k.aq + ' ' + (k.aq_unit || '') + ' looks like a placeholder', kwho);
       }
     }
 
@@ -705,7 +705,7 @@
         var mt = meterByKey[hk], cu2 = custById[a0.uc_customer_id] || {};
         var activeMeter = !mt || mt.active !== false, activeCust = cu2.active !== false && !cu2.is_lead;
         var last = list[list.length - 1];
-        var msg = 'Last contract (' + last.supplier + ') ended ' + maxEnd + ' and UC has no contract after it: out of contract, or renewed without CES.';
+        var msg = 'Last contract (' + last.supplier + ') ended ' + maxEnd + ' and there is no contract after it: out of contract, or renewed without CES.';
         var sev2 = activeMeter && activeCust ? 'high' : 'low';
         if (lost.length) { msg += ' The renewal is marked lost (' + (lost[0].supplier || '?') + ').'; sev2 = 'info'; }
         else if (going.length) { msg += ' A renewal is in progress: ' + going[0].supplier + ', "' + going[0].meter_deal_status + '".'; sev2 = 'medium'; }
@@ -735,7 +735,7 @@
     Object.keys(nameIds).forEach(function (nk) {
       var l = nameIds[nk];
       if (l.length > 1) issue('customer_duplicate_name', 'low', 'customer', l.map(function (c) { return c.uc_customer_id; }).sort().join(','), 'name',
-        l.length + ' UC customers share the name "' + l[0].name + '"' + (l.some(function (c) { return c.is_lead; }) ? ' (some are leads)' : ''),
+        l.length + ' customers share the name "' + l[0].name + '"' + (l.some(function (c) { return c.is_lead; }) ? ' (some are leads)' : ''),
         { uc_customer_id: l[0].uc_customer_id, customer_name: l[0].name });
     });
 

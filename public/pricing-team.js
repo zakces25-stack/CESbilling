@@ -29,7 +29,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026-11-07.2';
+  var VERSION = '2026-11-09.1';
 
   var OUTCOMES = [
     ['renewal_in_place', 'Renewal in place', 'p-ok'],
@@ -49,7 +49,7 @@
   var RSTATUS = { 'new': ['New', 'p-warn'], assigned: ['Taken', 'p-ok'], in_progress: ['In progress', 'p-ok'],
                   waiting: ['Waiting', 'p-mute'], done: ['Done', 'p-ok'], not_request: ['Filed', 'p-mute'] };
   var KINDS = { price: 'Price', renewal: 'Renewal', contract: 'Contract', cot: 'Change of tenancy', meter: 'Meter',
-                billing: 'Billing', query: 'Question', chase: 'Chase', uc_update: 'UtilityClick change', other: 'Other' };
+                billing: 'Billing', query: 'Question', chase: 'Chase', uc_update: 'CRM update', other: 'Other' };
   // Outlook's category colours, as named in Outlook, with a close web colour for the portal.
   var PRESETS = [['preset0', 'Red', '#b91c1c'], ['preset1', 'Orange', '#c2410c'], ['preset2', 'Brown', '#7c4a1e'],
                  ['preset3', 'Yellow', '#a16207'], ['preset4', 'Green', '#15803d'], ['preset5', 'Teal', '#0f766e'],
@@ -274,9 +274,9 @@
     function notLinked(title) {
       var own = !preview();
       body.innerHTML = '<div class="card">' + (me().admin ? '<div id="asHost"></div>' : '') + '<h2>' + title + '</h2><div class="note warn">' +
-        (own ? 'This login is not linked to a person with a book in UtilityClick, so there are no customers to show. ' +
-               'Ask an admin to add you on Settings &rsaquo; People, with the name UtilityClick files your customers under.'
-             : 'That person has no UtilityClick name on Settings &rsaquo; People.') + '</div></div>';
+        (own ? 'This login is not linked to a person with a book of customers, so there are none to show. ' +
+               'Ask an admin to add you on Settings &rsaquo; People, with the name your customers are filed under.'
+             : 'That person has no CRM name on Settings &rsaquo; People.') + '</div></div>';
       if (!me().admin) return Promise.resolve();
       return people().then(function (P) { var h = body.querySelector('#asHost'); if (h) { h.innerHTML = asBar(P); wireAs(); } });
     }
@@ -425,7 +425,7 @@
             (win === 'ticked' ? 'ticked' : win === 'overdue' ? 'ended with nothing after them' : 'ending within ' + esc((WINDOWS.filter(function (w) { return w[0] === win; })[0] || ['', ''])[1]) + ' with nothing lined up') +
             (rows.length ? ' (' + n0(nCust) + ' customer' + (nCust === 1 ? '' : 's') + ')' : '') +
             (value && win !== 'ticked' ? ', about <b>' + gbp(value) + '</b> a year in commission' : '') + '</span></div>' +
-          '<div class="sub clamp">Contracts in your UtilityClick book. Tick what happened to each one: it leaves this list and the pricing team can see it. ' +
+          '<div class="sub clamp">Contracts in your book. Tick what happened to each one: it leaves this list and the pricing team can see it. ' +
             'A customer\'s meters ending together are one row. Open a customer to see everything on file.</div>' +
           '<div class="crm-seg" id="mineWins" style="margin:0 0 10px">' + counts.map(function (c) {
             var lab = (WINDOWS.filter(function (w) { return w[0] === c[0]; })[0] || [c[0], c[0]])[1];
@@ -476,7 +476,7 @@
           b.addEventListener('click', function () {
             var g = groups[Number(b.closest('tr').getAttribute('data-g'))], k0 = g.rows[0];
             if (opts.ask) opts.ask('Is a renewal already in place for ' + (k0.customer_name || 'this customer') + '\'s ' + g.rows.length + ' ' + (k0.fuel || '') +
-              ' meters ending ' + uk(k0.meter_end) + ' (' + uniq(g.rows.map(function (k) { return k.supplier; })).join(', ') + ')? Check their contracts in UtilityClick, ' +
+              ' meters ending ' + uk(k0.meter_end) + ' (' + uniq(g.rows.map(function (k) { return k.supplier; })).join(', ') + ')? Check their contracts, ' +
               'the saved quotes and any requests to pricing, and tell me what you found and what you would tick.',
               { page: 'team:mine', company_id: k0.uc_customer_id || null, mpan: k0.mpan });
           });
@@ -486,7 +486,7 @@
           b.addEventListener('click', function () {
             var k = rows[Number(b.closest('tr').getAttribute('data-r'))];
             if (opts.ask) opts.ask('Is a renewal already in place for meter ' + k.mpan + ' (' + (k.customer_name || '') + (k.site_name ? ', ' + k.site_name : '') +
-              '), whose ' + (k.supplier || '') + ' contract ends ' + uk(k.meter_end) + '? Check its contracts in UtilityClick, the saved quotes and any requests to pricing, ' +
+              '), whose ' + (k.supplier || '') + ' contract ends ' + uk(k.meter_end) + '? Check its contracts, the saved quotes and any requests to pricing, ' +
               'and tell me what you found and what you would tick.', { page: 'team:mine', company_id: k.uc_customer_id || null, mpan: k.mpan });
           });
         });
@@ -576,14 +576,14 @@
                 '<td class="crm-wrap" style="min-width:240px"><button class="crm-link" style="text-align:left;white-space:normal;max-width:none" data-cust="' + esc(c.uc_customer_id) + '">' + esc(c.name || '') + '</button>' +
                 ' ' + (c.is_lead ? pill('p-mute', 'Lead') : c.active === false ? pill('p-mute', 'Inactive') : '') +
                 (o ? ' <span class="pill p-warn" title="Given to ' + esc(st.name) + ' on the desk by ' + esc(o.set_by_name || '') + ' on ' + uk(o.set_at) + '">set on the desk</span>' +
-                  '<span class="crm-small"> UtilityClick says ' + esc(o.uc_account_manager || 'nobody') + '</span>' : '') +
+                  '' : '') +
                 (c.registered_postcode ? '<span class="crm-small">' + esc(c.registered_postcode) + '</span>' : '') + '</td>' +
                 '<td class="num nowrap">' + n0(c.active_meter_count) + (Number(c.meter_count) !== Number(c.active_meter_count) ? ' <span class="crm-small">of ' + n0(c.meter_count) + '</span>' : '') + '</td>' +
                 '<td class="num">' + n0(c.live_contracts) + '</td>' +
                 '<td class="nowrap">' + endHtml(c) + '</td>' +
                 '<td class="nowrap c-opt">' + loaHtml(c) + '</td></tr>';
             }).join('') + '</tbody></table>'
-            : '<div class="note" style="margin:10px">No customers under ' + esc(st.uc_name) + ' in UtilityClick.</div>') + '</div></div>';
+            : '<div class="note" style="margin:10px">No customers under ' + esc(st.uc_name) + ' yet.</div>') + '</div></div>';
         wireAs();
         var box = body.querySelector('#bookQ'), nEl = body.querySelector('#bookN');
         var filter = function () {
@@ -814,7 +814,7 @@
           ((x.mpans || []).length ? '<br>Meters: ' + x.mpans.map(function (m) { return '<span class="mono">' + esc(m) + '</span>' + (me().pricing ? ' <button class="act ghost sm" data-price="' + esc(m) + '">Price</button>' : ''); }).join(' ') : '') +
           (x.due_hint ? '<br>When: <b>' + esc(x.due_hint) + '</b>' : '') + '</div></div>' + pill(st[1], st[0]) + '</div>' +
           (x.summary ? '<div class="note" style="margin:6px 0"><b>Claude:</b> ' + esc(x.summary) + '</div>' : '') +
-          (x.uc_task ? '<div class="note warn" style="margin:6px 0"><b>UtilityClick change asked for:</b> ' + esc(x.uc_task) + ' <button class="act sm" data-help>Help me do it</button></div>' : '') +
+          (x.uc_task ? '<div class="note warn" style="margin:6px 0"><b>CRM update asked for:</b> ' + esc(x.uc_task) + ' <button class="act sm" data-help>Help me do it</button></div>' : '') +
           '<div class="qd-st" role="group" aria-label="Who has it">' +
             (myStaff() && x.assigned_to !== myStaff().id ? '<button class="on" data-takeme>Take it</button>' : '') +
             '<select data-assign aria-label="Give it to" style="width:auto;max-width:220px;height:30px;font-size:12.5px;padding:2px 8px"><option value="">Give it to...</option>' + pricingPeople.map(function (p) {
@@ -874,8 +874,8 @@
               '. What does the customer have with us now, and what are the steps?');
         });
         if (box.querySelector('[data-help]')) box.querySelector('[data-help]').addEventListener('click', function () {
-          ask('This request asks for a UtilityClick change: "' + x.uc_task + '"' + (x.customer_name ? ' for ' + x.customer_name : '') +
-              '. Check what UtilityClick holds now and list exactly what I need to change in UtilityClick, field by field.');
+          ask('This request asks for a CRM update: "' + x.uc_task + '"' + (x.customer_name ? ' for ' + x.customer_name : '') +
+              '. Check what the customer record holds now and list exactly what needs changing, field by field.');
         });
       });
     }
@@ -904,7 +904,7 @@
             // requests in pricingteam@ reach their page.
             '<input type="text" data-alias value="' + esc((s.aliases || []).join(', ')) + '" placeholder="Other addresses they email from" aria-label="Other email addresses" style="margin-top:4px"></td>' +
             '<td>' + roleBoxes(s.roles, i) + '</td>' +
-            '<td><input type="text" data-uc list="tmAms" value="' + esc(s.uc_name || '') + '" placeholder="as UtilityClick writes it" aria-label="UtilityClick name">' +
+            '<td><input type="text" data-uc list="tmAms" value="' + esc(s.uc_name || '') + '" placeholder="as the CRM export writes it" aria-label="CRM name">' +
               (s.id && s.uc_name ? '<button class="act ghost sm" data-viewas style="margin-top:4px">See their page</button>' : '') + '</td>' +
             // 7 Nov 2026 (07b): the category the team ALREADY uses for this person in pricingteam@
             // ("Joe", "Ben", "Daniel R"); taking a request applies it rather than making a new one.
@@ -921,12 +921,12 @@
         var rows = list.concat([{ id: null, name: '', email: '', roles: [], active: true }]);
         body.innerHTML = '<div class="card fillcard"><div class="fc-head"><div class="fc-title"><span class="fc-count"><b>' + n0(list.length) + '</b> on the staff list</span></div>' +
           '<div class="sub clamp">Who can sign in and what they see. A person signs in with the Microsoft account of the email here. ' +
-          'Brokers see their own book (the UtilityClick name) on their landing page; the pricing team takes requests. ' +
+          'Brokers see their own book (their CRM name) on their landing page; the pricing team takes requests. ' +
           'Outlook category: the name the team already gives this person\'s emails in pricingteam@ (the list suggests the ones in use). ' +
           'Taking a request puts that category on the email; with none set, Outlook makes a new one in the person\'s full name.</div></div>' +
           '<datalist id="tmAms">' + ams.map(function (a) { return '<option value="' + esc(a) + '">'; }).join('') + '</datalist>' +
           '<datalist id="tmCats"></datalist>' +
-          '<div class="grid"><table class="tm-staff"><thead><tr><th>Name and Microsoft email</th><th>Roles</th><th>UtilityClick name</th><th>Outlook category and colour</th><th>Logins</th><th></th><th></th></tr></thead><tbody>' +
+          '<div class="grid"><table class="tm-staff"><thead><tr><th>Name and Microsoft email</th><th>Roles</th><th>CRM name</th><th>Outlook category and colour</th><th>Logins</th><th></th><th></th></tr></thead><tbody>' +
           rows.map(rowHtml).join('') + '</tbody></table></div></div>';
         // The categories in use in pricingteam@, for the suggestions. Never in the way: a failure
         // (no Microsoft app yet) leaves the box free text.

@@ -20,7 +20,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026-11-07.1';
+  var VERSION = '2026-11-09.1';
   var BUCKET = 'crm-documents';
   var MAX_BYTES = 50 * 1024 * 1024;
   var TYPES = {
@@ -551,8 +551,8 @@
             '<div class="s">' + pct + '% have the signed contract on file</div><div class="dc-bar"><i style="width:' + pct + '%"></i></div></div>';
         };
         el.innerHTML =
-          '<div class="card"><h2>Signed contracts</h2><div class="sub">The signed contract for every live deal, on the desk instead of only in UtilityClick. ' +
-          'Counted per meter contract: UtilityClick holds a multi-site contract as one deal per meter, so one PDF usually covers several.</div>' +
+          '<div class="card"><h2>Signed contracts</h2><div class="sub">The signed contract for every live deal, on the desk. ' +
+          'Counted per meter contract: a multi-site contract is one deal per meter, so one PDF usually covers several.</div>' +
           '<div class="dc-cov">' + tile('Supply, live', 'supply', 'live') + tile('Supply, starting later', 'supply', 'upcoming') +
           tile('Meter services, live', 'meter_services', 'live') + tile('Other services, live', 'other_services', 'live') + '</div>' +
           (cb.openMissing ? '<div style="margin-top:12px"><button class="act ghost sm" id="dcMissing">Open No contract uploaded</button></div>' : '') +
@@ -563,16 +563,8 @@
           '<div class="dc-drop" id="dcDrop" tabindex="0" role="button"><b>Drop signed contracts here</b><div class="crm-small" style="margin-top:6px">or click to choose them</div>' +
           '<input type="file" id="dcFile" multiple class="hide" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.tif,.tiff,.heic,.msg,.eml"></div>' +
           '<div id="dcReview" style="margin-top:14px"></div>' +
-          '<details style="margin-top:14px"><summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--cyan)">Getting the backlog in from UtilityClick</summary>' +
-          '<div class="sub" style="margin-top:8px;max-width:none">' +
-          '<b>Do not try to do everything.</b> Only live and upcoming deals matter: the ended ones are history and UtilityClick keeps them. ' +
-          'Start with the deals ending soonest, because those are the renewals someone will open next.<br><br>' +
-          '<b>Batch the downloads.</b> UtilityClick saves one contract at a time, so save 20 to 50 into one folder, then drop the whole folder here. ' +
-          'The matching is the part this page does for you; the clicking in UC is the slow part.<br><br>' +
-          '<b>Ask UtilityClick for a bulk export.</b> One email to UC support asking for every stored document with a list of which deal each belongs to ' +
-          'would save days. With that list the matching is exact and needs no checking.<br><br>' +
-          '<b>Keep it current from today.</b> When a new contract is signed, upload it on its contract row the same day; then the backlog only ever shrinks.' +
-          '</div></details></div>' +
+          '<div class="sub" style="margin-top:12px;max-width:none"><b>Keep it current.</b> When a new contract is signed, upload it on its contract row ' +
+          '(or on Upload contract) the same day.</div></div>' +
           '<div class="card"><h2>Recently added</h2>' + (recent.length ? '<div class="scroll"><table><thead><tr><th class="dc-cell">Contract</th><th>File</th><th>Customer</th>' +
             '<th class="num">Contracts</th><th>Added</th><th></th></tr></thead><tbody>' + recent.map(function (d, j) {
               return '<tr><td class="dc-cell"><div class="dc-btns"><button class="act sm" data-rv="' + j + '">View</button>' +

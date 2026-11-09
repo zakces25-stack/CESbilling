@@ -6118,12 +6118,34 @@
     }
     // Every output figure for one broker over a set of months. Counts are summed; computer
     // activity is weighted by Teramind work time when every month carries it, else averaged.
+    // Work-mobile calls (the Vodafone bill, 9 Nov 2026) are calls: every figure that reads calls or
+    // talk time sees 8x8 plus the mobile; the 8x8-only figures stay on calls_8x8 / talk_8x8. A month
+    // with no 8x8 figure and no mobile calls stays blank (a dash means not recorded, never zero).
+    function _skActNorm(rows){
+      (rows || []).forEach(function(a){
+        if(a.calls_8x8 !== undefined) return;
+        a.calls_8x8 = a.calls; a.talk_8x8 = a.talk_time_sec;
+        var mc = a.mobile_calls == null ? null : Number(a.mobile_calls), mt = a.mobile_talk_sec == null ? null : Number(a.mobile_talk_sec);
+        if(mc != null && (mc > 0 || a.calls != null)) a.calls = (a.calls == null ? 0 : Number(a.calls)) + mc;
+        if(mt != null && (mt > 0 || a.talk_time_sec != null)) a.talk_time_sec = (a.talk_time_sec == null ? 0 : Number(a.talk_time_sec)) + mt;
+      });
+      return rows || [];
+    }
     function _skOutputFor(repId, months){
       var set = {}; (months || []).forEach(function(p){ set[p] = 1; });
       var o = { days:null, contracts:null, env:null, calls:null, talk:null, emails:null, idle:null, work:null, activity:null, billing:0, hasBilling:false };
       function add(key, v){ if(v == null || v === '') return; v = Number(v); if(isNaN(v)) return; o[key] = (o[key] == null ? 0 : o[key]) + v; }
       // A month marked "excluded" for a broker is left out, as the month-end report leaves it out.
-      (_SK.kpis || []).forEach(function(k){ if(k.rep_id !== repId || !set[k.period] || k.excluded) return; add('days', k.days_worked); add('contracts', k.deals_won); });
+      // Days worked (9 Nov 2026, Robert Stead): management's figure for a month wins where it was
+      // entered on Management > Monthly upload; otherwise the broker's own month-end figure.
+      var mgDays = {}, exclM = {}, daysDone = {};
+      (_SK.activity || []).forEach(function(a){ if(a.rep_id === repId && a.days_worked_mgmt != null && a.days_worked_mgmt !== '') mgDays[String(a.period).slice(0, 10)] = Number(a.days_worked_mgmt); });
+      (_SK.kpis || []).forEach(function(k){
+        if(k.rep_id !== repId || !set[k.period]) return;
+        if(k.excluded){ exclM[k.period] = 1; return; }
+        add('days', mgDays[k.period] != null ? mgDays[k.period] : k.days_worked); daysDone[k.period] = 1; add('contracts', k.deals_won);
+      });
+      Object.keys(mgDays).forEach(function(p){ if(set[p] && !exclM[p] && !daysDone[p]) add('days', mgDays[p]); });
       (_SK.eff || []).forEach(function(k){ if(k.rep_id === repId && set[k.period] && !k.excluded){ o.billing += Number(k.billing_total) || 0; o.hasBilling = true; } });
       var aN = 0, aSum = 0, wN = 0, wSum = 0, wTot = 0;
       (_SK.activity || []).forEach(function(a){
@@ -6161,7 +6183,7 @@
       return _skNum(v, 0);
     }
     // Where each system-fed figure in these months came from, one line per metric and source.
-    var _SK_ACT_LABELS = { calls:'Calls', talk_time_sec:'Talk time', emails:'Emails sent', activity_pct:'Computer activity', idle_sec:'Idle time', docusign_envelopes:'DocuSign envelopes' };
+    var _SK_ACT_LABELS = { calls:'Calls (8x8)', talk_time_sec:'Talk time (8x8)', mobile_calls:'Calls from work mobiles', mobile_talk_sec:'Talk time on work mobiles', emails:'Emails sent', activity_pct:'Computer activity', idle_sec:'Idle time', docusign_envelopes:'DocuSign envelopes', days_worked_mgmt:'Days worked (management)' };
     function _skOutputSources(months){
       var set = {}; (months || []).forEach(function(p){ set[p] = 1; });
       var who = {}; (_SK.reps || []).forEach(function(r){ if(r.profile_id) who[r.profile_id] = _skShortName(r.name); });
@@ -6889,7 +6911,7 @@
       var tg = await sb.from('broker_targets').select('*'); _SK.targets = {}; (tg.data||[]).forEach(function(t){ _SK.targets[t.rep_id] = t; });
       var pj = await sb.from('broker_projects').select('*'); _SK.projects = pj.data || [];   // own / admin; private
       var pe = await sb.from('broker_project_entries').select('*'); _SK.projEntries = pe.data || [];
-      var ba = await sb.from('broker_activity').select('*'); _SK.activity = ba.data || [];   // calls/emails per rep per month (own/admin)
+      var ba = await sb.from('broker_activity').select('*'); _SK.activity = _skActNorm(ba.data || []);   // calls/emails per rep per month (own/admin); calls include work mobiles
       var nbq = await sb.from('broker_new_business').select('*'); _SK.newBiz = nbq.data || [];  // itemised new-business wins (own/admin)
       var cp = await sb.from('broker_comp').select('*').order('valid_from', { ascending:false }); // RLS: admin=all, rep=own only
       // Every plan a rep has ever had, newest first, so _skCompFor() can price

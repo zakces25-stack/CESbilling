@@ -13,7 +13,7 @@
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <!-- Bump on every push: a plain fetch of the live page can then tell this build from the last. -->
-  <meta name="build" content="pricing 2026-11-08a" />
+  <meta name="build" content="pricing 2026-11-09a" />
   <title>CES Pricing Portal</title>
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
@@ -313,6 +313,8 @@
     .subbar{display:flex;align-items:flex-end;gap:4px 20px;flex-wrap:wrap;padding:0 22px}
     .subbar h1{font-size:17px;margin:0;padding:13px 0 12px;white-space:nowrap}
     .subtabs{flex:1 1 auto;min-width:0}
+    /* 9 Nov 2026 (09a): a company's page is the whole page; its own header has the way back. */
+    body.co-full .subbar{display:none}
     .subtabs:empty{display:none}
     .subtabs button{padding:14px 12px 12px}
     .subtabs button.co{color:var(--navy);max-width:280px;overflow:hidden;text-overflow:ellipsis}
@@ -395,8 +397,8 @@
       <div class="si-logo"><img src="/ces_logo.png" alt="Commercial Energy Solutions"
            onerror="this.parentNode.style.display='none'" /></div>
       <h1>Pricing Portal</h1>
-      <p>Supplier pricebooks, portfolio pricing and the customer record that used to live in
-         UtilityClick, in one place for the CES pricing team and brokers.</p>
+      <p>Supplier pricebooks, portfolio pricing and every customer record, in one place for the
+         CES pricing team and brokers.</p>
       <ul>
         <li>Price any meter off the live supplier books</li>
         <li>Requests from the pricing mailbox, each with a name on it</li>
@@ -499,7 +501,7 @@
   <div id="adminLock" class="lock-wrap hide" role="dialog" aria-modal="true" aria-labelledby="adminLockTitle">
     <div class="lock-card">
       <h2 id="adminLockTitle">Settings</h2>
-      <p>Account managers, desk customers, the status bar, products and the UC import. Enter the settings password.</p>
+      <p>Account managers, desk customers, the status bar, products and the data import. Enter the settings password.</p>
       <label for="adminPw">Password</label>
       <input id="adminPw" type="password" autocomplete="current-password"
              onkeydown="if(event.key==='Enter')unlockSettings();if(event.key==='Escape')closeLock()" />
@@ -1094,8 +1096,8 @@
 
       <div class="card adm" id="adm-customers">
         <h2>Add a customer</h2>
-        <div class="sub">For a customer who is not in UtilityClick yet. It goes on the desk at once with its sites and meters,
-          marked <b>added on the desk</b>, and a UC import never removes it. Every MPAN is checked (13 digits, the check
+        <div class="sub">For a customer who is not on the desk yet. It goes on the desk at once with its sites and meters,
+          marked <b>added on the desk</b>, and an import never removes it. Every MPAN is checked (13 digits, the check
           digit right) and every electricity meter&rsquo;s profile class must fit its rate type. When UC has the customer too,
           remove the desk copy below so it is not on the desk twice.</div>
         <div class="row">
@@ -1249,10 +1251,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="/pricing-parsers.js?v=2026-11-04.2"></script>
 <script src="/pricing-7z.js?v=2026-11-03.1"></script>
-<script src="/pricing-crm-import.js?v=2026-11-03.2"></script>
-<script src="/pricing-docs.js?v=2026-11-07.1"></script>
-<script src="/pricing-crm.js?v=2026-11-08.1"></script>
-<script src="/pricing-team.js?v=2026-11-07.2"></script>
+<script src="/pricing-crm-import.js?v=2026-11-09.1"></script>
+<script src="/pricing-docs.js?v=2026-11-09.1"></script>
+<script src="/pricing-crm.js?v=2026-11-09.1"></script>
+<script src="/pricing-loa.js?v=2026-11-09.1"></script>
+<script src="/pricing-team.js?v=2026-11-09.1"></script>
 <script src="/pricing-contracts.js?v=2026-09-13.1"></script>
 <script src="/supplier-quotes.js?v=2026-09-14.3"></script>
 <script src="/pricing-upload.js?v=2026-11-08.1"></script>
@@ -1521,7 +1524,7 @@ async function afterSignIn() {
 
 /** Which side entries, buttons and pages this person sees. The database decides what they can read. */
 // 8 Nov 2026 (08a): brokers price meters and keep their own quotes (Price a meter, Saved quotes).
-const BROKER_SUBS = new Set(['team:mine', 'team:mybook', 'crm:portfolios', 'crm:contracts', 'crm:services', 'crm:tenders', 'crm:overview', 'crm:customer',
+const BROKER_SUBS = new Set(['team:mine', 'team:mybook', 'crm:loas', 'crm:portfolios', 'crm:contracts', 'crm:services', 'crm:tenders', 'crm:overview', 'crm:customer',
                              'price', 'crm:saved']);
 function secAllowed(sec) {
   if (!ME) return false;
@@ -1708,14 +1711,14 @@ const SECTIONS = {
   // crm:customer is the open company's own tab, shown only while a company is open (6 Nov 2026).
   customers: { title: 'Customers', subs: [['crm:portfolios', 'Portfolios'], ['crm:contracts', 'Contracts'], ['crm:services', 'Meter services'],
                                           ['crm:documents', 'Signed contracts'], ['crm:tenders', 'Tenders'], ['crm:quality', 'Data checks'],
-                                          ['crm:overview', 'Figures'], ['crm:customer', '']] },
+                                          ['crm:loas', 'LOA tracker'], ['crm:overview', 'Figures'], ['crm:customer', '']] },
   nocontract: { title: 'No contract uploaded', subs: [['crm:nocontract', '']] },
   // 8 Nov 2026 (08a): drop a contract, Claude reads it, a person checks it and says live / locked in / awaiting.
   upload:    { title: 'Upload contract', subs: [['upload', '']] },
   books:     { title: 'Pricebooks', subs: [['books:live', 'Live pricebooks'], ['books:mail', 'Mailbox'], ['books:hand', 'Add by hand']] },
   reference: { title: 'Reference', subs: [['ref:ldz', 'Gas postcode to LDZ'], ['ref:band', 'MPAN top line']] },
   settings:  { title: 'Settings', subs: [['team:staff', 'People'], ['admin:team', 'Account managers'], ['admin:customers', 'Add a customer'], ['admin:status', 'Status bar'],
-                                         ['admin:products', 'Products'], ['admin:import', 'Import from UC'], ['admin:storage', 'Storage'],
+                                         ['admin:products', 'Products'], ['admin:import', 'Import data'], ['admin:storage', 'Storage'],
                                          ['admin:password', 'Password']] },
 };
 const SIDE_ID = { mine: 'tab-mine', today: 'tab-today', requests: 'tab-req', pricing: 'tab-price', renewals: 'tab-ren', customers: 'tab-crm',
@@ -1728,7 +1731,7 @@ const NAV = { sec: null, sub: null, last: {} };
 // The company open on the Customers section (its tab along the top), or null.
 let COMPANY = null;
 // The Customers pages that are lists: their card fills the window and the table scrolls inside.
-const FILL_VIEWS = new Set(['customers', 'customer', 'contracts', 'services', 'tenders', 'quality', 'nocontract',
+const FILL_VIEWS = new Set(['loas', 'customers', 'customer', 'contracts', 'services', 'tenders', 'quality', 'nocontract',
                             'saved', 'renewals', 'today']);
 
 function paneOf(sub) {
@@ -1759,6 +1762,7 @@ function openSection(sec, sub, arg) {
   if (!explicit) sub = NAV.last[sec] || first;
   if (!S.subs.some(s => s[0] === sub) || !subAllowed(sub)) sub = first;
   if (sub === 'crm:customer' && !COMPANY && !arg) sub = 'crm:portfolios';
+  if (!explicit && sec === 'customers' && NAV.sec === 'customers' && NAV.sub === 'crm:customer' && sub === 'crm:customer') sub = 'crm:portfolios';
   const pane = paneOf(sub);
   // A page opens at its top: the box otherwise keeps the last page's scroll.
   const sc = deskScroller();
@@ -1816,7 +1820,8 @@ function openSection(sec, sub, arg) {
 function paintSubTabs() {
   const S = SECTIONS[NAV.sec];
   if (!S) return;
-  const tabs = S.subs.filter(([k, label]) => subAllowed(k) && (label || (k === 'crm:customer' && COMPANY)));
+  document.body.classList.toggle('co-full', NAV.sub === 'crm:customer' && !!COMPANY);
+  const tabs = S.subs.filter(([k, label]) => subAllowed(k) && label);
   $('subTabs').innerHTML = tabs.length < 2 && !tabs.some(([k]) => k === 'crm:customer') ? '' : tabs.map(([k, label]) => k === 'crm:customer'
     ? `<button data-sub="${k}" class="co${k === NAV.sub ? ' on' : ''}" title="${esc(COMPANY.name)}" onclick="openSection('${NAV.sec}','${k}')">${esc(COMPANY.name.length > 34 ? COMPANY.name.slice(0, 32) + '...' : COMPANY.name)}`
       + `<span class="x" role="button" aria-label="Close ${esc(COMPANY.name)}" title="Close" onclick="event.stopPropagation();closeCompany()">&times;</span></button>`
@@ -1853,9 +1858,11 @@ function crmInit(view, explicit, arg) {
     // uploading are the pricing team's (7 Nov 2026). The database refuses those writes regardless.
     const readOnly = !isPricing();
     DOCS_API = typeof CrmDocs !== 'undefined' ? CrmDocs.create({ sb, esc, who: () => WHO, loadPdfJs, readOnly }) : null;
+    // 9 Nov 2026 (09a): Letters of Authority: the company's LOA tab, the renewal LOA, the LOA tracker.
+    const LOA_API = typeof CrmLoa !== 'undefined' ? CrmLoa.create({ sb, esc, who: () => WHO, loadPdfJs, loadPdfLib: pdflibLib, readOnly, docs: DOCS_API }) : null;
     CRM_API = CrmDesk.mount($('crmHost'), { sb, esc, XLSX: window.XLSX, who: () => WHO, onPriceMeter: priceFromCrm, readOnly,
                                             canPrice: true,     // 8 Nov 2026 (08a): every desk login prices
-                                            docs: DOCS_API, nav: false, onView: crmOnView, start: false,
+                                            docs: DOCS_API, loa: LOA_API, nav: false, onView: crmOnView, start: false,
                                             scroller: deskScroller, onCompany: crmOnCompany,
                                             openNoContract: (term) => openSection('nocontract', 'crm:nocontract', { search: term || '' }),
                                             onDocsChanged: () => loadNoContractBadge(),
@@ -1876,6 +1883,7 @@ function crmInit(view, explicit, arg) {
   CRM_API.go(view, arg || null);
 }
 function crmOnView(v) {
+  if (v !== 'customer' && NAV.last.customers === 'crm:customer') NAV.last.customers = 'crm:portfolios';
   setFill(FILL_VIEWS.has(v));
   if (v === 'import') {
     if (NAV.sec === 'settings') { NAV.sub = 'admin:import'; NAV.last.settings = 'admin:import'; paintSubTabs(); }
@@ -2336,12 +2344,12 @@ async function admLoadCustomers() {
   // Has UC caught up? A UC customer with the same name means the desk copy can go.
   let inUc = new Set();
   try {
-    const twins = await q(sb.from('crm_customers_v').select('name').eq('source', 'uc').in('name', rows.map(r => r.name)), 'UC twins');
+    const twins = await q(sb.from('crm_customers_v').select('name').eq('source', 'uc').in('name', rows.map(r => r.name)), 'name check');
     inUc = new Set(twins.map(t => String(t.name).trim().toLowerCase()));
   } catch (_) { /* the check is a nicety */ }
   box.innerHTML = `<div class="scroll"><table><thead><tr><th>Customer</th><th>Account manager</th><th class="num">Meters</th><th>Added</th><th></th></tr></thead><tbody>${
     rows.map(r => `<tr><td><a href="#" onclick="admOpenCustomer('${esc(r.uc_customer_id)}');return false"><b>${esc(r.name)}</b></a>${r.is_lead ? ' <span class="pill p-mute">lead</span>' : ''}
-      ${inUc.has(String(r.name).trim().toLowerCase()) ? '<div class="crm-small" style="color:var(--warn)">UC now has a customer with this name</div>' : ''}</td>
+      ${inUc.has(String(r.name).trim().toLowerCase()) ? '<div class="crm-small" style="color:var(--warn)">The import now has a customer with this name</div>' : ''}</td>
       <td>${esc(r.account_manager || '')}</td><td class="num">${Number(r.meter_count) || 0}</td><td>${uk(r.uc_created)}</td>
       <td><button class="act ghost sm" onclick="admRetire('${esc(r.uc_customer_id)}', this)">Remove from the desk</button></td></tr>`).join('')}</tbody></table></div>`;
 }
@@ -2387,7 +2395,7 @@ async function admAddCustomer() {
   } finally { btn.disabled = false; btn.textContent = 'Add the customer'; }
 }
 async function admRetire(id, btn) {
-  if (!confirm('Remove this customer, its sites and meters from the desk? Do this once UC has the customer, so it is not on the desk twice.')) return;
+  if (!confirm('Remove this customer, its sites and meters from the desk? Do this once the import has the customer, so it is not on the desk twice.')) return;
   btn.disabled = true;
   try { await adm('pricing_admin_retire_customer', { p_uc_customer_id: id, p_by: WHO }, 'remove customer'); admLoadCustomers(); }
   catch (e) { btn.disabled = false; admNote($('admCMsg'), 'bad', esc(e.message)); }
@@ -2466,9 +2474,9 @@ function structBadge() {
   if (s === 'saving') return ' <span class="pill p-mute">saving&hellip;</span>';
   if (s === 'this quote only') return ' <span class="pill p-mute">this quote only, not saved to the meter</span>';
   if (s === 'checked on the desk') return ' <span class="pill p-ok">checked on the desk (Customers, Fix)</span>';
-  if (s === 'utilityclick') return `<div class="note warn" style="margin:6px 0 0;padding:6px 10px;font-size:12px;font-family:inherit">UtilityClick says
+  if (s === 'utilityclick') return `<div class="note warn" style="margin:6px 0 0;padding:6px 10px;font-size:12px;font-family:inherit">The meter record says
       <b>${esc(STRUCT_LABEL[METER.rate_structure] || METER.rate_structure)}</b>; the portfolio guessed ${esc(STRUCT_LABEL[METER.struct_was] || 'nothing')}
-      from the last contract's rates. Priced as UtilityClick says: change it here if the bill says otherwise.</div>`;
+      from the last contract's rates. Priced as the meter record says: change it here if the bill says otherwise.</div>`;
   if (s === 'inferred_from_rates') return `<div class="note warn" style="margin:6px 0 0;padding:6px 10px;font-size:12px;font-family:inherit">Guessed
       from the last contract's rates. Check it against the bill and change it here if it is wrong.</div>`;
   return '';
@@ -4490,9 +4498,9 @@ async function findCrmMeters(like, have, out) {
             + 'active,is_lead,customer_is_lead,cur_supplier,cur_end,next_supplier,next_start,next_end,'
             + 'last_supplier,last_end,contract_state,supplied_until')
       .or(`mpan.ilike.${like},site_name.ilike.${like},postcode.ilike.${like},customer_name.ilike.${like}`)
-      .in('fuel', ['electricity', 'gas']).limit(40), 'UC meter search');
+      .in('fuel', ['electricity', 'gas']).limit(40), 'meter search');
   } catch (e) {
-    out.insertAdjacentHTML('beforeend', `<div class="note warn" style="margin-top:10px">Searching the UC data failed: ${esc(e.message)}</div>`);
+    out.insertAdjacentHTML('beforeend', `<div class="note warn" style="margin-top:10px">Searching the customer records failed: ${esc(e.message)}</div>`);
     return;
   }
   const seen = new Set((have || []).map(r => r.mpan));
@@ -4501,7 +4509,7 @@ async function findCrmMeters(like, have, out) {
   if (!crm.length) return;
   out.insertAdjacentHTML('beforeend',
     `<div style="margin:18px 0 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-2)">
-       Also in the UtilityClick data, not in a broker portfolio</div>
+       Also on the desk, not in a broker portfolio</div>
      <div class="scroll"><table><thead><tr><th>Customer</th><th>MPAN / MPRN</th><th>Fuel</th><th>Site</th>
        <th class="num">AQ</th><th>Supplier now</th><th>Free from</th><th></th></tr></thead><tbody>` +
     crm.map((m, i) => `<tr>
@@ -4780,7 +4788,7 @@ async function fillMeterGaps() {
   // A portfolio meter picked from the search: UC's meter type, as priceFromCrm does (08a).
   if (METER.utility === 'electricity' && !METER.crm && METER.rate_structure_src !== 'pricing_desk' && METER.mpan) {
     try {
-      const uc = await q(sb.from('crm_meters_v').select('registers,profile_class,pc_source').eq('mpan', METER.mpan).limit(3), 'UC meter type');
+      const uc = await q(sb.from('crm_meters_v').select('registers,profile_class,pc_source').eq('mpan', METER.mpan).limit(3), 'meter type');
       // The same MPAN under two customers (it happens) only counts when both say the same.
       if (uc.length && uc.every(r => r.registers === uc[0].registers && r.pc_source === uc[0].pc_source)) applyUcRegisters(uc[0]);
     } catch (_) { /* the portfolio's own type stands, and the box can change it */ }
@@ -5937,7 +5945,7 @@ async function defaultStartDate() {
       const rows = await q(sb.from('crm_meters_v')
         .select('supplied_until, cur_supplier, cur_end, next_supplier, next_start, next_end, last_supplier, last_end, contract_state')
         .eq('mpan', mp).order('supplied_until', { ascending: false, nullsFirst: false }).limit(5),
-        'UC contracts for this meter');
+        'contracts for this meter');
       const best = rows.find(r => r.supplied_until) || null;
       if (best) {
         const d = new Date(best.supplied_until + 'T00:00:00Z');
@@ -5950,7 +5958,7 @@ async function defaultStartDate() {
           : esc(best.cur_supplier || 'its current supplier');
         START_SUPPLIER = lined ? best.next_supplier : null;
         START_AUTO = $('qStart').value;
-        START_WHY = `${who} runs to ${uk(best.supplied_until)} in the UC data.`
+        START_WHY = `${who} runs to ${uk(best.supplied_until)} on record.`
           + (suggested <= today ? ' That date has passed, so tomorrow is used instead.' : '');
         paintStartNote();
         return;
@@ -5961,9 +5969,9 @@ async function defaultStartDate() {
         if (note) {
           note.className = 'note warn';
           note.innerHTML = last
-            ? `UC shows nothing live or lined up on this meter: the last contract (${esc(last.last_supplier || 'unknown supplier')}) `
+            ? `Nothing is live or lined up on this meter on record: the last contract (${esc(last.last_supplier || 'unknown supplier')}) `
               + `ended ${uk(last.last_end)}. The start is set to tomorrow. Check it has not been renewed without CES before quoting.`
-            : 'UC holds this meter but no contract dates for it, so the start is set to tomorrow. Set the real date before quoting.';
+            : 'This meter is on record with no contract dates, so the start is set to tomorrow. Set the real date before quoting.';
         }
         return;
       }
@@ -6170,7 +6178,7 @@ async function showMeter() {
   paintSscNote();
   const sup = SUPPLIERS.filter(x => x.parser_ready).length;
   const withWho = lined
-    ? `From the start date this meter is with <b>${esc(incName)}</b> (lined up in the UC data;
+    ? `From the start date this meter is with <b>${esc(incName)}</b> (lined up on record;
        today it is with ${esc(METER.supplier || 'nobody on file')})`
     : `This meter is with <b>${esc(incName || '')}</b>`;
   $('saleNote').className = 'note';

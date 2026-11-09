@@ -48,7 +48,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026-11-08.1';
+  var VERSION = '2026-11-09.1';
   var PAGE = 50, BIG_PAGE = 100;
 
   var LIFE = {
@@ -117,8 +117,8 @@
     pc = Number(pc);
     var s = String(supply || '').toUpperCase(), l = mcLetter(mc), label = RATE[reg] ? RATE[reg].toLowerCase() : 'unknown';
     if (!(pc >= 0 && pc <= 8)) return 'Profile class ' + pc + ' does not exist: they run 00 to 08.';
-    if (s === 'HH' && pc >= 1) return 'UC says this supply is half-hourly, so the profile class should be 00, not ' + pc2(pc) + '.';
-    if (s === 'NHH' && pc === 0) return 'UC says this supply is non-half-hourly, but the profile class is 00 (half-hourly).';
+    if (s === 'HH' && pc >= 1) return 'The meter record says this supply is half-hourly, so the profile class should be 00, not ' + pc2(pc) + '.';
+    if (s === 'NHH' && pc === 0) return 'The meter record says this supply is non-half-hourly, but the profile class is 00 (half-hourly).';
     if ((l === 'A' || l === 'B') && pc === 0) return 'Measurement class ' + l + ' is non-half-hourly, but the profile class is 00.';
     if ('CEFG'.indexOf(l) >= 0 && l && pc >= 1) return 'Measurement class ' + l + ' is half-hourly, but the profile class is ' + pc2(pc) + '.';
     if (pc === 0 || pc >= 5) return '';
@@ -340,6 +340,37 @@
     '.nx{font-size:12px;line-height:1.45}',
     '.nx .none{color:#8a5100;font-weight:700}',
     '.co-who{font-size:12px;color:var(--text-2);margin-top:4px}.co-who a{font-weight:700}',
+    // ---- 9 Nov 2026 (09a): a full company page. Current Contract green, Upcoming Contract blue.
+    '.card.co{border-top:4px solid #1d4ed8}',
+    '.card .co-name{font-size:22px}',
+    'th.k-cur{color:#1f7a46!important}th.k-next{color:#1d4ed8!important}',
+    'td.k-cur{background:#f0faf4;box-shadow:inset 3px 0 0 #2e9d5e}',
+    'td.k-next{background:#f0f5ff;box-shadow:inset 3px 0 0 #2f6fe0}',
+    'td.k-cur.k-soon{background:#fff7e8;box-shadow:inset 3px 0 0 #d98b00}',
+    'td.k-none{background:transparent;box-shadow:none}',
+    '.k-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--text-2);margin:0 0 8px}',
+    '.k-legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}',
+    '.ov{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:2px}',
+    '.ov .wide{grid-column:1/-1}',
+    '@media (max-width:1099px){.ov{grid-template-columns:minmax(0,1fr)}}',
+    '.ovc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 15px;min-width:0}',
+    '.ovc h3{font-size:13px;font-weight:800;margin:0 0 8px;color:var(--text);display:flex;justify-content:space-between;align-items:center;gap:8px;text-transform:none;letter-spacing:0}',
+    '.ovc h3 .act{font-size:11.5px}',
+    '.ovc.cur{border-color:#b9e2c8;background:linear-gradient(180deg,#f3fbf6,#fff 60%)}.ovc.cur h3{color:#1f7a46}',
+    '.ovc.nxt{border-color:#c4d5fb;background:linear-gradient(180deg,#f2f6ff,#fff 60%)}.ovc.nxt h3{color:#1d4ed8}',
+    '.ovc .row{display:flex;gap:10px;align-items:baseline;justify-content:space-between;padding:6px 0;border-top:1px solid var(--line);font-size:12.5px}',
+    '.ovc .row:first-of-type{border-top:0}',
+    '.ovc .row .r{text-align:right;white-space:nowrap}',
+    '.ovc .empty{font-size:12.5px;color:var(--text-2)}',
+    '.ovc .soon{color:#8a5100;font-weight:700}.ovc .bad{color:#b42318;font-weight:700}',
+    '.ovc .twin{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}',
+    '.co-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px 12px;padding:12px;border:1px dashed var(--line);border-radius:10px;margin:0 0 10px;background:var(--panel-2)}',
+    '.co-form label.cf{display:flex;flex-direction:column;gap:3px;font-size:11.5px;font-weight:700;text-transform:none;letter-spacing:0;color:var(--text-2);margin:0}',
+    '.co-form label.cf input,.co-form label.cf select,.co-form label.cf textarea{height:32px;font-size:13px;font-weight:400;padding:5px 9px;width:100%}',
+    '.co-form label.cf textarea{height:70px}',
+    '.co-form label.ck{display:flex;flex-direction:row;align-items:center;gap:7px;font-size:12.5px;font-weight:400;text-transform:none;letter-spacing:0;margin:0}',
+    '.co-form label.ck input{width:16px;height:16px;flex:none;padding:0}',
+    '.co-form .cf-btns{grid-column:1/-1;display:flex;gap:8px;align-items:center;flex-wrap:wrap}',
   ].join('\n');
 
   function injectStyles(doc) {
@@ -378,7 +409,7 @@
 
     var MENU = [['portfolios', 'Portfolios'], ['contracts', 'Contracts'], ['services', 'Meter services'], ['documents', 'Signed contracts'],
                 ['nocontract', 'No contract uploaded'], ['tenders', 'Tenders'], ['quality', 'Data checks'], ['overview', 'Figures'],
-                ['import', 'Import from UC']];
+                ['import', 'Import data']];
     host.innerHTML = (opts.nav === false ? '' : '<div class="crm-sub" id="crmNav">' + MENU.map(function (v) {
       return '<button data-v="' + v[0] + '">' + v[1] + '</button>';
     }).join('') + '</div>') + '<div id="crmBody"></div>';
@@ -396,6 +427,8 @@
         return r;
       });
     }
+    /** A read the page can do without: an error gives an empty result, never a broken page. */
+    function soft(p) { return Promise.resolve(p).then(function (r) { return r && !r.error ? r : { data: null }; }, function () { return { data: null }; }); }
     function fail(e) { body.insertAdjacentHTML('afterbegin', '<div class="note bad" style="margin-bottom:12px">' + esc(e.message || String(e)) + '</div>'); }
     function menuKey() {
       if (S.view === 'customers') return 'portfolios';
@@ -448,7 +481,7 @@
       var f = { portfolios: renderPortfolios, overview: renderOverview, customers: renderCustomers, customer: renderCustomer,
                 contracts: renderContracts, services: renderContracts, documents: renderDocuments, tenders: renderTenders,
                 quality: renderQuality, import: renderImport, nocontract: renderNoContract,
-                saved: renderSaved, renewals: renderRenewals, today: renderToday }[view];
+                saved: renderSaved, renewals: renderRenewals, today: renderToday, loas: renderLoas }[view];
       return Promise.resolve().then(function () { return f(arg); })
         .then(function () {
           if (keep == null) return;
@@ -503,7 +536,7 @@
       var note = '';
       if (m.pc_source === 'hh_supply') note = '<div class="crm-small">00 from the HH supply type</div>';
       if (m.pc_source === 'desk' || m.override_by) {
-        note += '<div class="crm-small" title="' + esc('UC holds PC ' + pc2(m.uc_profile_class) + ', ' + (RATE[m.uc_registers] || m.uc_registers || 'no rate type') +
+        note += '<div class="crm-small" title="' + esc('The import holds PC ' + pc2(m.uc_profile_class) + ', ' + (RATE[m.uc_registers] || m.uc_registers || 'no rate type') +
           (m.override_reason ? '. Why: ' + m.override_reason : '')) + '">checked by ' + esc(m.override_by || 'the desk') + (m.override_at ? ' ' + uk(m.override_at) : '') + '</div>';
       }
       if (m.pc_rule === 'check' || m.pc_rule === 'missing') {
@@ -533,10 +566,10 @@
         }).join('') + '</select></div>' +
         '<div style="flex:1;min-width:220px"><label>How you know</label><input data-f="why" placeholder="e.g. the bill top line shows 04, two registers"></div>' +
         '<div style="display:flex;gap:6px"><button class="act sm" data-f="save">Save</button>' +
-        (m.override_by || m.pc_source === 'desk' ? '<button class="act ghost sm" data-f="undo">Back to UC&rsquo;s values</button>' : '') +
+        (m.override_by || m.pc_source === 'desk' ? '<button class="act ghost sm" data-f="undo">Back to the imported values</button>' : '') +
         '<button class="act ghost sm" data-f="cancel">Cancel</button></div></div>' +
         '<div data-f="msg" class="crm-small" style="margin-top:8px">The profile class is the first two digits of the MPAN top line; the rate type is how many registers the meter has. ' +
-        'Kept on the desk: a UC import never overwrites it.</div></td>';
+        'Kept on the desk: an import never overwrites it.</div></td>';
       tr.parentNode.insertBefore(row, tr.nextSibling);
       var $f = function (k) { return row.querySelector('[data-f="' + k + '"]'); };
       var msg = $f('msg');
@@ -627,7 +660,7 @@
             '</button>';
         }
         body.innerHTML = '<div class="card">' +
-          '<div class="pf-top"><div><h2>Portfolios</h2><div class="sub" style="margin-bottom:0">Every customer UtilityClick held, ' +
+          '<div class="pf-top"><div><h2>Portfolios</h2><div class="sub" style="margin-bottom:0">Every customer on the desk, ' +
           'by account manager. Open one for its customers, renewals and meters.</div></div>' +
           '<div style="flex:1;min-width:260px;max-width:460px"><label for="pfQ">Find a customer in any portfolio</label>' +
           '<input id="pfQ" placeholder="Name, postcode, company number or MPAN"></div></div>' +
@@ -673,8 +706,8 @@
             '><div class="k">' + k + '</div><div class="v">' + v + '</div>' + (s ? '<div class="s">' + s + '</div>' : '') + '</div>';
         }
         body.innerHTML =
-          '<div class="card"><h2>UtilityClick data on the desk</h2>' +
-          '<div class="sub">Every customer, site, meter, contract and tender UC held. Whether a contract is live, ' +
+          '<div class="card"><h2>Data on the desk</h2>' +
+          '<div class="sub">Every customer, site, meter, contract and tender on the desk. Whether a contract is live, ' +
           'upcoming or ended is worked out from its dates every time you look, so nothing here goes stale on its own. ' +
           (li ? 'Last import ' + uk(li.started_at) + (li.by_name ? ' (' + esc(li.by_name) + ')' : '') + ', ' + esc(li.status) + '.' : 'Nothing imported yet.') +
           '</div><div class="crm-kpis">' +
@@ -745,6 +778,16 @@
             return r;
           }).catch(function () { return r; });
         }).then(function (r) {
+          // 9 Nov 2026 (09a): the LOA column from the desk's own LOA register, not the import's stale dates.
+          var cids2 = (r.data || []).map(function (c) { return c.uc_customer_id; });
+          if (!LOAPI || !cids2.length) return r;
+          return Promise.resolve(sb.from('crm_loa_current_v').select('uc_customer_id,loa_id,signed_on,expires_on').in('uc_customer_id', cids2)).then(function (lr) {
+            if (!lr || lr.error) return r;
+            var by = {}; (lr.data || []).forEach(function (x) { by[x.uc_customer_id] = x; });
+            (r.data || []).forEach(function (c) { c._loa = by[c.uc_customer_id] || null; c._loaChecked = true; });
+            return r;
+          }).catch(function () { return r; });
+        }).then(function (r) {
           var rows = r.data || [];
           var pf = f.am && S.portfolios ? S.portfolios.filter(function (p) { return p.account_manager === f.am; })[0] : null;
           var title = f.am ? 'Portfolio: ' + esc(pfName(f.am)) : (f.q ? 'Search' : 'Customers');
@@ -778,7 +821,7 @@
                   '<td class="crm-wrap" style="max-width:220px">' + (c._contact ? contactLine(c._contact, true) : '<span class="crm-small">no primary contact</span>') + '</td>' +
                   '<td class="num c-opt">' + (c.open_issues ? '<span class="pill p-warn">' + n0(c.open_issues) + '</span>' : '') + '</td>' +
                   '<td>' + (c.is_lead ? '<span class="pill p-mute">Lead</span>' : c.active === false ? '<span class="pill p-mute">Inactive</span>' : '<span class="pill p-ok">Active</span>') +
-                  (c.source === 'desk' ? ' <span class="pill p-warn" title="Added on the desk, not yet in UtilityClick">desk</span>' : '') + '</td></tr>';
+                  (c.source === 'desk' ? ' <span class="pill p-warn" title="Added on the desk">desk</span>' : '') + '</td></tr>';
               }).join('') + '</tbody></table></div><div class="fc-foot">' + pager(f.page, PAGE, r.count || 0) + '</div>'
               : '<div class="note">Nothing matched.</div>') + '</div>';
           var run = function () {
@@ -803,8 +846,13 @@
     // 6 Nov 2026: a company page. A header that says who they are and where their contracts
     // stand, then ONE tab at a time (it was eight cards stacked down one long page), the tab's
     // table filling the rest of the window. Every meter row carries the contract in force on it.
-    var CTABS = [['sites', 'Sites and meters'], ['contracts', 'Supply contracts'], ['quotes', 'Quotes'], ['services', 'Meter services'],
-                 ['contacts', 'Contacts'], ['tenders', 'Tenders'], ['notes', 'Notes'], ['reads', 'Readings'], ['problems', 'Problems']];
+    // 9 Nov 2026 (09a): the page opens on an Overview of everything on file; LOA and Billing and payment
+    // are tabs of their own; Contacts, Meter reads and Notes always show, with a way to add to them.
+    var CTABS = [['overview', 'Overview'], ['sites', 'Sites and meters'], ['contracts', 'Supply contracts'], ['loa', 'LOA'], ['contacts', 'Contacts'],
+                 ['billing', 'Billing and payment'], ['reads', 'Meter reads'], ['notes', 'Notes'], ['quotes', 'Quotes'], ['services', 'Meter services'],
+                 ['tenders', 'Tenders'], ['problems', 'Problems']];
+    var ALWAYS_TABS = { overview: 1, sites: 1, contracts: 1, loa: 1, contacts: 1, billing: 1, reads: 1, notes: 1 };
+    var LOAPI = opts.loa || null;
     function svcBoth(m) {
       if (m.fuel !== 'electricity') return '<span class="crm-small">&ndash;</span>';
       var one = function (label, prov, until) {
@@ -814,7 +862,7 @@
       return one('MOP', m.mop_provider, m.mop_until) + one('DC/DA', m.dcda_provider, m.dcda_until);
     }
     function renderCustomer(id) {
-      if (id && (!S.customer || S.customer.id !== id)) { S.customer = { id: id }; S.ctab = 'live'; S.cpage = 0; S.cview = 'sites'; }
+      if (id && (!S.customer || S.customer.id !== id)) { S.customer = { id: id }; S.ctab = 'live'; S.cpage = 0; S.cview = 'overview'; }
       id = S.customer.id;
       return Promise.all([
         q(sb.from('crm_customers_v').select('*').eq('uc_customer_id', id).maybeSingle(), 'customer'),
@@ -833,6 +881,12 @@
           .eq('uc_customer_id', id).eq('service_group', 'supply').in('lifecycle', ['live', 'upcoming', 'pipeline'])
           .order('meter_start', { ascending: true, nullsFirst: false }).range(0, 999), 'contracts in force'),
         q(sb.from('crm_contracts_v').select('id', { count: 'exact', head: true }).eq('uc_customer_id', id).eq('service_group', 'supply'), 'contract count'),
+        // 9 Nov 2026 (09a): the LOA in force, every LOA and renewal, the LOA and mandate files, how they pay.
+        soft(sb.from('crm_loa_current_v').select('*').eq('uc_customer_id', id).maybeSingle()),
+        soft(sb.from('crm_loas').select('*').eq('uc_customer_id', id).is('removed_at', null).order('created_at', { ascending: false }).range(0, 199)),
+        soft(sb.from('crm_documents').select('id,kind,file_name,storage_path,uploaded_at,uploaded_by_name,size_bytes').eq('uc_customer_id', id)
+          .in('kind', ['loa', 'dd_mandate']).is('removed_at', null).range(0, 199)),
+        soft(sb.from('crm_customer_billing').select('*').eq('uc_customer_id', id).maybeSingle()),
       ]).then(function (r) {
         var c = r[0].data;
         if (!c) { body.innerHTML = '<div class="note bad">That company is not on the desk.</div>'; return; }
@@ -847,7 +901,9 @@
         if (!r) return;
         var c = r[0].data;
         var contacts = r[1].data || [], meters = r[2].data || [], tenders = r[3].data || [], notes = r[4].data || [], reads = r[5].data || [], issues = r[6].data || [];
-        var services = r[7].data || [], cur = r[8].data || [], nSupply = r[9].count || 0, nQuotes = (r[10] && r[10].count) || 0;
+        var services = r[7].data || [], cur = r[8].data || [], nSupply = r[9].count || 0, nQuotes = (r[14] && r[14].count) || 0;
+        var loaCur = (r[10] && r[10].data) || null, loas = (r[11] && r[11].data) || [], fileRows = (r[12] && r[12].data) || [], billing = (r[13] && r[13].data) || null;
+        var loaDocs = {}; fileRows.forEach(function (d) { loaDocs[d.id] = d; });
         S.customer.name = c.name;
         if (opts.onCompany) { try { opts.onCompany({ id: id, name: c.name }); } catch (_) { /* the page's business */ } }
 
@@ -881,7 +937,7 @@
             (RO ? '' : ' <button class="crm-link" id="coAmEdit" style="font-size:12px;font-weight:700">change</button>') +
             '<span id="coAmNote"></span></span>',
           c.company_reg_number ? 'Company no. <b>' + esc(c.company_reg_number) + '</b>' : '',
-          loaPill(c),
+          LOAPI ? LOAPI.pill(loaCur) : loaPill(c),
           c.vat_status ? 'VAT ' + esc(c.vat_status) : '',
           c.legal_status ? esc(c.legal_status) : '',
           c.parent_name ? 'Part of <b>' + esc(c.parent_name) + '</b>' : '',
@@ -894,20 +950,21 @@
           return '<' + tag + ' class="co-stat' + (cls ? ' ' + cls : '') + '"' + (attr || '') + '><b>' + v + '</b>' + label + '</' + tag + '>';
         };
         var counts = { sites: meters.length, contracts: nSupply, quotes: nQuotes, services: services.length, contacts: contacts.length, tenders: tenders.length,
-                       notes: notes.length + (c.customer_notes ? 1 : 0), reads: reads.length, problems: issues.length };
-        var tabs = CTABS.filter(function (t) { return (t[0] === 'sites' || t[0] === 'contracts' || counts[t[0]] > 0) && !(!CAN_PRICE && t[0] === 'quotes'); });
-        if (!tabs.some(function (t) { return t[0] === S.cview; })) S.cview = 'sites';
+                       notes: notes.length + (c.customer_notes ? 1 : 0), reads: reads.length, problems: issues.length,
+                       loa: loas.filter(function (l) { return l.kind === 'signed'; }).length, billing: null, overview: null };
+        var tabs = CTABS.filter(function (t) { return (ALWAYS_TABS[t[0]] || counts[t[0]] > 0) && !(!CAN_PRICE && t[0] === 'quotes') && !(t[0] === 'loa' && !LOAPI); });
+        if (!tabs.some(function (t) { return t[0] === S.cview; })) S.cview = 'overview';
 
         body.innerHTML = '<div class="card fillcard co">' +
           '<div class="fc-head">' +
           '<div class="co-head"><div style="min-width:0">' +
           '<h2 class="co-name">' + esc(c.name) + ' ' +
           (c.is_lead ? '<span class="pill p-mute">Lead</span>' : c.active === false ? '<span class="pill p-mute">Inactive</span>' : '<span class="pill p-ok">Active</span>') +
-          (c.source === 'desk' ? ' <span class="pill p-warn" title="Added on the desk, not yet in UtilityClick">added on the desk</span>' : '') + '</h2>' +
+          (c.source === 'desk' ? ' <span class="pill p-warn" title="Added on the desk">added on the desk</span>' : '') + '</h2>' +
           '<div class="co-facts">' + facts + (where ? '<br>' + esc(where) : '') + (comm ? ' &middot; Preferred commission ' + comm : '') + '</div>' +
           (primary ? '<div class="co-who">Primary contact ' + contactLine(primary) + (primary.job_title ? ' <span class="crm-small">' + esc(primary.job_title) + '</span>' : '') + '</div>' : '') +
           (c.customer_notes ? '<div class="sub clamp" style="margin:6px 0 0">' + esc(c.customer_notes) + '</div>' : '') +
-          '</div><button class="crm-back" id="crmBack">&larr; Back</button></div>' +
+          '</div><button class="crm-back" id="crmBack">&larr; Back to customers</button></div>' +
           '<div class="co-stats">' +
           stat(n0(nSites), nSites === 1 ? 'site' : 'sites') +
           stat(n0(c.active_meter_count), 'active meter' + (Number(c.active_meter_count) === 1 ? '' : 's') + (c.meter_count !== c.active_meter_count ? ' of ' + n0(c.meter_count) : '')) +
@@ -921,7 +978,7 @@
           '<div class="co-tabs" id="coTabs" role="tablist">' + tabs.map(function (t) {
             var cls = (t[0] === S.cview ? 'on' : '') + (t[0] === 'problems' ? ' bad' : '');
             return '<button role="tab" data-ct="' + t[0] + '"' + (cls.trim() ? ' class="' + cls.trim() + '"' : '') +
-              ' aria-selected="' + (t[0] === S.cview ? 'true' : 'false') + '">' + t[1] + '<span class="c">' + n0(counts[t[0]]) + '</span></button>';
+              ' aria-selected="' + (t[0] === S.cview ? 'true' : 'false') + '">' + t[1] + (counts[t[0]] == null ? '' : '<span class="c">' + n0(counts[t[0]]) + '</span>') + '</button>';
           }).join('') + '</div></div>' +
           '<div class="co-body" id="crmCbody"></div></div>';
 
@@ -942,7 +999,8 @@
         });
 
         S.customer.ctx = { c: c, contacts: contacts, meters: meters, tenders: tenders, notes: notes, reads: reads, issues: issues, services: services, byMpan: byMpan,
-                           nowBy: nowBy, nextBy: nextBy };
+                           nowBy: nowBy, nextBy: nextBy, loa: loaCur, loas: loas, loaDocs: loaDocs, files: fileRows, billing: billing,
+                           deals: dealList, onFile: onFile, commLive: commLive, primary: primary };
         return paintCompanyTab();
       });
     }
@@ -960,7 +1018,7 @@
           var o = r && !r.error && r.data && r.data[0];
           if (!o || !note) return;
           note.innerHTML = ' <span class="pill p-warn" title="Set on the desk by ' + esc(o.set_by_name || '') + ' on ' + uk(o.set_at) +
-            '; UtilityClick imports keep it">set on the desk</span> <span class="crm-small">UtilityClick says ' + esc(o.uc_account_manager || 'nobody') + '</span>';
+            '; imports keep it">set on the desk</span>';
           note.setAttribute('data-uc', o.uc_account_manager || '');
         }).catch(function () { /* the badge only */ });
       var btn = body.querySelector('#coAmEdit');
@@ -980,7 +1038,7 @@
           (r[0].data || []).forEach(function (x) { if (x.account_manager) names[x.account_manager] = 1; });
           r[1].forEach(function (x) { if (x.uc_name) names[x.uc_name] = 1; });
           var list = Object.keys(names).sort(function (a, b) { return a.localeCompare(b); });
-          sel.innerHTML = '<option value="">' + esc(ucSays ? 'UtilityClick\'s: ' + ucSays : 'UtilityClick\'s (nobody)') + '</option>' +
+          sel.innerHTML = '<option value="">' + esc(ucSays ? 'As imported: ' + ucSays : 'As imported (nobody)') + '</option>' +
             list.map(function (n) { return '<option value="' + esc(n) + '"' + (n === c.account_manager && n !== ucSays ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('');
         }).catch(function (e) { msg.innerHTML = '<span style="color:var(--fail)">' + esc(e.message) + '</span>'; });
         box.querySelector('#coAmCancel').addEventListener('click', function () { go('customer', id, { keepScroll: true }); });
@@ -1002,6 +1060,9 @@
       var grid = function (inner) { return '<div class="grid">' + inner + '</div>'; };
       var v = S.cview;
       if (v === 'contracts') { box.innerHTML = ''; return customerContracts(id); }
+      if (v === 'overview') return paintOverview(box, ctx, again);
+      if (v === 'loa') return LOAPI ? LOAPI.paint(box, ctx, again) : Promise.resolve();
+      if (v === 'billing') return paintBilling(box, ctx, again);
       if (v === 'sites') {
         // 6 Nov 2026: what each meter is on NOW and what is lined up NEXT, side by side, with the
         // rates and the pounds a year where they can be worked out; a total per site.
@@ -1062,20 +1123,23 @@
             ? supName(nxt.supplier) + '<div class="crm-small">from ' + uk(nxt.meter_start) + ' ' + pill(LIFE, nxt.lifecycle) + '</div>' + ratesShort(nxt) + costLine(nxt, m)
             : now ? '<span class="' + (now.days_to_end != null && now.days_to_end <= 180 ? 'none' : 'crm-small') + '">Nothing lined up</span>'
             : '<span class="crm-small">&ndash;</span>';
+          var curCls = now ? (now.days_to_end != null && now.days_to_end <= 90 ? ' k-soon' : '') : ' k-none', nextCls = nxt ? '' : ' k-none';
           rows.push('<tr data-m="' + i + '">' + rmCell(i) + (docs ? (dealRows[i] ? docs.cell(dealRows[i], i) : '<td class="dc-cell"><span class="crm-small">no contract</span></td>') : '') +
             '<td class="nowrap">' + fuelIcon(m.fuel) + '<span class="mono">' + esc(m.mpan) + '</span>' + (m.active === false ? '<div class="crm-small">meter inactive</div>' : '') +
               '<div style="margin-top:3px">' + rateCell(m) + '</div></td>' +
-            '<td class="nx">' + nowCell + '</td>' +
-            '<td class="nx">' + nextCell + '</td>' +
+            '<td class="nx k-cur' + curCls + '">' + nowCell + '</td>' +
+            '<td class="nx k-next' + nextCls + '">' + nextCell + '</td>' +
             '<td class="num">' + n0(m.aq) + (isM3(m.aq_unit) ? ' m&sup3;' : '') + '</td>' +
             (elec ? '<td class="c-opt">' + svcBoth(m) + '</td>' : '') +
             '<td class="nowrap">' + (priceable && CAN_PRICE ? '<button class="act sm" data-price="' + i + '">Price</button> ' : '') +
             (fixable && !RO ? '<button class="act ' + (flagged ? '' : 'ghost ') + 'sm" data-fix="' + i + '">' + (flagged ? 'Fix' : 'Edit') + '</button>' : '') + '</td></tr>');
         });
-        box.innerHTML = (pcFlags && !RO ? '<div class="note bad" style="margin:0 0 10px;padding:7px 12px">' + pcFlags + ' meter' + (pcFlags === 1 ? '' : 's') +
+        box.innerHTML = '<div class="k-legend"><span><i style="background:#2e9d5e"></i>Current Contract</span><span><i style="background:#d98b00"></i>Current Contract ending within 90 days</span>' +
+            '<span><i style="background:#2f6fe0"></i>Upcoming Contract</span></div>' +
+          (pcFlags && !RO ? '<div class="note bad" style="margin:0 0 10px;padding:7px 12px">' + pcFlags + ' meter' + (pcFlags === 1 ? '' : 's') +
             ' with a profile class to check: press <b>Fix</b> on the row.</div>' : '') +
           (meters.length ? grid('<table id="crmMeters"><thead><tr><th class="rm-cell"></th>' + (docs ? '<th class="dc-cell">Contract</th>' : '') +
-            '<th>Meter</th><th>Now</th><th>Next</th><th class="num">AQ</th>' +
+            '<th>Meter</th><th class="k-cur">Current Contract</th><th class="k-next">Upcoming Contract</th><th class="num">AQ</th>' +
             (elec ? '<th class="c-opt">MOP and DC / DA</th>' : '') + '<th></th></tr></thead><tbody>' + rows.join('') + '</tbody></table>')
             : '<div class="note">No meters on file.</div>');
         var priceIt = function (m) { if (opts.onPriceMeter) opts.onPriceMeter(Object.assign({}, m, { customer_name: c.name, account_manager: c.account_manager })); };
@@ -1120,13 +1184,14 @@
         return Promise.resolve();
       }
       if (v === 'contacts') {
-        box.innerHTML = grid('<table><thead><tr><th>Name</th><th>Job title</th><th>Phone</th><th>Mobile</th><th>Email</th><th></th></tr></thead><tbody>' +
+        box.innerHTML = (RO ? '' : contactForm()) + (ctx.contacts.length ? '' : '<div class="note" style="margin:0 0 10px">No contacts on file for ' + esc(c.name) + ' yet.' + (RO ? '' : ' Add the first one above.') + '</div>') + grid('<table><thead><tr><th>Name</th><th>Job title</th><th>Phone</th><th>Mobile</th><th>Email</th><th></th></tr></thead><tbody>' +
           ctx.contacts.map(function (p) {
             return '<tr><td>' + esc([p.title && p.title !== 'Not Specified' ? p.title : '', p.first_name, p.last_name].filter(Boolean).join(' ')) + '</td><td>' + esc(p.job_title || '') + '</td>' +
               '<td class="mono">' + esc(p.telephone || '') + (p.telephone_ext ? ' x' + esc(p.telephone_ext) : '') + '</td><td class="mono">' + esc(p.mobile || '') + '</td>' +
               '<td class="crm-wrap">' + (p.email ? '<a href="mailto:' + esc(p.email) + '">' + esc(p.email) + '</a>' : '') + '</td>' +
               '<td>' + (p.primary_contact ? '<span class="pill p-ok">Primary</span> ' : '') + (p.tps ? '<span class="pill p-warn">TPS</span> ' : '') + (p.active === false ? '<span class="pill p-mute">Inactive</span>' : '') + '</td></tr>';
           }).join('') + '</tbody></table>');
+        wireContactForm(box, id, again);
         return Promise.resolve();
       }
       if (v === 'tenders') {
@@ -1139,19 +1204,21 @@
         return Promise.resolve();
       }
       if (v === 'notes') {
-        box.innerHTML = '<div class="grid" style="padding:10px">' + (c.customer_notes ? '<div class="note" style="margin:0 0 8px;white-space:pre-wrap"><b>On the customer record</b><br>' + esc(c.customer_notes) + '</div>' : '') +
+        box.innerHTML = noteForm() + (ctx.notes.length || c.customer_notes ? '' : '<div class="note" style="margin:0 0 10px">No notes yet.</div>') + '<div class="grid" style="padding:10px">' + (c.customer_notes ? '<div class="note" style="margin:0 0 8px;white-space:pre-wrap"><b>On the customer record</b><br>' + esc(c.customer_notes) + '</div>' : '') +
           ctx.notes.map(function (n) {
             return '<div class="note" style="margin:0 0 8px;white-space:pre-wrap"><b>' + uk(n.added_at) + '</b> ' + esc(n.added_by || '') +
               (n.linked_entity ? ' <span class="crm-small">on ' + esc(n.linked_to || '') + ' ' + esc(n.linked_entity) + '</span>' : '') + '<br>' + esc(n.note) + '</div>';
           }).join('') + '</div>';
+        wireNoteForm(box, id, again);
         return Promise.resolve();
       }
       if (v === 'reads') {
-        box.innerHTML = grid('<table><thead><tr><th>Date</th><th>MPAN / MPRN</th><th>Serial</th><th>Type</th><th class="num">Reading</th><th class="num">Day</th><th class="num">Night</th><th class="num">E/W</th></tr></thead><tbody>' +
+        box.innerHTML = (RO ? '' : readForm(ctx.meters)) + (ctx.reads.length ? '' : '<div class="note" style="margin:0 0 10px">No meter reads logged for ' + esc(c.name) + ' yet.</div>') + grid('<table><thead><tr><th>Date</th><th>MPAN / MPRN</th><th>Serial</th><th>Type</th><th class="num">Reading</th><th class="num">Day</th><th class="num">Night</th><th class="num">E/W</th></tr></thead><tbody>' +
           ctx.reads.map(function (x) {
             return '<tr><td>' + uk(x.read_date) + '</td><td class="mono">' + esc(x.mpan || '') + '</td><td class="mono">' + esc(x.serial || '') + '</td><td>' + esc(x.reading_type || '') + '</td>' +
               '<td class="num">' + n0(x.reading) + '</td><td class="num">' + n0(x.reading_day) + '</td><td class="num">' + n0(x.reading_night) + '</td><td class="num">' + n0(x.reading_ew) + '</td></tr>';
           }).join('') + '</tbody></table>');
+        wireReadForm(box, id, ctx.meters, again);
         return Promise.resolve();
       }
       if (v === 'problems') {
@@ -1161,6 +1228,191 @@
         return Promise.resolve();
       }
       return Promise.resolve();
+    }
+
+    // ================================================================ 9 Nov 2026 (09a)
+    /** Switch the company page to one of its tabs (the Overview's links). */
+    function gotoTab(v) {
+      var b = body.querySelector('#coTabs [data-ct="' + v + '"]');
+      if (b) b.click();
+    }
+    function daysTxt(n) {
+      if (n == null) return '';
+      n = Number(n);
+      return n < 0 ? 'ended ' + (-n) + ' day' + (n === -1 ? '' : 's') + ' ago' : n === 0 ? 'today' : 'in ' + n + ' day' + (n === 1 ? '' : 's');
+    }
+    var FUEL_WORD = { electricity: 'Electricity', gas: 'Gas', water: 'Water' };
+    /** One line per supplier and fuel: how many meters, from and to. */
+    function contractGroups(by, meters) {
+      var g = {}, fuelOf = {};
+      meters.forEach(function (m) { fuelOf[m.mpan] = m.fuel; });
+      Object.keys(by).forEach(function (mp) {
+        var k = by[mp], key = (k.supplier || '?') + '|' + (fuelOf[mp] || k.fuel || '');
+        var x = g[key] || (g[key] = { supplier: k.supplier, fuel: fuelOf[mp] || k.fuel, n: 0, start: null, end: null, days: null, life: k.lifecycle, product: k.product });
+        x.n++;
+        if (k.meter_start && (!x.start || k.meter_start < x.start)) x.start = k.meter_start;
+        if (k.meter_end && (!x.end || k.meter_end < x.end)) { x.end = k.meter_end; x.days = k.days_to_end; }
+      });
+      return Object.keys(g).map(function (k) { return g[k]; }).sort(function (a, b) { return String(a.end || a.start).localeCompare(String(b.end || b.start)); });
+    }
+    function paintOverview(box, ctx, again) {
+      var c = ctx.c, cur = contractGroups(ctx.nowBy, ctx.meters), nxt = contractGroups(ctx.nextBy, ctx.meters);
+      var curCard = '<div class="ovc cur"><h3>Current Contract<button class="act ghost sm" data-goto="sites">Every meter &rarr;</button></h3>' +
+        (cur.length ? cur.map(function (x) {
+          var soon = x.days != null && Number(x.days) <= 90;
+          return '<div class="row"><div>' + supName(x.supplier) + '<div class="crm-small">' + esc(FUEL_WORD[x.fuel] || x.fuel || '') + ' &middot; ' + x.n + ' meter' + (x.n === 1 ? '' : 's') +
+            (x.product ? ' &middot; ' + esc(x.product) : '') + '</div></div><div class="r">to <b>' + uk(x.end) + '</b><div class="crm-small' + (soon ? ' soon' : '') + '">' + daysTxt(x.days) + '</div></div></div>';
+        }).join('') + (ctx.commLive ? '<div class="crm-small" style="margin-top:6px">About <b>' + gbp(ctx.commLive) + '</b> a year commission on these.</div>' : '')
+          : '<div class="empty">No contract is live on any meter.</div>') + '</div>';
+      var nxtCard = '<div class="ovc nxt"><h3>Upcoming Contract</h3>' +
+        (nxt.length ? nxt.map(function (x) {
+          return '<div class="row"><div>' + supName(x.supplier) + '<div class="crm-small">' + esc(FUEL_WORD[x.fuel] || x.fuel || '') + ' &middot; ' + x.n + ' meter' + (x.n === 1 ? '' : 's') +
+            '</div></div><div class="r">from <b>' + uk(x.start) + '</b><div class="crm-small">' + pill(LIFE, x.life) + '</div></div></div>';
+        }).join('') : '<div class="empty' + (cur.some(function (x) { return x.days != null && Number(x.days) <= 180; }) ? ' soon' : '') + '">Nothing lined up yet.</div>') + '</div>';
+      var loaCard = LOAPI ? '<div class="ovc"><h3>Letter of Authority</h3>' + LOAPI.summary(ctx) + '</div>' : '';
+      var people = ctx.contacts.slice(0, 4);
+      var contactCard = '<div class="ovc"><h3>Contacts<button class="act ghost sm" data-goto="contacts">' + (RO ? 'All contacts' : 'All / add') + ' &rarr;</button></h3>' +
+        (people.length ? people.map(function (p) {
+          var nm = [p.first_name, p.last_name].filter(Boolean).join(' ') || '(no name)';
+          var tel = p.telephone || p.mobile || '';
+          return '<div class="row"><div><b>' + esc(nm) + '</b>' + (p.primary_contact ? ' <span class="pill p-ok">Primary</span>' : '') + '<div class="crm-small">' + esc(p.job_title || '') + '</div></div>' +
+            '<div class="r">' + (tel ? '<a href="tel:' + esc(String(tel).replace(/[^0-9+]/g, '')) + '">' + esc(tel) + '</a>' : '') +
+            (p.email ? '<div class="crm-small"><a href="mailto:' + esc(p.email) + '">' + esc(p.email) + '</a></div>' : '') + '</div></div>';
+        }).join('') + (ctx.contacts.length > 4 ? '<div class="crm-small" style="margin-top:6px">and ' + (ctx.contacts.length - 4) + ' more</div>' : '')
+          : '<div class="empty">No contacts on file yet.' + (RO ? '' : ' <button class="crm-link" data-goto="contacts">Add one</button>') + '</div>') + '</div>';
+      var b = ctx.billing, mand = ctx.files.filter(function (d) { return d.kind === 'dd_mandate'; });
+      var payCard = '<div class="ovc"><h3>Billing and payment<button class="act ghost sm" data-goto="billing">' + (RO ? 'Details' : 'Edit') + ' &rarr;</button></h3>' +
+        (b ? '<div class="row"><div>How they pay</div><div class="r"><b>' + esc(PAY[b.payment_method] || 'Not recorded') + '</b>' + (b.payment_method === 'direct_debit' && b.dd_day ? '<div class="crm-small">collected on day ' + b.dd_day + '</div>' : '') + '</div></div>' +
+          (b.billing_email ? '<div class="row"><div>Bills go to</div><div class="r"><a href="mailto:' + esc(b.billing_email) + '">' + esc(b.billing_email) + '</a></div></div>' : '') +
+          (b.paperless != null ? '<div class="row"><div>Paperless billing</div><div class="r">' + (b.paperless ? 'Yes' : 'No') + '</div></div>' : '')
+          : '<div class="empty">How they pay is not recorded yet.</div>') +
+        '<div class="row"><div>Direct Debit mandate</div><div class="r">' + (mand.length ? '<button class="crm-link" data-doc-open="' + esc(mand[0].id) + '">' + esc(mand[0].file_name) + '</button>' : '<span class="crm-small">none on file</span>') + '</div></div></div>';
+      var lastBy = {};
+      ctx.reads.forEach(function (x) { if (!lastBy[x.mpan] || String(x.read_date) > String(lastBy[x.mpan].read_date)) lastBy[x.mpan] = x; });
+      var lr = Object.keys(lastBy).map(function (k) { return lastBy[k]; }).sort(function (a, b) { return String(b.read_date).localeCompare(String(a.read_date)); });
+      var readCard = '<div class="ovc"><h3>Meter reads<button class="act ghost sm" data-goto="reads">' + (RO ? 'Every read' : 'Every read / log one') + ' &rarr;</button></h3>' +
+        (lr.length ? lr.slice(0, 5).map(function (x) {
+          var v = x.reading != null ? n0(x.reading) : [x.reading_day != null ? 'D ' + n0(x.reading_day) : '', x.reading_night != null ? 'N ' + n0(x.reading_night) : '', x.reading_ew != null ? 'E/W ' + n0(x.reading_ew) : ''].filter(Boolean).join(' &middot; ');
+          return '<div class="row"><div><span class="mono">' + esc(x.mpan || '') + '</span><div class="crm-small">' + esc(x.reading_type || '') + '</div></div><div class="r"><b>' + v + '</b><div class="crm-small">' + uk(x.read_date) + '</div></div></div>';
+        }).join('') : '<div class="empty">No reads logged yet.</div>') + '</div>';
+      var notesAll = ctx.notes.slice(0, 3);
+      var noteCard = '<div class="ovc"><h3>Notes<button class="act ghost sm" data-goto="notes">All / add &rarr;</button></h3>' +
+        (notesAll.length ? notesAll.map(function (n) {
+          return '<div class="row"><div style="white-space:pre-wrap;min-width:0">' + esc(String(n.note || '').slice(0, 220)) + (String(n.note || '').length > 220 ? '&hellip;' : '') +
+            '<div class="crm-small">' + esc(n.added_by || '') + ' &middot; ' + uk(n.added_at) + '</div></div></div>';
+        }).join('') : '<div class="empty">No notes yet.</div>') + '</div>';
+      var nLoa = ctx.loas.filter(function (l) { return l.kind === 'signed'; }).length;
+      var docCard = '<div class="ovc"><h3>Documents</h3>' +
+        '<div class="row"><div>Signed contracts</div><div class="r"><b>' + n0(ctx.onFile) + ' of ' + n0(ctx.deals.length) + '</b><div class="crm-small">live and upcoming deals with the contract on file</div></div></div>' +
+        '<div class="row"><div>Letters of Authority</div><div class="r"><b>' + n0(nLoa) + '</b> <button class="crm-link" data-goto="loa">open</button></div></div>' +
+        '<div class="row"><div>Direct Debit mandates</div><div class="r"><b>' + n0(mand.length) + '</b></div></div></div>';
+      box.innerHTML = '<div class="ov"><div class="wide twin" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px">' + curCard + nxtCard + '</div>' +
+        loaCard + contactCard + payCard + readCard + noteCard + docCard + '</div>';
+      [].forEach.call(box.querySelectorAll('[data-goto]'), function (x) { x.addEventListener('click', function () { gotoTab(x.getAttribute('data-goto')); }); });
+      [].forEach.call(box.querySelectorAll('[data-doc-open]'), function (x) {
+        x.addEventListener('click', function () { var d = ctx.files.filter(function (f) { return f.id === x.getAttribute('data-doc-open'); })[0]; if (d && docs) docs.view(d).catch(fail); });
+      });
+      if (LOAPI) LOAPI.wireOpen(box, ctx);
+      return Promise.resolve();
+    }
+
+    var PAY = { direct_debit: 'Direct Debit', bacs: 'Bank transfer (BACS)', card: 'Card', cheque: 'Cheque', other: 'Other' };
+    function paintBilling(box, ctx, again) {
+      var b = ctx.billing || {}, mand = ctx.files.filter(function (d) { return d.kind === 'dd_mandate'; }), id = ctx.c.uc_customer_id;
+      var dis = RO ? ' disabled' : '';
+      box.innerHTML = '<div class="co-form" style="border-style:solid;background:var(--panel)">' +
+        '<label class="cf">How they pay<select id="cbMethod"' + dis + '><option value="">Not recorded</option>' +
+          Object.keys(PAY).map(function (k) { return '<option value="' + k + '"' + (b.payment_method === k ? ' selected' : '') + '>' + PAY[k] + '</option>'; }).join('') + '</select></label>' +
+        '<label class="cf">Direct Debit collection day<input type="number" id="cbDay" min="1" max="31" value="' + (b.dd_day || '') + '"' + dis + '></label>' +
+        '<label class="cf">Bills go to (email)<input type="email" id="cbEmail" value="' + esc(b.billing_email || '') + '"' + dis + '></label>' +
+        '<label class="cf">Paperless billing<select id="cbPaper"' + dis + '><option value="">Not recorded</option><option value="1"' + (b.paperless === true ? ' selected' : '') + '>Yes</option><option value="0"' + (b.paperless === false ? ' selected' : '') + '>No</option></select></label>' +
+        '<label class="cf" style="grid-column:1/-1">Note<textarea id="cbNote" maxlength="500"' + dis + '>' + esc(b.note || '') + '</textarea></label>' +
+        '<div class="cf-btns">' + (RO ? '' : '<button class="act sm" id="cbSave">Save</button>') +
+        '<span class="crm-small">Bank details are never kept on the desk: the signed mandate below holds them.' + (b.updated_at ? ' Last changed by ' + esc(b.updated_by_name || 'CES') + ' ' + uk(b.updated_at) + '.' : '') + '</span>' +
+        '<span id="cbMsg" class="crm-small"></span></div></div>' +
+        '<div class="ovc"><h3>Direct Debit mandates</h3>' + (mand.length ? mand.map(function (d) {
+          return '<div class="row"><div>' + esc(d.file_name) + '<div class="crm-small">' + esc(d.uploaded_by_name || '') + ' &middot; ' + uk(d.uploaded_at) + '</div></div><div class="r"><button class="act ghost sm" data-doc-open="' + esc(d.id) + '">Open</button></div></div>';
+        }).join('') : '<div class="empty">None on file.</div>') +
+        (RO ? '' : '<div class="co-form" style="margin-top:10px"><label class="cf">Add a signed mandate (PDF)<input type="file" id="cbFile" accept="application/pdf,.pdf"></label><div class="cf-btns"><button class="act sm" id="cbUp">Upload</button><span id="cbUpMsg" class="crm-small"></span></div></div>') + '</div>';
+      [].forEach.call(box.querySelectorAll('[data-doc-open]'), function (x) {
+        x.addEventListener('click', function () { var d = mand.filter(function (f) { return f.id === x.getAttribute('data-doc-open'); })[0]; if (d && docs) docs.view(d).catch(fail); });
+      });
+      if (RO) return Promise.resolve();
+      box.querySelector('#cbSave').addEventListener('click', function () {
+        var m = box.querySelector('#cbMsg'), p = box.querySelector('#cbPaper').value;
+        m.textContent = 'Saving...';
+        q(sb.rpc('crm_set_billing', { p_customer: id, p_method: box.querySelector('#cbMethod').value || null, p_dd_day: Number(box.querySelector('#cbDay').value) || null,
+          p_email: box.querySelector('#cbEmail').value || null, p_paperless: p === '' ? null : p === '1', p_note: box.querySelector('#cbNote').value || null }), 'saving')
+          .then(function () { go('customer', id, { keepScroll: true }); }).catch(function (e) { m.textContent = e.message; });
+      });
+      box.querySelector('#cbUp').addEventListener('click', function () {
+        var f = box.querySelector('#cbFile').files[0], m = box.querySelector('#cbUpMsg');
+        if (!f) { m.textContent = 'Choose the PDF first.'; return; }
+        m.textContent = 'Uploading...';
+        var path = id + '/mandate/' + Date.now() + '_' + String(f.name).replace(/[^A-Za-z0-9._-]+/g, '_').slice(-100);
+        q(sb.storage.from('crm-documents').upload(path, f, { contentType: 'application/pdf', upsert: false }), 'storing the file').then(function () {
+          return q(sb.from('crm_documents').insert({ uc_customer_id: id, kind: 'dd_mandate', file_name: f.name, storage_path: path, size_bytes: f.size, content_type: 'application/pdf',
+            source: 'upload', uploaded_by_name: (opts.who && opts.who()) || 'CES', uc_tender_ids: [], mpans: [] }), 'saving the file');
+        }).then(function () { go('customer', id, { keepScroll: true }); }).catch(function (e) { m.textContent = e.message; });
+      });
+      return Promise.resolve();
+    }
+
+    function contactForm() {
+      return '<details class="co-add"><summary class="act sm" style="display:inline-block;margin:0 0 10px;cursor:pointer">Add a contact</summary><div class="co-form" id="ccForm">' +
+        '<label class="cf">First name<input type="text" id="ccFirst" maxlength="80"></label><label class="cf">Last name<input type="text" id="ccLast" maxlength="80"></label>' +
+        '<label class="cf">Job title<input type="text" id="ccJob" maxlength="120"></label><label class="cf">Email<input type="email" id="ccEmail"></label>' +
+        '<label class="cf">Phone<input type="tel" id="ccPhone" maxlength="40"></label><label class="cf">Mobile<input type="tel" id="ccMobile" maxlength="40"></label>' +
+        '<label class="ck"><input type="checkbox" id="ccPrimary"> Primary contact</label>' +
+        '<div class="cf-btns"><button class="act sm" id="ccSave">Add contact</button><span class="crm-small" id="ccMsg"></span></div></div></details>';
+    }
+    function wireContactForm(box, id, again) {
+      var b = box.querySelector('#ccSave'); if (!b) return;
+      b.addEventListener('click', function () {
+        var v = function (k) { return box.querySelector('#' + k).value.trim(); }, m = box.querySelector('#ccMsg');
+        m.textContent = 'Adding...';
+        q(sb.rpc('crm_desk_add_contact', { p_customer: id, p_first: v('ccFirst'), p_last: v('ccLast'), p_job: v('ccJob'), p_email: v('ccEmail'), p_phone: v('ccPhone'),
+          p_mobile: v('ccMobile'), p_primary: box.querySelector('#ccPrimary').checked }), 'adding the contact').then(again).catch(function (e) { m.textContent = e.message; });
+      });
+    }
+    function noteForm() {
+      return '<div class="co-form" style="grid-template-columns:minmax(0,1fr)"><label class="cf">Add a note<textarea id="cnText" maxlength="4000" placeholder="What happened, what was agreed, what to do next"></textarea></label>' +
+        '<div class="cf-btns"><button class="act sm" id="cnSave">Add note</button><span class="crm-small" id="cnMsg">Signed with your name and today&rsquo;s date.</span></div></div>';
+    }
+    function wireNoteForm(box, id, again) {
+      var b = box.querySelector('#cnSave'); if (!b) return;
+      b.addEventListener('click', function () {
+        var t = box.querySelector('#cnText').value.trim(), m = box.querySelector('#cnMsg');
+        if (!t) { m.textContent = 'Write the note first.'; return; }
+        m.textContent = 'Adding...';
+        q(sb.rpc('crm_desk_add_note', { p_customer: id, p_note: t }), 'adding the note').then(again).catch(function (e) { m.textContent = e.message; });
+      });
+    }
+    function readForm(meters) {
+      var ms = meters.filter(function (m) { return m.fuel === 'electricity' || m.fuel === 'gas' || m.fuel === 'water'; });
+      if (!ms.length) return '';
+      return '<details class="co-add"><summary class="act sm" style="display:inline-block;margin:0 0 10px;cursor:pointer">Log a meter read</summary><div class="co-form">' +
+        '<label class="cf">Meter<select id="crMeter">' + ms.map(function (m) { return '<option value="' + esc(m.mpan) + '">' + esc(m.mpan) + ' (' + esc(FUEL_WORD[m.fuel] || m.fuel) + ')</option>'; }).join('') + '</select></label>' +
+        '<label class="cf">Date read<input type="date" id="crDate" max="' + today() + '" value="' + today() + '"></label>' +
+        '<label class="cf">Type<select id="crType"><option>Customer</option><option>Actual</option><option>Opening</option><option>Closing</option><option>Estimate</option></select></label>' +
+        '<label class="cf">Reading (single register)<input type="number" id="crRead" min="0" step="any"></label>' +
+        '<label class="cf">Day<input type="number" id="crDay" min="0" step="any"></label><label class="cf">Night<input type="number" id="crNight" min="0" step="any"></label>' +
+        '<label class="cf">Evening / weekend<input type="number" id="crEw" min="0" step="any"></label><label class="cf">Meter serial<input type="text" id="crSerial" maxlength="40"></label>' +
+        '<div class="cf-btns"><button class="act sm" id="crSave">Log read</button><span class="crm-small" id="crMsg"></span></div></div></details>';
+    }
+    function wireReadForm(box, id, meters, again) {
+      var b = box.querySelector('#crSave'); if (!b) return;
+      b.addEventListener('click', function () {
+        var n = function (k) { var x = box.querySelector('#' + k).value; return x === '' ? null : Number(x); }, m = box.querySelector('#crMsg');
+        m.textContent = 'Logging...';
+        q(sb.rpc('crm_desk_add_read', { p_customer: id, p_mpan: box.querySelector('#crMeter').value, p_date: box.querySelector('#crDate').value, p_type: box.querySelector('#crType').value,
+          p_reading: n('crRead'), p_day: n('crDay'), p_night: n('crNight'), p_ew: n('crEw'), p_serial: box.querySelector('#crSerial').value || null }), 'logging the read')
+          .then(again).catch(function (e) { m.textContent = e.message; });
+      });
+    }
+    function renderLoas() {
+      if (!LOAPI) { body.innerHTML = '<div class="note bad">The LOA module did not load (pricing-loa.js). Hold Shift and reload.</div>'; return Promise.resolve(); }
+      return LOAPI.list(body, { open: function (cid) { S.customer = { id: cid }; S.ctab = 'live'; S.cpage = 0; S.cview = 'loa'; go('customer', cid); } });
     }
 
     function customerContracts(id) {
@@ -1213,8 +1465,8 @@
       if (k.water_rate_gbp_m3 != null) lines.push(fig('&pound;' + p3(k.water_rate_gbp_m3) + ' <span class="u">per m&sup3;</span>'));
       if (k.standing_charge_p_day != null) lines.push(fig('SC ' + n2(k.standing_charge_p_day, 2) + ' <span class="u">p/day</span>'));
       if (k.capacity_p_kva_month != null) lines.push(fig('Capacity ' + n2(k.capacity_p_kva_month, 2) + ' <span class="u">p/kVA/month</span>'));
-      else if (k.capacity_raw) lines.push('<span title="The UC figure is not believable: see Data checks">capacity: check UC</span>');
-      return lines.length ? '<div class="rates">' + lines.join('<br>') + '</div>' : '<span class="crm-small">none in UC</span>';
+      else if (k.capacity_raw) lines.push('<span title="The capacity on record is not believable: see Data checks">capacity: check</span>');
+      return lines.length ? '<div class="rates">' + lines.join('<br>') + '</div>' : '<span class="crm-small">none on record</span>';
     }
     function docCell(k, i) { return docs ? docs.cell(k, i) : ''; }
     // Customer and site on two short lines; the site is cut with an ellipsis, in full on hover.
@@ -1275,7 +1527,7 @@
           return '<tr>' + docCell(k, i) + (withCustomer ? custCell(k) : '') +
             '<td class="nowrap"><span class="mono">' + esc(k.mpan) + '</span>' + (!withCustomer && k.site_name ? '<div class="crm-small" style="white-space:normal">' + esc(k.site_name) + '</div>' : '') + '</td>' +
             '<td><b>' + esc(KIND[k.service_kind] || k.service_kind || '') + '</b><div class="crm-small">' + esc(k.product || '') + '</div></td>' +
-            '<td>' + (k.service_provider ? esc(k.service_provider) : '<span class="crm-small">not named in UC</span>') + '</td>' +
+            '<td>' + (k.service_provider ? esc(k.service_provider) : '<span class="crm-small">not named</span>') + '</td>' +
             '<td>' + termCell(k.meter_start, k.meter_end, days, k.term_state === 'live') + '</td>' +
             '<td>' + pill(LIFE, k.term_state) + '</td><td class="num">' + charge + '</td></tr>';
         }).join('') + '</tbody></table>';
@@ -1429,16 +1681,16 @@
           return supply ? {
             Customer: k.customer_name, 'MPAN/MPRN': k.mpan, Fuel: k.fuel, Type: k.supply_type, Supplier: k.supplier, Product: k.product,
             'Contract start': k.meter_start, 'Contract end': k.meter_end, 'Days to end': k.days_to_end, Status: LIFE[k.lifecycle] ? LIFE[k.lifecycle][0] : k.lifecycle,
-            'UC deal status': k.meter_deal_status, 'Placed by CES': k.via_ces ? 'Yes' : 'No', 'Next supplier': k.next_supplier, 'Next start': k.next_start,
+            'Deal status': k.meter_deal_status, 'Placed by CES': k.via_ces ? 'Yes' : 'No', 'Next supplier': k.next_supplier, 'Next start': k.next_start,
             'AQ': k.aq, 'AQ unit': k.aq_unit, 'Unit rate p/kWh': k.unit_rate_p_kwh, 'Day p/kWh': k.day_rate_p_kwh, 'Night p/kWh': k.night_rate_p_kwh,
             'E/W p/kWh': k.ew_rate_p_kwh, 'Standing charge p/day': k.standing_charge_p_day, 'Capacity p/kVA/month': k.capacity_p_kva_month,
-            'Commission': k.commission_rate, 'Commission unit': k.commission_uom, 'Account manager': k.account_manager, 'Site': k.site_name, 'UC reference': k.reference,
+            'Commission': k.commission_rate, 'Commission unit': k.commission_uom, 'Account manager': k.account_manager, 'Site': k.site_name, 'Reference': k.reference,
             'Signed contract on file': Number(k.signed_docs) ? 'Yes' : 'No',
           } : {
             Customer: k.customer_name, 'MPAN/MPRN': k.mpan, Service: KIND[k.service_kind] || k.service_kind, Provider: k.service_provider,
-            'UC product': k.product, 'Start': k.meter_start, 'End': k.meter_end, 'Days to end': k.days_to_end,
+            'Product': k.product, 'Start': k.meter_start, 'End': k.meter_end, 'Days to end': k.days_to_end,
             Status: LIFE[k.term_state] ? LIFE[k.term_state][0] : k.term_state, 'Standing charge p/day': k.standing_charge_p_day,
-            'Account manager': k.account_manager, 'Site': k.site_name, 'UC reference': k.reference, 'Signed contract on file': Number(k.signed_docs) ? 'Yes' : 'No',
+            'Account manager': k.account_manager, 'Site': k.site_name, 'Reference': k.reference, 'Signed contract on file': Number(k.signed_docs) ? 'Yes' : 'No',
           };
         });
         var wb = X.utils.book_new();
@@ -1479,13 +1731,13 @@
               .then(function (r) {
                 var rows = r.data || [], total = (counts.find(function (x) { return x[0] === f.tab; }) || [0, 0])[1];
                 body.innerHTML = '<div class="card fillcard"><div class="fc-head"><div class="fc-title"><h2>Tenders</h2></div>' +
-                  '<div class="sub">UC&rsquo;s opportunities that never became a contract row. ' +
-                  'Most of the open ones are UC&rsquo;s automatic renewal backlog for 2027 to 2032. Stale means open but the wanted start date is more than 30 days gone.</div>' +
+                  '<div class="sub">Opportunities that never became a contract row. ' +
+                  'Most of the open ones are an automatic renewal backlog for 2027 to 2032. Stale means open but the wanted start date is more than 30 days gone.</div>' +
                   '<div class="toolbar"><input id="crmTq" class="tb-q" value="' + esc(f.q) + '" placeholder="Customer or reference" aria-label="Customer or reference">' +
                   '<select id="crmTa" aria-label="Account manager" title="Account manager">' + options(L.ams, f.am, 'Any account manager', 'account_manager') + '</select>' +
                   '<button class="act" id="crmTgo">Search</button></div>' +
                   '<div class="crm-tabs">' + counts.map(function (x) { return '<button data-t="' + x[0] + '"' + (x[0] === f.tab ? ' class="on"' : '') + '>' + LIFE[x[0]][0] + '<span class="c">' + n0(x[1]) + '</span></button>'; }).join('') + '</div></div>' +
-                  (rows.length ? '<div class="grid"><table><thead><tr><th>Customer</th><th>Ref</th><th>Utility</th><th>Wanted start</th><th>UC status</th><th class="num">Days at status</th><th class="num">Meters</th><th class="num c-opt">Consumption</th><th>Account manager</th><th class="c-opt">Last updated</th></tr></thead><tbody>' +
+                  (rows.length ? '<div class="grid"><table><thead><tr><th>Customer</th><th>Ref</th><th>Utility</th><th>Wanted start</th><th>Status on record</th><th class="num">Days at status</th><th class="num">Meters</th><th class="num c-opt">Consumption</th><th>Account manager</th><th class="c-opt">Last updated</th></tr></thead><tbody>' +
                     rows.map(function (t) {
                       return '<tr><td class="crm-wrap crm-click" data-cust="' + esc(t.uc_customer_id || '') + '">' + esc(t.customer_name || '') + '</td><td class="mono">' + esc(t.reference || '') + '</td>' +
                         '<td>' + esc(t.utility || '') + '</td><td>' + uk(t.contract_start) + '</td><td>' + esc(t.deal_status || '') + (t.reason_for_loss ? '<div class="crm-small">' + esc(t.reason_for_loss) + '</div>' : '') + '</td>' +
@@ -1522,8 +1774,8 @@
         .then(function (counts) {
           var total = (counts.find(function (x) { return x[0] === f.sev; }) || [0, 0])[1];
           var head = '<div class="card fillcard"><div class="fc-head"><div class="fc-title"><h2>Data checks</h2></div>' +
-            '<div class="sub">What the import found wrong or worth a look in the UC data. ' +
-            'High: an active meter whose last contract ended with nothing after it (out of contract, or renewed without CES and UC was never told), a gap you are in right now, ' +
+            '<div class="sub">What the import found wrong or worth a look in the data. ' +
+            'High: an active meter whose last contract ended with nothing after it (out of contract, or renewed without CES and the record was never updated), a gap you are in right now, ' +
             'or a contract that ends before it starts. Profile class: an electricity meter whose profile class and rate type contradict each other, or that has none. ' +
             'Each one is re-checked on every import; mark one done (or fix it) when you have dealt with it.</div>' +
             (f.sev === 'pc' ? '' : '<div class="toolbar"><select id="crmIk" aria-label="What" title="What"><option value="">Every kind of problem</option>' +
@@ -1538,7 +1790,7 @@
           if (f.sev === 'pc') {
             return q(pcQuery(false).order('customer_name').order('mpan').range(f.page * BIG_PAGE, f.page * BIG_PAGE + BIG_PAGE - 1), 'profile class checks').then(function (r) {
               var rows = r.data || [];
-              body.innerHTML = head + (rows.length ? '<div class="grid"><table><thead><tr><th>Customer</th><th>MPAN</th><th>Site</th><th>Rate type and profile class</th><th>UC says</th><th></th></tr></thead><tbody>' +
+              body.innerHTML = head + (rows.length ? '<div class="grid"><table><thead><tr><th>Customer</th><th>MPAN</th><th>Site</th><th>Rate type and profile class</th><th>On record</th><th></th></tr></thead><tbody>' +
                 rows.map(function (m, i) {
                   return '<tr><td class="crm-wrap crm-click" data-cust="' + esc(m.uc_customer_id) + '">' + esc(m.customer_name || '') + '</td>' +
                     '<td class="mono">' + esc(m.mpan) + '</td><td class="crm-wrap">' + esc(m.site_name || '') + '<div class="crm-small">' + esc(m.postcode || '') + '</div></td>' +
@@ -1700,7 +1952,7 @@
             (g.rows || []).forEach(function (x) {
               out.push({ Customer: g.customer_name, 'Account manager': g.account_manager, Kind: g.service_group === 'supply' ? (x.f || '') : (GROUPS[g.service_group] || g.service_group),
                 Supplier: g.service_group === 'supply' ? g.supplier : (g.service_provider || g.supplier), Product: g.product,
-                'Contract start': g.meter_start, 'Contract end': g.meter_end, Status: (NC_STATE[x.st] || [x.st])[0], 'UC deal status': x.u,
+                'Contract start': g.meter_start, 'Contract end': g.meter_end, Status: (NC_STATE[x.st] || [x.st])[0], 'Deal status': x.u,
                 'MPAN/MPRN': x.m, Site: x.s });
             });
           });
@@ -1758,11 +2010,12 @@
     /** The LOA as of today, from its end date: UC's own status text is as old as the last export. */
     function loaPill(c) {
       if (!c) return '';
+      if (c._loaChecked && LOAPI) return LOAPI.pill(c._loa);
       if (c.loa_end) {
         return c.loa_end >= today() ? '<span class="pill p-ok" title="Letter of authority">LOA to ' + uk(c.loa_end) + '</span>'
           : '<span class="pill p-fail" title="Letter of authority">LOA expired ' + uk(c.loa_end) + '</span>';
       }
-      return '<span class="pill p-mute" title="No LOA end date in UtilityClick">' + (c.loa_status ? 'LOA: ' + esc(c.loa_status) : 'No LOA on file') + '</span>';
+      return '<span class="pill p-mute" title="No LOA on the desk">' + (c.loa_status ? 'LOA: ' + esc(c.loa_status) : 'No LOA on file') + '</span>';
     }
     function contactLine(p, short) {
       if (!p) return '';
@@ -2354,12 +2607,12 @@
     function renderImport() {
       return q(sb.from('crm_import_runs').select('*').order('started_at', { ascending: false }).limit(10), 'import history').then(function (r) {
         var runs = r.data || [];
-        body.innerHTML = '<div class="card"><h2>Import from UtilityClick</h2><div class="sub">Export the seven UC reports (Contract, Portfolio, Customer, Contact, ' +
+        body.innerHTML = '<div class="card"><h2>Import data</h2><div class="sub">Export the seven CRM reports (Contract, Portfolio, Customer, Contact, ' +
           'Tender, Change Log Note, Meter Readings) and drop all seven here together. They are cleaned in this browser with the same rules as the first load, ' +
-          'you see the counts and the problems found, and only then is anything written. Records UC no longer exports are marked removed, never deleted; ' +
+          'you see the counts and the problems found, and only then is anything written. Records no longer in the export are marked removed, never deleted; ' +
           'customers added on the desk and profile class corrections are never touched. ' +
           'All seven are needed because a partial set would blank the fields the missing reports carry.</div>' +
-          '<div class="crm-drop" id="crmDrop" tabindex="0" role="button"><b>Drop the seven UC exports here</b><div class="crm-small" style="margin-top:6px">or click to choose them</div>' +
+          '<div class="crm-drop" id="crmDrop" tabindex="0" role="button"><b>Drop the seven exports here</b><div class="crm-small" style="margin-top:6px">or click to choose them</div>' +
           '<input type="file" id="crmFile" accept=".xlsx" multiple class="hide"></div>' +
           '<div id="crmPlan" style="margin-top:14px"></div></div>' +
           '<div class="card"><h2>Previous imports</h2>' + (runs.length ? '<div class="scroll"><table><thead><tr><th>Started</th><th>By</th><th>Status</th><th>Files</th><th>Counts</th></tr></thead><tbody>' +
@@ -2397,11 +2650,11 @@
         var missing = Object.keys(KIND_LABEL).filter(function (k) { return !read.some(function (r) { return r.kind === k; }); });
         var unknown = read.filter(function (r) { return !r.kind; });
         var list = '<table><thead><tr><th>File</th><th>Recognised as</th><th class="num">Rows</th></tr></thead><tbody>' + read.map(function (r) {
-          return '<tr><td class="crm-wrap">' + esc(r.name) + '</td><td>' + (r.kind ? esc(KIND_LABEL[r.kind]) : '<span class="pill p-fail">not a UC export</span>') + '</td><td class="num">' + n0(r.rows.length - 1) + '</td></tr>';
+          return '<tr><td class="crm-wrap">' + esc(r.name) + '</td><td>' + (r.kind ? esc(KIND_LABEL[r.kind]) : '<span class="pill p-fail">not a recognised export</span>') + '</td><td class="num">' + n0(r.rows.length - 1) + '</td></tr>';
         }).join('') + '</tbody></table>';
         if (missing.length || unknown.length) {
           box.innerHTML = list + '<div class="note bad" style="margin-top:10px">' + (missing.length ? 'Missing: ' + missing.map(function (k) { return KIND_LABEL[k]; }).join(', ') + '. ' : '') +
-            (unknown.length ? unknown.length + ' file(s) are not UC exports. ' : '') + 'Nothing has been imported.</div>';
+            (unknown.length ? unknown.length + ' file(s) are not recognised exports. ' : '') + 'Nothing has been imported.</div>';
           return;
         }
         var plan = C.build(read, { asOf: today() });
@@ -2449,7 +2702,7 @@
         .then(function (r) {
           S.busy = false; S.overview = null; S.lists = null; S.providers = null;
           var removed = (r.data && r.data.marked_removed) || {};
-          prog.innerHTML = '<b>Done.</b> ' + Object.keys(removed).filter(function (k) { return removed[k]; }).map(function (k) { return n0(removed[k]) + ' ' + k + ' no longer in UC, marked removed'; }).join(', ');
+          prog.innerHTML = '<b>Done.</b> ' + Object.keys(removed).filter(function (k) { return removed[k]; }).map(function (k) { return n0(removed[k]) + ' ' + k + ' no longer in the export, marked removed'; }).join(', ');
         })
         .catch(function (e) {
           S.busy = false; btn.disabled = false;

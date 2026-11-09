@@ -30,6 +30,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="/supplier-quotes.js?v=2026-09-14.3"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+  <script src="/mobile-bill.js?v=2026-11-09.1"></script>
   <!-- Cloudflare Turnstile — human verification on the login form -->
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -1868,7 +1869,7 @@
                 <div class="form-group"><label>SSC / MTC</label><input type="text" id="bkSscMtc" placeholder="801" /></div>
               </div>
               <div class="form-row-2">
-                <div class="form-group" style="grid-column:1/-1;"><div style="font-size:11.5px;color:var(--muted);">MPAN top line — profile class, SSC/MTC and LLFC. Electricity only; leave blank for gas and water. UtilityClick holds the SSC and the MTC in one field, so that is how it is stored here.</div></div>
+                <div class="form-group" style="grid-column:1/-1;"><div style="font-size:11.5px;color:var(--muted);">MPAN top line — profile class, SSC/MTC and LLFC. Electricity only; leave blank for gas and water. The SSC and the MTC share one field, so that is how it is stored here.</div></div>
               </div>
               <div class="form-row-2">
                 <div class="form-group"><label>Site name</label><input type="text" id="bkSiteName" placeholder="Unit 6 Heron Business Park" /></div>
@@ -5844,12 +5845,34 @@
     }
     // Every output figure for one broker over a set of months. Counts are summed; computer
     // activity is weighted by Teramind work time when every month carries it, else averaged.
+    // Work-mobile calls (the Vodafone bill, 9 Nov 2026) are calls: every figure that reads calls or
+    // talk time sees 8x8 plus the mobile; the 8x8-only figures stay on calls_8x8 / talk_8x8. A month
+    // with no 8x8 figure and no mobile calls stays blank (a dash means not recorded, never zero).
+    function _skActNorm(rows){
+      (rows || []).forEach(function(a){
+        if(a.calls_8x8 !== undefined) return;
+        a.calls_8x8 = a.calls; a.talk_8x8 = a.talk_time_sec;
+        var mc = a.mobile_calls == null ? null : Number(a.mobile_calls), mt = a.mobile_talk_sec == null ? null : Number(a.mobile_talk_sec);
+        if(mc != null && (mc > 0 || a.calls != null)) a.calls = (a.calls == null ? 0 : Number(a.calls)) + mc;
+        if(mt != null && (mt > 0 || a.talk_time_sec != null)) a.talk_time_sec = (a.talk_time_sec == null ? 0 : Number(a.talk_time_sec)) + mt;
+      });
+      return rows || [];
+    }
     function _skOutputFor(repId, months){
       var set = {}; (months || []).forEach(function(p){ set[p] = 1; });
       var o = { days:null, contracts:null, calls:null, talk:null, emails:null, idle:null, work:null, activity:null, billing:0, hasBilling:false };
       function add(key, v){ if(v == null || v === '') return; v = Number(v); if(isNaN(v)) return; o[key] = (o[key] == null ? 0 : o[key]) + v; }
       // A month marked "excluded" for a broker is left out, as the month-end report leaves it out.
-      (_SK.kpis || []).forEach(function(k){ if(k.rep_id !== repId || !set[k.period] || k.excluded) return; add('days', k.days_worked); add('contracts', k.deals_won); });
+      // Days worked (9 Nov 2026, Robert Stead): management's figure for a month wins where it was
+      // entered on Management > Monthly upload; otherwise the broker's own month-end figure.
+      var mgDays = {}, exclM = {}, daysDone = {};
+      (_SK.activity || []).forEach(function(a){ if(a.rep_id === repId && a.days_worked_mgmt != null && a.days_worked_mgmt !== '') mgDays[String(a.period).slice(0, 10)] = Number(a.days_worked_mgmt); });
+      (_SK.kpis || []).forEach(function(k){
+        if(k.rep_id !== repId || !set[k.period]) return;
+        if(k.excluded){ exclM[k.period] = 1; return; }
+        add('days', mgDays[k.period] != null ? mgDays[k.period] : k.days_worked); daysDone[k.period] = 1; add('contracts', k.deals_won);
+      });
+      Object.keys(mgDays).forEach(function(p){ if(set[p] && !exclM[p] && !daysDone[p]) add('days', mgDays[p]); });
       (_SK.eff || []).forEach(function(k){ if(k.rep_id === repId && set[k.period] && !k.excluded){ o.billing += Number(k.billing_total) || 0; o.hasBilling = true; } });
       var aN = 0, aSum = 0, wN = 0, wSum = 0, wTot = 0;
       (_SK.activity || []).forEach(function(a){
@@ -5887,7 +5910,7 @@
       return _skNum(v, 0);
     }
     // Where each system-fed figure in these months came from, one line per metric and source.
-    var _SK_ACT_LABELS = { calls:'Calls', talk_time_sec:'Talk time', emails:'Emails sent', activity_pct:'Computer activity', idle_sec:'Idle time', days_worked_mgmt:'Days worked (management)' };
+    var _SK_ACT_LABELS = { calls:'Calls (8x8)', talk_time_sec:'Talk time (8x8)', mobile_calls:'Calls from work mobiles', mobile_talk_sec:'Talk time on work mobiles', emails:'Emails sent', activity_pct:'Computer activity', idle_sec:'Idle time', days_worked_mgmt:'Days worked (management)' };
     function _skOutputSources(months){
       var set = {}; (months || []).forEach(function(p){ set[p] = 1; });
       var who = {}; (_SK.reps || []).forEach(function(r){ if(r.profile_id) who[r.profile_id] = _skShortName(r.name); });
@@ -6625,7 +6648,7 @@
       var tg = await sb.from('broker_targets').select('*'); _SK.targets = {}; (tg.data||[]).forEach(function(t){ _SK.targets[t.rep_id] = t; });
       var pj = await sb.from('broker_projects').select('*'); _SK.projects = pj.data || [];   // own / admin; private
       var pe = await sb.from('broker_project_entries').select('*'); _SK.projEntries = pe.data || [];
-      var ba = await sb.from('broker_activity').select('*'); _SK.activity = ba.data || [];   // calls/emails per rep per month (own/admin)
+      var ba = await sb.from('broker_activity').select('*'); _SK.activity = _skActNorm(ba.data || []);   // calls/emails per rep per month (own/admin); calls include work mobiles
       var nbq = await sb.from('broker_new_business').select('*'); _SK.newBiz = nbq.data || [];  // itemised new-business wins (own/admin)
       var cp = await sb.from('broker_comp').select('*').order('valid_from', { ascending:false }); // RLS: admin=all, rep=own only
       // Every plan a rep has ever had, newest first, so _skCompFor() can price
@@ -8608,7 +8631,7 @@
         + '<div class="bx-pane" id="leadPane-activity">'
           + '<div class="card" style="margin-bottom:16px;">'
             + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Activity &amp; output by broker</h3>'
-            + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Days worked and contracts signed are entered by each broker on their month-end form. Calls and talk time load from 8x8 every morning, and emails from Microsoft 365 (every email sent from the broker\'s own @cesgb.com mailbox, at any time on any day, weekends and evenings included). A month runs from the 1st to the last day. Calls from personal mobiles are not in 8x8. Computer activity comes from Teramind, loaded once a month on the Management page. A dash means not recorded, never zero. Where every figure came from is listed under the table.</p>'
+            + '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;">Days worked and contracts signed are entered by each broker on their month-end form. Calls and talk time load from 8x8 every morning, and emails from Microsoft 365 (every email sent from the broker\'s own @cesgb.com mailbox, at any time on any day, weekends and evenings included). A month runs from the 1st to the last day. Calls from work mobiles come from the Vodafone bill, loaded on the Management page once a month; personal mobiles are not counted. Computer activity comes from Teramind, loaded once a month on the Management page. A dash means not recorded, never zero. Where every figure came from is listed under the table.</p>'
             + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px;">'
               + '<div class="form-group" style="margin:0;"><label>Month</label><select id="leadActMonth" onchange="renderLeadActivity()"></select></div>'
               + '<button type="button" class="btn-secondary" id="leadDeckBtn" style="padding:9px 14px;" onclick="downloadBrokerDeck(document.getElementById(\'leadActMonth\').value)">Download the monthly report (PowerPoint)</button>'
@@ -9136,7 +9159,7 @@
       var wd = _skWorkingDays(key);
       pane.innerHTML = '<div class="card">'
         + '<h3 style="font-size:14px;font-weight:800;margin-bottom:4px;">Monthly upload</h3>'
-        + '<p class="mg-note">Once a month, when it has ended: the Teramind Productivity export, and each broker’s days worked. Calls, talk time and emails load by themselves every morning, so they are not needed here. Teramind goes straight into the month-end report; days worked are kept beside the figure each broker enters, and any difference is flagged on Emails &amp; calls.</p>'
+        + '<p class="mg-note">Once a month, when it has ended: the Teramind Productivity export, and each broker’s days worked. Calls, talk time and emails load by themselves every morning, so they are not needed here. Teramind goes straight into the month-end report. Days worked: the report uses the figure entered here, and the broker’s own month-end figure only where none is entered; a difference is flagged on Emails &amp; calls.</p>'
         + '<div class="mg-controls"><label class="mg-field">Month<select id="mgUpMonth">' + months.map(function(m){ return '<option value="' + m + '"' + (m === key ? ' selected' : '') + '>' + escapeHtml(_skPeriodLabel(m)) + '</option>'; }).join('') + '</select></label></div>'
         + '<p class="mg-status" id="mgUpStatus">' + escapeHtml(lbl) + ': Teramind ' + (tmLoaded ? '<b>loaded</b>.' + src('activity_pct') : '<b>not loaded yet</b>.') + ' Days worked ' + (dwLoaded ? '<b>entered</b>.' + src('days_worked_mgmt') : '<b>not entered yet</b>.') + '</p>'
         + '<h4 class="mg-h4">1. Teramind export (.csv)</h4>'
@@ -9158,7 +9181,15 @@
         + '</table></div>'
         + '<button type="button" class="btn-primary" id="mgDaysSave" style="width:auto;padding:10px 18px;margin-top:12px;">Save days worked</button>'
         + '<div id="mgDaysMsg" aria-live="polite" style="margin-top:8px;"></div>'
+        + '<h4 class="mg-h4">3. Vodafone mobile bill (.pdf)</h4>'
+        + '<p class="mg-note">The itemised bill Vodafone sends around the 9th. Calls made from a broker’s work mobile are added to their calls and talk time for the month each call was made. A bill runs from the 9th to the 8th, so a month is complete once both of its bills are in. Only a number given to a broker below is counted; incoming roaming calls and short codes such as 121 voicemail never are.</p>'
+        + '<div id="mgMbCover" class="mg-status">Checking which bills are loaded…</div>'
+        + '<input type="file" id="mgMbFile" accept=".pdf,application/pdf">'
+        + '<div id="mgMbPreview" aria-live="polite"></div>'
         + '</div>';
+      document.getElementById('mgMbFile').onchange = function(){ _mgReadBill(this); };
+      _mgPaintBillCover(key);
+      if(_MG.bill) _mgShowBill();
       document.getElementById('mgUpMonth').onchange = function(){ _MG.upMonth = this.value; _MG.tm = null; renderMgmtUpload(); };
       document.getElementById('mgTmFile').onchange = function(){ _mgReadTeramind(this); };
       document.getElementById('mgDaysSave').onclick = _mgSaveDays;
@@ -9191,7 +9222,136 @@
     }
     async function _mgReloadActivity(){
       var r = await sb.from('broker_activity').select('*');
-      if(!r.error) _SK.activity = r.data || [];
+      if(!r.error) _SK.activity = _skActNorm(r.data || []);
+    }
+
+    // ── Vodafone mobile bill (9 Nov 2026) ──
+    // pdf.js reads the PDF here; mobile-bill.js parses it and refuses any mobile whose calls do not add
+    // up to the bill's own "Total of N calls". Only calls on a broker's number are sent.
+    var _MG_PDFJS = '3.11.174';
+    function _mgPdfJs(){
+      if(window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+      return new Promise(function(res, rej){
+        var s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/' + _MG_PDFJS + '/pdf.min.js';
+        s.onload = function(){ var lib = window.pdfjsLib; if(!lib) return rej(new Error('pdf.js did not load.'));
+          lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/' + _MG_PDFJS + '/pdf.worker.min.js'; res(lib); };
+        s.onerror = function(){ rej(new Error('pdf.js could not be loaded. Check the connection and try again.')); };
+        document.head.appendChild(s);
+      });
+    }
+    async function _mgLoadMobile(force){
+      if(_MG.mb && !force) return _MG.mb;
+      var a = await sb.from('broker_mobile_lines').select('line,rep_id,note,updated_at');
+      var b = await sb.from('broker_mobile_bills').select('id,file_name,usage_from,usage_to,lines,calls,loaded_at').order('usage_from', { ascending:false });
+      _MG.mb = { lines:a.error ? [] : (a.data || []), bills:b.error ? [] : (b.data || []), error:(a.error || b.error) ? (a.error || b.error).message : null };
+      return _MG.mb;
+    }
+    function _mgFmtDay(d){ return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day:'numeric', month:'short' }); }
+    function _mgMaskLine(l){ return l ? l.slice(0, 5) + ' ' + l.slice(5, 8) + ' ' + l.slice(8) : ''; }
+    function _mgRepName(id){ var r = (_SK.reps || []).filter(function(x){ return x.id === id; })[0]; return r ? _skShortName(r.name) : ''; }
+    // Which days of the month the loaded bills cover, and what is still missing.
+    function _mgBillCover(key, bills){
+      var y = Number(key.slice(0, 4)), m = Number(key.slice(5, 7)) - 1, last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+      var covered = [], gaps = [], run = null;
+      for(var d = 1; d <= last; d++){
+        var iso = key.slice(0, 8) + (d < 10 ? '0' : '') + d;
+        var ok = bills.some(function(b){ return iso >= b.usage_from && iso <= b.usage_to; });
+        if(ok) covered.push(iso);
+        if(!ok){ if(!run) run = [iso, iso]; else run[1] = iso; } else if(run){ gaps.push(run); run = null; }
+      }
+      if(run) gaps.push(run);
+      return { days:covered.length, of:last, gaps:gaps };
+    }
+    async function _mgPaintBillCover(key){
+      var box = document.getElementById('mgMbCover'); if(!box) return;
+      var mb = await _mgLoadMobile();
+      if(mb.error){ box.innerHTML = '<span class="mg-flag data">The phone bills could not be read: ' + escapeHtml(mb.error) + '</span>'; return; }
+      var lbl = _skPeriodLabel(key), c = _mgBillCover(key, mb.bills);
+      var today = new Date().toISOString().slice(0, 10);
+      var gapTxt = c.gaps.map(function(g){ return _mgFmtDay(g[0]) + (g[1] !== g[0] ? ' to ' + _mgFmtDay(g[1]) : ''); }).join(', ');
+      var lines = mb.lines.filter(function(l){ return l.rep_id; });
+      box.innerHTML = escapeHtml(lbl) + ': ' + (c.days === 0 ? '<b>no bill loaded yet</b>.'
+          : c.days === c.of ? '<b>complete</b>, the loaded bills cover every day.'
+          : 'the loaded bills cover <b>' + c.days + ' of ' + c.of + ' days</b>; ' + escapeHtml(gapTxt) + (c.gaps.length === 1 ? ' is' : ' are') + ' on '
+            + (c.gaps.some(function(g){ return g[0] > today; }) ? 'a bill not issued yet.' : 'a bill not loaded yet.'))
+        + (lines.length ? '<br>Counted: ' + lines.map(function(l){ return escapeHtml(_mgRepName(l.rep_id) || 'a broker') + ' (' + escapeHtml(_mgMaskLine(l.line)) + ')'; }).join(', ') + '.'
+          : '<br>No work mobile is given to a broker yet: drop a bill to set them.');
+    }
+    async function _mgReadBill(input){
+      var box = document.getElementById('mgMbPreview'), f = input.files && input.files[0];
+      _MG.bill = null; if(!f || !box) return;
+      if(typeof MobileBill === 'undefined'){ box.innerHTML = '<div class="mg-flag data">The bill reader did not load (mobile-bill.js). Hold Shift and reload.</div>'; return; }
+      box.innerHTML = '<p class="mg-note">Reading ' + escapeHtml(f.name) + '…</p>';
+      try {
+        var buf = await f.arrayBuffer();
+        var sha = await MobileBill.sha256Bytes(buf);
+        var lib = await _mgPdfJs();
+        var text = await MobileBill.textFromPdf(lib, new Uint8Array(buf));
+        var parsed = MobileBill.parseText(text);
+        if(parsed.problems.length){ box.innerHTML = '<div class="mg-flag data">' + escapeHtml(parsed.problems.join(' ')) + '</div>'; return; }
+        await _mgLoadMobile(true);
+        _MG.bill = { file:f.name, sha:sha, parsed:parsed, pick:{} };
+        _MG.mb.lines.forEach(function(l){ _MG.bill.pick[l.line] = l.rep_id || ''; });
+        _mgShowBill();
+      } catch(e){ box.innerHTML = '<div class="mg-flag data">That PDF could not be read: ' + escapeHtml(e.message || String(e)) + '</div>'; }
+    }
+    function _mgShowBill(){
+      var box = document.getElementById('mgMbPreview'), B = _MG.bill; if(!box || !B) return;
+      var p = B.parsed, reps = (_SK.reps || []).filter(function(r){ return r.active !== false; });
+      var months = {}; p.lines.forEach(function(x){ Object.keys(MobileBill.byMonth(x.calls)).forEach(function(k){ months[k] = 1; }); });
+      var mk = Object.keys(months).sort();
+      if(!mk.length) mk = [p.period.from.slice(0, 7)];
+      var bad = p.lines.filter(function(x){ return !x.ok; });
+      box.innerHTML = '<p class="mg-note" style="margin-top:10px;"><b>' + escapeHtml(B.file) + '</b>: usage ' + escapeHtml(_mgFmtDay(p.period.from)) + ' to ' + escapeHtml(_mgFmtDay(p.period.to) + ' ' + p.period.to.slice(0, 4))
+        + ', ' + p.lines.length + ' mobile' + (p.lines.length === 1 ? '' : 's') + '. Give each number to its broker once; it is remembered for every bill after.</p>'
+        + '<div style="overflow-x:auto;"><table class="sk-table"><tr><th>Mobile</th><th>Whose phone</th><th class="num">Calls on this bill</th>'
+        + mk.map(function(k){ return '<th class="num">In ' + escapeHtml(_skPeriodLabel(k + '-01')) + '</th>'; }).join('') + '<th>Check</th></tr>'
+        + p.lines.map(function(x){
+            var bm = MobileBill.byMonth(x.calls), out = x.calls.filter(function(c){ return !c.incoming && !c.service; }).length, cur = B.pick[x.line] || '';
+            return '<tr><td style="white-space:nowrap;">' + escapeHtml(_mgMaskLine(x.line)) + '</td>'
+              + '<td><select data-mb-line="' + x.line + '" aria-label="Whose phone is ' + escapeHtml(_mgMaskLine(x.line)) + '"><option value="">Not a broker (not counted)</option>'
+              + reps.map(function(r){ return '<option value="' + r.id + '"' + (r.id === cur ? ' selected' : '') + '>' + escapeHtml(_skShortName(r.name)) + '</option>'; }).join('') + '</select></td>'
+              + '<td class="num">' + out + '</td>'
+              + mk.map(function(k){ return '<td class="num">' + (bm[k] || 0) + '</td>'; }).join('')
+              + '<td>' + (x.ok ? '<span class="mg-ok">Adds up to the bill’s total (' + x.expected + ')</span>' : '<span class="mg-flag data">Not saved: ' + escapeHtml(x.problem) + '</span>') + '</td></tr>';
+          }).join('') + '</table></div>'
+        + (bad.length ? '<p class="mg-note" style="margin-top:8px;">A mobile whose calls do not add up to the bill’s own total is never saved, whoever it belongs to.</p>' : '')
+        + '<button type="button" class="btn-primary" id="mgMbSave" style="width:auto;padding:10px 18px;margin-top:12px;">Save the bill</button>'
+        + '<div id="mgMbMsg" aria-live="polite" style="margin-top:8px;"></div>';
+      [].forEach.call(box.querySelectorAll('select[data-mb-line]'), function(s){ s.onchange = function(){ B.pick[s.getAttribute('data-mb-line')] = s.value; }; });
+      document.getElementById('mgMbSave').onclick = _mgSaveBill;
+    }
+    async function _mgSaveBill(){
+      var B = _MG.bill, btn = document.getElementById('mgMbSave'), msg = document.getElementById('mgMbMsg'); if(!B || !btn) return;
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        var now = {}; (_MG.mb.lines || []).forEach(function(l){ now[l.line] = l.rep_id || ''; });
+        var p = B.parsed, lines = p.lines.map(function(x){ return x.line; });
+        for(var i = 0; i < lines.length; i++){
+          var l = lines[i], want = B.pick[l] || '';
+          if((now[l] || '') !== want || !(l in now)){
+            var r1 = await sb.rpc('set_mobile_line', { p_line:l, p_rep:want || null, p_note:null });
+            if(r1.error) throw r1.error;
+          }
+        }
+        var keep = lines.filter(function(l){ return !!B.pick[l]; });
+        var rows = await MobileBill.rowsForSave(p, keep);
+        var r2 = await sb.rpc('record_mobile_bill', { p_file:B.file, p_sha:B.sha, p_from:p.period.from, p_to:p.period.to, p_lines:lines, p_calls:rows });
+        if(r2.error) throw r2.error;
+        try { logAction('mgmt_mobile_bill', null, { file:B.file, calls:rows.length, new_calls:r2.data && r2.data.new_calls }); } catch(e){}
+        await _mgReloadActivity(); await _mgLoadMobile(true);
+        var d = r2.data || {};
+        _MG.bill = null;
+        renderMgmtUpload();
+        var st = document.getElementById('mgUpStatus');
+        if(st) st.insertAdjacentHTML('afterbegin', '<span class="mg-ok" style="display:block;margin-bottom:8px;">' + escapeHtml(B.file) + ' saved: '
+          + (d.new_calls || 0) + ' new call' + (d.new_calls === 1 ? '' : 's') + ' on brokers’ phones' + (d.duplicate ? ' (this bill was loaded before; only calls not already kept were added)' : '')
+          + '. They are in the month-end report from now on.</span>');
+      } catch(e){
+        btn.disabled = false; btn.textContent = 'Save the bill';
+        if(msg) msg.innerHTML = '<div class="mg-flag data">Not saved: ' + escapeHtml((e && e.message) || String(e)) + '</div>';
+      }
     }
     async function _mgSaveTeramind(){
       var p = _MG.tm, btn = document.getElementById('mgTmSave'); if(!p || !btn) return;
