@@ -33,7 +33,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2026-10-27.1';
+  var VERSION = '2026-11-06.1';
   var FN_NAME = 'flex-client-admin';
   var PORTAL_URL = 'https://billcesgb.com/flex';
   var PORTAL_SHOWN = 'billcesgb.com/flex';
@@ -528,7 +528,10 @@
       g.logins.forEach(function (l) {
         if (!l.user_id) return;
         logins++;
-        if (l.last_sign_in_at && (Date.now() - new Date(l.last_sign_in_at).getTime()) < 30 * 86400000) recent++;
+        /* ROUND 49: counted off last_seen_at. This line is the "active within 30 days"
+           figure, and sign-ins undercount it — somebody who has had a session open
+           since last month has not signed in but is plainly using the portal. */
+        if (l.last_seen_at && (Date.now() - new Date(l.last_seen_at).getTime()) < 30 * 86400000) recent++;
       });
     });
     var shown = groups.filter(function (g) { return matches(g, S.q) && (!S.issues || g.issues); });
@@ -536,7 +539,7 @@
     var sum = '<div class="fxa-sum-line">'
       + '<span><b>' + groups.length + '</b> client' + (groups.length === 1 ? '' : 's') + '</span>'
       + '<span><b>' + logins + '</b> login' + (logins === 1 ? '' : 's') + '</span>'
-      + '<span><b>' + recent + '</b> signed in within 30 days</span>'
+      + '<span><b>' + recent + '</b> active within 30 days</span>'
       + (issues ? '<span class="fxa-bad-t"><b>' + issues + '</b> need' + (issues === 1 ? 's' : '') + ' attention</span>' : '')
       + '<span class="fxa-muted">' + (S.loading ? 'Refreshing' + ELL : 'Updated ' + esc(updated)) + '</span>'
       + '</div>';
@@ -609,7 +612,8 @@
       +   '<caption class="fxa-sr">Logins for ' + esc(g.company_name) + '</caption>'
       +   '<colgroup><col class="c-user"><col class="c-name"><col class="c-mail"><col class="c-last"><col class="c-made"><col class="c-st"><col class="c-act"></colgroup>'
       +   '<thead><tr><th scope="col">Username</th><th scope="col">Contact</th><th scope="col">Contact email</th>'
-      +   '<th scope="col">Last sign-in</th><th scope="col">Created</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>'
+      +   '<th scope="col">Last sign-in</th><th scope="col">Last seen</th>'
+      +   '<th scope="col">Created</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>'
       +   '<tbody>' + rows + '</tbody></table></div>'
       + '</article>';
   }
@@ -619,7 +623,10 @@
     var badge = '<span class="fxa-st fxa-st-' + st.key + '">' + esc(st.label) + '</span>'
       + (st.bad ? '<div class="fxa-st-tip">' + esc(st.tip) + '</div>' : '');
     if (!l.user_id) {
-      return '<tr><td colspan="5" class="fxa-muted">No login for this customer</td><td>' + badge + '</td><td></td></tr>';
+      /* colspan 6, not 5: round 49 added the Last seen column, so the table is eight
+         wide and this row is 6 + Status + Actions. Get it wrong and the badge and the
+         buttons slide out from under their headings on every customer with no login. */
+      return '<tr><td colspan="6" class="fxa-muted">No login for this customer</td><td>' + badge + '</td><td></td></tr>';
     }
     /* Round 46: the "by …" line is gone. Every login created since the New customer form
        shipped carries the name of whoever ran it, which on this desk is almost always the
@@ -637,6 +644,12 @@
       + '<td>' + (l.display_name ? esc(l.display_name) : '<span class="fxa-muted">not set</span>') + '</td>'
       + '<td class="fxa-break">' + (l.contact_email ? esc(l.contact_email) : '<span class="fxa-muted">not set</span>') + '</td>'
       + '<td>' + when(l.last_sign_in_at) + '</td>'
+      /* ROUND 49. Last SEEN, not last signed in. A session survives weeks, so a
+         customer can use the portal daily for a month without signing in again and
+         last_sign_in_at never moves — this is the column that shows whether they are
+         actually using it. Written by the client portal, seeded at deploy from
+         last_sign_in_at so it is never worse than what was already known. */
+      + '<td>' + when(l.last_seen_at) + '</td>'
       + '<td>' + made + '</td>'
       + '<td>' + badge + '</td>'
       + '<td><div class="fxa-acts">' + acts + '</div></td></tr>';

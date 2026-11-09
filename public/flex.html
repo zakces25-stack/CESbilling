@@ -15,7 +15,7 @@
 <script src="flex-shared.js"></script>
 <!-- Client Accounts tab (create flex clients, share baskets, reset passwords). The ?v= must
      equal VERSION inside the file; tests/flex_accounts_render_test.js checks it. -->
-<script src="flex-accounts.js?v=2026-10-27.1"></script>
+<script src="flex-accounts.js?v=2026-11-06.1"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -1074,36 +1074,13 @@ body.fx-rail-off #fxRailBtn { left: 0; }
 
 .overview-sub { font-size: 13px; color: var(--grey-500); }
 
-.summary-row { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
-
-.summary-chip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--white);
-  border: 1px solid var(--grey-200);
-  border-radius: 8px;
-  padding: 10px 16px;
-  font-size: 13px;
-  color: var(--grey-700);
-  box-shadow: var(--shadow-sm);
-}
-
-.summary-chip strong { font-family: var(--font-mono); font-size: 20px; font-weight: 700; color: var(--navy-700); }
-
-.summary-chip .chip-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-}
-
-.chip-icon.power { background: rgba(46,124,158,0.12); color: var(--data-electricity); }
-.chip-icon.gas { background: rgba(159,190,28,0.15); color: var(--green-600); }
-.chip-icon.date { background: rgba(31,45,77,0.08); color: var(--navy-700); }
+/* ROUND 49 removed .summary-row, .summary-chip and .chip-icon. They styled a row of
+   three chips above the Portfolio grid — two basket counts and a hardcoded
+   "As of 16 Jul 2026" — which a later unscoped rule in the <body><style> block hid
+   with `#summary-row{display:none!important}`. Measured in Chromium the row and all
+   three chips came back 0x0: it had not been on screen at any point. jsdom cannot see
+   that, which is why no suite ever noticed. The markup, the renderer and both rules
+   went with it. */
 
 /* ── OVERVIEW 2-COLUMN LAYOUT ────────────────────────────────── */
 .overview-columns {
@@ -1214,7 +1191,6 @@ td.fx-editable.fx-sim-edit:hover{ background:#f6f1ff; }
 
 .mini-card-pct { font-family: var(--font-mono); font-size: 17px; font-weight: 700; color: var(--positive-500); margin-bottom: 4px; }
 
-.mini-card-vol { font-size: 11px; color: var(--grey-500); }
 
 .mini-progress { height: 3px; background: var(--grey-200); border-radius: 2px; overflow: hidden; margin-top: 8px; }
 
@@ -1702,7 +1678,6 @@ body{background:linear-gradient(180deg,#f7f8fb 0%,#eef1f6 100%) fixed}
    the Day Ahead header and leaving its white text on a near-white fill. */
 table:not(.extra-table):not(.fx-htable):not(.fx-da-table) thead th{background:#fbfcfe!important;border-bottom:1.5px solid #e3e7ee!important}
 .extra-table th{background:var(--navy-700)!important;color:#fff!important}
-#summary-row{display:none!important}
 /* BY KEY, NOT BY POSITION (round 47a). This read `th:nth-child(9)` until round 47
    removed the Product column from the trades spec — Cost became the eighth, the rule
    matched nothing, and a column the desk hides on purpose appeared on screen. Every
@@ -1826,8 +1801,6 @@ button{transition:all .14s ease}
 #flexChip.fx-dragging{cursor:grabbing;opacity:.92;box-shadow:0 14px 34px rgba(3,8,26,.5)}
 #flexChip.fx-dragging *{pointer-events:none}
 
-/* summary / totals row pop */
-#summary-row td{background:#f4f7ea!important;font-weight:700}
 </style>
 
 <style>
@@ -2025,7 +1998,6 @@ button{transition:all .14s ease}
                with the basket tabs, so turning it on here also turns it on there. -->
           <div class="overview-edit"><button class="fx-btn fx-edit-toggle" onclick="fxSetEdit(!EDIT)">&#9998; Edit</button></div>
         </div>
-        <div class="summary-row" id="summary-row"></div>
         <div id="overview-grid-container"></div>
       </div>
       <!-- Market Curves tab -->
@@ -2421,9 +2393,11 @@ function escape(s) {
 }
 
 // ── BASKET CALCULATIONS ──────────────────────────────────────────
-function futureMths(basket) {
-  return basket.months.filter(m => m.month >= CUTOFF);
-}
+/* ROUND 49 removed futureMths(), calcTotalBaseVol() and calcAvgBaseMW() from here.
+   All three existed only to feed the Portfolio mini-card's baseload line, which is
+   gone. futureMths in particular is worth not resurrecting: it cut at CUTOFF, the 1st
+   of NEXT month, and round 47 established that the month being delivered is not
+   historic. Anything needing a forward boundary should use FIRST_OF_MONTH. */
 
 function calcSecuredPct(basket) {
   const fm = basket.months;  // entire position: historic + current + future
@@ -2431,16 +2405,6 @@ function calcSecuredPct(basket) {
   const totalSec  = fm.reduce((s,m) => s + (m.secured_vol_total || 0), 0);
   if (totalBase === 0) return 0;
   return totalSec / totalBase;
-}
-
-function calcTotalBaseVol(basket) {
-  return futureMths(basket).reduce((s,m) => s + (m.baseload_vol_total || 0), 0);
-}
-
-function calcAvgBaseMW(basket) {
-  const fm = futureMths(basket).filter(m => (m.baseload_vol || 0) > 0);
-  if (fm.length === 0) return 0;
-  return fm[0].baseload_vol;
 }
 
 function nextTarget(basket) {
@@ -2609,9 +2573,19 @@ function fxCardKey(ev, id){
 }
 
 function miniCardHtml(b) {
+  /* ROUND 49 — the baseload line is gone.
+     It printed a volume under the percentage, and the two were over different periods:
+     the percentage covers every month, the volume covered forward months only, so the
+     card could never be reconciled with itself. Worse, for power `calcAvgBaseMW` was
+     not an average at all — it took the FIRST forward month with a non-zero baseload
+     and printed that one month's MW rate. CES SEFE Basket read 1.35 MW here against
+     71.78 MW on the client portal; SCLA's gas read 19,630 th against a whole-basket
+     288,067 th, a fourteenth of the contract.
+     The percentage is whole-basket and correct, and agrees with the client portal's
+     "Whole basket cover". Total Baseload is on the basket's own detail view one click
+     away, computed by FlexCore.stats, which is the figure to trust. */
   const pct = calcSecuredPct(b);
   const isPower = b.commodity === 'power';
-  const vol = isPower ? calcAvgBaseMW(b) : calcTotalBaseVol(b);
   const aKind = basketAlertKind(b); const hasAlert = !!aKind;
   // In Edit mode the card is a drag handle as well as a link. The click guard is on the
   // handler rather than the attribute because a drag always ends with a click on the card
@@ -2629,7 +2603,6 @@ function miniCardHtml(b) {
       <span class="commodity-badge ${b.commodity}">${b.commodity === 'power' ? 'Power' : 'Gas'}</span>
     </div>
     <div class="mini-card-pct">${(pct*100).toFixed(0)}%</div>
-    <div class="mini-card-vol">${fmtNum(vol, isPower ? 2 : 0)} ${isPower ? 'MW' : 'th'} baseload</div>
     <div class="mini-progress"><div class="mini-progress-fill" style="width:${Math.min(pct*100,100).toFixed(1)}%"></div></div>
   </div>`;
 }
@@ -2637,21 +2610,6 @@ function miniCardHtml(b) {
 function renderOverview() {
   const powerBaskets = BASKETS.filter(b => b.commodity === 'power');
   const gasBaskets   = BASKETS.filter(b => b.commodity === 'gas');
-
-  document.getElementById('summary-row').innerHTML = `
-    <div class="summary-chip">
-      <div class="chip-icon power">&#9889;</div>
-      <div><strong>${powerBaskets.length}</strong> Power Baskets</div>
-    </div>
-    <div class="summary-chip">
-      <div class="chip-icon gas">&#128293;</div>
-      <div><strong>${gasBaskets.length}</strong> Gas Baskets</div>
-    </div>
-    <div class="summary-chip">
-      <div class="chip-icon date">&#128197;</div>
-      <div>As of <strong>16 Jul 2026</strong></div>
-    </div>
-  `;
 
   const showPower = currentFilter === 'all' || currentFilter === 'power';
   const showGas   = currentFilter === 'all' || currentFilter === 'gas';

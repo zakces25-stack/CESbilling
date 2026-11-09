@@ -1193,10 +1193,37 @@ async function routeStaff(session){
   return true;
 }
 
+/* ROUND 49 — "LAST SEEN", THE WRITE SIDE.
+
+   The desk's Client Accounts tab shows a Last Seen column beside Last sign-in, because
+   the two are different facts: a session survives weeks, so somebody can use this
+   portal daily for a month without signing in again and last_sign_in_at never moves.
+   This is the only thing that records the difference, and it records it here because
+   this is the page the customer actually opens. Nothing about it is visible to them.
+
+   THE THROTTLE IS IN THE DATABASE, NOT HERE. flex_client_touch_seen() writes at most
+   once per fifteen minutes per user, so this call is free to make on every load and a
+   future caller cannot forget the rule. It takes no arguments, so there is nothing to
+   pass that could name somebody else's row.
+
+   NOT AWAITED, AND ITS FAILURE IS SWALLOWED. A bookkeeping write must never be able to
+   delay the portfolio appearing, and must never be able to stop it appearing at all —
+   if the column or the function is missing because the SQL has not been run yet, the
+   customer should still get their portal. */
+function cxTouchSeen(){
+  try{
+    const p = CX.sb.rpc('flex_client_touch_seen');
+    if(p && typeof p.then === 'function') p.then(function(){}, function(){});
+  }catch(e){ /* deliberately silent */ }
+}
+
 async function start(){
   const { data:{ session } } = await CX.sb.auth.getSession().catch(()=>({data:{session:null}}));
   if(!session){ location.replace(LOGIN_PAGE); return; }
   if(await routeStaff(session)) return;
+  /* After routeStaff, so a desk user bounced to the trade desk is not recorded as a
+     client having opened the client portal. */
+  cxTouchSeen();
 
   try{ await load(); }
   catch(e){
