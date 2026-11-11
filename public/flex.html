@@ -7536,11 +7536,21 @@ async function fxExtendSave(){
    Rare — a customer leaving a basket part-way through — and irreversible, so the box is
    built around what it is about to destroy rather than around the date box.
 
-   THE PART WORTH READING. flex_targets and flex_reconciliation are keyed on
-   (basket_id, month) with NO foreign key to flex_basket_months. Delete a month and
-   those rows stay behind: invisible, counted by nothing, and waiting to reattach
-   themselves if that month is ever recreated. Every one of the 1,972 basket months has
-   a reconciliation row. So the delete takes all three, and the confirmation says so.
+   THE PART WORTH READING. flex_targets is keyed on (basket_id, month) with NO foreign
+   key to flex_basket_months. Delete a month and its ladder row stays behind: invisible,
+   counted by nothing, and waiting to reattach itself if that month is ever recreated.
+   So the delete takes both, and the confirmation says so.
+
+   ROUND 50 — WHAT THIS COMMENT USED TO CLAIM, AND WHY IT WAS WRONG. It said the same of
+   flex_reconciliation, and the delete ran against that too. flex_reconciliation is not a
+   table: it is a VIEW over flex_positions, itself a view over flex_basket_months. It has
+   no rows of its own, so there was nothing to delete and Postgres refused — "cannot
+   delete from view". The box stopped before touching anything, which is why no basket
+   was ever half-trimmed, but no basket could be trimmed either. The feature had not
+   worked since it shipped in round 46; TLG Linen on 11 Nov 2026 was the first attempt.
+
+   The rule this leaves behind: ONLY REAL TABLES GO IN THE LIST BELOW. Anything derived
+   follows the months on its own, because it IS the months.
 
    TRADES ARE DIFFERENT and are not deleted. They are keyed on start and end dates, not
    on months, so nothing breaks when the months under them go — the trade simply stops
@@ -7599,7 +7609,6 @@ function fxTrimPreview(){
   if(p.withVol.length) warn.push('<b>'+plural(p.withVol.length,'month')+' of those still carry secured volume</b> ('
     + p.withVol.slice(0,4).map(m=>escape(fmtMonth(m.month))).join(', ') + (p.withVol.length>4?', …':'') + ')');
   if(p.targets.length) warn.push('<b>'+plural(p.targets.length,'target ladder')+'</b> will be deleted with them');
-  if(p.months.length)  warn.push('<b>'+plural(p.months.length,'reconciliation row')+'</b> will be deleted with them');
   if(p.trades.length)  warn.push('<b>'+plural(p.trades.length,'trade')+' run past '+escape(fmtMonth(endISO))
     + '</b> (' + p.trades.slice(0,4).map(t=>escape(t.ref||t.counterparty||'trade')).join(', ')
     + (p.trades.length>4?', …':'') + '). Those are NOT deleted — they would be left covering months that no longer exist, '
@@ -7626,7 +7635,6 @@ async function fxTrimCommit(){
      guard against doing it to the wrong basket. */
   const bits=[plural(p.months.length,'month')];
   if(p.targets.length) bits.push(plural(p.targets.length,'target ladder'));
-  bits.push(plural(p.months.length,'reconciliation row'));
   if(!confirm('Delete ' + bits.join(', ') + ' from "' + b.name + '"?\n\n'
       + 'Everything after ' + fmtMonth(endISO) + ' goes. This cannot be undone.'
       + (p.withVol.length ? '\n\n' + plural(p.withVol.length,'month') + ' of those still carry secured volume.' : '')
@@ -7639,7 +7647,6 @@ async function fxTrimCommit(){
   // Months last: if a later delete fails, what is left behind is a month with no ladder
   // rather than a ladder with no month, and the first of those is visible on the tab.
   for(const [table, label] of [['flex_targets','target ladders'],
-                               ['flex_reconciliation','reconciliation rows'],
                                ['flex_basket_months','months']]){
     const { error } = await FLEX.sb.from(table).delete().eq('basket_id', b.id).in('month', keys);
     if(error){
