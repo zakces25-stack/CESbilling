@@ -268,6 +268,10 @@
     .bk-why summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--text-2)}
     .bk-why p{font-size:12px;color:var(--muted);line-height:1.6;margin-top:8px;max-width:90ch}
     .bk-age{font-size:10.5px;color:var(--muted)}
+    /* Live pricebooks tick column (15 Nov 2026): remove several books at once. */
+    .bk-tick,#ledgerTickAll{width:16px;height:16px;margin:0;padding:0;cursor:pointer;accent-color:var(--cyan)}
+    .bk-tick:disabled,#ledgerTickAll:disabled{cursor:not-allowed}
+    tr.bk-ticked>td{background:var(--cyan-glow,rgba(15,118,110,.09))}
     .bk-log td{font-size:12px}
     .bk-log .why{font-size:11px;color:var(--muted);max-width:420px;overflow-wrap:anywhere}
     .chips{display:flex;flex-wrap:wrap;gap:8px}
@@ -605,7 +609,7 @@
               <span><i class="dot-green"></i>Green: newest book under 7 days old</span>
               <span><i class="dot-yellow"></i>Yellow: 7 to 10 days</span>
               <span><i class="dot-red"></i>Red: 11 days or more, or no book</span>
-              <span><i class="dot-green"></i>E.ON Next: green only with today&rsquo;s book</span>
+              <span><i class="dot-green"></i>E.ON Next: green only with today&rsquo;s book (Friday&rsquo;s covers Saturday and Sunday)</span>
             </div>
           </div>
         </div>
@@ -628,9 +632,12 @@
             <h2>Live pricebooks</h2>
             <div class="sub">What the desk quotes from, one book per supplier product. Loading a newer
               book puts it live and deletes the one it replaces. A book past its own end date is not
-              quoted.</div>
+              quoted (E.ON Next&rsquo;s Friday book is quoted until Sunday night). Tick books to remove
+              several at once.</div>
           </div>
           <div class="bk-actions">
+            <button class="act ghost" id="ledgerRemoveBtn" onclick="removeTickedBooks(this)" disabled
+                    title="Stop quoting the ticked books and delete them">Remove ticked</button>
             <button class="act" id="emailLoadBtn" onclick="loadLatestFromEmail()">Load the latest from email</button>
           </div>
         </div>
@@ -638,10 +645,12 @@
         <div id="ledgerFilter" class="hide" style="margin:0 0 10px"></div>
         <div class="scroll"><table>
           <thead><tr>
+            <th style="width:30px"><input type="checkbox" id="ledgerTickAll" title="Tick every book listed"
+                  aria-label="Tick every book listed" onchange="tickAllBooks(this.checked)" disabled></th>
             <th>Supplier</th><th>Product</th><th>File</th><th>Book of</th><th>Quoted until</th>
             <th class="num">Rates</th><th></th>
           </tr></thead>
-          <tbody id="ledgerBody"><tr><td colspan="7" style="color:var(--muted)">Loading…</td></tr></tbody>
+          <tbody id="ledgerBody"><tr><td colspan="8" style="color:var(--muted)">Loading…</td></tr></tbody>
         </table></div>
         <div id="ledgerErr" class="hide"></div>
       </div>
@@ -670,8 +679,9 @@
             that hash is not registered for the supplier the book is refused and the header is shown for
             someone to look at: suppliers change their layouts without telling anyone, and a parser that
             half-works does not fail, it produces a plausible wrong price. Each file is matched to its
-            product by its name, a book whose own end date has passed is not loaded, and a book older
-            than the one already live is never put over it.</p>
+            product by its name, a book whose own end date has passed is not loaded (E.ON Next&rsquo;s
+            Friday book counts as good until the end of Sunday, so it loads at the weekend), and a book
+            older than the one already live is never put over it.</p>
         </details>
         <div class="row" style="margin-top:12px">
           <div>
@@ -1130,7 +1140,8 @@
         <h2>Pricebook status bar</h2>
         <div class="sub">How old a supplier&rsquo;s newest live book may be before its bar changes colour. <b>Weekly</b> is CES&rsquo;s
           rule (green under 7 days, yellow 7 to 10, red from day 11 or with no book). <b>Daily</b> is E.ON Next&rsquo;s: green only
-          with a book valid today. <b>Monthly</b> is for suppliers who issue one book a month (green under 31 days, yellow 31 to 34,
+          with a book valid today, except that a daily supplier&rsquo;s Friday book stays green and keeps quoting through
+          Saturday and Sunday (on Monday it needs Monday&rsquo;s book, like any weekday). <b>Monthly</b> is for suppliers who issue one book a month (green under 31 days, yellow 31 to 34,
           red from day 35): British Gas, BG Lite, ScottishPower and SEB electricity do, and under the weekly rule they turn red
           around the 11th while their book is still the current one.</div>
         <div id="admStatusList"><div class="note">Loading&hellip;</div></div>
@@ -2129,13 +2140,15 @@ async function loadStatusBar() {
 
 function statusText(r) {
   if (!r.book_date) return 'no book loaded';
-  if (r.cadence === 'daily') return r.status === 'green' ? "today's book" : `not today's book (${uk(r.book_date)})`;
+  // Green on a Saturday or Sunday is Friday's book, and the database says so in the note
+  // (pricebook_supplier_status, 15 Nov 2026) rather than this calling it "today's book".
+  if (r.cadence === 'daily') return r.status === 'green' ? (r.note || "today's book") : `not today's book (${uk(r.book_date)})`;
   return ageWords(r.age_days) + (r.note ? `, ${r.note}` : '');
 }
 function statusTitle(r) {
   const rule = { weekly: 'Weekly rule: green under 7 days, yellow 7 to 10, red from 11',
                  monthly: 'Monthly rule: green under 31 days, yellow 31 to 34, red from 35',
-                 daily: "Daily rule: green only with today's book" }[r.cadence] || '';
+                 daily: "Daily rule: green only with today's book; Friday's book stays green on Saturday and Sunday" }[r.cadence] || '';
   const fuels = (r.fuels || []).map(f => `${FUEL_WORD[f.fuel] || f.fuel}: ${f.book_date ? 'book of ' + uk(f.book_date) : 'no live book'}${f.note ? ' (' + f.note + ')' : ''}`);
   return [rule].concat(fuels).join('\n');
 }
@@ -3079,7 +3092,12 @@ async function loadLatestFromEmail() {
       if (c.too_big) p.result = { pill: 'p-fail', word: 'too big', why: 'over 50 MB, so it cannot be stored: drop it in by hand' };
       else if (age > MAX_BOOK_AGE_DAYS) p.result = { pill: 'p-mute', word: 'too old', why: `the newest one in the mailbox is ${Math.round(age)} days old` };
       else if (c.inbox && c.inbox.status === 'loaded') p.result = { pill: 'p-ok', word: 'already loaded', why: '' };
-      else if (c.inbox && c.inbox.status === 'skipped' && c.inbox.storage_path && !/^Closed after/.test(c.inbox.status_note || ''))
+      // A file skipped only because its prices had ended is checked again rather than written off:
+      // since 15 Nov 2026 E.ON's Friday book counts as good to Sunday (quoteUntil), and the 13 Nov
+      // one had been skipped on the Sunday under the old rule. Still past its date, it is skipped
+      // again with the same note.
+      else if (c.inbox && c.inbox.status === 'skipped' && c.inbox.storage_path && !/^Closed after/.test(c.inbox.status_note || '')
+               && !/its prices ended on/.test(c.inbox.status_note || ''))
         p.result = { pill: 'p-mute', word: 'skipped before', why: c.inbox.status_note || 'skipped by hand' };
       else if (c.inbox && c.inbox.storage_path) { p.inboxId = c.inbox.id; p.state = 'to load'; }
       else p.state = 'to fetch';
@@ -3524,6 +3542,34 @@ function bookValidity(rows) {
 const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 /**
+ * The last day a book may be quoted on, read the way the database reads it
+ * (pricebook_quote_until, migration 20261115_67a): its own end date, except that a DAILY
+ * supplier's Friday book also covers the Saturday and Sunday after it.
+ *
+ * CES, 15 Nov 2026: "Friday's pricebook for E.ON Next should remain valid / green on Saturday
+ * and Sunday until a new one comes in on Monday morning". E.ON send nothing at the weekend, and
+ * the 13 Nov book was refused on the Sunday as expired. Monday is an ordinary day again: red
+ * until Monday's book is loaded. Change this and the SQL helper together.
+ */
+function quoteUntil(validTo, daily) {
+  if (!validTo) return null;
+  const iso = String(validTo).slice(0, 10);
+  if (!daily) return iso;
+  const d = new Date(iso + 'T00:00:00Z');
+  if (isNaN(d) || d.getUTCDay() !== 5) return iso;
+  d.setUTCDate(d.getUTCDate() + 2);
+  return d.toISOString().slice(0, 10);
+}
+/**
+ * Is this supplier on the daily rule (Settings, Status bar)? The status bar's own read says;
+ * until that has loaded, E.ON Next, the one daily supplier.
+ */
+function isDailySupplier(skey) {
+  const r = SUP_STATUS.find(s => s.supplier_key === skey);
+  return r ? r.cadence === 'daily' : skey === 'eon_next';
+}
+
+/**
  * A live book for the same product that came from a NEWER email (or was dropped in by hand
  * after this email arrived). "Load the latest" must never put an older book over it.
  */
@@ -3659,11 +3705,13 @@ async function processOne(it) {
     return;
   }
   // E.ON's books are good for one day, Yu's for about a fortnight. One whose own end date
-  // has passed would be quoted at prices the supplier no longer honours.
+  // has passed would be quoted at prices the supplier no longer honours. The end date is read
+  // through quoteUntil(), so E.ON's Friday book still loads on the Saturday and Sunday.
   const valid = bookValidity(parsed.rows);
-  if (valid.to && valid.to < todayIso()) {
+  const lastDay = quoteUntil(valid.to, isDailySupplier(skey));
+  if (lastDay && lastDay < todayIso()) {
     it.state = 'skipped'; it.expired = true;
-    it.msg = `its prices ended on ${uk(valid.to)}, so it was not loaded`;
+    it.msg = `its prices ended on ${uk(lastDay)}${lastDay !== valid.to ? ' (a Friday book, good over the weekend only)' : ''}, so it was not loaded`;
     return;
   }
 
@@ -3793,9 +3841,14 @@ async function registerLayout(id, btn) {
  * loading shows at the top while it runs.
  *
  * "Book of" is the day its email arrived (or the day it was dropped in by hand). "Quoted until"
- * is the book's own last day where the supplier gives one: past it the book is not quoted
- * (pricebook_rates_live checks), and it says so here in red rather than quietly vanishing.
+ * is the book's own last day where the supplier gives one, read through quoteUntil() so E.ON's
+ * Friday book shows Sunday: past it the book is not quoted (pricebook_rates_live checks), and
+ * it says so here in red rather than quietly vanishing.
+ *
+ * The tick column (15 Nov 2026) is for removing several books at once: see removeTickedBooks.
  */
+let LEDGER_SHOWN = [];          // the live books the table is showing now, the only ones a tick can reach
+const LEDGER_TICKED = new Set(); // upload ids ticked for "Remove ticked"
 async function loadLedger() {
   const body = $('ledgerBody');
   if (!body) return;
@@ -3825,21 +3878,33 @@ async function loadLedger() {
   } else if (filt) { filt.classList.add('hide'); filt.innerHTML = ''; }
 
   if (!rows.length) {
-    body.innerHTML = `<tr><td colspan="7" style="color:var(--muted)">${LEDGER_FILTER
+    LEDGER_SHOWN = []; LEDGER_TICKED.clear(); paintTicks();
+    body.innerHTML = `<tr><td colspan="8" style="color:var(--muted)">${LEDGER_FILTER
       ? `No live book for ${esc(supplierName(LEDGER_FILTER))}.` : 'Nothing live yet.'}</td></tr>`;
     return;
   }
   const loadingFirst = [...rows].sort((a, b) => (a.status === 'loading' ? -1 : 0) - (b.status === 'loading' ? -1 : 0)
     || supplierName(a.supplier_key).localeCompare(supplierName(b.supplier_key)));
+  // Ticks survive a redraw, but only on books still listed: one replaced since, or filtered out
+  // of view by a supplier tile, is unticked, so "Remove ticked" never deletes a book nobody can see.
+  LEDGER_SHOWN = loadingFirst.filter(r => r.status === 'live');
+  const shownIds = new Set(LEDGER_SHOWN.map(r => r.id));
+  for (const id of [...LEDGER_TICKED]) if (!shownIds.has(id)) LEDGER_TICKED.delete(id);
   body.innerHTML = loadingFirst.map(r => {
     const age = ageDays(r);
     const vt = r.quote_valid_to ? String(r.quote_valid_to).slice(0, 10) : null;
+    const qu = quoteUntil(vt, isDailySupplier(r.supplier_key));
     const until = r.status === 'loading' ? '<span class="pill p-warn">loading</span>'
       : !vt ? '<span style="color:var(--muted)">not given</span>'
-      : vt < today ? `<span class="pill p-fail" title="${esc((String(r.notes || '').match(/expired: [^|]+/) || [''])[0])}">ended ${uk(vt)}</span>`
-      : vt === today ? '<span class="pill p-warn">today only</span>'
-      : uk(vt);
-    return `<tr${r.status === 'loading' || r.paused_at ? ' style="background:var(--warn-bg)"' : ''}>
+      : qu < today ? `<span class="pill p-fail" title="${esc((String(r.notes || '').match(/expired: [^|]+/) || [''])[0])}">ended ${uk(qu)}</span>`
+      : qu === today ? '<span class="pill p-warn">today only</span>'
+      : uk(qu);
+    const weekend = r.status !== 'loading' && vt && qu !== vt
+      ? `<div class="bk-age">Friday&rsquo;s book (dated ${uk(vt)}), covers the weekend</div>` : '';
+    const ticked = LEDGER_TICKED.has(r.id);
+    return `<tr${r.status === 'loading' || r.paused_at ? ' style="background:var(--warn-bg)"' : ''}${ticked ? ' class="bk-ticked"' : ''}>
+      <td>${r.status === 'live' ? `<input type="checkbox" class="bk-tick" data-id="${esc(r.id)}"${ticked ? ' checked' : ''}
+            aria-label="Tick ${esc(supplierName(r.supplier_key))} ${esc(prodName(r))}" onchange="tickBook(this)">` : ''}</td>
       <td>${esc(supplierName(r.supplier_key))}</td>
       <td>${esc(prodName(r))}<div class="bk-age">${esc(r.fuel)}${r.sale_scope && r.sale_scope !== 'any' ? ' · ' + esc(r.sale_scope) : ''}</div>${r.paused_at
         ? `<div class="bk-age" style="color:var(--fail)"><b>Paused, not quoting</b>: ${esc(r.paused_reason || '')} (${esc(r.paused_by_name || 'the desk')}, ${uk(r.paused_at)})</div>` : ''}</td>
@@ -3847,7 +3912,7 @@ async function loadLedger() {
         r.zip_filename ? `<div class="bk-age">from ${esc(r.zip_filename)}</div>` : ''}</td>
       <td class="mono">${uk(bookOf(r))}<div class="bk-age" style="${age > 28 ? 'color:var(--fail)' : age > 14 ? 'color:var(--warn)' : ''}">${
         age <= 0 ? 'today' : age === 1 ? 'yesterday' : age + ' days ago'}</div></td>
-      <td>${until}</td>
+      <td>${until}${weekend}</td>
       <td class="num">${r.rows_loaded ? r.rows_loaded.toLocaleString() : '—'}</td>
       <td style="white-space:nowrap">${r.status === 'live' ? (r.paused_at
           ? `<button class="act sm" onclick="resumeBook('${r.id}',this)" title="Quote from it again">Resume</button> `
@@ -3855,6 +3920,104 @@ async function loadLedger() {
         + `<button class="act ghost sm" onclick="retire('${r.id}',true,this)" title="Stop quoting it and delete it">Remove</button>` : ''}</td>
     </tr>`;
   }).join('');
+  paintTicks();
+}
+
+// ── Remove several books at once (CES, 15 Nov 2026: "add a tickbox we can select to easily
+// delete multiple at once"). The single Remove button is unchanged; this is the same delete,
+// done for every ticked book, with one confirm and one sweep instead of one per book.
+function tickBook(box) {
+  const id = box.dataset.id;
+  if (box.checked) LEDGER_TICKED.add(id); else LEDGER_TICKED.delete(id);
+  const tr = box.closest('tr'); if (tr) tr.classList.toggle('bk-ticked', box.checked);
+  paintTicks();
+}
+function tickAllBooks(on) {
+  for (const r of LEDGER_SHOWN) { if (on) LEDGER_TICKED.add(r.id); else LEDGER_TICKED.delete(r.id); }
+  document.querySelectorAll('#ledgerBody .bk-tick').forEach(c => {
+    c.checked = LEDGER_TICKED.has(c.dataset.id);
+    const tr = c.closest('tr'); if (tr) tr.classList.toggle('bk-ticked', c.checked);
+  });
+  paintTicks();
+}
+/** The header tick and the Remove ticked button, from what is ticked now. */
+function paintTicks() {
+  const n = LEDGER_SHOWN.filter(r => LEDGER_TICKED.has(r.id)).length;
+  const all = $('ledgerTickAll');
+  if (all) {
+    all.disabled = !LEDGER_SHOWN.length;
+    all.checked = n > 0 && n === LEDGER_SHOWN.length;
+    all.indeterminate = n > 0 && n < LEDGER_SHOWN.length;
+  }
+  const btn = $('ledgerRemoveBtn');
+  if (btn && !btn.dataset.busy) {
+    btn.disabled = !n;
+    btn.textContent = n ? `Remove ${n} ticked` : 'Remove ticked';
+  }
+}
+
+/**
+ * Remove every ticked book: one confirm naming them all, then pricebook_retire for each (a
+ * status flip, so each stops quoting the moment it is done), then ONE sweep of the rates and
+ * source files, the same housekeeping as a single Remove. A book that will not go is reported
+ * by name and stays ticked; the rest still go.
+ */
+async function removeTickedBooks(btn) {
+  const rows = LEDGER_SHOWN.filter(r => LEDGER_TICKED.has(r.id));
+  if (!rows.length) return;
+  const n = rows.length;
+  const rates = rows.reduce((a, r) => a + (Number(r.rows_loaded) || 0), 0);
+  const names = rows.slice(0, 15).map(r => `  - ${supplierName(r.supplier_key)}, ${prodName(r)}: ${r.source_filename}`).join('\n')
+    + (n > 15 ? `\n  - and ${n - 15} more` : '');
+  if (!confirm(`Remove ${n} pricebook${n === 1 ? '' : 's'} from the desk?\n\n${names}\n\n`
+    + `They stop being quoted straight away and their ${rates.toLocaleString()} rates are deleted. `
+    + `Each of those products then has nothing live until a new book is loaded.`)) return;
+
+  btn.dataset.busy = '1'; btn.disabled = true;
+  const all = $('ledgerTickAll'); if (all) all.disabled = true;
+  document.querySelectorAll('#ledgerBody .bk-tick').forEach(c => { c.disabled = true; });
+  const failed = [];
+  let pending = 0, k = 0;
+  try {
+    for (const r of rows) {
+      btn.textContent = `Removing ${++k} of ${n}…`;
+      try {
+        const res = await q(sb.rpc('pricebook_retire', { p_upload: r.id, p_purge: true }), 'retire');
+        pending += Number(((res && res[0]) || {}).rates_pending) || 0;
+        LEDGER_TICKED.delete(r.id);
+      } catch (e) {
+        failed.push(`${supplierName(r.supplier_key)}, ${prodName(r)}: ${e.message}`);
+      }
+    }
+    let removed = 0;
+    if (pending) {
+      btn.textContent = `0 / ${pending.toLocaleString()}`;
+      removed = await sweepOrphanRates((done) => {
+        btn.textContent = `${done.toLocaleString()} / ${pending.toLocaleString()}`;
+      });
+    }
+    btn.textContent = 'files…';
+    const files = await sweepOrphanFiles();
+    try { await sb.rpc('pricebook_purge_retired', { p_limit: 500 }); } catch (_) { /* the cron tidies up too */ }
+
+    const ok = n - failed.length;
+    if (failed.length) fail($('ledgerErr'), `Not removed: ${failed.join('; ')}`);
+    alert(`Removed ${ok} pricebook${ok === 1 ? '' : 's'}: ${removed.toLocaleString()} rates deleted`
+        + (files.files ? ` and ${files.files} source file${files.files === 1 ? '' : 's'} `
+                       + `(${mb(files.bytes)})` : '')
+        + (removed < pending
+           ? `, ${(pending - removed).toLocaleString()} still to go. The mailbox job finishes `
+             + `them within 15 minutes, and so does the next load.`
+           : '.')
+        + (failed.length ? `\n\nNot removed (still ticked):\n${failed.join('\n')}` : ''));
+  } catch (e) {
+    fail($('ledgerErr'), e.message);
+    alert(`Could not finish removing the ticked pricebooks.\n\n${e.message}`);
+  } finally {
+    delete btn.dataset.busy;
+    paintTicks();
+    loadLedger(); loadAdmin(); loadStorage(); loadStatusBar();
+  }
 }
 
 /**
