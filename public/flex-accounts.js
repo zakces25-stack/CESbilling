@@ -33,7 +33,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2026-11-06.1';
+  var VERSION = '2026-11-16';
   var FN_NAME = 'flex-client-admin';
   var PORTAL_URL = 'https://billcesgb.com/flex';
   var PORTAL_SHOWN = 'billcesgb.com/flex';
@@ -1283,6 +1283,15 @@
        questions of the server and neither needs the other's answer, so queueing them
        costs a round trip on every click of Edit baskets. */
     var permP = rpc('flex_client_basket_tabs', { p_customer_id: cid });
+    /* ROUND 51 — the Potential cover flag, read straight off flex_baskets.
+
+       Its own query, deliberately tolerant. Everything else in this dialog is per
+       customer; this one column is per BASKET, so it is not in flex_client_basket_tabs
+       and does not belong there. Asked for on its own means that a desk running before
+       the round 51 SQL has been applied gets one disabled tick box and a sentence,
+       rather than a dialog that will not open — the same degrade story P.ok has carried
+       since round 44. */
+    var potP = FLEX.sb.from('flex_baskets').select('id,show_potential_cover');
     if (!S.at || Date.now() - S.at > 15000 || !S.cat) await refresh();
     var g = groupsOf(S.rows).filter(function (x) { return x.customer_id === cid; })[0];
     if (!g) { toast('That customer is no longer listed. Refresh the page.', false); return; }
@@ -1298,6 +1307,18 @@
        save path never calls the new functions. Everything else in this dialog carries
        on working, which is the point. */
     var P = { ok: false, err: '', day: false, dayOrig: false, hid: {}, hidOrig: {} };
+    var POT = { ok: false, err: '', on: {}, orig: {} };
+    try {
+      var potR = await potP;
+      if (potR && potR.error) { POT.err = dbMessage(potR.error); }
+      else {
+        POT.ok = true;
+        (potR && potR.data ? potR.data : []).forEach(function (r) {
+          POT.on[r.id] = !!r.show_potential_cover;
+          POT.orig[r.id] = !!r.show_potential_cover;
+        });
+      }
+    } catch (e) { POT.err = String((e && e.message) || e); }
     var pr = await permP;
     if (pr.error) {
       P.err = dbMessage(pr.error);
@@ -1345,9 +1366,14 @@
          out would be a write to a row that is about to cease to exist. */
       var tabs = P.ok ? now.filter(function (id) { return hidKey(id) !== hidWas(id); }) : [];
       var day = P.ok && P.day !== P.dayOrig;
-      return { now: now, add: add, rem: rem, tabs: tabs, day: day,
+      /* A basket on its way OUT keeps its flag: the flag is the basket's, not this
+         customer's, and unsharing a basket from one customer must not quietly change what
+         every other customer on it sees. So this reads `now`, like tabs above. */
+      var pot = POT.ok ? now.filter(function (id) {
+        return !!POT.on[id] !== !!POT.orig[id]; }) : [];
+      return { now: now, add: add, rem: rem, tabs: tabs, day: day, pot: pot,
                bk: add.length + rem.length > 0,
-               changed: add.length + rem.length + tabs.length > 0 || day };
+               changed: add.length + rem.length + tabs.length + pot.length > 0 || day };
     }
 
     /* One row per basket that will be shared, each with the five tick boxes. Repainted
@@ -1377,6 +1403,12 @@
                 + '<input type="checkbox" data-tab="' + esc(t[0]) + '" data-bid="' + esc(id) + '"'
                 + (on ? ' checked' : '') + '> <span>' + esc(t[1]) + '</span></label>';
             }).join('')
+          + (POT.ok
+              ? '<label class="fxa-pbox fxa-pall' + (POT.on[id] ? '' : ' off') + '">'
+                + '<input type="checkbox" data-pot="' + esc(id) + '"'
+                + (POT.on[id] ? ' checked' : '') + '> '
+                + '<span>Potential cover bar <b>&mdash; every customer</b></span></label>'
+              : '')
           + '</div></div>';
       }).join('');
 
@@ -1388,6 +1420,15 @@
         + 'are worked out from Positions in the browser, so unticking those hides the tab rather than '
         + 'the figures behind it.</p>'
         + (rows || '<div class="fxa-perm-off">No baskets ticked yet.</div>')
+        + (POT.ok
+            ? '<p class="fxa-perm-note"><b>Potential cover bar</b> is the one tick box here that is '
+              + 'not per customer. It belongs to the basket, so ticking it shows the third bar to '
+              + '<b>every customer on that basket</b>, not just ' + esc(g.company_name) + '. It adds '
+              + 'a bar to the basket card valuing the months still to come at the volumes of the last '
+              + 'twelve &mdash; useful on a group basket whose meters have not all renewed, and noise '
+              + 'on one where the forecast is already right. Nothing else on the portal changes.</p>'
+            : '<p class="fxa-perm-note">The Potential cover bar tick box is not available yet'
+              + (POT.err ? ': ' + esc(POT.err) : '.') + ' Run the round 51 SQL and reload.</p>')
         + '<div class="fxa-perm-h" style="margin-top:14px">Other tabs</div>'
         + '<label class="fxa-pbox fxa-pday' + (P.day ? '' : ' off') + '">'
         +   '<input type="checkbox" id="fxaDay"' + (P.day ? ' checked' : '') + '> '
@@ -1402,6 +1443,13 @@
         cb.addEventListener('change', function () {
           var h = hidOf(cb.getAttribute('data-bid'));
           if (cb.checked) h.delete(cb.getAttribute('data-tab')); else h.add(cb.getAttribute('data-tab'));
+          var lab = cb.closest('.fxa-pbox'); if (lab) lab.classList.toggle('off', !cb.checked);
+          E.dirty = diff().changed; E.err = ''; E.conflict = false; state();
+        });
+      });
+      Array.prototype.forEach.call(host.querySelectorAll('input[data-pot]'), function (cb) {
+        cb.addEventListener('change', function () {
+          POT.on[cb.getAttribute('data-pot')] = cb.checked;
           var lab = cb.closest('.fxa-pbox'); if (lab) lab.classList.toggle('off', !cb.checked);
           E.dirty = diff().changed; E.err = ''; E.conflict = false; state();
         });
@@ -1490,6 +1538,27 @@
         }
         P.hidOrig[bid] = hidKey(bid);
         done.push('tabs');
+      }
+
+      for (var j = 0; j < d.pot.length; j++) {
+        var pid = d.pot[j];
+        /* Through a named function, like every other write this tab makes. The rule is
+           asserted by suite 11 and it is a good one: the function checks is_flex_team()
+           for itself, so the desk-only guarantee does not depend on the RLS policy on
+           flex_baskets happening to stay as it is. Caught by that assertion when this
+           first went in as a direct .update(). */
+        var pw = await rpc('flex_client_set_potential_cover',
+          { p_basket_id: pid, p_on: !!POT.on[pid] });
+        if (!DLG) return;
+        if (pw.error) {
+          setBusy(false); b.textContent = 'Save changes';
+          E.err = dbMessage(pw.error)
+            + (done.length ? ' Everything else was saved; the Potential cover bar was not.' : '');
+          state();
+          return;
+        }
+        POT.orig[pid] = !!POT.on[pid];
+        done.push('potential');
       }
 
       if (d.day) {
@@ -1839,6 +1908,11 @@
        empty square the eye slides past. */
     '.fxa-pbox.off span{color:var(--fxa-muted);text-decoration:line-through}',
     '.fxa-pday{padding:7px 10px;border:1px solid var(--fxa-line);border-radius:8px;background:#fff}',
+    /* Round 51. Set apart from the five tab boxes beside it, because it is the one
+       control in this dialog that changes what EVERY customer on the basket sees.
+       A dotted rule and its own tint, so it does not read as a sixth tab. */
+    '.fxa-pall{margin-left:10px;padding:5px 9px;border:1px dashed var(--fxa-line);'
+      + 'border-radius:8px;background:#fffaf0}',
     '@media (max-width:700px){.fxa-prow{grid-template-columns:1fr}}',
     /* done */
     '.fxa-done-lead{display:flex;gap:10px;align-items:flex-start;margin:0 0 14px;font-size:13.5px;line-height:1.5}',

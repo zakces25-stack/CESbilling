@@ -525,7 +525,16 @@
         value: function (m) { return pctCell(m.secured_pct || 0); },
         total: function (t) { return pctCell(t.pct); } },
 
-      { key: 'cost',   head: 'Secured Cost', align: 'right',
+      /* HIDDEN, NOT DELETED (round 51). Daniel and his manager decided the column is not
+         needed on screen. `hidden` takes it off BOTH portals' tables through screenCols()
+         below and changes nothing else: the figure is still computed, still in both
+         workbooks, still in the database, and the Seasons tab keeps its own Secured Cost
+         column. Bringing it back is deleting one word.
+
+         A flag on the column rather than an entry in CLIENT_HIDE, because that map is
+         client-only and this had to leave the desk as well. Two mechanisms for one
+         decision is how the 17 Sep rule came to be half-applied for two months. */
+      { key: 'cost',   head: 'Secured Cost', align: 'right', hidden: true,
         value: function (m) { return fmtFull(m.secured_cost); },
         total: function (t) { return fmtFull(t.cost); } },
 
@@ -556,11 +565,16 @@
 
       // The blended price behind MtM Cost: secured volume at its WAP, open volume at the
       // Mkt price beside it. Sits between the two so the row reads price, price, cost.
-      { key: 'mtmpx',  head: 'MtM Price (' + priceUnit + ')', align: 'right',
+      /* "Estimated" on all four (round 51). Every one of these is a valuation of the
+         OPEN volume at today's curve, not money anyone has spent — and the four of them
+         are the figures customers ring up about. The word is in the heading rather than
+         only in the note under the table, because a heading travels: into the workbook,
+         into a screenshot, into a slide. */
+      { key: 'mtmpx',  head: 'Estimated MtM Price (' + priceUnit + ')', align: 'right',
         value: function (m) { return m.mtm_price != null ? (+m.mtm_price).toFixed(2) : '-'; },
         total: function (t) { return t.mtmPx != null ? t.mtmPx.toFixed(2) : ''; } },
 
-      { key: 'mtm',    head: 'MtM Cost', align: 'right',
+      { key: 'mtm',    head: 'Estimated MtM Cost', align: 'right',
         value: function (m) { return m.mtm_cost != null ? fmtFull(m.mtm_cost) : '-'; },
         total: function (t) { return fmtFull(t.mtm); },
         sign:  function (m) { return signOf(m.mtm_cost); },
@@ -569,14 +583,14 @@
       // Delivered rate and the cost it produces, side by side and to the right of the
       // wholesale pair — so the table runs wholesale price, wholesale cost, delivered
       // rate, delivered cost, and each cost sits beside the rate that made it.
-      { key: 'dr',     head: 'Delivered Rate (p/kWh)', align: 'right',
+      { key: 'dr',     head: 'Estimated Delivered MtM Rate (p/kWh)', align: 'right',
         value: function (m, ctx) {
           var dr = deliveredRate(basket, m, ctx && ctx.nec);
           return dr != null ? dr.toFixed(3) : '<span class="fx-dash">—</span>';
         },
         total: function (t) { return t.dr != null ? t.dr.toFixed(3) : ''; } },
 
-      { key: 'dcost',  head: 'Delivered Cost', align: 'right',
+      { key: 'dcost',  head: 'Estimated Delivered MtM Cost', align: 'right',
         value: function (m, ctx) {
           var c = deliveredCost(basket, m, ctx && ctx.nec);
           return c != null ? fmtFull(c) : '<span class="fx-dash">—</span>';
@@ -837,10 +851,18 @@
      and not for the page they were looking at, for two months, with nothing to notice
      it. A rule in one place cannot be half-applied.
 
-     Two differences between screen and sheet are deliberate (Daniel, 14 Oct):
+     Three differences between screen and sheet are deliberate (Daniel, 14 Oct and
+     16 Nov):
        targets.ua   the client's Targets TAB keeps Upper Alert. Their workbook has never
                     carried it and is left as it was.
        trades.cost  hidden on the client's Trades TAB. The workbook still carries it.
+       positions    basekwh / seckwh / openkwh leave the customer's SCREEN and stay in
+                    their workbook (round 51). They restate the three volume columns
+                    beside them in another unit and cost 328px — a quarter of the width
+                    the table has — and dropping them is what lets Positions fit on a
+                    laptop without scrolling sideways. The figures are not lost: they are
+                    in the file the customer downloads, and the desk keeps both units on
+                    screen because the desk has a Columns menu and traders want them.
      Written side by side so it is clear they are intended rather than an oversight.
 
      nec / necsc stay under sites although SITES no longer emits them: an older cached
@@ -848,7 +870,8 @@
      how one quietly comes back on a customer's workbook. */
   var CLIENT_HIDE = {
     screen: {
-      positions: { nt: 1, ua: 1 },      // Next Target, Upper Alert
+      // Next Target, Upper Alert, and the three kWh restatements (round 51)
+      positions: { nt: 1, ua: 1, basekwh: 1, seckwh: 1, openkwh: 1 },
       trades:    { cost: 1 }            // Cost (£)
     },
     sheet: {
@@ -864,6 +887,18 @@
     var h = (CLIENT_HIDE[where] || {})[table];
     if (!h) return cols;
     return (cols || []).filter(function (c) { return !h[c.key]; });
+  }
+
+  /* Columns marked `hidden` come off BOTH portals' tables and stay in both workbooks
+     (round 51). Call it on anything about to be rendered to a screen; never on anything
+     about to be written to a file.
+
+     Separate from clientCols on purpose. That one answers "what does the CUSTOMER see",
+     and the answer differs from what the desk sees. This answers "is this column on a
+     screen at all", which is the same answer everywhere — so a column marked hidden
+     cannot come back on one portal and not the other. */
+  function screenCols(cols) {
+    return (cols || []).filter(function (c) { return !c.hidden; });
   }
 
   var XL_NAVY = 'FF1F2D4D', XL_CUR = 'FFFDF3CF', XL_TOT = 'FFEEF1F6', XL_HAIR = 'FFE0E3EC';
@@ -1922,7 +1957,8 @@
     SITES: SITES,
     // spreadsheet — both portals build their workbook from xlWorkbook and nothing else
     xlWorkbook: xlWorkbook, xlSheet: xlSheet, xlText: xlText, xlNum: xlNum,
-    CLIENT_HIDE: CLIENT_HIDE, clientCols: clientCols, XL_ROUND_NOTE: XL_ROUND_NOTE,
+    CLIENT_HIDE: CLIENT_HIDE, clientCols: clientCols, screenCols: screenCols,
+    XL_ROUND_NOTE: XL_ROUND_NOTE,
     normTrade: normTrade, fmtDate: fmtDate,
     TABS: TABS, clientTabs: clientTabs, TARGETS_TABLE_CLASS: TARGETS_TABLE_CLASS,
     pctCell: pctCell, buildTable: buildTable,
@@ -1934,6 +1970,6 @@
     // BUMP THIS on every change to this file. It is how anyone tells which build a
     // browser actually has — the desk shows it, and it is the first thing to check when
     // the two portals disagree or a change appears not to have landed.
-    VERSION: '2026-11-04'
+    VERSION: '2026-11-16'
   };
 })(typeof window !== 'undefined' ? window : globalThis);

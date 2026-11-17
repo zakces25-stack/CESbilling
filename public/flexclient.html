@@ -76,6 +76,10 @@
   --green-700:#c3dd45; --green-600:#c3dd45; --green-500:#aecb2a;
   --positive-700:#6fd88c; --negative-500:#ff9d92; --negative-600:#ff9d92;
   --info-500:#7fd0e8; --info-600:#7fd0e8;
+  /* Round 51, the potential-cover bar. Measured against the panel it sits on
+     (--surface-2 #232f4f) at 7.30:1 — between the lime fill's 7.15 and the blue's
+     7.60, so the third bar reads exactly as well as the two it joins. */
+  --potential-500:#f2b65a;
   --accent:#c3dd45; --accent-fill:#aecb2a;
   --shadow-float:0 10px 30px rgba(0,0,0,.55);
 }
@@ -309,6 +313,14 @@ nav.subtabs button{font-size:var(--t-base);padding:9px 15px}
    are separable at a glance — but the colour is never the only signal: each bar
    carries its own written heading and its own percentage beside it. */
 .bar>i.fwd{background:var(--info-500)}
+/* Round 51: a third fill, on the baskets the desk has ticked for it. Amber rather than
+   another blue, because this bar says "this is what your cover could be worth if the
+   book fills back up" and it is always the lowest of the three — a reader scanning the
+   card should see at once that it is a different kind of statement, not a third shade of
+   the same one. As with the other two the colour is never the only signal: it carries
+   its own heading, its own percentage, and a sentence saying what it assumes. */
+.bar>i.pot{background:var(--potential-500)}
+.potnote{margin:7px 0 0;font-size:var(--t-xs);line-height:1.45;color:var(--ink-3)}
 .covers .stat .k{display:block}
 
 /* ── Stat header + filter bar ───────────────────────────────────────── */
@@ -484,6 +496,22 @@ caption{text-align:left;padding:14px 16px 0;font-size:var(--t-sm);color:var(--in
   border-left:2px solid var(--line-strong);padding-left:10px;break-inside:avoid}
 th,td{padding:11px 14px;font-size:var(--t-base);border-bottom:1px solid var(--line);
   text-align:left;white-space:nowrap}
+/* ROUND 51 — the last 25px, and only on Positions.
+
+   Positions is the one table here wide enough to need sideways scrolling. Round 51 takes
+   Secured Cost and the three kWh restatements off it, which is worth 448px and lands a
+   GAS basket exactly on the width available. A POWER basket is wider — MW columns and
+   £/MWh headings both run longer than their therm equivalents — and missed by 25px at
+   every screen size, which is the difference between "fits" and "almost fits".
+
+   Two horizontal pixels per cell across thirteen columns closes it. Scoped to .posscroll
+   rather than applied to `th,td` above so that Trades, Seasons, Targets and Sites — all
+   of which already fit comfortably — do not shift by a pixel. Vertical padding is
+   untouched, so the row height and the 18-row box are exactly as they were.
+
+   Do not take this below 12px looking for more room. It is holding a measured 25px, and
+   anything further is spent on an answer no screen needs. */
+.posscroll th, .posscroll td{padding-left:12px;padding-right:12px}
 thead th{position:sticky;top:0;background:var(--surface-2);font-size:11px;font-weight:700;
   letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2);z-index:2}
 tbody tr:last-child td{border-bottom:0}
@@ -1589,6 +1617,95 @@ function coverOf(rows){
     fwdPct:  fBase ? fSec / fBase : null};   // forward cover
 }
 
+/* ── POTENTIAL FORWARD COVER (round 51) ──────────────────────────────────────
+   THE PROBLEM IT EXISTS TO SHOW. Forward cover divides secured volume by the baseload
+   FORECAST. On a group basket whose meters renew one contract at a time, the forecast
+   for the back years is not a forecast of what the basket will consume — it is a record
+   of which meters have signed so far. The CES SEFE Basket on 16 Nov 2026 reads 80.5%
+   forward cover, and it reads that largely because the forward baseload is a fifth of
+   what the basket is actually running today. Nobody is 80% hedged against a book that
+   size; the figure is arithmetic about a shrinking denominator.
+
+   THE RULE, AND WHY THIS ONE. Each forward month is valued at the baseload RATE recorded
+   for the same calendar month within the last twelve DELIVERED months, and the larger of
+   that and the month's own forecast is used. On CES SEFE that turns 80.5% into 26.6%.
+
+   The obvious alternative — "the same month a year earlier" — was measured and rejected.
+   It gives 50.0% on the same basket, because the decline is progressive (1.35 MW average
+   in 2026, 1.16, 0.71, 0.12, 0.04, 0.01 by 2031), so each year is lifted only as far as
+   the year before it, which is itself already depleted. A lookback that inherits the
+   problem it is meant to correct is worse than none: it reports a number that looks
+   considered and is still wrong in the same direction.
+
+   THE LARGER OF THE TWO, not a straight replacement, because a month that has already
+   grown past last year's volume is a month whose forecast we believe — and quietly
+   writing it down to a historic figure would be this feature inventing exposure.
+
+   RATES, NOT TOTALS. A month's energy total is its rate times the length of the month,
+   so January's total cannot be dropped onto April's row. The rate is carried across and
+   re-multiplied by the receiving month's own length. Gas: therms/day x days. Power: MW x
+   days x 24. Confirmed against both views on 16 Nov 2026.
+
+   WHAT IT DOES NOT TOUCH. This is the basket card and nothing else. Positions, Seasons,
+   Graphs, the eight stat cards and the workbook all keep today's figures, because every
+   one of those is a statement about what the basket IS and this is a statement about what
+   it might become. Daniel was explicit about that line and it is worth keeping. */
+const CX_POT_LOOKBACK = 12;          // months of delivered history the reference comes from
+
+// Rate -> energy total for one month. The only place this page knows the conversion.
+function cxMonthFactor(b, m){
+  const days = +(m && m.days) || 0;
+  if(!days) return 0;
+  return (b && b.commodity === 'power') ? days * 24 : days;
+}
+
+/* Returns null when the bar should not be drawn at all — no flag, no forward months, or
+   no delivered history to read a reference from. A bar with nothing behind it would be a
+   second number next to the first one saying the same thing. */
+function cxPotentialCover(b, rows){
+  if(!b || !b.show_potential_cover) return null;
+  const from = nowMonth();
+  const key  = m => String(m).slice(0,10);
+
+  /* The reference window: the twelve delivered months before this one. Keyed by calendar
+     month, taking the most recent when the window somehow holds two (it should not, but a
+     basket with duplicate months must not silently pick the older one). */
+  const back = new Date(from + 'T00:00:00Z');
+  back.setUTCMonth(back.getUTCMonth() - CX_POT_LOOKBACK);
+  const windowFrom = back.toISOString().slice(0,10);
+  /* Keyed by calendar month. The window is exactly twelve months long, so each calendar
+     month appears in it at most once and there is no tiebreak to make — the first draft
+     carried a `|| k > ref[cal].k` to "keep the newest", which could never fire: two rows
+     in the window sharing a calendar month would have to share a date, and then the
+     comparison cannot separate them either. Dead code with a plausible-sounding reason
+     beside it, which is the round 47 'product' alias all over again, so it is gone. */
+  const ref = {};                                   // 1..12 -> baseload rate
+  for(const r of rows||[]){
+    const k = key(r.month);
+    if(!k || k >= from || k < windowFrom) continue;
+    const cal = +k.slice(5,7);
+    if(!(cal in ref)) ref[cal] = { k: k, v: +(r.baseload_vol||0) };
+  }
+  if(!Object.keys(ref).length) return null;         // nothing delivered to compare against
+
+  let base = 0, sec = 0, lifted = 0, noRef = 0, fwd = 0;
+  for(const r of rows||[]){
+    const k = key(r.month);
+    if(!k || k < from) continue;
+    fwd++;
+    const own = +(r.baseload_vol_total||0);
+    const hit = ref[+k.slice(5,7)];
+    if(!hit){ noRef++; base += own; sec += +(r.secured_vol_total||0); continue; }
+    const could = hit.v * cxMonthFactor(b, r);
+    if(could > own) lifted++;
+    base += Math.max(own, could);
+    sec  += +(r.secured_vol_total||0);
+  }
+  if(!fwd || !base) return null;
+  return { pct: sec / base, base: base, sec: sec,
+           months: fwd, lifted: lifted, noRef: noRef };
+}
+
 /* Mirrors FlexCore-era sortBaskets on the desk. Not in flex-shared.js because the desk's
    version reads a live BASKETS array and carries the drag handling with it; this is the
    ordering rule alone, which is the part that has to agree. */
@@ -1619,6 +1736,7 @@ function basketCard(b){
   const rows = monthsOf(b.id);          // normalised and re-marked, as the detail view sees them
   const S = statsOf(rows, b);           // the detail view's own eight cards
   const c = coverOf(rows);              // the two cover percentages, and only those
+  const pot = cxPotentialCover(b, rows); // the third, on baskets the desk has ticked
   const isP = b.commodity === 'power';
   // By key rather than by position: the order of the stat cards is FlexCore's to change.
   const fig = k => { const x = S.cards.find(y => y.key === k); return x ? x.value : '—'; };
@@ -1634,6 +1752,17 @@ function basketCard(b){
         <div class="barrow" style="margin-top:7px">
           <div class="bar" style="flex:1"><i class="fwd" style="width:${barW(c.fwdPct)}%"></i></div>
           <span class="pc">${pct(c.fwdPct)}</span></div>
+        ${!pot ? '' : `
+        <div class="stat" style="margin-top:13px"><span class="k">Potential forward cover</span></div>
+        <div class="barrow" style="margin-top:7px">
+          <div class="bar" style="flex:1"><i class="pot" style="width:${barW(pot.pct)}%"></i></div>
+          <span class="pc">${pct(pot.pct)}</span></div>
+        <p class="potnote">If the months still to come run at the volumes of the last
+          ${CX_POT_LOOKBACK} months${pot.noRef ? ', where there is a month to compare against' : ''}.
+          ${pot.lifted
+            ? esc(pot.lifted + ' of ' + pot.months + ' forward month' + (pot.months===1?'':'s')
+                  + ' currently forecast below that level')
+            : 'No forward month is currently forecast below that level'}.</p>`}
       </div>
       <div class="stats">
         <div class="stat"><div class="k">Secured</div><div class="v">${fig('sec')}</div>
@@ -2302,14 +2431,46 @@ function cxWireHScroll(host){
    the copy below when it is not. The copy duplicates CLIENT_HIDE.screen on purpose: the
    alternatives are a blank tab or a customer seeing desk-only columns. Suite 05 asserts
    the two match, so they cannot drift apart quietly. */
-const CX_HIDE_FALLBACK = { positions: { nt: 1, ua: 1 }, trades: { cost: 1 } };
+/* ROUND 51 — THIS LIST IS APPLIED ALWAYS, not only when FlexCore is missing.
+
+   It used to be an either/or: ask the core, and fall back to this copy if the core was
+   not there at all. That covers a core that has not loaded and misses the case that
+   actually happens — a core that loaded and is OLD. A browser holding round 50's
+   flex-shared.js still has a working clientCols(), so the page trusted it and showed the
+   customer the three kWh columns and Secured Cost until the cache turned over. Found by
+   running the page against the previous core on purpose, which is the check round 43a
+   left behind and which paid for itself here.
+
+   Applying both is safe in the only direction that matters. The two files ship together,
+   so the page and the core never disagree about what should be hidden except during the
+   minutes after a deploy — and during those minutes the stricter of the two is the right
+   answer, because a column that appears briefly is a figure the customer was not meant to
+   see, while a column that disappears briefly is a figure they can get from their
+   download. `cost` is here for the same reason: the hidden flag lives on the column in
+   the core, so a stale core has no flag to read and only this list can take it off. */
+const CX_HIDE_FALLBACK = {
+  positions: { nt: 1, ua: 1, basekwh: 1, seckwh: 1, openkwh: 1, cost: 1 },
+  trades: { cost: 1 }
+};
 function cxCols(table, cols){
+  let out = cols || [];
   try {
     if (typeof FlexCore !== 'undefined' && FlexCore && typeof FlexCore.clientCols === 'function')
-      return FlexCore.clientCols('screen', table, cols);
-  } catch (e) {}
+      out = FlexCore.clientCols('screen', table, out);
+  } catch (e) { out = cols || []; }
   const h = CX_HIDE_FALLBACK[table];
-  return h ? (cols || []).filter(c => !h[c.key]) : (cols || []);
+  if (h) out = out.filter(c => !h[c.key]);
+  /* ROUND 51. A column marked `hidden` is off every screen on both portals — today just
+     Secured Cost. Guarded the same way as the line above, and falling back to reading the
+     flag directly: a core too old to know the word leaves the column in, which is the
+     safe direction. A column that should have gone is untidy; a column that vanished is a
+     missing figure. */
+  try {
+    out = (typeof FlexCore !== 'undefined' && FlexCore && typeof FlexCore.screenCols === 'function')
+      ? FlexCore.screenCols(out)
+      : out.filter(c => !c.hidden);
+  } catch (e) { out = out.filter(c => !c.hidden); }
+  return out;
 }
 
 function subPositions(b,host){

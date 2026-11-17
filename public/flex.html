@@ -15,7 +15,7 @@
 <script src="flex-shared.js"></script>
 <!-- Client Accounts tab (create flex clients, share baskets, reset passwords). The ?v= must
      equal VERSION inside the file; tests/flex_accounts_render_test.js checks it. -->
-<script src="flex-accounts.js?v=2026-11-06.1"></script>
+<script src="flex-accounts.js?v=2026-11-16"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -3265,7 +3265,12 @@ function fxRows(basket){ return fxRemark(getFilteredMonths(basket), basket); }
 // builds its own spec and ignores all of this, so it always contains every column.
 const FX_COL_GROUPS = [
   { key: 'vol',       label: 'Volume',    cols: ['base', 'sec', 'pct', 'open'] },
-  { key: 'secured',   label: 'Secured',   cols: ['wap', 'cost'] },
+  /* ROUND 51: Secured Cost left this group. It used to read ['wap','cost'], so a desk
+     user unticking "Secured" to lose the cost column lost Weighted Average Price with it
+     — and now that `cost` is hidden in the shared spec, a group naming it would be a
+     checkbox governing a column that is never drawn. The group is the WAP alone; if
+     Secured Cost ever comes back, it comes back here too. */
+  { key: 'secured',   label: 'Secured WAP', cols: ['wap'] },
   { key: 'mark',      label: 'Mark',      cols: ['mkt', 'opencost', 'mtmpx', 'mtm'] },
   { key: 'delivered', label: 'Delivered', cols: ['dr', 'dcost'] },
   { key: 'targets',   label: 'Targets',   cols: ['nt', 'ua'] }
@@ -3303,7 +3308,17 @@ function fxColHidden(){
 // where a column sits — which is precisely the bug that made Baseload uneditable when
 // the two got out of step in round 18.
 function fxPosCols(basket){
-  const all = FlexCore.POSITIONS(basket);
+  /* ROUND 51. Columns marked `hidden` in the shared spec are off BOTH portals' screens —
+     Secured Cost today. Applied before the Columns menu, and deliberately NOT subject to
+     the `keep.length ? keep : all` guard below: that guard exists so an over-zealous
+     Columns menu cannot leave an empty table, and a hidden column coming back because
+     somebody unticked everything would make the decision look like a glitch.
+
+     The Excel export does not come through here — it reads FlexCore.POSITIONS itself —
+     so the figure stays in the workbook, which is the point. */
+  const all = (FlexCore.screenCols
+    ? FlexCore.screenCols(FlexCore.POSITIONS(basket))
+    : FlexCore.POSITIONS(basket).filter(c => !c.hidden));
   const hide = fxColHidden();
   const keep = all.filter(c => !hide.has(c.key));
   return keep.length ? keep : all;
