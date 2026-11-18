@@ -13,7 +13,7 @@
   <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <!-- Bump on every push: a plain fetch of the live page can then tell this build from the last. -->
-  <meta name="build" content="pricing 2026-11-09a" />
+  <meta name="build" content="pricing 2026-11-18a" />
   <title>CES Pricing Portal</title>
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
@@ -161,6 +161,10 @@
     .crm-small{font-size:11px;color:var(--muted)}
     .dot-green{background:var(--st-green)} .dot-yellow{background:var(--st-amber)} .dot-red{background:var(--st-red)}
     .st-detail{margin-top:12px}
+    .pz-row{display:flex;align-items:center;justify-content:space-between;gap:10px 16px;flex-wrap:wrap}
+    .pz-row + .pz-row{margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,.09)}
+    .pz-row .pz-sub{font-size:12.5px;margin-top:3px;line-height:1.45}
+    .pz-row .act{white-space:nowrap;flex:0 0 auto}
 
     /* ---- settings */
     .lock-wrap{position:fixed;inset:0;z-index:60;background:rgba(10,18,36,.45);display:grid;place-items:center;padding:16px}
@@ -615,6 +619,8 @@
         </div>
         <div class="st-bar" id="bkStatus"><div class="note">Reading&hellip;</div></div>
         <div class="st-detail hide" id="bkStatusDetail"></div>
+        <!-- Paused pricebooks, and pauses that ended because the books were replaced (18 Nov 2026). -->
+        <div id="pauseStrip" class="hide" style="margin-top:12px" aria-live="polite"></div>
       </div>
 
       <!-- A load in progress, and any file waiting on a person (a new layout, a product to pick),
@@ -1261,7 +1267,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="/pricing-parsers.js?v=2026-11-04.2"></script>
-<script src="/pricing-7z.js?v=2026-11-03.1"></script>
+<script src="/pricing-7z.js?v=2026-11-18.1"></script>
 <script src="/pricing-crm-import.js?v=2026-11-09.1"></script>
 <script src="/pricing-docs.js?v=2026-11-09.1"></script>
 <script src="/pricing-crm.js?v=2026-11-09.1"></script>
@@ -2166,6 +2172,15 @@ function paintStatusBar() {
   box.querySelectorAll('[data-st]').forEach(b => { b.onclick = () => showStatusDetail(SUP_STATUS[Number(b.dataset.st)]); });
 }
 
+/** The "paused" line and its Resume button inside a clicked status tile (18 Nov 2026). */
+function pausedLine(r) {
+  const books = PAUSED.filter(p => p.live && p.supplier_key === r.supplier_key);
+  if (!books.length) return '';
+  return `<div class="pz-row" style="margin-top:8px"><div><b style="color:var(--fail)">Paused, not quoting</b>: ${books.length === 1 ? '1 book' : books.length + ' books'},
+      ${esc(books[0].paused_by_name || 'the desk')} on ${uk(books[0].paused_at)} (&ldquo;${esc(books[0].paused_reason || 'no reason given')}&rdquo;)</div>
+    <button class="act" data-resume-sup="${esc(r.supplier_key)}">Resume ${esc(r.display_name)}</button></div>`;
+}
+
 /** A tile clicked: its fuels, its books, and the way to fix it. */
 function showStatusDetail(r) {
   const box = $('bkStatusDetail');
@@ -2184,7 +2199,8 @@ function showStatusDetail(r) {
     <b>${esc(r.display_name)}</b> &middot; ${esc(statusTitle(r).split('\n')[0])}
     ${(r.fuels || []).length ? '<br>' + r.fuels.map(f => `${esc(FUEL_WORD[f.fuel] || f.fuel)}: ${f.book_date ? 'book of ' + uk(f.book_date)
       + ' (' + (f.age_days <= 0 ? 'today' : f.age_days + ' days old') + ', ' + f.books + ' live)' : 'no live book'}${f.note ? ' &middot; ' + esc(f.note) : ''}`).join('<br>') : ''}
-    ${what ? '<br>' + what : ''}</div>`;
+    ${what ? '<br>' + what : ''}${pausedLine(r)}</div>`;
+  box.querySelectorAll('[data-resume-sup]').forEach(b => { b.onclick = () => resumeSupplier(b.dataset.resumeSup, b); });
   LEDGER_FILTER = r.supplier_key;
   paintStatusBar();
   if (NAV.sub === 'books:live') loadLedger();
@@ -3862,6 +3878,10 @@ async function loadLedger() {
       .order('supplier_key').order('product_key').limit(500), 'live pricebooks');
   } catch (e) { body.innerHTML = ''; return fail($('ledgerErr'), e.message); }
   LEDGER = rows;
+  // A paused book replaced or removed since PAUSED was read: read it again, so the strip turns
+  // "Corona is paused" into "nothing to resume" the moment the new book goes live (18 Nov 2026).
+  const pausedNow = rows.filter(r => r.status === 'live' && r.paused_at).map(r => r.id).sort().join();
+  if (pausedNow !== PAUSED.filter(p => p.live).map(p => p.upload_id).sort().join()) loadPaused(true);
   const today = todayIso();
   const bookOf = (r) => String(r.source_received_at || r.uploaded_at || '').slice(0, 10);
   const ageDays = (r) => Math.floor((Date.parse(today) - Date.parse(bookOf(r))) / 864e5);
@@ -4028,9 +4048,14 @@ async function removeTickedBooks(btn) {
  * and Price a meter says a paused book was replaced, so its prices get checked against the portal.
  */
 let PAUSED = [];
-async function loadPaused() {
+async function loadPaused(fresh) {
   try { PAUSED = (await q(sb.rpc('pricebook_paused'), 'paused pricebooks')) || []; }
   catch (_) { PAUSED = []; }
+  if (isPricing()) {
+    // The strip under the status bar (18 Nov 2026). Not awaited: pricing a meter calls this too.
+    loadPauseHistory(fresh).then(paintPauseStrip, () => {});
+    if (SUP_STATUS.length) { paintStatusBar(); paintSideStatus(); }
+  }
   return PAUSED;
 }
 function pausedNote(fuel) {
@@ -4039,7 +4064,8 @@ function pausedNote(fuel) {
   if (!live.length && !gone.length) return '';
   const one = (p) => `${esc(supplierName(p.supplier_key))} ${esc(prodName(p))} (${esc(p.paused_by_name || 'the desk')}, ${uk(p.paused_at)}: ${esc(p.paused_reason || 'no reason given')})`;
   return `<div class="note warn" style="margin:0 0 10px">${live.length
-      ? `<b>Paused, so not in this quote:</b> ${live.map(one).join('; ')}.` : ''}${live.length && gone.length ? '<br>' : ''}${gone.length
+      ? `<b>Paused, so not in this quote:</b> ${live.map(one).join('; ')}.${isPricing()
+          ? ` <a href="#" onclick="openSection('books','books:live');return false">Resume it on Pricebooks</a>.` : ''}` : ''}${live.length && gone.length ? '<br>' : ''}${gone.length
       ? `<b>A newer book replaced a paused one and is quoting again:</b> ${gone.map(one).join('; ')}. Check its prices against the supplier's portal before this goes out.` : ''}</div>`;
 }
 async function pauseBook(id, btn) {
@@ -4052,7 +4078,7 @@ async function pauseBook(id, btn) {
   btn.disabled = true; btn.textContent = '…';
   try {
     await q(sb.rpc('pricebook_pause', { p_upload: id, p_reason: why.trim(), p_by: WHO || null }), 'pause');
-    await loadPaused();
+    await loadPaused(true);
     loadLedger(); paintStatusBar(); paintSideStatus();
   } catch (e) {
     btn.disabled = false; btn.textContent = 'Pause';
@@ -4064,12 +4090,125 @@ async function resumeBook(id, btn) {
   btn.disabled = true; btn.textContent = '…';
   try {
     await q(sb.rpc('pricebook_resume', { p_upload: id, p_by: WHO || null }), 'resume');
-    await loadPaused();
+    await loadPaused(true);
     loadLedger(); paintStatusBar(); paintSideStatus();
   } catch (e) {
     btn.disabled = false; btn.textContent = 'Resume';
     fail($('ledgerErr'), e.message);
     alert('Could not resume it.\n\n' + e.message);
+  }
+}
+
+/**
+ * Paused pricebooks, said where nobody can miss them (CES, 18 Nov 2026: "I cannot seem to find the
+ * page where I can resume pricing for Corona ... make it much clearer"). Resume used to live only
+ * on the paused book's own row in Live pricebooks, and when the paused books were replaced by newer
+ * ones the pause vanished without a word, so there was nothing to find. The strip under the status
+ * bar, on every Pricebooks page, now says either "<supplier> is paused" with one Resume button for
+ * all of that supplier's paused books, or that a pause ended because its books were replaced or
+ * removed, so there is nothing to resume. The history is pricebook_pause_log (last 30 days).
+ */
+let PAUSE_HISTORY = { at: 0, ended: [], live: [] };
+async function loadPauseHistory(fresh) {
+  if (!fresh && Date.now() - PAUSE_HISTORY.at < 60000) return PAUSE_HISTORY;
+  try {
+    const since = new Date(Date.now() - 30 * 864e5).toISOString();
+    const log = (await q(sb.from('pricebook_pause_log')
+      .select('upload_id,supplier_key,product_key,fuel,sale_scope,source_filename,action,reason,by_name,at')
+      .gte('at', since).order('at').limit(1000), 'pause history')) || [];
+    const last = new Map();
+    for (const r of log) last.set(r.upload_id, r);           // in time order: the last word on each book
+    const cand = [...last.values()].filter(r => r.action === 'paused');
+    let still = new Set();
+    if (cand.length) {
+      const ups = (await q(sb.from('pricebook_uploads').select('id,status,paused_at')
+        .in('id', cand.map(r => r.upload_id)), 'paused books')) || [];
+      still = new Set(ups.filter(u => u.status === 'live' && u.paused_at).map(u => u.id));
+    }
+    const ended = cand.filter(r => !still.has(r.upload_id));
+    const live = ended.length ? ((await q(sb.from('pricebook_uploads')
+      .select('supplier_key,fuel,went_live_at,uploaded_at,source_received_at,paused_at').eq('status', 'live')
+      .in('supplier_key', [...new Set(ended.map(r => r.supplier_key))]), 'live books')) || []) : [];
+    PAUSE_HISTORY = { at: Date.now(), ended, live };
+  } catch (_) {
+    PAUSE_HISTORY = { at: Date.now(), ended: [], live: [] };
+  }
+  return PAUSE_HISTORY;
+}
+// "Hide" on an ended pause is this browser's own choice; the strip works without storage.
+function hiddenPauseIds() {
+  try { return new Set(JSON.parse(localStorage.getItem('pricing.pauseHidden') || '[]')); } catch (_) { return new Set(); }
+}
+function hidePauseNote(ids) {
+  try {
+    const all = hiddenPauseIds();
+    ids.forEach(id => all.add(id));
+    localStorage.setItem('pricing.pauseHidden', JSON.stringify([...all].slice(-200)));
+  } catch (_) { /* private window: it simply shows again next time */ }
+  PAUSE_HISTORY.ended = PAUSE_HISTORY.ended.filter(r => !ids.includes(r.upload_id));
+  paintPauseStrip();
+}
+function paintPauseStrip() {
+  const box = $('pauseStrip');
+  if (!box) return;
+  const group = (list) => list.reduce((m, p) => m.set(p.supplier_key, (m.get(p.supplier_key) || []).concat([p])), new Map());
+  const bookWords = (list) => list.map(p => `${esc(prodName(p))} ${esc((FUEL_WORD[p.fuel] || p.fuel || '').toLowerCase())}`
+    + (p.sale_scope && p.sale_scope !== 'any' ? ` (${esc(p.sale_scope)})` : '')).join(', ');
+  const paused = group(PAUSED.filter(p => p.live));
+  const hidden = hiddenPauseIds();
+  const ended = group(PAUSE_HISTORY.ended.filter(r => !hidden.has(r.upload_id) && !paused.has(r.supplier_key)));
+  const parts = [];
+  if (paused.size) {
+    parts.push(`<div class="note bad" style="margin:0">${[...paused].map(([skey, books]) => {
+      const b = books[0];
+      return `<div class="pz-row"><div><b>${esc(supplierName(skey))} is paused: not in any quote.</b>
+          <div class="pz-sub">${bookWords(books)}. Paused by ${esc(b.paused_by_name || 'the desk')} on ${uk(b.paused_at)}:
+          &ldquo;${esc(b.paused_reason || 'no reason given')}&rdquo;</div></div>
+        <button class="act" data-resume-sup="${esc(skey)}">Resume ${esc(supplierName(skey))}</button></div>`;
+    }).join('')}</div>`);
+  }
+  if (ended.size) {
+    parts.push(`<div class="note" style="margin:${paused.size ? '10px' : '0'} 0 0">${[...ended].map(([skey, rows]) => {
+      const r = rows[rows.length - 1];
+      const books = PAUSE_HISTORY.live.filter(u => u.supplier_key === skey);
+      const newest = books.map(u => String(u.went_live_at || u.uploaded_at || '').slice(0, 10)).sort().pop();
+      const now = !books.length ? `${esc(supplierName(skey))} has no live book now, so it is not quoted until one is loaded.`
+        : books.some(u => u.paused_at) ? `${esc(supplierName(skey))}'s current books are paused again: see above.`
+        : `${esc(supplierName(skey))}'s books loaded ${uk(newest)} are live and quoting.`;
+      return `<div class="pz-row"><div><b>Nothing to resume for ${esc(supplierName(skey))}.</b>
+          <div class="pz-sub">It was paused by ${esc(r.by_name || 'the desk')} on ${uk(r.at)} (&ldquo;${esc(r.reason || 'no reason given')}&rdquo;),
+          but the paused ${rows.length === 1 ? 'book has' : 'books have'} since been replaced or removed, so the pause ended
+          with ${rows.length === 1 ? 'it' : 'them'}. ${now}</div></div>
+        <button class="act ghost sm" data-hide-pause="${esc(rows.map(x => x.upload_id).join(','))}">Hide</button></div>`;
+    }).join('')}</div>`);
+  }
+  box.classList.toggle('hide', !parts.length);
+  box.innerHTML = parts.join('');
+  box.querySelectorAll('[data-resume-sup]').forEach(b => { b.onclick = () => resumeSupplier(b.dataset.resumeSup, b); });
+  box.querySelectorAll('[data-hide-pause]').forEach(b => { b.onclick = () => hidePauseNote(b.dataset.hidePause.split(',')); });
+}
+/** One click for every paused book of a supplier (Corona pauses its electricity and gas books). */
+async function resumeSupplier(skey, btn) {
+  const books = PAUSED.filter(p => p.live && p.supplier_key === skey);
+  if (!books.length) return;
+  const label = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Resuming…'; }
+  let err = null;
+  for (const b of books) {
+    try { await q(sb.rpc('pricebook_resume', { p_upload: b.upload_id, p_by: WHO || null }), 'resume'); }
+    catch (e) { err = err || e; }
+  }
+  await loadPaused(true);
+  paintStatusBar(); paintSideStatus();
+  if (NAV.sub === 'books:live') loadLedger();
+  const det = $('bkStatusDetail');
+  if (det && det.dataset.sup === skey && !det.classList.contains('hide')) {
+    const r = SUP_STATUS.find(x => x.supplier_key === skey);
+    if (r) { det.dataset.sup = ''; showStatusDetail(r); }
+  }
+  if (err) {
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+    alert('Could not resume every book.\n\n' + err.message);
   }
 }
 

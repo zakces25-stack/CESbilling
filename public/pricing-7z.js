@@ -14,14 +14,16 @@
  *     default), checking the header CRCs;
  *   - PackInfo / UnPackInfo / SubStreamsInfo, solid and non-solid archives
  *     (one or many folders), empty files, directories, UTF-16 names;
- *   - coders: Copy (00), LZMA (030101) and LZMA2 (21), each a single-coder
- *     folder. Every file's CRC32 is checked before its bytes are handed over.
+ *   - coders: Copy (00), LZMA (030101) and LZMA2 (21), on their own or with
+ *     the x86 branch filter BCJ (03030103, or 04) above them. From 17 Nov 2026
+ *     TotalEnergies send their weekly power books as BCJ + LZMA2.
+ *     Every file's CRC32 is checked before its bytes are handed over.
  *
  * What it refuses, with an Error whose message names the problem (and whose
  * .code is one of the SEVENZIP_* codes below): encrypted archives (7zAES),
- * branch filters (BCJ, BCJ2, ARM, ARM64, ...), Delta, PPMd, BZip2, Deflate
- * and any other coder, chains of coders, split (multi-volume) or truncated
- * archives. A refusal is raised before any file is handed to onFile, so a
+ * the other branch filters (BCJ2, ARM, ARM64, PPC, SPARC, IA64, RISC-V),
+ * Delta, PPMd, BZip2, Deflate and any other coder, coder graphs that are not
+ * one straight chain, split (multi-volume) or truncated archives. A refusal is raised before any file is handed to onFile, so a
  * caller never gets partial output without an exception.
  *
  * Public API (see the bottom of the file for details):
@@ -31,7 +33,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '2026-11-03.1';
+  var VERSION = '2026-11-18.1';
 
   // ------------------------------------------------------------------------
   // Errors. Every failure is an Error with a stable .code so the page can
@@ -1142,9 +1144,132 @@
   };
 
   // ------------------------------------------------------------------------
+  // BCJ, the x86 branch filter (03030103; 04 in newer 7-Zip and in xz).
+  //
+  // Before compressing, the encoder rewrote the 32-bit operand of x86 CALL
+  // (E8) and JMP (E9) instructions from relative to absolute addresses, so
+  // that repeated calls to one function compress better; decoding turns them
+  // back. On a CSV it changes nothing, because it only touches an E8/E9 byte
+  // whose operand's top byte is 00 or FF, but every byte still passes through
+  // it. 7-Zip uses it for programs or when told to; py7zr uses it by default
+  // for every file. TotalEnergies' power books carry it from 17 Nov 2026.
+  //
+  // x86Convert is the LZMA SDK's x86_Convert (Bra86.c, Igor Pavlov, public
+  // domain), decoding direction only. It converts what it safely can and
+  // returns how many bytes that was: an E8/E9 in the last four bytes needs
+  // the next block to decide, so up to four bytes wait for the next call.
+  // st.mask carries the "E8/E9 seen in the last three bytes" bits across.
+  // Tested byte-exact against liblzma's own x86 filter (tests/7z/test_bcj.js).
+  // ------------------------------------------------------------------------
+  var BCJ_ALLOWED = [1, 1, 1, 0, 1, 0, 0, 0];
+  var BCJ_BIT = [0, 1, 2, 2, 3, 3, 3, 3];
+
+  function x86Convert(data, size, ip, st) {
+    var pos = 0, prevPos = -1, mask = st.mask & 7, limit, p, b, d, src, dest, idx;
+    if (size < 5) return 0;
+    ip = (ip + 5) >>> 0;
+    limit = size - 4;
+    for (;;) {
+      p = pos;
+      while (p < limit && (data[p] & 0xFE) !== 0xE8) p++;
+      pos = p;
+      if (p >= limit) break;
+      d = pos - prevPos;
+      if (d > 3) {
+        mask = 0;
+      } else {
+        mask = (mask << (d - 1)) & 7;
+        if (mask !== 0) {
+          b = data[p + 4 - BCJ_BIT[mask]];
+          if (!BCJ_ALLOWED[mask] || b === 0 || b === 0xFF) {
+            prevPos = pos;
+            mask = ((mask << 1) & 7) | 1;
+            pos++;
+            continue;
+          }
+        }
+      }
+      prevPos = pos;
+      b = data[p + 4];
+      if (b === 0 || b === 0xFF) {
+        src = ((b << 24) | (data[p + 3] << 16) | (data[p + 2] << 8) | data[p + 1]) >>> 0;
+        for (;;) {
+          dest = (src - ((ip + pos) >>> 0)) >>> 0;
+          if (mask === 0) break;
+          idx = BCJ_BIT[mask] * 8;
+          b = (dest >>> (24 - idx)) & 0xFF;
+          if (b !== 0 && b !== 0xFF) break;
+          src = (dest ^ ((1 << (32 - idx)) - 1)) >>> 0;
+        }
+        data[p + 4] = (dest >>> 24) & 1 ? 0xFF : 0x00;
+        data[p + 3] = (dest >>> 16) & 0xFF;
+        data[p + 2] = (dest >>> 8) & 0xFF;
+        data[p + 1] = dest & 0xFF;
+        pos += 5;
+      } else {
+        mask = ((mask << 1) & 7) | 1;
+        pos++;
+      }
+    }
+    d = pos - prevPos;
+    st.mask = d > 3 ? 0 : ((mask << (d - 1)) & 7);
+    return pos;
+  }
+
+  // A stream of the BCJ filter's output over the stream below it (LZMA2 in
+  // TotalEnergies' books). Same contract as the decoders: read(max) returns
+  // a view that is only valid until the next read. BCJ never changes the
+  // size, so what goes in is what comes out.
+  var BCJ_BLOCK = 1 << 20;
+
+  function BcjStream(inner, size, props) {
+    this.inner = inner;
+    this.inLeft = size;                   // bytes still to pull from below
+    this.remaining = size;                // bytes still to hand out
+    this.buf = new Uint8Array(BCJ_BLOCK);
+    this.len = 0;                         // bytes held in buf
+    this.ready = 0;                       // buf[0, ready) is converted
+    this.out = 0;                         // buf[0, out) is handed out
+    // A 4-byte property is a start offset (xz allows one); 7-Zip and py7zr write none.
+    this.ip = props && props.length >= 4 ? u32le(props, 0) : 0;
+    this.st = { mask: 0 };
+  }
+  BcjStream.prototype.read = function (max) {
+    if (this.remaining <= 0) return EMPTY;
+    if (this.out === this.ready) this.fill();
+    var n = Math.min(max, this.ready - this.out, this.remaining), view = this.buf.subarray(this.out, this.out + n);
+    this.out += n;
+    this.remaining -= n;
+    return view;
+  };
+  BcjStream.prototype.fill = function () {
+    var buf = this.buf, keep = this.len - this.ready, v, n;
+    if (keep > 0) buf.copyWithin(0, this.ready, this.len);   // the unconverted tail, at most 4 bytes
+    this.len = keep;
+    this.ready = 0;
+    this.out = 0;
+    while (this.len < BCJ_BLOCK && this.inLeft > 0) {
+      v = this.inner.read(Math.min(BCJ_BLOCK - this.len, this.inLeft));
+      if (!v.length) throw corrupt('the data under the BCJ filter ends early');
+      buf.set(v, this.len);
+      this.len += v.length;
+      this.inLeft -= v.length;
+    }
+    n = x86Convert(buf, this.len, this.ip, this.st);
+    // At the very end the last few bytes are passed through unconverted, as 7-Zip does.
+    if (this.inLeft === 0) n = this.len;
+    if (n === 0) throw corrupt('the BCJ filter made no progress');
+    this.ip = (this.ip + n) >>> 0;
+    this.ready = n;
+  };
+
+  // ------------------------------------------------------------------------
   // Coder ids (hex) -> what to call them in a refusal message.
   // ------------------------------------------------------------------------
-  var SUPPORTED = { '00': 'Copy (no compression)', '030101': 'LZMA compression', '21': 'LZMA2 compression' };
+  var SUPPORTED = { '00': 'Copy (no compression)', '030101': 'LZMA compression', '21': 'LZMA2 compression',
+    '03030103': 'the BCJ (x86) filter', '04': 'the BCJ (x86) filter' };
+  // Filters sit above the coder that reads the packed bytes and keep the size.
+  var FILTERS = { '03030103': true, '04': true };
   var METHOD_NAMES = {
     '06f10701': '7zAES encryption', '06f10101': 'ZipCrypto encryption', '06f10303': 'RAR encryption',
     '03': 'the Delta filter',
@@ -1163,8 +1288,9 @@
     '04f71104': 'LZ4 compression', '04f71105': 'LZ5 compression', '04f71106': 'Lizard compression'
   };
   var ENCRYPTION_IDS = { '06f10701': true, '06f10101': true, '06f10303': true };
-  var SUPPORTED_TEXT = 'This reader only handles archives packed with plain LZMA, LZMA2 or no compression ' +
-    '(no filters, no password); extract this one with 7-Zip instead.';
+  var SUPPORTED_TEXT = 'This reader handles archives packed with LZMA, LZMA2 or no compression, with or without ' +
+    'the BCJ (x86) filter, and no password. Extract this one with 7-Zip (free, 7-zip.org) and drop the files ' +
+    'from inside it on Add by hand.';
 
   function methodName(id) {
     return SUPPORTED[id] || METHOD_NAMES[id] || ('an unknown method (id 0x' + (id || '?').toUpperCase() + ')');
@@ -1196,20 +1322,61 @@
       throw fail(E_UNSUPPORTED, 'This 7z archive uses ' + uniqueJoin(odd) +
         (usual.length ? ' together with ' + uniqueJoin(usual) : '') + where + '. ' + SUPPORTED_TEXT);
     }
-    c = folder.coders[0];
-    if (folder.coders.length !== 1 || c.numIn !== 1 || c.numOut !== 1 || folder.packedStreams.length !== 1) {
-      throw fail(E_UNSUPPORTED, 'This 7z archive chains ' + folder.coders.length + ' coders (' +
-        folder.coders.map(function (cd) { return methodName(cd.id); }).join(' + ') + ')' + where + '. ' + SUPPORTED_TEXT);
+    if (!decodeChain(folder)) {
+      throw fail(E_UNSUPPORTED, 'This 7z archive arranges its ' + folder.coders.length + ' coder(s) (' +
+        folder.coders.map(function (cd) { return methodName(cd.id); }).join(' + ') + ') in a way this reader ' +
+        'does not follow' + where + '. ' + SUPPORTED_TEXT);
     }
   }
 
-  // Open a decoding stream over one folder's packed bytes.
+  // The coders of a folder in decoding order: first the one that reads the
+  // packed bytes, last the one whose output is the folder's. Returns an
+  // array of coder indexes, or null when the folder is not a straight chain
+  // of one-in, one-out coders over a single packed stream, at most four
+  // long, with only filters above the first. 7-Zip 26.05, p7zip 16.02 and
+  // py7zr all write [LZMA2, BCJ] with the bond in1 <- out0, as TotalEnergies'
+  // books do; the order is not assumed, the bonds are followed, so a writer
+  // listing them the other way round reads too. With one-in, one-out coders,
+  // in and out stream i are coder i's.
+  function decodeChain(folder) {
+    var n = folder.coders.length, bp = folder.bindPairs, chain = [], top = -1, i, j, c;
+    if (n < 1 || n > 4 || folder.packedStreams.length !== 1) return null;
+    for (i = 0; i < n; i++) if (folder.coders[i].numIn !== 1 || folder.coders[i].numOut !== 1) return null;
+    for (i = 0; i < n && top < 0; i++) {
+      for (j = 0; j < bp.length && bp[j].outIndex !== i; j++) { /* find a bond that consumes out i */ }
+      if (j === bp.length) top = i;
+    }
+    for (c = top; c >= 0 && chain.length <= n;) {
+      chain.unshift(c);
+      for (j = 0; j < bp.length && bp[j].inIndex !== c; j++) { /* find the bond feeding coder c */ }
+      c = j < bp.length ? bp[j].outIndex : -1;
+    }
+    if (chain.length !== n || folder.packedStreams[0] !== chain[0]) return null;
+    for (i = 1; i < n; i++) if (!FILTERS[folder.coders[chain[i]].id]) return null;
+    return chain;
+  }
+
+  // Open a decoding stream over one folder's packed bytes: the coder that
+  // reads them, then each filter above it (checkFolder has vetted the chain).
   function openFolder(u8, folder) {
     var input = u8.subarray(folder.packOffset, folder.packOffset + folder.packSize);
-    var c = folder.coders[0];
-    if (c.id === '00') return new CopyStream(input, folder.unpackSize);
-    if (c.id === '030101') return new LzmaStream(c.props, input, folder.unpackSize);
-    return new Lzma2Stream(c.props, input, folder.unpackSize);
+    var chain = decodeChain(folder);
+    if (!chain) throw corrupt('a folder is not a chain of coders');
+    var k = chain[0], c = folder.coders[k], size = folder.unpackSizes[k], stream, i;
+    if (c.id === '00') stream = new CopyStream(input, size);
+    else if (c.id === '030101') stream = new LzmaStream(c.props, input, size);
+    else if (c.id === '21') stream = new Lzma2Stream(c.props, input, size);
+    else {
+      // a filter straight over stored bytes
+      if (size !== folder.packSize) throw corrupt('the BCJ filter does not keep the data size');
+      stream = new BcjStream(new CopyStream(input, size), size, c.props);
+    }
+    for (i = 1; i < chain.length; i++) {
+      k = chain[i];
+      if (folder.unpackSizes[k] !== size) throw corrupt('the BCJ filter does not keep the data size');
+      stream = new BcjStream(stream, size, folder.coders[k].props);
+    }
+    return stream;
   }
 
   // ------------------------------------------------------------------------
@@ -1537,7 +1704,12 @@
       LzmaDecoder: LzmaDecoder,
       decodeLzma: function (props, input, outSize) { return decodeAll(new LzmaStream(toU8(props), toU8(input), outSize), outSize); },
       decodeLzma2: function (props, input, outSize) { return decodeAll(new Lzma2Stream(toU8(props), toU8(input), outSize), outSize); },
-      decodeCopy: function (input, outSize) { return decodeAll(new CopyStream(toU8(input), outSize), outSize); }
+      decodeCopy: function (input, outSize) { return decodeAll(new CopyStream(toU8(input), outSize), outSize); },
+      x86Convert: x86Convert, decodeChain: decodeChain,
+      // BCJ over LZMA2 on a raw stream (liblzma's FORMAT_RAW [X86, LZMA2]), for the tests.
+      decodeBcjLzma2: function (props, input, outSize) {
+        return decodeAll(new BcjStream(new Lzma2Stream(toU8(props), toU8(input), outSize), outSize, null), outSize);
+      }
     }
   };
 })(typeof window !== 'undefined' ? window : globalThis);
