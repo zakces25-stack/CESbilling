@@ -33,7 +33,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2026-11-16';
+  var VERSION = '2026-11-19';
   var FN_NAME = 'flex-client-admin';
   var PORTAL_URL = 'https://billcesgb.com/flex';
   var PORTAL_SHOWN = 'billcesgb.com/flex';
@@ -1292,6 +1292,11 @@
        rather than a dialog that will not open — the same degrade story P.ok has carried
        since round 44. */
     var potP = FLEX.sb.from('flex_baskets').select('id,show_potential_cover');
+    /* ROUND 52 — the target simulation flag, read in ITS OWN query rather than as a
+       second column on the one above. One query asking for both would fail entirely on a
+       desk that has had round 51's SQL but not round 52's, taking round 51's working
+       tick box down with it. Two queries means each flag degrades on its own. */
+    var tgtP = FLEX.sb.from('flex_baskets').select('id,allow_target_simulation');
     if (!S.at || Date.now() - S.at > 15000 || !S.cat) await refresh();
     var g = groupsOf(S.rows).filter(function (x) { return x.customer_id === cid; })[0];
     if (!g) { toast('That customer is no longer listed. Refresh the page.', false); return; }
@@ -1308,6 +1313,7 @@
        on working, which is the point. */
     var P = { ok: false, err: '', day: false, dayOrig: false, hid: {}, hidOrig: {} };
     var POT = { ok: false, err: '', on: {}, orig: {} };
+    var TGT = { ok: false, err: '', on: {}, orig: {} };
     try {
       var potR = await potP;
       if (potR && potR.error) { POT.err = dbMessage(potR.error); }
@@ -1319,6 +1325,17 @@
         });
       }
     } catch (e) { POT.err = String((e && e.message) || e); }
+    try {
+      var tgtR = await tgtP;
+      if (tgtR && tgtR.error) { TGT.err = dbMessage(tgtR.error); }
+      else {
+        TGT.ok = true;
+        (tgtR && tgtR.data ? tgtR.data : []).forEach(function (r) {
+          TGT.on[r.id] = !!r.allow_target_simulation;
+          TGT.orig[r.id] = !!r.allow_target_simulation;
+        });
+      }
+    } catch (e) { TGT.err = String((e && e.message) || e); }
     var pr = await permP;
     if (pr.error) {
       P.err = dbMessage(pr.error);
@@ -1371,9 +1388,12 @@
          every other customer on it sees. So this reads `now`, like tabs above. */
       var pot = POT.ok ? now.filter(function (id) {
         return !!POT.on[id] !== !!POT.orig[id]; }) : [];
-      return { now: now, add: add, rem: rem, tabs: tabs, day: day, pot: pot,
+      // Round 52's flag is the basket's too, for the same reason, so it reads `now` as well.
+      var tgt = TGT.ok ? now.filter(function (id) {
+        return !!TGT.on[id] !== !!TGT.orig[id]; }) : [];
+      return { now: now, add: add, rem: rem, tabs: tabs, day: day, pot: pot, tgt: tgt,
                bk: add.length + rem.length > 0,
-               changed: add.length + rem.length + tabs.length + pot.length > 0 || day };
+               changed: add.length + rem.length + tabs.length + pot.length + tgt.length > 0 || day };
     }
 
     /* One row per basket that will be shared, each with the five tick boxes. Repainted
@@ -1409,6 +1429,12 @@
                 + (POT.on[id] ? ' checked' : '') + '> '
                 + '<span>Potential cover bar <b>&mdash; every customer</b></span></label>'
               : '')
+          + (TGT.ok
+              ? '<label class="fxa-pbox fxa-pall' + (TGT.on[id] ? '' : ' off') + '">'
+                + '<input type="checkbox" data-tgt="' + esc(id) + '"'
+                + (TGT.on[id] ? ' checked' : '') + '> '
+                + '<span>Edit targets on Simulation <b>&mdash; every customer</b></span></label>'
+              : '')
           + '</div></div>';
       }).join('');
 
@@ -1420,6 +1446,18 @@
         + 'are worked out from Positions in the browser, so unticking those hides the tab rather than '
         + 'the figures behind it.</p>'
         + (rows || '<div class="fxa-perm-off">No baskets ticked yet.</div>')
+        + (TGT.ok
+            ? '<p class="fxa-perm-note"><b>Edit targets on Simulation</b> belongs to the basket in '
+              + 'the same way. Ticking it lets <b>every customer on that basket</b> type over a '
+              + 'target price while the Simulation source is selected, and watch Estimated Targeted '
+              + 'WAP and Estimated Targeted Delivered follow. What they type is private to their own '
+              + 'login, is never written to the real target, and can only move a target you have '
+              + 'already set &mdash; it cannot add one to a column you left blank. The achieved ticks '
+              + 'do not move either, because a tier is reached on volume rather than on price. '
+              + 'Leaving it unticked still shows both columns; it is the typing that is withheld, '
+              + 'which is what a group basket wants.</p>'
+            : '<p class="fxa-perm-note">The Edit targets tick box is not available yet'
+              + (TGT.err ? ': ' + esc(TGT.err) : '.') + ' Run the round 52 SQL and reload.</p>')
         + (POT.ok
             ? '<p class="fxa-perm-note"><b>Potential cover bar</b> is the one tick box here that is '
               + 'not per customer. It belongs to the basket, so ticking it shows the third bar to '
@@ -1454,6 +1492,13 @@
           E.dirty = diff().changed; E.err = ''; E.conflict = false; state();
         });
       });
+      Array.prototype.forEach.call(host.querySelectorAll('input[data-tgt]'), function (cb) {
+        cb.addEventListener('change', function () {
+          TGT.on[cb.getAttribute('data-tgt')] = cb.checked;
+          var lab = cb.closest('.fxa-pbox'); if (lab) lab.classList.toggle('off', !cb.checked);
+          E.dirty = diff().changed; E.err = ''; E.conflict = false; state();
+        });
+      });
       var dayEl = host.querySelector('#fxaDay');
       if (dayEl) dayEl.addEventListener('change', function () {
         P.day = dayEl.checked;
@@ -1478,6 +1523,27 @@
           ? '<span class="fxa-rem">' + MINUS + ' ' + esc((bb && bb.name) || id) + ':</span> will hide '
             + esc(lbl.join(', '))
           : '<span class="fxa-add">+ ' + esc((bb && bb.name) || id) + ':</span> every tab shown again');
+      });
+      /* Round 52 gives both basket-level flags a line of their own. They were the only
+         changes in this dialog that could be saved with nothing in the summary to say so
+         — and they are the two that reach EVERY customer on the basket rather than the
+         one whose name is on the dialog, which is exactly the change worth reading back
+         before you press Save. */
+      d.pot.forEach(function (id) {
+        var bb = catById(id);
+        lines.push(POT.on[id]
+          ? '<span class="fxa-add">+ ' + esc((bb && bb.name) || id)
+            + ':</span> Potential cover bar on <b>for every customer on this basket</b>'
+          : '<span class="fxa-rem">' + MINUS + ' ' + esc((bb && bb.name) || id)
+            + ':</span> Potential cover bar off for every customer on this basket');
+      });
+      d.tgt.forEach(function (id) {
+        var bb = catById(id);
+        lines.push(TGT.on[id]
+          ? '<span class="fxa-add">+ ' + esc((bb && bb.name) || id)
+            + ':</span> target editing on Simulation on <b>for every customer on this basket</b>'
+          : '<span class="fxa-rem">' + MINUS + ' ' + esc((bb && bb.name) || id)
+            + ':</span> target editing on Simulation off &mdash; existing amendments stop showing');
       });
       if (d.day) lines.push(P.day
         ? '<span class="fxa-add">+ Will share the Day Ahead tab</span>'
@@ -1559,6 +1625,23 @@
         }
         POT.orig[pid] = !!POT.on[pid];
         done.push('potential');
+      }
+
+      for (var k = 0; k < d.tgt.length; k++) {
+        var tid = d.tgt[k];
+        // Same rule, same reason: a named function that checks is_flex_team() itself.
+        var tw = await rpc('flex_client_set_target_simulation',
+          { p_basket_id: tid, p_on: !!TGT.on[tid] });
+        if (!DLG) return;
+        if (tw.error) {
+          setBusy(false); b.textContent = 'Save changes';
+          E.err = dbMessage(tw.error)
+            + (done.length ? ' Everything else was saved; target editing was not.' : '');
+          state();
+          return;
+        }
+        TGT.orig[tid] = !!TGT.on[tid];
+        done.push('target-sim');
       }
 
       if (d.day) {

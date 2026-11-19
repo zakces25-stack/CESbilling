@@ -15,7 +15,7 @@
 <script src="flex-shared.js"></script>
 <!-- Client Accounts tab (create flex clients, share baskets, reset passwords). The ?v= must
      equal VERSION inside the file; tests/flex_accounts_render_test.js checks it. -->
-<script src="flex-accounts.js?v=2026-11-16"></script>
+<script src="flex-accounts.js?v=2026-11-19"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -2981,135 +2981,34 @@ function fxDeliveredRate(basket, m, necMap){ return FlexCore.deliveredRate(baske
 // volume: the scenario is a standalone ladder priced at the targets, not an addition to
 // the actual position (see fxTargetScenario). open / open_minus are meaningless without
 // a running total, which is why volumes resolve in row order rather than independently.
+/* ── THE TARGETED-WAP SCENARIO ENGINE MOVED TO flex-shared.js (round 52) ──────
+   Round 52 put the two Targeted columns on the customer's Targets tab as well, and the
+   arithmetic behind them cannot live in a file the client portal does not load. The
+   whole engine — volume resolution, the three price modes, the round 39 ladder carry —
+   is now FlexCore.targetScenario and friends, with the comments that explain it.
+
+   These five wrappers stay because twelve places on this page call them, and because
+   suites 02, 13 and 15 — 130 assertions written against this engine since round 37 —
+   call them too. Keeping the names meant the move could be proved: those suites passed
+   unchanged against the ported code, which is the only evidence worth having that a
+   150-line port of live pricing arithmetic changed nothing.
+
+   Do not reimplement anything here. If one of these needs to change, change it in the
+   shared file so both portals get it. */
 function fxTTVolTotal(basket, m, tt, running, baseTot){
-  const days = m.days || 0;
-  const base = baseTot != null ? baseTot : (m.baseload_vol_total || 0);
-  const run  = running != null ? running : 0;
-  const asTotal = a => basket.commodity === 'power' ? a * days * 24 : a * days;
-  switch (tt.amount_type){
-    case 'percent':    return tt.amount != null ? base * (tt.amount / 100) : 0;
-    case 'open':       return Math.max(0, base - run);
-    case 'open_minus': return tt.amount != null ? Math.max(0, base - asTotal(tt.amount) - run) : 0;
-    default:           return tt.amount != null ? asTotal(tt.amount) : 0;   // 'volume'
-  }
+  return FlexCore.ttVolTotal(basket, m, tt, running, baseTot);
 }
-/* ── A TARGET-LINKED PRICE ────────────────────────────────────────────────────
-   What `price_mode: 'target'` resolves to for one month: that month's own price for
-   the named target column. Null when the month has no target row, or that tier is
-   unpriced there — and a null price is already how fxTargetScenario skips a row for
-   a month, so an unpriced tier contributes no volume and the trailing at-market row
-   picks the gap up. That is the right model: you have not targeted that month.
-
-   Reads basket.targets, which is the SAME array the Targets tab renders and stages
-   into — so a target edited on screen moves the model immediately, saved or not. */
 function fxTTTierPrice(basket, monthKey, tier){
-  if (!basket || !(tier >= 1 && tier <= 8)) return null;
-  const t = (basket.targets || []).find(x => x.month === monthKey);
-  if (!t) return null;
-  const v = t['lower_t' + tier];
-  return v == null ? null : +v;
+  return FlexCore.ttTierPrice(basket, monthKey, tier);
 }
-
-/* Every month a row covers, with the price its tier carries there. The modal's price
-   preview is built from this, and so is the "column removed" check. */
 function fxTTTierSpan(basket, row){
-  const out = [];
-  if (!basket || !row) return out;
-  for (const m of (basket.months || [])){
-    if (m.month < row.start_month || m.month > row.end_month) continue;
-    out.push({ month: m.month, price: fxTTTierPrice(basket, m.month, row.price_tier) });
-  }
-  return out;
+  return FlexCore.ttTierSpan(basket, row);
 }
-
-// What a row prices at for one month, whichever mode it is in. One place, so the
-// modal preview and the table can never disagree about it.
 function fxTTRowPrice(basket, m, row){
-  if (!row) return null;
-  if (row.price_mode === 'market') return m ? m.market_price : null;
-  if (row.price_mode === 'target') return fxTTTierPrice(basket, m ? m.month : null, row.price_tier);
-  return row.price;
+  return FlexCore.ttRowPrice(basket, m, row);
 }
-
-// Scenario position for one month. Returns null when no scenario trade covers it.
-// Pass `trades` to preview an unsaved set (used by the modal); omit to use what's saved.
 function fxTargetScenario(basket, m, necMap, trades){
-  const list = (trades || basket.target_trades || [])
-    .filter(t => t && m.month >= t.start_month && m.month <= t.end_month);
-  if (!list.length) return null;
-  const baseTot = m.baseload_vol_total || 0;
-  // THE MODEL STANDS ALONE. It answers "what would the WAP be if every target traded at
-  // exactly its target price", which is a different question from "where will we end up
-  // from here" — real trades almost never land on the target price, so blending the
-  // actual secured cost in would contaminate the answer with prices that were never
-  // targets. It also made the maths impossible once achieved targets were included: the
-  // achieved volume would be counted twice, once at its real price and again at its
-  // target price, taking a fully-hedged month past 150% of baseload.
-  //
-  // A happy side effect: every term below is now volume x price in the basket's own price
-  // unit, so the pounds-versus-pence problem that used to bite gas baskets here cannot
-  // arise — there is no longer a £ cost in the sum. (fxCostToPrice still guards the
-  // Seasons tab and the Positions total, which do divide a £ cost by a volume.)
-  /* ROUND 39 — A BLANK TARGET COLUMN DOES NOT SWALLOW ITS RUNG.
-     The ladder is cumulative. A season that prices T1, T2 and T4 but not T3 still means
-     to reach T4's level, so the volume T3 would have bought carries to T4 rather than
-     falling through to the at-market closer. Until this round it fell through, and
-     CCCH's Nov-26 modelled at 112.95 against a hand-worked 95.95.
-
-     `carry` only ever moves volume between rungs of the SAME ladder:
-       · produced by a target-linked row whose column is blank this month, and only when
-         that row states a quantity of its own (percent / volume). An 'open' or
-         'open_minus' row is defined by what is LEFT, so it has no rung to hand on.
-       · consumed by the next target-linked row that is priced and states a quantity.
-         A manual or at-market row in the middle is not part of the ladder and must not
-         inherit a rung; an 'open' row already claims everything remaining, so adding
-         the carry to it would count the same volume twice.
-       · left unconsumed at the end, which is correct: with no priced rung below it, the
-         volume is simply untargeted and the at-market closer takes it. That is the
-         Apr-27 case — the ladder stops at T4 and the rest goes to market.
-
-     Rows resolve IN ORDER, so the carry follows row order, exactly as "all open volume"
-     already does. A row sitting before the month's first priced column is a column the
-     month was never given (see FlexCore.requiredRaw) and carries nothing. */
-  const _ladderFrom = FlexCore.firstPricedTier(basket, m.month);
-  const _isRung = t => t && t.price_mode === 'target'
-    && (t.amount_type === 'percent' || t.amount_type === 'volume')
-    && _ladderFrom != null && t.price_tier >= _ladderFrom;
-  let addTot = 0, addCost = 0, running = 0, carry = 0;
-  for (const t of list){
-    const v = fxTTVolTotal(basket, m, t, running, baseTot);
-    // An at-market row has no fixed price: it takes THIS month's market price, so one row
-    // can cover a whole season and still price each month on its own merits. Always the
-    // Marex-resolved figure — the TotalEnergies toggle changes what is printed, never a
-    // calculation.
-    // Round 37: three modes. 'market' takes this month's market price, 'target' this
-    // month's price for the named target column, 'fixed' the typed figure. The first
-    // two are the same idea — a price that belongs to the month rather than the row —
-    // which is why one row can cover a whole season and still price each month.
-    const px = fxTTRowPrice(basket, m, t);
-    if (px == null){
-      if (_isRung(t) && v > 0) carry += v;   // blank column: its rung moves down the ladder
-      continue;
-    }
-    const vol = _isRung(t) ? v + carry : v;
-    if (_isRung(t)) carry = 0;
-    if (!(vol > 0)) continue;
-    addTot += vol; addCost += vol * px; running += vol;
-  }
-  if (!(addTot > 0)) return null;
-  const newTot = addTot, newCost = addCost;
-  const wap = newTot > 0 ? newCost / newTot : null;
-  // Over-hedged: the modelled ladder is bigger than the month actually needs.
-  const over = baseTot > 0 && newTot > baseTot + 1e-6;
-  const openTot = Math.max(0, baseTot - newTot);
-  const mkt = m.market_price;
-  // Targeted MtM: scenario cost plus whatever is still open valued at market, over full baseload.
-  const mtm = (baseTot > 0 && mkt != null) ? (newCost + openTot * mkt) / baseTot : null;
-  const nm  = necMap || fxNecFor(basket);
-  const nec = nm[fxSeasonKey(m.month)];
-  // Same basis as the Delivered rate column: converted price + that season's NEC.
-  const deliv = (mtm != null && nec != null) ? fxConvPkwh(basket, mtm) + nec : null;
-  return { wap, mtm, deliv, over, addTot, newTot, baseTot, pct: baseTot > 0 ? newTot / baseTot : null };
+  return FlexCore.targetScenario(basket, m, necMap || fxNecFor(basket), trades);
 }
 
 // ── MARKET PRICE SOURCE (Marex | Indicative | Simulation) ────────
@@ -3543,33 +3442,20 @@ function renderTargets(basket) {
   }
 
   const necT   = fxNecFor(basket);
-  const hasTT  = (basket.target_trades || []).length > 0;
   const nowM   = fxNowMonth();
-  let cols     = FlexCore.TARGETS(basket);
-
-  // Desk-only: the modelled-trade scenario. Appended, never interleaved, so the shared
-  // columns keep their order and the client's table is a prefix of this one.
-  if (hasTT) {
-    cols = cols.concat([
-      { key: 'twap', head: 'Targeted WAP <span class="fx-twap-u">(' + FlexCore.esc(basket.unit_price) + ')</span>',
-        align: 'right',
-        value: (t) => { const sc = scenarioFor(t); return sc && sc.wap != null ? sc.wap.toFixed(2) : '<span style="color:#c8cdd8">—</span>'; } },
-      { key: 'tdel', head: 'Targeted delivered <span class="fx-twap-u">(p/kWh)</span>',
-        align: 'right',
-        value: (t) => { const sc = scenarioFor(t); return sc && sc.deliv != null ? sc.deliv.toFixed(3) : '<span style="color:#c8cdd8">—</span>'; } }
-    ]);
-  }
-  function scenarioFor(t) {
-    const mm = (basket.months || []).find(x => x.month === t.month);
-    return mm ? fxTargetScenario(basket, mm, necT) : null;
-  }
+  /* ROUND 52: the two Targeted columns are FlexCore's now, appended by TARGETS itself
+     when the basket has scenario rows — because the customer's Targets tab shows them
+     too, and the same two columns defined in two files is the round 43 mistake. The
+     desk's only remaining job is to hand the NEC map in through the context, which the
+     delivered column needs and the client supplies the same way. */
+  const cols = FlexCore.TARGETS(basket);
 
   // Same Mkt price resolver as the Positions tab. This column used to read
   // m.market_price directly and so ignored the Marex/TotalEnergies toggle that the
   // toggle's own label promises applies to "the Mkt price column" — one tab followed it
   // and the other did not. Calculations are untouched: fxRowAlert and every target test
   // still read m.market_price, which is always Marex.
-  const tCtx = { mktPrice: (m) => fxDisplayMkt(basket, m).v };
+  const tCtx = { mktPrice: (m) => fxDisplayMkt(basket, m).v, nec: necT };
   /* Round 37: a Σ beside each month opens the Targeted WAPs editor already filtered to
      it, and carries how many scenario rows cover that month so you can see which
      periods are modelled without opening anything.

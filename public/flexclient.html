@@ -1103,7 +1103,7 @@ async function cxFetchAll(table, cols, orderCols){
 
 /* ── load ────────────────────────────────────────────────────────────── */
 async function load(){
-  const [bk,ps,tr,tg,st,cv,te,sm,nx,rp,me,da] = await Promise.all([
+  const [bk,ps,tr,tg,st,cv,te,sm,tt,si,nx,rp,me,da] = await Promise.all([
     // select('*') rather than a column list, as every other client query here does: the
     // view is the security boundary, so naming columns adds nothing and means a column
     // added to the view — sort_order, in round 32 — needs an edit here as well.
@@ -1115,6 +1115,12 @@ async function load(){
     CX.sb.from('flex_client_curves').select('commodity,period_type,period_label,month,mid,updated_at'),
     CX.sb.from('flex_client_te_curves').select('commodity,month,mid').order('month'),
     CX.sb.from('flex_client_sim_curves').select('commodity,month,mid').order('month'),
+    /* ROUND 52. The scenario rows the two Targeted columns are built from, and this
+       login's own amended targets. Both are read with the same tolerance as everything
+       else here: a portal running before the round 52 SQL gets an error on these two
+       and carries on without the columns, rather than failing to load at all. */
+    CX.sb.from('flex_client_target_trades').select('*'),
+    CX.sb.from('flex_client_sim_targets').select('basket_id,month,tier,price'),
     CX.sb.from('flex_client_necs').select('basket_name,commodity,season,nec'),
     CX.sb.from('flex_reports').select('id,kind,title,period_label,report_date,body,pdf_path,pdf_name,pdf_size')
          .eq('published',true).order('report_date',{ascending:false}),
@@ -1137,6 +1143,11 @@ async function load(){
   // page to every customer.
   if(te.error) console.warn('supplier curve unavailable:', te.error.message);
   if(sm.error) console.warn('simulation curve unavailable:', sm.error.message);
+  // Round 52, and the same bargain: before that round's SQL has run these two views do
+  // not exist, and the Targets tab is better off without its two modelled columns than
+  // the whole portal is off being blank.
+  if(tt.error) console.warn('target scenarios unavailable:', tt.error.message);
+  if(si.error) console.warn('simulated targets unavailable:', si.error.message);
 
   /* The desk sets the running order by dragging the cards on its Portfolio tab, which
      writes flex_baskets.sort_order. The customer was seeing alphabetical, so a customer
@@ -1152,6 +1163,15 @@ async function load(){
   for(const k of Object.keys(_BK)) delete _BK[k];
   const by = (rows,key)=>{const o={};for(const r of (rows||[]))(o[r[key]] ??= []).push(r);return o;};
   D.positions = by(ps.data,'basket_id');
+  D.targetTrades = by(tt.error ? [] : tt.data, 'basket_id');
+  /* basket -> 'YYYY-MM-DD|tier' -> price. Keyed flat because that is how it is read:
+     one lookup per cell while the table renders. */
+  D.simTargets = {};
+  for(const r of (si.error ? [] : (si.data || []))){
+    if(!r || !r.basket_id || !r.month) continue;
+    (D.simTargets[r.basket_id] ??= {})[String(r.month).slice(0,10) + '|' + r.tier] =
+      (r.price == null ? null : +r.price);
+  }
   D.trades    = by(tr.data,'basket_id');
   D.targets   = by(tg.data,'basket_id');
   D.sites     = by(st.data,'basket_id');
@@ -1329,13 +1349,98 @@ async function cxSimClearAll(){
   await cxLoadSim();
   toast(n ? n+' simulated price'+(n===1?'':'s')+' cleared — back to Marex' : 'Nothing to clear');
 }
+/* ── the customer's own simulated TARGETS (round 52) ──────────────────────────
+   The page's SECOND write, and the second rpc it makes. Everything true of
+   flex_apply_sim_curve above is true here: security definer, the owner taken from
+   auth.uid() and never from a parameter, and a single table written — flex_sim_targets,
+   which nothing but this feature reads.
+
+   WHAT IT CANNOT DO, enforced at the database rather than here, because a guard that
+   lives only in a page is a guard a console walks around:
+     · it cannot touch flex_targets, so the desk's real target is never moved;
+     · it cannot reach a basket the customer is not on, or one the desk has not ticked;
+     · it cannot put a price in a column the desk left blank — that would change the
+       SHAPE of the ladder, since a blank column's rung carries down to the next priced
+       one (round 39). Moving a price leaves the shape alone, which is what makes the
+       whole feature safe to hand to a customer.
+
+   The checks below are the same ones in friendlier words, so the usual case gives a
+   sentence rather than a raised exception. They are a courtesy, not the control. */
+async function cxSimTargetWrite(basketId, entries, msg){
+  const { error } = await CX.sb.rpc('flex_apply_sim_target',
+    { p_basket_id: basketId, p_entries: entries });
+  if(error){
+    toast(error.message && /no target set|does not allow|is not a column/i.test(error.message)
+      ? error.message : 'That target was not saved — please try again');
+    console.warn('sim target write failed:', error.message); return false;
+  }
+  await cxLoadSimTargets();
+  toast(msg);
+  return true;
+}
+// Re-reads just the simulated targets. Same reasoning as cxLoadSim: a whole load() would
+// pull every basket, position, trade and report back for one amended figure.
+async function cxLoadSimTargets(){
+  const si = await CX.sb.from('flex_client_sim_targets').select('basket_id,month,tier,price');
+  if(si.error){ console.warn('simulated targets unavailable:', si.error.message); return; }
+  D.simTargets = {};
+  for(const r of (si.data||[])){
+    if(!r || !r.basket_id || !r.month) continue;
+    (D.simTargets[r.basket_id] ??= {})[String(r.month).slice(0,10) + '|' + r.tier] =
+      (r.price == null ? null : +r.price);
+  }
+  for(const k of Object.keys(_BK)) delete _BK[k];
+  if(VIEW === 'baskets' && OPEN) renderBasket({ keepScroll:true }); else render();
+}
+// One cell. A blank box sends null, which DELETES the amendment — and the real target is
+// then simply what it always was, with nothing stored to go stale against it.
+function cxSimTargetSet(b, monthIso, tier, v){
+  const mon = String(monthIso).slice(0,10);
+  const lbl = (b.target_labels && b.target_labels[tier-1]) || ('T'+tier);
+  return cxSimTargetWrite(b.id, [{ month: mon, tier: tier, price: v }],
+    v == null ? lbl+' on '+fmtMonth(mon)+' back to the CES target'
+              : lbl+' on '+fmtMonth(mon)+' amended to '+v);
+}
+// Every amended target the customer holds, on every basket, back to the real ones. One
+// write per basket, and only cells that actually carry an amendment are sent.
+async function cxSimTargetClearAll(){
+  let n = 0;
+  for(const id of Object.keys(D.simTargets || {})){
+    const keys = Object.keys(D.simTargets[id] || {}).filter(k => D.simTargets[id][k] != null);
+    if(!keys.length) continue;
+    n += keys.length;
+    const { error } = await CX.sb.rpc('flex_apply_sim_target', { p_basket_id: id,
+      p_entries: keys.map(k => ({ month: k.split('|')[0], tier: +k.split('|')[1], price: null })) });
+    if(error){ toast('Those targets were not cleared — please try again');
+               console.warn('sim target clear failed:', error.message); return; }
+  }
+  await cxLoadSimTargets();
+  toast(n ? n+' amended target'+(n===1?'':'s')+' cleared — back to the CES targets'
+          : 'Nothing to clear');
+}
+// How many targets, across how many months — the figure the banner and the three
+// spreadsheet warnings both quote, counted in one place so they cannot disagree.
+function cxSimTargetCount(){
+  let cells = 0; const months = new Set();
+  for(const id of Object.keys(D.simTargets || {}))
+    for(const k of Object.keys(D.simTargets[id] || {})){
+      if(D.simTargets[id][k] == null) continue;
+      cells++; months.add(k.split('|')[0]);
+    }
+  return { cells: cells, months: months.size };
+}
+
 // Click-to-edit on one Market Price cell. The portal has no other editable cell, so the
 // affordance has to carry itself: a dotted box, a pointer, and a title that says what a
 // click does rather than the desk's terse "Click to edit".
-function cxEditCell(cell, current, save){
+function cxEditCell(cell, current, save, label){
   if(!cell || cell.querySelector('input')) return;
   const old = cell.innerHTML;
-  cell.innerHTML = `<input class="cx-cell" inputmode="decimal" aria-label="Simulated market price" value="${current!=null?current:''}">`;
+  // The label is now passed in. It was hard-coded to "Simulated market price", which was
+  // right while Positions held the only editable cell on the page and became a lie the
+  // moment Targets gained one: a screen reader would have announced a target column as a
+  // market price.
+  cell.innerHTML = `<input class="cx-cell" inputmode="decimal" aria-label="${esc(label||'Simulated market price')}" value="${current!=null?current:''}">`;
   const inp = cell.querySelector('input'); inp.focus(); inp.select();
   let done = false;
   const commit = async () => {
@@ -1470,11 +1575,65 @@ function deskBasket(b){
   const bb = Object.assign({}, b, {
     months:  (D.positions[b.id]||[]).map(normRow).map(m=>cxRemarkRow(b,m))
                .sort((x,y)=> x.month<y.month?-1:1),
-    targets: (D.targets[b.id]||[]).map(normTarget)
-               .sort((x,y)=> x.month<y.month?-1:1)
+    targets: cxOverlaySimTargets(b, (D.targets[b.id]||[]).map(normTarget)
+               .sort((x,y)=> x.month<y.month?-1:1)),
+    /* ROUND 52. The scenario rows FlexCore.TARGETS needs before it will append the two
+       modelled columns, and that FlexCore.targetScenario prices the ladder from. The
+       desk hangs the same array off its basket under the same name, so the shared code
+       cannot tell the two portals apart. */
+    target_trades: (D.targetTrades && D.targetTrades[b.id]) || []
   });
   _BK[k] = bb;
   return bb;
+}
+
+/* ── A SIMULATED TARGET, LAID OVER THE REAL ONE (round 52) ────────────────────
+   The customer may amend a target on their own portal and watch Estimated Targeted WAP
+   and Estimated Targeted Delivered follow. This is where that amendment enters the
+   picture, and it is the ONLY place: everything downstream — the ladder, the scenario,
+   both modelled columns — reads basket.targets and cannot tell an amended figure from a
+   real one, which is exactly why the arithmetic needs no second implementation.
+
+   FOUR THINGS IT DELIBERATELY DOES NOT DO.
+
+   · It does not touch D.targets. The rows handed in are copied before a price is
+     changed, so the real target the portal loaded is still there, unamended, for the
+     moment the customer switches back to Marex or Indicative.
+   · It only applies on Simulation. On the other two sources this returns the rows it
+     was given, untouched, which is what makes "switch back to see the real figures"
+     true rather than a claim.
+   · It only applies where the basket allows it. The desk's tick box gates the EDITING;
+     this gates the DISPLAY of an amendment made while it was allowed, so revoking the
+     tick box puts every customer on that basket back on the real targets at once
+     without anybody having to clear anything.
+   · It never writes into a column the desk left blank. flex_apply_sim_target refuses
+     that at the database, and this agrees with it: a price appearing where there was no
+     target would change the SHAPE of the ladder, because a blank column's rung carries
+     down to the next priced one (the round 39 rule). Moving a price leaves the shape
+     alone, which is the whole reason this is safe to offer.
+
+   The achieved ticks are untouched by any of it, and that is not luck: a tick is
+   computed from secured VOLUME against the tier's rule, never from the target price.
+   A customer can model a target at half the market and the green ticks do not move. */
+function cxSimTargetsOn(b){
+  return CX_MKT_SRC === 'sim' && !!(b && b.allow_target_simulation);
+}
+function cxOverlaySimTargets(b, rows){
+  if(!cxSimTargetsOn(b)) return rows;
+  const mine = (D.simTargets && D.simTargets[b.id]) || {};
+  if(!Object.keys(mine).length) return rows;
+  return rows.map(t => {
+    const key = String(t.month).slice(0,10);
+    let out = null;
+    for(let i = 1; i <= 8; i++){
+      const v = mine[key + '|' + i];
+      if(v == null) continue;
+      if(t['lower_t' + i] == null) continue;      // never fills a blank column
+      out = out || Object.assign({}, t);
+      out['lower_t' + i] = +v;
+    }
+    return out || t;
+  });
 }
 
 /* The eight stat cards — figures, decimals and labels all from FlexCore.stats(), the
@@ -1528,14 +1687,42 @@ function cxSrcBarHtml(){
   // Kept short on purpose. The first draft ran to fourteen lines on a 360px phone — a
   // third of the screen before a single figure — which is how a warning gets scrolled
   // past. The note under the table carries the full explanation; this carries the point.
+  /* FOUR STATES (round 52). The banner used to say one of two things, because a
+     customer could only amend a price. They can now amend a target as well, and the two
+     are independent: either, neither, or both. A banner that mentioned only prices
+     while a target was amended would be quietly wrong on the one screen whose job is to
+     say what has been changed — and it is the screen that gets printed and forwarded.
+
+     The counts are quoted rather than implied ("3 targets across 2 months"), for the
+     same reason the spreadsheet warnings quote them: a customer who has been modelling
+     for twenty minutes does not remember how many cells they typed in, and the figure
+     is what makes "clear it all" a decision rather than a leap. */
+  const tgt = sim ? cxSimTargetCount() : { cells:0, months:0 };
+  const plural = (k, one, many) => k + ' ' + (k === 1 ? one : many);
+  const priceSentence =
+    'Months you have priced are valued at your price, not a market price; the rest still show Marex.';
+  const targetSentence =
+    plural(tgt.cells, 'target', 'targets') + ' across ' + plural(tgt.months, 'month', 'months')
+    + ' have been manually amended on the portal using simulation tools. Estimated Targeted WAP and '
+    + 'Estimated Targeted Delivered are calculated from those amended figures rather than from the '
+    + 'CES targets.';
+  const body =
+    (n && tgt.cells) ? priceSentence + ' ' + targetSentence
+                     + ' Secured volume and its cost are unchanged. Not a quotation, and private to you.'
+  : n              ? priceSentence
+                     + ' Secured volume and its cost are unchanged. Not a quotation, and private to you.'
+  : tgt.cells      ? targetSentence
+                     + ' Every month still shows the Marex market price. Not a quotation, and private to you.'
+  :                  'You have not priced any months or amended any targets yet, so every month still '
+                     + 'shows Marex. Click any Market Price below to set your own.';
+
   const warn = !sim ? '' : `
       <div class="cxwarn">
-        <b>These figures are your own simulation.</b> ${n
-          ? 'Months you have priced are valued at your price, not a market price; the rest still show Marex. Secured volume and its cost are unchanged. Not a quotation, and private to you.'
-          : 'You have not priced any months yet, so every month still shows Marex. Click any Market Price below to set your own.'}
+        <b>These figures are your own simulation.</b> ${esc(body)}
         <span class="cxwarn-acts noprint">
           <a href="#" data-src="${CX_SRC_DEFAULT}">Back to ${esc(CX_SRC[CX_SRC_DEFAULT].label)}</a>${n
-          ? ` &nbsp;·&nbsp; <a href="#" id="cxSimClear">Clear my simulated prices</a>` : ''}
+          ? ` &nbsp;·&nbsp; <a href="#" id="cxSimClear">Clear my simulated prices</a>` : ''}${tgt.cells
+          ? ` &nbsp;·&nbsp; <a href="#" id="cxSimTgtClear">Clear my amended targets</a>` : ''}
         </span>
       </div>`;
   return `<div class="srcbar noprint">
@@ -1555,20 +1742,28 @@ function cxWireSrcBar(el){
   el.querySelectorAll('[data-src]').forEach(x=>x.addEventListener('click',e=>{
     e.preventDefault(); cxSetMktSrc(x.dataset.src);
   }));
-  const c = el.querySelector('#cxSimClear');
-  // Two clicks, not a confirm() dialog. Clearing cannot be undone — the prices a
+  // Two clicks, not a confirm() dialog. Clearing cannot be undone — the figures a
   // customer typed are gone — so it must not be one stray click away, and a modal on a
   // phone is worse than a button that asks once.
-  if(c) c.addEventListener('click',e=>{
-    e.preventDefault();
-    if(c.dataset.armed !== '1'){
-      c.dataset.armed='1'; c.textContent='Click again to clear them';
-      setTimeout(()=>{ if(c.isConnected && c.dataset.armed==='1'){
-        c.dataset.armed=''; c.textContent='Clear my simulated prices'; } }, 6000);
-      return;
-    }
-    cxSimClearAll();
-  });
+  /* TWO SEPARATE LINKS (round 52), each clearing its own kind and leaving the other
+     alone. One link that cleared both would make a customer who wants their prices back
+     throw away twenty minutes of target modelling to get them, and there would be no way
+     to ask for one without the other. */
+  const arm = (id, label, go) => {
+    const c = el.querySelector(id); if(!c) return;
+    c.addEventListener('click', e => {
+      e.preventDefault();
+      if(c.dataset.armed !== '1'){
+        c.dataset.armed = '1'; c.textContent = 'Click again to clear them';
+        setTimeout(()=>{ if(c.isConnected && c.dataset.armed === '1'){
+          c.dataset.armed = ''; c.textContent = label; } }, 6000);
+        return;
+      }
+      go();
+    });
+  };
+  arm('#cxSimClear',    'Clear my simulated prices', cxSimClearAll);
+  arm('#cxSimTgtClear', 'Clear my amended targets',  cxSimTargetClearAll);
 }
 
 /* ── basket list ─────────────────────────────────────────────────────── */
@@ -2623,12 +2818,66 @@ function subTargets(b,host){
       : 'No price targets set for this basket.')+'</div>';
     return;
   }
+  const mine = (D.simTargets && D.simTargets[b.id]) || {};
+  const amended = (t,tier)=> cxSimTargetsOn(b) && mine[String(t.month).slice(0,10)+'|'+tier] != null;
+
   host.innerHTML = FlexCore.buildTable(FlexCore.TARGETS(bk), rows,
-    { mktPrice: (m)=>cxMktPrice(b,m) },
+    // nec is what Estimated Targeted Delivered needs: without it the column has no
+    // non-energy terms to add and would print a dash on every row.
+    { mktPrice: (m)=>cxMktPrice(b,m), nec: FlexCore.necMap(bk, D.necs) },
     { tableClass: FlexCore.TARGETS_TABLE_CLASS,
       caption:`Buy targets by month, in ${esc(b.unit_price||'')}. A tier shown in green has been reached.`,
-      cellClass:(c,t)=> (c.tier && t['lower_t'+c.tier]!=null && FlexCore.isAchieved(bk,t,c.tier))
-        ? 'achieved-cell' : '' });
+      rowAttr:(t)=> ` data-month="${String(t.month).slice(0,10)}"`,
+      cellClass:(c,t)=> [
+        (c.tier && t['lower_t'+c.tier]!=null && FlexCore.isAchieved(bk,t,c.tier)) ? 'achieved-cell' : '',
+        // Amended cells are marked the same way an amended Market Price is, so one
+        // glance down the table says which figures are the customer's own.
+        (c.tier && amended(t,c.tier)) ? 'cx-sim-cell' : ''
+      ].filter(Boolean).join(' ') });
+
+  /* Targets become editable on Simulation, and only on a basket the desk has ticked.
+     The two modelled columns show either way — the tick box gates the EDITING, which is
+     what Daniel asked for: a group basket shows the figures and nobody can move them.
+
+     Only a cell that already HAS a target is editable. An empty column is left alone
+     rather than offered and then refused, because the database would refuse it (see
+     cxSimTargetWrite) and an affordance that leads to an error message is worse than no
+     affordance. The achieved ticks do not move when a price is amended, and that is not
+     luck: a tick is computed from secured VOLUME against the tier's rule, never from the
+     target price. */
+  /* AND ONLY WHERE THERE IS SOMETHING TO MODEL. Without scenario rows the two modelled
+     columns are not built, so typing into a target would move a figure in its own cell
+     and nothing else on the screen — which looks like the feature is broken rather than
+     absent. It also covers the degraded case: if flex_client_target_trades cannot be
+     read, nothing is offered rather than offered and inert. */
+  if(!cxSimTargetsOn(b) || !(bk.target_trades || []).length) return;
+  const byMonth = {};
+  for(const t of rows) byMonth[String(t.month).slice(0,10)] = t;
+  host.querySelectorAll('tr[data-month]').forEach(tr=>{
+    const t = byMonth[tr.dataset.month]; if(!t) return;
+    const n = (bk.target_count != null ? bk.target_count : 8);
+    for(let i=1;i<=n;i++){
+      const real = t['lower_t'+i];
+      if(real == null) continue;                    // the desk left this column blank
+      const cell = tr.querySelector('td[data-k="t'+i+'"]'); if(!cell) continue;
+      const own  = mine[tr.dataset.month+'|'+i];
+      const lbl  = (b.target_labels && b.target_labels[i-1]) || ('T'+i);
+      cell.classList.add('cx-editable');
+      cell.setAttribute('tabindex','0');
+      cell.setAttribute('role','button');
+      cell.title = own != null
+        ? 'Your amended '+lbl+' for '+fmtMonth(t.month)+'. Click to change it, or clear the box to put it back to the CES target.'
+        : 'Showing the CES target for '+lbl+' on '+fmtMonth(t.month)+'. Click to model your own.';
+      // own is the figure ON SCREEN when one is amended, because the overlay has already
+      // put it into the row — so the box opens on what the customer is looking at.
+      const open = () => cxEditCell(cell, own != null ? own : (real != null ? +real : null),
+                                    v => cxSimTargetSet(b, t.month, i, v), 'Simulated target price');
+      cell.addEventListener('click', open);
+      cell.addEventListener('keydown', e=>{
+        if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); open(); }
+      });
+    }
+  });
 }
 
 /* Round 36 adds the supply address. It is the column a reader actually recognises a site
@@ -2684,18 +2933,83 @@ let _xlLib=null, _xlBusy=false, _xlTries=0;
    forwarded to a finance team arrives with no toggle on it and no way to tell. On the
    default (Indicative) POS_NOTE_XL already describes exactly that curve, so nothing is
    added; the other two get a sentence at the front, where it is read first. */
-function cxXlNote(){
+/* ── THE THREE SIMULATION WARNINGS (round 52) ─────────────────────────────────
+   A customer may now amend a price, a target, or both, so the file needs to say which —
+   a single warning covering all three would be wrong in two of them. The screen carries
+   the purple banner; a workbook forwarded to a finance team carries nothing but this
+   sentence, which is why it names the figures rather than gesturing at them.
+
+   TWO THINGS CHANGED IN THE EXISTING WORDING AS WELL.
+
+   · It said "every Market Price in this file is a price entered by hand". That was never
+     true: only the months the customer has actually priced carry their figure, and the
+     rest show Marex. A customer who had priced two months of twenty-four was being told
+     the whole file was theirs, which reads as a bigger disclaimer and is a smaller one —
+     if everything is suspect, nothing in particular is.
+   · "as a what-if" is gone, at Daniel's instruction: it is not the register a formal
+     disclaimer is written in.
+
+   And the mechanism is spelled out rather than implied. "Open Cost, MtM Price … all
+   follow from them" tells a reader the figures are related; it does not tell them that
+   the amended price is the input every one of them is computed from, which is the fact
+   that decides whether the file can be forwarded. */
+function cxSimCountsForNote(b){
+  const months = new Set(), bag = (D.sim && D.sim[b.commodity]) || {}, fwd = nextMonth();
+  for(const k of Object.keys(bag)) if(bag[k] != null && k >= fwd) months.add(k);
+  // Targets are counted on THIS basket only, because this file is this basket.
+  const mine = (cxSimTargetsOn(b) && D.simTargets && D.simTargets[b.id]) || {};
+  const tm = new Set(); let tc = 0;
+  for(const k of Object.keys(mine)) if(mine[k] != null){ tc++; tm.add(k.split('|')[0]); }
+  return { priceMonths: months.size, targets: tc, targetMonths: tm.size };
+}
+function cxXlPlural(n, one, many){ return n + ' ' + (n === 1 ? one : many); }
+function cxXlPriceWarning(c){
+  return 'WARNING: ' + cxXlPlural(c.priceMonths, 'month has', 'months have')
+    + ' had the Market Price manually amended on the portal using simulation tools. An amended '
+    + 'price is not a market price, not a price any supplier has offered, and not a CES valuation; '
+    + 'the remaining months show the Marex market price. Open Cost, MtM Price, MtM Cost, Delivered '
+    + 'Rate and Delivered Cost are each calculated from the Market Price, so on '
+    + (c.priceMonths === 1 ? 'that month' : 'those ' + c.priceMonths + ' months')
+    + ' every one of them carries your amendment rather than a CES figure. ';
+}
+function cxXlTargetWarning(c){
+  return cxXlPlural(c.targets, 'target', 'targets') + ' across '
+    + cxXlPlural(c.targetMonths, 'month', 'months')
+    + ' have been manually amended on the portal using simulation tools. CES has not set those '
+    + 'target prices and holds no instruction to trade at them. On the Targets sheet, Estimated '
+    + 'Targeted WAP and Estimated Targeted Delivered are each calculated from the target prices, '
+    + 'so on ' + (c.targetMonths === 1 ? 'that month' : 'those ' + c.targetMonths + ' months')
+    + ' both carry your amendment rather than a CES figure. ';
+}
+function cxXlSimNote(b){
+  const c = cxSimCountsForNote(b);
+  if(c.priceMonths && c.targets) return cxXlPriceWarning(c) + cxXlTargetWarning(c);
+  if(c.priceMonths)              return cxXlPriceWarning(c);
+  if(c.targets)                  return 'WARNING: ' + cxXlTargetWarning(c)
+    + 'Market Prices in this file are the Marex market price and are unchanged. ';
+  // On Simulation with nothing amended the file IS the Marex file, and saying otherwise
+  // would put a warning on a workbook that has nothing in it to warn about.
+  return 'Market Prices in this file are the Marex wholesale forward curve, not your supplier\'s '
+       + 'indicative curve, and every estimated figure is valued against it. ';
+}
+function cxXlNote(b){
   const pre = CX_MKT_SRC === 'sim'
-    ? 'WARNING: every Market Price in this file is a price entered by hand on the CES portal as a '
-      + 'what-if. It is not a market price, not a price any supplier has offered, and not a CES '
-      + 'valuation. Open Cost, MtM Price, MtM Cost, Delivered Rate and Delivered Cost are all '
-      + 'worked out from it. '
+    ? cxXlSimNote(b)
     : CX_MKT_SRC === 'marex'
     ? 'Market Prices in this file are the wholesale broker forward curve, not your supplier\'s '
       + 'indicative curve, and every estimated figure is valued against it. '
     : '';
   // xlWorkbook appends FlexCore.XL_ROUND_NOTE itself, so it is not repeated here.
   return pre + POS_NOTE_XL;
+}
+/* The Targets sheet gets the target warning on its OWN sheet as well as on the front
+   one. The note above lands under the Positions table, and a reader who opens the
+   workbook on the Targets tab — which is where the amended figures are — would never
+   see it. */
+function cxXlTargetNote(b){
+  if(CX_MKT_SRC !== 'sim') return '';
+  const c = cxSimCountsForNote(b);
+  return c.targets ? 'WARNING: ' + cxXlTargetWarning(c) : '';
 }
 
 function loadExcelJs(){
@@ -2758,7 +3072,8 @@ async function cxDownloadXlsx(b){
       trades:tradesOf(b), sites:(D.sites[b.id]||[]), necRows:D.necs,
       ctx:{ nec:FlexCore.necMap(bk, D.necs), mktPrice:(m)=>cxMktPrice(b,m) },
       stamp:'Downloaded '+fmtLong(xlStamp()),
-      note:cxXlNote(),
+      note:cxXlNote(b),
+      targetNote:cxXlTargetNote(b),
       desk:false                       // drops Next Target, Upper Alert and the NEC terms
     });
     /* A tab the desk has hidden must not arrive as a sheet either. Without this the

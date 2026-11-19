@@ -361,6 +361,169 @@
     return t && t.upper_alert != null ? t.upper_alert : null;
   }
 
+  /* ══ THE TARGETED-WAP SCENARIO ENGINE (moved here in round 52) ══════════════════
+     "What would our weighted average price be if the targets were struck?"
+
+     WHY IT MOVED. It lived in flex.html and the two columns it fills were desk-only.
+     Round 52 puts those columns on the customer's Targets tab as well, and a second
+     copy of this arithmetic on the client would be the round 43 mistake — a rule in two
+     places is a rule that gets half-applied. The desk now calls through thin wrappers,
+     so the suites that have covered this since round 37 exercise the same call path and
+     prove the move changed nothing.
+
+     Hypothetical trades live in flex_target_trades, NOT flex_trades: flex_positions is a
+     view over flex_trades, so real hedge %, MtM cost and the Monday heat map must never
+     move because someone modelled a scenario. Everything here is pure arithmetic over
+     data already loaded.
+
+     A scenario row uses the SAME four shapes as a target column rule, so "model the
+     trade that hits this target" needs no translation:
+       volume      amount in the basket's own unit -> power MWh = amount x days x 24
+                                                      gas   th  = amount x days
+       percent     that % of the month's baseload total
+       open        whatever is still open at this point in the row order
+       open_minus  fill to baseload less `amount`, i.e. leave `amount` open                */
+
+  /* `running` is how much the MODEL has bought so far this month — every earlier row in
+     the same month, and nothing else. It deliberately does not start from the real
+     secured volume: the scenario is a standalone ladder priced at the targets, not an
+     addition to the actual position. open / open_minus are meaningless without a running
+     total, which is why volumes resolve in row order rather than independently. */
+  function ttVolTotal(basket, m, tt, running, baseTot) {
+    var days = m.days || 0;
+    var base = baseTot != null ? baseTot : (m.baseload_vol_total || 0);
+    var run  = running != null ? running : 0;
+    var asTotal = function (a) { return isPower(basket) ? a * days * 24 : a * days; };
+    switch (tt.amount_type) {
+      case 'percent':    return tt.amount != null ? base * (tt.amount / 100) : 0;
+      case 'open':       return Math.max(0, base - run);
+      case 'open_minus': return tt.amount != null ? Math.max(0, base - asTotal(tt.amount) - run) : 0;
+      default:           return tt.amount != null ? asTotal(tt.amount) : 0;   // 'volume'
+    }
+  }
+
+  /* A TARGET-LINKED PRICE: what `price_mode: 'target'` resolves to for one month — that
+     month's own price for the named target column. Null when the month has no target
+     row, or that tier is unpriced there, and a null price is already how the scenario
+     skips a row for a month, so an unpriced tier contributes no volume and the trailing
+     at-market row picks the gap up. That is the right model: you have not targeted that
+     month.
+
+     Reads basket.targets, which is the SAME array the Targets tab renders and stages
+     into — so a target edited on screen moves the model immediately, saved or not. On
+     the client portal from round 52 that includes a SIMULATED target, which is the whole
+     reason a customer can see what moving a target would do. */
+  function ttTierPrice(basket, monthKey, tier) {
+    if (!basket || !(tier >= 1 && tier <= 8)) return null;
+    var t = (basket.targets || []).find(function (x) { return x.month === monthKey; });
+    if (!t) return null;
+    var v = t['lower_t' + tier];
+    return v == null ? null : +v;
+  }
+
+  /* Every month a row covers, with the price its tier carries there. The desk modal's
+     price preview is built from this, and so is its "column removed" check. */
+  function ttTierSpan(basket, row) {
+    var out = [];
+    if (!basket || !row) return out;
+    (basket.months || []).forEach(function (m) {
+      if (m.month < row.start_month || m.month > row.end_month) return;
+      out.push({ month: m.month, price: ttTierPrice(basket, m.month, row.price_tier) });
+    });
+    return out;
+  }
+
+  // What a row prices at for one month, whichever mode it is in. One place, so the desk
+  // modal's preview and either portal's table can never disagree about it.
+  function ttRowPrice(basket, m, row) {
+    if (!row) return null;
+    if (row.price_mode === 'market') return m ? m.market_price : null;
+    if (row.price_mode === 'target') return ttTierPrice(basket, m ? m.month : null, row.price_tier);
+    return row.price;
+  }
+
+  /* Scenario position for one month. Null when no scenario row covers it.
+     `trades` previews an unsaved set (the desk modal); omit to use what is saved. */
+  function targetScenario(basket, m, nm, trades) {
+    var list = (trades || basket.target_trades || []).filter(function (t) {
+      return t && m.month >= t.start_month && m.month <= t.end_month;
+    });
+    if (!list.length) return null;
+    var baseTot = m.baseload_vol_total || 0;
+
+    /* THE MODEL STANDS ALONE. It answers "what would the WAP be if every target traded
+       at exactly its target price", which is a different question from "where will we
+       end up from here" — real trades almost never land on the target price, so blending
+       the actual secured cost in would contaminate the answer with prices that were
+       never targets. It also made the maths impossible once achieved targets were
+       included: the achieved volume would be counted twice, once at its real price and
+       again at its target price, taking a fully-hedged month past 150% of baseload.
+
+       A happy side effect: every term below is volume x price in the basket's own price
+       unit, so the pounds-versus-pence problem that used to bite gas baskets here cannot
+       arise — there is no longer a £ cost in the sum.
+
+       ROUND 39 — A BLANK TARGET COLUMN DOES NOT SWALLOW ITS RUNG. The ladder is
+       cumulative. A season that prices T1, T2 and T4 but not T3 still means to reach
+       T4's level, so the volume T3 would have bought carries to T4 rather than falling
+       through to the at-market closer. Until that round it fell through, and CCCH's
+       Nov-26 modelled at 112.95 against a hand-worked 95.95.
+
+       `carry` only ever moves volume between rungs of the SAME ladder:
+         · produced by a target-linked row whose column is blank this month, and only
+           when that row states a quantity of its own (percent / volume). An 'open' or
+           'open_minus' row is defined by what is LEFT, so it has no rung to hand on.
+         · consumed by the next target-linked row that is priced and states a quantity.
+           A manual or at-market row in the middle is not part of the ladder and must not
+           inherit a rung; an 'open' row already claims everything remaining, so adding
+           the carry to it would count the same volume twice.
+         · left unconsumed at the end, which is correct: with no priced rung below it the
+           volume is simply untargeted and the at-market closer takes it.
+
+       Rows resolve IN ORDER, so the carry follows row order exactly as "all open volume"
+       already does. A row sitting before the month's first priced column is a column the
+       month was never given (see requiredRaw) and carries nothing. */
+    var ladderFrom = firstPricedTier(basket, m.month);
+    var isRung = function (t) {
+      return t && t.price_mode === 'target'
+        && (t.amount_type === 'percent' || t.amount_type === 'volume')
+        && ladderFrom != null && t.price_tier >= ladderFrom;
+    };
+
+    var addTot = 0, addCost = 0, running = 0, carry = 0;
+    for (var i = 0; i < list.length; i++) {
+      var t = list[i];
+      var v = ttVolTotal(basket, m, t, running, baseTot);
+      var px = ttRowPrice(basket, m, t);
+      if (px == null) {
+        if (isRung(t) && v > 0) carry += v;    // blank column: its rung moves down the ladder
+        continue;
+      }
+      var vol = isRung(t) ? v + carry : v;
+      if (isRung(t)) carry = 0;
+      if (!(vol > 0)) continue;
+      addTot += vol; addCost += vol * px; running += vol;
+    }
+    if (!(addTot > 0)) return null;
+
+    var newTot = addTot, newCost = addCost;
+    var wap = newTot > 0 ? newCost / newTot : null;
+    // Over-hedged: the modelled ladder is bigger than the month actually needs.
+    var over = baseTot > 0 && newTot > baseTot + 1e-6;
+    var openTot = Math.max(0, baseTot - newTot);
+    var mkt = m.market_price;
+    // Targeted MtM: scenario cost plus whatever is still open valued at market, over the
+    // full baseload. `m.market_price` is whatever the caller's row carries — on the
+    // client that is the re-marked price, so this follows the curve toggle there.
+    var mtm = (baseTot > 0 && mkt != null) ? (newCost + openTot * mkt) / baseTot : null;
+    var nec = (nm || {})[seasonKey(m.month)];
+    // Same basis as the Delivered rate column: converted price + that season's NEC.
+    var deliv = (mtm != null && nec != null) ? convPkwh(basket, mtm) + nec : null;
+    return { wap: wap, mtm: mtm, deliv: deliv, over: over, addTot: addTot,
+             newTot: newTot, baseTot: baseTot,
+             pct: baseTot > 0 ? newTot / baseTot : null };
+  }
+
   /* ── THE EIGHT STAT CARDS ─────────────────────────────────────────────────────────
      Weighted averages, never simple means: WAP by secured volume, MtM price and
      delivered rate by baseload volume. A simple mean across months of unequal size is
@@ -740,6 +903,48 @@
     }
     cols.push({ key: 'ua', head: 'Upper Alert', align: 'right',
       value: function (t) { return t.upper_alert != null ? fmtTyped(t.upper_alert) : '-'; } });
+
+    /* ── THE TWO MODELLED COLUMNS (round 52) ───────────────────────────────────
+       What the WAP and the delivered rate would be if every target on the month traded
+       at exactly its target price. Desk-only until this round; the customer gets them
+       now, which is why they live here rather than in flex.html.
+
+       APPENDED, NEVER INTERLEAVED, so the shared columns keep their order and a reader
+       moving between the two portals finds the same table with the same columns in the
+       same places.
+
+       ONLY WHERE THERE IS A SCENARIO TO SHOW. The figures come from scenario rows the
+       desk builds in the Σ editor; with none, both columns would be a dash on every row,
+       and two empty columns are worse than no columns. 26 of the 31 live baskets have
+       rows; the other five have no targets at all, so their Targets tab is empty anyway.
+
+       "Estimated" on both, as on the four Positions headings in round 51 and for the
+       same reason: every figure here is a model of a trade nobody has made. Naming one
+       Estimated and not the other would imply the WAP is the firmer of the two. It is
+       not — they come out of the same arithmetic one line apart.
+
+       ctx.nec is the season map the delivered rate needs. Without it the second column
+       is blank rather than wrong, which is the right failure: a delivered rate missing
+       its non-energy half reads as a real and much too low number. */
+    if ((basket.target_trades || []).length) {
+      var scenarioOf = function (t, ctx) {
+        var m = (basket.months || []).find(function (x) { return x.month === t.month; });
+        return m ? targetScenario(basket, m, (ctx && ctx.nec) || {}) : null;
+      };
+      var unitSpan = function (u) { return ' <span class="fx-twap-u">(' + esc(u) + ')</span>'; };
+      cols.push({ key: 'twap', align: 'right',
+        head: 'Estimated Targeted WAP' + unitSpan(basket.unit_price),
+        value: function (t, ctx) {
+          var sc = scenarioOf(t, ctx);
+          return sc && sc.wap != null ? sc.wap.toFixed(2) : '<span class="fx-dash">—</span>';
+        } });
+      cols.push({ key: 'tdel', align: 'right',
+        head: 'Estimated Targeted Delivered' + unitSpan('p/kWh'),
+        value: function (t, ctx) {
+          var sc = scenarioOf(t, ctx);
+          return sc && sc.deliv != null ? sc.deliv.toFixed(3) : '<span class="fx-dash">—</span>';
+        } });
+    }
     return cols;
   }
 
@@ -1085,9 +1290,13 @@
 
     // visibleTargets, so the file shows the tradable months the tab shows rather than
     // reintroducing the settled ones the tab deliberately drops.
+    /* o.targetNote is round 52's: a customer who has amended a target needs that said on
+       the sheet the amended figures are ON, not only on the front sheet. Empty for the
+       desk and for a customer who has amended nothing, and xlSheet omits an empty note. */
     xlSheet(wb, 'Targets', keep('targets', TARGETS(bk)), visibleTargets(bk), ctx, {
       dates: { month: { get: function (t) { return t.month; }, fmt: 'mmm-yy' } },
       mark: function (t) { return t.month === nowMonth(); },
+      note: o.targetNote || '',
       empty: 'No targets set for this basket.',
       title: o.name + ' - targets', stamp: stamp });
 
@@ -1957,6 +2166,9 @@
     SITES: SITES,
     // spreadsheet — both portals build their workbook from xlWorkbook and nothing else
     xlWorkbook: xlWorkbook, xlSheet: xlSheet, xlText: xlText, xlNum: xlNum,
+    // the targeted-WAP scenario engine (round 52; was desk-only until then)
+    ttVolTotal: ttVolTotal, ttTierPrice: ttTierPrice, ttTierSpan: ttTierSpan,
+    ttRowPrice: ttRowPrice, targetScenario: targetScenario,
     CLIENT_HIDE: CLIENT_HIDE, clientCols: clientCols, screenCols: screenCols,
     XL_ROUND_NOTE: XL_ROUND_NOTE,
     normTrade: normTrade, fmtDate: fmtDate,
@@ -1970,6 +2182,6 @@
     // BUMP THIS on every change to this file. It is how anyone tells which build a
     // browser actually has — the desk shows it, and it is the first thing to check when
     // the two portals disagree or a change appears not to have landed.
-    VERSION: '2026-11-16'
+    VERSION: '2026-11-19'
   };
 })(typeof window !== 'undefined' ? window : globalThis);
