@@ -9604,6 +9604,7 @@
             }
             <button class="btn-secondary" data-action="rebrand-reports" data-id="${escapeHtml(c.customer_id)}" title="Rewrite this customer's stored validation reports with their current name and logo" style="margin-right:6px;">Rebrand reports</button>
             <button class="btn-secondary" data-action="open-portal" data-id="${escapeHtml(c.customer_id)}" style="margin-right:6px;">Open portal</button>
+            <button class="btn-secondary" data-action="change-password" data-id="${escapeHtml(c.customer_id)}" title="Give one of this customer's logins a new password" style="margin-right:6px;">Change password</button>
           </td>
         </tr>
       `).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:32px;">No customers yet.</td></tr>';
@@ -10344,8 +10345,23 @@
         rebrandCustomerReports(id, btn);
       } else if (btn.dataset.action === 'open-portal') {
         openPortalAsCustomer(id);
+      } else if (btn.dataset.action === 'change-password') {
+        openChangePassword(id);
       }
     });
+
+    // --- ADMIN: CHANGE A CUSTOMER'S PASSWORD (22 Nov 2026) ---
+    // The dialog lives in /admin-logins.js. The server side is the admin_customer_logins RPC and
+    // the admin-customer-password edge function (_70a): admins only, never a CES staff login,
+    // the customer's other sessions are ended and audit_log records who did it.
+    function openChangePassword(customerId) {
+      const c = (window._adminCustomers || []).find(x => x.customer_id === customerId);
+      if (!window.CESAdminLogins || typeof window.CESAdminLogins.open !== 'function') {
+        safeAlert('The Change password tool did not load. Refresh the page (Ctrl+F5) and try again.', 'admin-logins.js is missing');
+        return;
+      }
+      window.CESAdminLogins.open(customerId, (c && c.company_name) || customerId, (c && c.portal_scope) || []);
+    }
 
     // ───── ADMIN: OPEN A CUSTOMER'S PORTAL (view as customer) ─────
     // Renders the customer's own portal using the admin's session. Admin RLS can
@@ -14040,4 +14056,5 @@
 })();
 </script>
   <script src="/portal-switch.js?v=2026-11-08.1" data-portal="billing"></script>
+  <script src="/admin-logins.js?v=2026-11-22.1"></script>
 </body></html>
