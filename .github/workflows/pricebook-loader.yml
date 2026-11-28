@@ -1,0 +1,62 @@
+# Pricebook loader (CES, 28 Nov 2026).
+#
+# Loads the supplier pricebooks that the pricebook-mail edge function collects from pricingteam@
+# into the pricing desk, with the desk's own reader (public/pricing-parsers.js from this checkout).
+# Started by pricebook_loader_kick() in Supabase (pg_cron, every 5 minutes on weekdays) as soon as a
+# new book lands, through workflow_dispatch. The schedule below is only the fallback in case a kick
+# is missed. See tools/pricebook-loader/README.md.
+#
+# The IONOS Deploy Now workflows publish ./public only, so nothing in tools/ reaches the website.
+
+name: Pricebook loader
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Every check, nothing loaded (writes only the run log)'
+        type: boolean
+        default: false
+      inbox_id:
+        description: 'Load just this mailbox file (its pricebook_inbox id); it may be a held or failed one'
+        type: string
+        required: false
+        default: ''
+  schedule:
+    # Every two hours, 07:20 to 17:20 UTC, Monday to Friday.
+    - cron: '20 7-17/2 * * 1-5'
+
+concurrency:
+  group: pricebook-loader
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TZ: Europe/London
+      NODE_OPTIONS: --max-old-space-size=5632
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+      INBOX_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.inbox_id || '' }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tools/pricebook-loader/package-lock.json
+
+      - name: Install
+        run: npm ci --prefix tools/pricebook-loader --no-audit --no-fund
+
+      - name: Load pricebooks
+        run: node tools/pricebook-loader/run.mjs

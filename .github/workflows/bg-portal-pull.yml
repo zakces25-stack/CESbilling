@@ -1,0 +1,84 @@
+# BG portal puller (CES, 28 Nov 2026).
+#
+# British Gas moved their price books onto the BGB (Salesforce) partner portal. This signs in to
+# https://bgbpartnerportal.my.site.com with the BG_PORTAL_USERNAME and BG_PORTAL_PASSWORD secrets,
+# opens Documents > Energy Quote Tools & Flatfiles, and copies any new Standard_* book into the pricing
+# desk's mailbox store (pricebook_inbox, supplier british_gas), exactly as if it had been emailed. The
+# pricebook loader then loads it with the desk's own reader and checks. See tools/bg-portal-pull/README.md.
+#
+# The BG login lives in these GitHub secrets only, never in the website: the IONOS Deploy Now
+# workflows publish ./public and nothing else, so nothing in tools/ or .github/ reaches the website.
+
+name: BG portal puller
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Sign in, list the books and download them to check, but store nothing'
+        type: boolean
+        default: false
+  schedule:
+    # Every two hours, 07:10 to 19:10 UTC, Monday to Friday.
+    - cron: '10 7-19/2 * * 1-5'
+    # Hourly on Friday afternoons too, when British Gas usually post the next week's books.
+    - cron: '40 12-19 * * 5'
+
+concurrency:
+  group: bg-portal-pull
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Europe/London
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      BG_PORTAL_USERNAME: ${{ secrets.BG_PORTAL_USERNAME }}
+      BG_PORTAL_PASSWORD: ${{ secrets.BG_PORTAL_PASSWORD }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tools/bg-portal-pull/package-lock.json
+
+      - name: Install
+        run: npm ci --prefix tools/bg-portal-pull --no-audit --no-fund
+
+      - name: Which Playwright
+        id: pw
+        run: echo "version=$(node -p "require('./tools/bg-portal-pull/node_modules/playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.pw.outputs.version }}
+
+      - name: Install Chromium
+        working-directory: tools/bg-portal-pull
+        run: npx playwright install --with-deps chromium
+
+      - name: Pull new British Gas books
+        id: pull
+        run: node tools/bg-portal-pull/run.mjs
+
+      - name: Start the pricebook loader
+        if: ${{ !cancelled() && fromJSON(steps.pull.outputs.new_files || '0') > 0 }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run pricebook-loader.yml --ref "${{ github.ref_name }}"
