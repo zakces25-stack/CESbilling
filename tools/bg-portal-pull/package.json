@@ -1,0 +1,16 @@
+{
+  "name": "ces-bg-portal-pull",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Copies new British Gas price books from the BGB partner portal into the CES pricing desk's mailbox store, where the pricebook loader loads them. Runs on GitHub Actions.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node run.mjs",
+    "test": "node --test --test-concurrency=1 lib.test.mjs run.test.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.119.0",
+    "playwright": "1.65.1"
+  }
+}
