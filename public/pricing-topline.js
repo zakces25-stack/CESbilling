@@ -46,11 +46,33 @@
  */
 (function (root) {
   'use strict';
-  var VERSION = '2026-11-28.4';   // round 4: the version bumped with pricing-meter-tools.js (nothing here changed its behaviour)
+  var VERSION = '2026-11-28.5';   // .5: the TotalEnergies panel shows the real pace and whether the run is going now
   var FN = 'topline-read';                 // the Claude fallback for a paste nothing here could read
   var TE_FN = 'te-lookup';                 // the automatic TotalEnergies MPAN search (SPEC-PORTALS.md B and E)
   var TE_FILE = 'TotalEnergies lookups';   // S.file on the Top line check page while reviewing them
   var TE_SKIP_DAYS = 30;                   // a meter looked up this recently is not queued again
+
+  /**
+   * How fast the TotalEnergies queue goes and whether it is going now, from topline_lookup_summary():
+   * {perHour, when, rate, state}. per_hour / window / window_open / done_last_hour come from the server (28 Nov 2026,
+   * round 4); an older server without them gets the old weekday wording. rate (lookups an hour, for "hours to go") is
+   * the last hour's real pace when there is one.
+   */
+  function tePace(s) {
+    s = s || {};
+    var perHour = Number(s.per_hour) || Math.max(1, Number(s.per_run) || 25) * 6;
+    var when = s.window ? 'when it runs: ' + String(s.window) : 'on weekdays (07:00 to 18:00 UK)';
+    var recent = Number(s.done_last_hour) || 0;
+    var queued = Number(s.queued) || 0;
+    var state = '';
+    if (s.enabled === false) state = '';
+    else if (s.window_open === true && (recent || Number(s.running))) state = 'Running now: ' + fmtN(recent) + ' looked up in the last hour.';
+    else if (s.window_open === true && queued) state = 'Due to run now; the next batch starts within 2 minutes.';
+    else if (s.window_open === false && queued) state = 'Paused until the next run window.';
+    // hours to go: hours the job is actually running (an older server only knows working hours)
+    var unit = s.per_hour ? 'hour' : 'working hour', tail = s.per_hour ? ' of run time to go.' : ' to go.';
+    return { perHour: perHour, when: when, rate: Math.max(1, recent || perHour), state: state, unit: unit, tail: tail };
+  }
   var APPLY_CHUNK = 200;                   // rows per pricing_topline_apply call
   var MT_SHOW = 300;                       // rows drawn in the Meter types table (the export has them all)
   var MPAN_PRIMES = [3, 5, 7, 13, 17, 19, 23, 29, 31, 37, 41, 43];
@@ -1074,9 +1096,9 @@
     function teQueue() {
       var n = (S.suspects || []).length;
       if (!n || S.te.busy) return;
-      var per = Math.max(1, Number(S.te.sum && S.te.sum.per_run) || 25) * 6;
+      var pace = tePace(S.te.sum);
       if (!root.confirm('Look ' + fmtN(n) + ' meter' + (n === 1 ? '' : 's') + ' up on TotalEnergies?\n\n'
-          + 'They go through in the background, about ' + fmtN(per) + ' an hour on weekdays (07:00 to 18:00 UK). '
+          + 'They go through in the background, about ' + fmtN(pace.perHour) + ' an hour ' + pace.when + '. '
           + 'Meters looked up in the last ' + TE_SKIP_DAYS + ' days are skipped. Nothing changes on a meter until the results are applied.')) return;
       S.te.busy = true; S.te.err = ''; S.te.msg = ''; paint();
       return rpcSoft('topline_lookup_enqueue_suspects', { p_limit: 5000, p_skip_days: TE_SKIP_DAYS }, 'queue the lookups').then(function (x) {
@@ -1343,11 +1365,11 @@
         return h + (T.err ? '' : '<div class="note">TotalEnergies lookups are run by the pricing team.</div>')
           + '<div class="tl-btns"><button class="act ghost" data-te="refresh"' + (T.busy ? ' disabled' : '') + '>Refresh</button></div>';
       }
-      var per = Math.max(1, Number(s.per_run) || 25) * 6;
+      var pace = tePace(s);
       var queued = Number(s.queued) || 0, running = Number(s.running) || 0, waiting = Number(s.done_unapplied) || 0;
       var n = (S.suspects || []).length;
       h += '<div class="sub keep" style="margin-bottom:8px">The server signs in to TotalEnergies with CES\'s own login and runs the same MPAN search '
-        + 'you would, about ' + fmtN(per) + ' an hour on weekdays (07:00 to 18:00 UK). '
+        + 'you would, about ' + fmtN(pace.perHour) + ' an hour ' + pace.when + '. '
         + (s.auto_apply ? 'Clean results go straight onto the meters (automatic apply is on); every change is recorded.'
                         : 'Results wait here for you to review and apply (automatic apply is off).') + '</div>';
       if (s.enabled === false) h += '<div class="note warn" style="margin:0 0 10px">TotalEnergies lookups are switched off at the moment (te_lookup_enabled).</div>';
@@ -1366,8 +1388,12 @@
         + pill(Number(s.failed) ? 'p-fail' : 'p-mute', 'failed', s.failed)
         + '</div>';
       var bits = [];
+      if (pace.state) bits.push(pace.state);
       if (s.last_finished_at) bits.push('Last lookup ' + whenUk(s.last_finished_at) + '.');
-      if (queued) bits.push('About ' + fmtN(Math.ceil(queued / per)) + ' working hour' + (Math.ceil(queued / per) === 1 ? '' : 's') + ' to go.');
+      if (queued) {
+        var hrs = Math.ceil(queued / pace.rate);
+        bits.push('About ' + fmtN(hrs) + ' ' + pace.unit + (hrs === 1 ? '' : 's') + pace.tail);
+      }
       if (s.last_error) bits.push('Last problem: ' + s.last_error + '.');
       if (bits.length) h += '<div class="tl-small">' + esc(bits.join(' ')) + '</div>';
       var off = T.busy || S.busy;
@@ -1543,7 +1569,7 @@
              toCsv: toCsv, ucCorrections: ucCorrections, fromClaude: fromClaude,
              teRow: teRow, teErrorText: teErrorText, missingFn: missingFn, whenUk: whenUk,
              teError: teError, autoNote: autoNote, meterTypeKey: meterTypeKey, meterTypeLabel: meterTypeLabel,
-             howWeKnow: howWeKnow, sortMeterTypes: sortMeterTypes, MT: MT },
+             howWeKnow: howWeKnow, sortMeterTypes: sortMeterTypes, MT: MT, tePace: tePace },
   };
 })(typeof window !== 'undefined' ? window : globalThis);
 if (typeof module !== 'undefined' && module.exports) module.exports = (typeof window !== 'undefined' ? window : globalThis).ToplineDesk;
