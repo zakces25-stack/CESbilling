@@ -1,0 +1,17 @@
+{
+  "name": "ces-pricebook-loader",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Loads supplier pricebooks collected from pricingteam@ into the CES pricing desk, with the desk's own reader. Runs on GitHub Actions.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node run.mjs",
+    "test": "node --test --test-concurrency=1 lib.test.mjs store.test.mjs run.test.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.119.0",
+    "jszip": "3.10.1",
+    "xlsx": "0.18.5"
+  }
+}
