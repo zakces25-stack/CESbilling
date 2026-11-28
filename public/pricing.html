@@ -673,6 +673,9 @@
         <div id="inboxList" style="margin-top:10px"><div class="note">Loading&hellip;</div></div>
       </div>
 
+      <!-- 28 Nov 2026: Pricebooks > Supplier notices, drawn by /pricing-supplier-notes.js on first visit. -->
+      <div class="hide" id="bkNotices"></div>
+
       <div class="card" id="bkHand">
         <h2>Add a pricebook by hand</h2>
         <div class="sub">
@@ -1022,6 +1025,9 @@
         </div>
         <div id="llOut" style="margin-top:14px"></div>
       </div>
+
+      <!-- 28 Nov 2026: Reference > Top line check, drawn by /pricing-topline.js on first visit. -->
+      <div class="hide" id="refTopline"></div>
     </section>
 
     <!-- ═══════════════════════════════════════════════════════════════════════════════
@@ -1276,6 +1282,10 @@
 <script src="/pricing-contracts.js?v=2026-09-13.1"></script>
 <script src="/supplier-quotes.js?v=2026-09-14.3"></script>
 <script src="/pricing-upload.js?v=2026-11-08.1"></script>
+<!-- 28 Nov 2026: Supplier notices (what the mailbox watcher read in supplier emails) and the top line check
+     against a supplier portal (Drax, TotalEnergies). -->
+<script src="/pricing-supplier-notes.js?v=2026-11-28.1"></script>
+<script src="/pricing-topline.js?v=2026-11-28.1"></script>
 <script src="/portal-switch.js?v=2026-11-08.1" data-portal="pricing"></script>
 <script>
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -1732,8 +1742,10 @@ const SECTIONS = {
   nocontract: { title: 'No contract uploaded', subs: [['crm:nocontract', '']] },
   // 8 Nov 2026 (08a): drop a contract, Claude reads it, a person checks it and says live / locked in / awaiting.
   upload:    { title: 'Upload contract', subs: [['upload', '']] },
-  books:     { title: 'Pricebooks', subs: [['books:live', 'Live pricebooks'], ['books:mail', 'Mailbox'], ['books:hand', 'Add by hand']] },
-  reference: { title: 'Reference', subs: [['ref:ldz', 'Gas postcode to LDZ'], ['ref:band', 'MPAN top line']] },
+  // 28 Nov 2026: Supplier notices (the mailbox watcher) and Top line check (Drax / TotalEnergies portal results).
+  books:     { title: 'Pricebooks', subs: [['books:live', 'Live pricebooks'], ['books:mail', 'Mailbox'], ['books:notices', 'Supplier notices'],
+                                         ['books:hand', 'Add by hand']] },
+  reference: { title: 'Reference', subs: [['ref:ldz', 'Gas postcode to LDZ'], ['ref:band', 'MPAN top line'], ['ref:topline', 'Top line check']] },
   settings:  { title: 'Settings', subs: [['team:staff', 'People'], ['admin:team', 'Account managers'], ['admin:customers', 'Add a customer'], ['admin:status', 'Status bar'],
                                          ['admin:products', 'Products'], ['admin:import', 'Import data'], ['admin:storage', 'Storage'],
                                          ['admin:password', 'Password']] },
@@ -1812,6 +1824,8 @@ function openSection(sec, sub, arg) {
     $('bkLive').classList.toggle('hide', part !== 'live');
     $('inboxCard').classList.toggle('hide', part !== 'mail');
     $('bkHand').classList.toggle('hide', part !== 'hand');
+    $('bkNotices').classList.toggle('hide', part !== 'notices');   // 28 Nov 2026
+    if (part === 'notices') noticesInit();
     // All three read fresh, whichever page is open, as the one Pricebooks tab always did: the
     // mailbox list feeds "Load the latest from email" and the badge, the ledger the status.
     loadStatusBar(); loadInbox(); loadLedger();
@@ -1819,6 +1833,8 @@ function openSection(sec, sub, arg) {
   if (pane === 'ref') {
     $('refLdz').classList.toggle('hide', sub !== 'ref:ldz');
     $('refBand').classList.toggle('hide', sub !== 'ref:band');
+    $('refTopline').classList.toggle('hide', sub !== 'ref:topline');   // 28 Nov 2026
+    if (sub === 'ref:topline') toplineInit();
   }
   if (pane === 'admin') {
     document.querySelectorAll('#pane-admin .adm').forEach(c => c.classList.toggle('hide', c.id !== 'adm-' + sub.slice(6)));
@@ -2133,6 +2149,10 @@ const ageWords = d => d == null ? '' : d <= 0 ? 'book from today' : d === 1 ? 'b
 const FUEL_WORD = { electricity: 'Electricity', gas: 'Gas', both: 'Both fuels' };
 
 async function loadStatusBar() {
+  // 28 Nov 2026: the supplier notices (valid until, pulled) are read alongside the status and never
+  // hold it up: the tiles paint at once and again when the notices arrive. SupplierNotes.load never
+  // throws; before the 20261128_01 migration it simply finds nothing.
+  const notes = typeof SupplierNotes !== 'undefined' ? SupplierNotes.load(sb) : null;
   let rows;
   try { rows = await q(sb.rpc('pricebook_supplier_status'), 'supplier status'); }
   catch (e) {
@@ -2142,6 +2162,7 @@ async function loadStatusBar() {
   SUP_STATUS = (rows || []).slice();
   paintStatusBar();
   paintSideStatus();
+  if (notes) notes.then(() => { paintStatusBar(); paintNotesDetail(); }, () => {});
 }
 
 function statusText(r) {
@@ -2168,7 +2189,8 @@ function paintStatusBar() {
       <div class="nm"><i class="dot-${esc(r.status)}"></i>${esc(r.display_name)}</div>
       <div class="ag">${esc(statusText(r))}</div>
       ${r.waiting ? `<div class="wt">${r.waiting} newer file${r.waiting === 1 ? '' : 's'} in the mailbox</div>` : ''}${
-        PAUSED.some(p => p.live && p.supplier_key === r.supplier_key) ? '<div class="wt" style="color:var(--fail)">paused: not quoting</div>' : ''}</button>`).join('');
+        PAUSED.some(p => p.live && p.supplier_key === r.supplier_key) ? '<div class="wt" style="color:var(--fail)">paused: not quoting</div>' : ''}${
+        typeof SupplierNotes !== 'undefined' ? SupplierNotes.tileLine(r.supplier_key) : '' /* 28 Nov 2026: valid until / pulled */}</button>`).join('');
   box.querySelectorAll('[data-st]').forEach(b => { b.onclick = () => showStatusDetail(SUP_STATUS[Number(b.dataset.st)]); });
 }
 
@@ -2199,11 +2221,40 @@ function showStatusDetail(r) {
     <b>${esc(r.display_name)}</b> &middot; ${esc(statusTitle(r).split('\n')[0])}
     ${(r.fuels || []).length ? '<br>' + r.fuels.map(f => `${esc(FUEL_WORD[f.fuel] || f.fuel)}: ${f.book_date ? 'book of ' + uk(f.book_date)
       + ' (' + (f.age_days <= 0 ? 'today' : f.age_days + ' days old') + ', ' + f.books + ' live)' : 'no live book'}${f.note ? ' &middot; ' + esc(f.note) : ''}`).join('<br>') : ''}
-    ${what ? '<br>' + what : ''}${pausedLine(r)}</div>`;
+    ${what ? '<br>' + what : ''}${pausedLine(r)}<div data-sn-host="${esc(r.supplier_key)}"></div></div>`;
   box.querySelectorAll('[data-resume-sup]').forEach(b => { b.onclick = () => resumeSupplier(b.dataset.resumeSup, b); });
+  paintNotesDetail();   // 28 Nov 2026
   LEDGER_FILTER = r.supplier_key;
   paintStatusBar();
   if (NAV.sub === 'books:live') loadLedger();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Supplier notices (CES, 28 Nov 2026): what the mailbox watcher (edge function pricebook-notices,
+// Claude) read in supplier emails. "Valid until" is a note on the tile; a pulled book is paused
+// (watch mode: it says it would have been). /pricing-supplier-notes.js draws all of it.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+/** The clicked tile's notices, drawn into its detail box (again whenever the notices are re-read). */
+function paintNotesDetail() {
+  const host = document.querySelector('#bkStatusDetail [data-sn-host]');
+  if (!host || typeof SupplierNotes === 'undefined') return;
+  host.innerHTML = SupplierNotes.detailHtml(host.dataset.snHost, { isPricing });
+  SupplierNotes.wire($('bkStatusDetail'), { sb, who: () => WHO, isPricing, supplierName, onChange: noticesChanged });
+}
+let NOTICES_API = null;
+function noticesInit() {
+  if (typeof SupplierNotes === 'undefined') {
+    $('bkNotices').innerHTML = '<div class="card"><div class="note bad">The supplier notices module did not load (pricing-supplier-notes.js). Hold Shift and reload.</div></div>';
+    return;
+  }
+  if (!NOTICES_API) NOTICES_API = SupplierNotes.mountPanel($('bkNotices'), { sb, esc, who: () => WHO, isPricing, supplierName, uk, onChange: noticesChanged });
+  else NOTICES_API.refresh();
+}
+/** A notice dismissed or a pulled book paused from it: the pause strip, the books and the tiles follow. */
+async function noticesChanged() {
+  await loadPaused(true);
+  loadLedger();
+  loadStatusBar();
 }
 
 function paintSideStatus() {
@@ -2642,6 +2693,18 @@ function quotesInit() {
 // lock-in and presses Add (crm_add_desk_contract); the PDF is filed on the deal as its signed
 // contract. The page refreshes what the add changed (lists, badges) and opens the company.
 let UPLOAD_API = null;
+// 28 Nov 2026: Reference > Top line check (/pricing-topline.js): the suspect top lines to push through a
+// portal's multi-site search, and the results brought back and applied.
+let TOPLINE_API = null;
+function toplineInit() {
+  if (typeof ToplineDesk === 'undefined') {
+    $('refTopline').innerHTML = '<div class="card"><div class="note bad">The top line check did not load (pricing-topline.js). Hold Shift and reload.</div></div>';
+    return;
+  }
+  if (!TOPLINE_API) TOPLINE_API = ToplineDesk.mountPage($('refTopline'), { sb, esc, XLSX: window.XLSX, who: () => WHO, uk });
+  else TOPLINE_API.refresh();
+}
+
 function uploadInit() {
   if (UPLOAD_API) return;
   if (typeof ContractUpload === 'undefined') {
@@ -5584,6 +5647,40 @@ async function setMeterTopLine(v) {
   paintSscNote();
 }
 
+/**
+ * 28 Nov 2026: check the top line against what a supplier portal's MPAN search shows (CES: "use drax /
+ * totalenergies mpan search ... to update the toplines when we quote a meter"). Neither portal has an
+ * API, so the desk pastes what the portal shows and /pricing-topline.js reads it. The pricing team
+ * saves it to the meter (pricing_topline_apply, audited); a broker, or a meter typed in by hand, uses
+ * it on this quote only, through setMeterTopLine like a typed line.
+ */
+function checkTopLineAgainstPortal() {
+  if (!METER || METER.utility !== 'electricity') return;
+  if (typeof ToplineDesk === 'undefined') { alert('The top line check did not load (pricing-topline.js). Hold Shift and reload.'); return; }
+  ToplineDesk.openPasteDialog(METER, { sb, esc, who: () => WHO, isPricing, canSave: isPricing() && !METER.manual && !!METER.id,
+                                       onSaved: topLineChecked });
+}
+async function topLineChecked(res) {
+  if (!METER || !res) return;
+  if (res.mode === 'local') { await setMeterTopLine(res.topLine); return; }
+  // Saved: read back only the top line's own columns, so the meter type and anything else the desk
+  // worked out for this quote stays as it is.
+  try {
+    const rows = await q(sb.from('meters')
+      .select('profile_class,ssc,ssc_status,ssc_note,ssc_src,llfc,top_line,tcr_band,tcr_band_src,dno_id')
+      .eq('id', METER.id).limit(1), 'the checked meter');
+    if (rows && rows[0]) {
+      const r = rows[0];
+      Object.assign(METER, { profile_class: r.profile_class, ssc: r.ssc, ssc_status: r.ssc_status, ssc_note: r.ssc_note,
+                             ssc_src: r.ssc_src, llfc: r.llfc, top_line: r.top_line, tcr_band: r.tcr_band,
+                             tcr_band_src: r.tcr_band_src, dno_id: METER.dno_id || r.dno_id });
+    }
+  } catch (e) { console.warn('top line re-read:', e.message); }
+  METER.top_line_src = null;
+  paintMeterFacts();
+  paintSscNote();
+}
+
 /** How the top line is known, as a badge. */
 function topLineBadge() {
   const t = meterTopLine(METER);
@@ -5593,6 +5690,8 @@ function topLineBadge() {
     : '<span class="pill p-warn">incomplete — on this quote only</span>';
   if (!t.pc && !t.ssc && !t.llfc) return '<span class="pill p-fail">unknown — type it</span>';
   if (!t.complete) return '<span class="pill p-warn">part missing — fill the gap</span>';
+  // 28 Nov 2026: read from a supplier portal (Drax, TotalEnergies) and saved by pricing_topline_apply.
+  if (METER.ssc_status === 'verified') return `<span class="pill p-ok" title="${esc(String(METER.ssc_src || '').replace(/^portal:/, 'checked against: '))}">checked against portal</span>`;
   if (METER.ssc_status === 'review') return '<span class="pill p-fail">SSC needs review</span>';
   if (METER.ssc && METER.ssc_status === 'converted') return '<span class="pill p-mute">SSC from the MTC</span>';
   if (METER.ssc_status === 'edited') return '<span class="pill p-mute">set by hand</span>';
@@ -6530,7 +6629,10 @@ function paintMeterFacts() {
                  onchange="setMeterTopLine(this.value)"
                  title="Profile class · SSC · LLFC, as it is boxed on the contract. Edit it here if the portfolio's is out of date.">
           <span style="font-size:10.5px;color:var(--muted);margin-left:6px">PC · SSC · LLFC</span>
-          ${topLineBadge()}</dd>` : ''}
+          ${topLineBadge()}
+          <!-- 28 Nov 2026: check this top line against a supplier portal's MPAN search -->
+          <button class="act ghost sm" type="button" onclick="checkTopLineAgainstPortal()" style="margin-left:6px"
+                  title="Paste what the Drax or TotalEnergies MPAN search shows and check this top line against it">Check against portal</button></dd>` : ''}
       <dt>Site</dt><dd>${esc(METER.site_name || '—')} ${esc(METER.postcode || '')}</dd>
       ${METER.utility === 'electricity' ? `
         <dt>Distributor</dt><dd>${esc(dno || '—')}${idno ? ' <span class="pill p-fail">independent network</span>' : ''}${
