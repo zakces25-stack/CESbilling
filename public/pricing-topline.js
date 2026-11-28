@@ -1,5 +1,5 @@
 /*
- * pricing-topline.js - check a meter's MPAN top line against a supplier portal (CES, 28 Nov 2026, build 28b).
+ * pricing-topline.js - check a meter's MPAN top line against a supplier portal (CES, 28 Nov 2026, build 28c).
  *
  * CES, 28 Nov 2026: "a lot of our toplines have the wrong middle 3/4 digits. Is there a way we could use
  * drax/totalenergies mpan search feature incorporated into our website to update the toplines when we
@@ -20,6 +20,18 @@
  *      every suspect through TotalEnergies in the background (a slow queue on weekdays) and brings the
  *      results back for review; a portal's multi-site export or a paste still works for the rest.
  *
+ * ROUND 3 (28 Nov 2026, evening). CES: "i would like the totalenergies topline to always override whatever
+ * our portal has and save it as the new topline ... lets just have it override and lets also sort our
+ * MPAN's by meter type, with economy 7, standard, evening/weekend, evening/weekend/night, off peak". So:
+ *   * te-lookup saves every TotalEnergies answer to the meter itself (pricing_topline_apply, audited) and
+ *     sets the meter type that goes with the SSC (TotalEnergies' own pricebook says which SSC is which).
+ *   * Price a meter checks each meter on its own when it is shown (autoLookup, with the server reusing an
+ *     answer from the last 30 days); the page only shows what changed. Nobody pastes anything.
+ *   * The dialog's TotalEnergies button is saved by the server too, so it ends in "Done", not "Save".
+ *   * Reference > Top line check gains "Meter types": every electricity meter by type, in CES's words and
+ *     order (Economy 7, Standard, Evening / weekend, Evening / weekend / night, Off peak, then Half-hourly
+ *     and Not known), filtered by a chip, sorted by any column, exported as CSV.
+ *
  * THE MIDDLE OF A TOP LINE. A printed supply number ("S 03 801 621 / 14 1234 5678 901") carries the
  * three-digit meter timeswitch code (MTC) in the middle. The desk's own top line carries the four-digit
  * SSC there instead (meterTopLine in pricing.html), because that is what the suppliers price on. They
@@ -34,14 +46,24 @@
  */
 (function (root) {
   'use strict';
-  var VERSION = '2026-11-28.2';
+  var VERSION = '2026-11-28.4';   // round 4: the version bumped with pricing-meter-tools.js (nothing here changed its behaviour)
   var FN = 'topline-read';                 // the Claude fallback for a paste nothing here could read
-  var TE_FN = 'te-lookup';                 // the automatic TotalEnergies MPAN search (SPEC-PORTALS.md B)
+  var TE_FN = 'te-lookup';                 // the automatic TotalEnergies MPAN search (SPEC-PORTALS.md B and E)
   var TE_FILE = 'TotalEnergies lookups';   // S.file on the Top line check page while reviewing them
   var TE_SKIP_DAYS = 30;                   // a meter looked up this recently is not queued again
   var APPLY_CHUNK = 200;                   // rows per pricing_topline_apply call
+  var MT_SHOW = 300;                       // rows drawn in the Meter types table (the export has them all)
   var MPAN_PRIMES = [3, 5, 7, 13, 17, 19, 23, 29, 31, 37, 41, 43];
   var SOURCES = [['drax', 'Drax portal'], ['totalenergies', 'TotalEnergies portal'], ['portal', 'Another supplier portal'], ['bill', "Customer's bill"]];
+  // The meter types in CES's words and order (28 Nov 2026, round 3). The codes are meters.rate_structure's;
+  // 'hh' and 'unknown' exist only in the Meter types list.
+  var MT = [['day_night', 'Economy 7'], ['single', 'Standard'], ['eve_weekend', 'Evening / weekend'],
+            ['day_night_ew', 'Evening / weekend / night'], ['off_peak', 'Off peak'], ['hh', 'Half-hourly'], ['unknown', 'Not known']];
+  var MT_LABEL = {};
+  MT.forEach(function (m) { MT_LABEL[m[0]] = m[1]; });
+  // meters.rate_structure_src in words: how the desk knows a meter's type.
+  var HOW = { ssc: 'from the SSC', pricing_desk: 'set on the desk', utilityclick: 'UtilityClick',
+              inferred_from_rates: 'guessed from old rates', 'checked on the desk': 'checked on the desk' };
 
   // ------------------------------------------------------------------ pure helpers
 
@@ -634,18 +656,126 @@
     return detail || fallback || 'The TotalEnergies lookup failed.';
   }
 
-  /** te-lookup for some MPANs: resolves to the response body {ok, results}, or throws with a sentence. */
-  function invokeTe(sb, mpans) {
+  /** A failed te-lookup call as an Error carrying the sentence, the HTTP status and the server's code. */
+  function teError(status, body, fallback) {
+    var e = new Error(teErrorText(status, body, fallback));
+    e.status = status || 0;
+    e.code = (body && body.code) || (status === 404 ? 'not_deployed' : status === 429 ? 'cap' : status === 401 ? 'auth' : '') || 'error';
+    return e;
+  }
+
+  /**
+   * te-lookup for some MPANs: resolves to the response body {ok, results}, or throws with a sentence (and
+   * .status, .code). extra goes in the body too ({auto: true} for Price a meter's automatic check).
+   */
+  function invokeTe(sb, mpans, extra) {
     if (!sb || !sb.functions || typeof sb.functions.invoke !== 'function') {
-      return Promise.reject(new Error('The TotalEnergies lookup is not available on this page.'));
+      return Promise.reject(teError(0, { code: 'unavailable' }, 'The TotalEnergies lookup is not available on this page.'));
     }
-    return Promise.resolve(sb.functions.invoke(TE_FN, { body: { mpans: mpans } })).then(function (r) {
+    var body = { mpans: mpans };
+    if (extra) Object.keys(extra).forEach(function (k) { body[k] = extra[k]; });
+    return Promise.resolve(sb.functions.invoke(TE_FN, { body: body })).then(function (r) {
       if (!r || !r.error) {
         var d = r ? r.data : null;
-        if (d && d.error && !d.results) throw new Error(teErrorText(0, d));
+        if (d && d.error && !d.results) throw teError(0, d);
         return d || {};
       }
-      return errorBody(r.error).then(function (x) { throw new Error(teErrorText(x.status, x.body, r.error.message)); });
+      return errorBody(r.error).then(function (x) { throw teError(x.status, x.body, r.error.message); });
+    });
+  }
+
+  /**
+   * Price a meter's automatic check (28 Nov 2026, round 3): te-lookup with {mpans:[mpan], auto:true}. The server
+   * reuses a TotalEnergies answer from the last 30 days and saves every answer to the meter itself, so the page
+   * only shows what happened. Resolves to {ok:true, result} for a meter TotalEnergies found, otherwise
+   * {ok:false, code, error} (with result when TotalEnergies answered). Never throws, never alerts.
+   */
+  function autoLookup(meter, deps) {
+    var sb = deps && deps.sb;
+    if (!meter || meter.utility !== 'electricity') {
+      return Promise.resolve({ ok: false, code: 'not_electricity', error: 'Only electricity meters are looked up on TotalEnergies.' });
+    }
+    var mpan = normMpan(meter.mpan);
+    if (!mpanOk(mpan)) {
+      return Promise.resolve({ ok: false, code: 'invalid_mpan', error: 'MPAN ' + str(meter.mpan) + ' fails its check digit, so it was not looked up.' });
+    }
+    var p;
+    try { p = invokeTe(sb, [mpan], { auto: true }); } catch (e) { p = Promise.reject(e); }
+    return p.then(function (d) {
+      var list = (d && d.results) || [];
+      var res = list.filter(function (x) { return normMpan(x && x.mpan) === mpan; })[0];
+      if (!res) {
+        return { ok: false, code: 'no_answer', error: list.length ? 'TotalEnergies answered for MPAN ' + list.map(function (x) { return str(x && x.mpan); }).join(', ') + ', not ' + mpan + '.'
+                                                                  : 'TotalEnergies sent nothing back for MPAN ' + mpan + '.' };
+      }
+      if (res.status !== 'done') {
+        return { ok: false, code: res.status || 'failed', result: res,
+                 error: res.message || (res.status === 'not_found' ? 'TotalEnergies has no electricity meter with MPAN ' + mpan + '.'
+                                        : 'The TotalEnergies lookup failed.') };
+      }
+      return { ok: true, result: res };
+    }, function (e) {
+      return { ok: false, code: (e && e.code) || 'error', status: (e && e.status) || 0, error: (e && e.message) || String(e) };
+    });
+  }
+
+  /** A meter type code in CES's words ("Economy 7"); anything unrecognised is "Not known". */
+  function meterTypeLabel(code) { return MT_LABEL[str(code)] || MT_LABEL.unknown; }
+
+  /**
+   * The desk note after an automatic check saved something: "TotalEnergies corrected the top line: LLFC 202 -> 203;
+   * meter type now Economy 7." Empty when nothing changed (the badge says it was checked).
+   */
+  function autoNote(res, typeBefore, typeAfter) {
+    var ch = (res && Array.isArray(res.changes) ? res.changes : []).filter(Boolean).map(str);
+    var typeChanged = !!typeAfter && typeAfter !== (typeBefore || null);
+    if (!ch.length && !typeChanged) return '';
+    var parts = [];
+    if (ch.length) parts.push('TotalEnergies corrected the top line: ' + ch.join('; '));
+    if (typeChanged) parts.push((ch.length ? 'meter type now ' : 'TotalEnergies corrected the meter type: now ') + meterTypeLabel(typeAfter));
+    return parts.join('; ') + '.';
+  }
+
+  /** Which of CES's meter types a meter row is: half-hourly first (profile class 0 or SSC 0000), then its type. */
+  function meterTypeKey(r) {
+    if (!r) return 'unknown';
+    var pc = str(r.profile_class).trim();
+    if (/^0+$/.test(pc) || str(r.ssc).trim() === '0000') return 'hh';
+    var rs = str(r.rate_structure).trim().toLowerCase();
+    if (rs === 'day_ew') rs = 'eve_weekend';
+    return MT_LABEL[rs] && rs !== 'hh' && rs !== 'unknown' ? rs : 'unknown';
+  }
+
+  /** meters.rate_structure_src in words for the Meter types list. */
+  function howWeKnow(src) {
+    var s = str(src).trim();
+    return s ? (HOW[s] || s) : '';
+  }
+
+  /**
+   * The Meter types list sorted by one column. type: CES's order (Economy 7 first); everything else
+   * alphabetical; ties go to the customer, then the MPAN. dir 1 or -1. A new array; rows are not changed.
+   */
+  function sortMeterTypes(rows, col, dir) {
+    var d = dir === -1 ? -1 : 1;
+    var order = {};
+    MT.forEach(function (m, i) { order[m[0]] = i; });
+    var key = {
+      mpan: function (r) { return str(r.mpan); },
+      customer: function (r) { return str(r.customer_name || r.customer_id).toLowerCase(); },
+      site: function (r) { return str(r.site_name).toLowerCase(); },
+      postcode: function (r) { return str(r.postcode).toUpperCase(); },
+      top: function (r) { return topLineOf(storedParts(r)) || '~'; },
+      how: function (r) { return howWeKnow(r.rate_structure_src).toLowerCase() || '~'; },
+      checked: function (r) { return str(r.te_checked_at) || '~'; },
+    };
+    var cmpStr = function (a, b) { return a < b ? -1 : a > b ? 1 : 0; };
+    var tie = function (a, b) { return cmpStr(key.customer(a), key.customer(b)) || cmpStr(str(a.mpan), str(b.mpan)); };
+    return (rows || []).slice().sort(function (a, b) {
+      var c;
+      if (!col || col === 'type') c = order[meterTypeKey(a)] - order[meterTypeKey(b)];
+      else c = cmpStr((key[col] || key.mpan)(a), (key[col] || key.mpan)(b));
+      return (c * d) || tie(a, b);
     });
   }
 
@@ -662,6 +792,9 @@
    * (pricing team) or use on this quote only (a broker, a typed-in meter). deps: {sb, esc, who, isPricing,
    * canSave, onSaved}. onSaved({mode:'saved', result}) after pricing_topline_apply; onSaved({mode:'local',
    * found, topLine}) when it is for this quote only (the page passes topLine to its own setMeterTopLine).
+   * Round 3: a TotalEnergies answer is saved to the meter by the server itself (te-lookup v2, applied true),
+   * so the dialog says what was saved and ends in Done, which (like Escape or a click outside) calls
+   * onSaved({mode:'saved', result, found, source:'totalenergies', te}) so the page reads the meter back.
    */
   function openPasteDialog(meter, deps) {
     var doc = (deps && deps.doc) || root.document;
@@ -672,14 +805,30 @@
     var stored = storedParts(meter);
     var want0 = normMpan(meter && meter.mpan), wantOk = mpanOk(want0);
     // te: the TotalEnergies result behind the row on screen (null when the row came from a paste).
-    var S = { text: '', rows: [], pick: null, source: 'drax', busy: false, err: '', claude: false, timer: null, te: null };
+    // saved: what the server saved from it ({outcome, changes}) while it is on screen; serverSaved: the last
+    // thing the server saved, kept after a paste replaces it, so closing still makes the page read it back.
+    var S = { text: '', rows: [], pick: null, source: 'drax', busy: false, err: '', claude: false, timer: null, te: null,
+              saved: null, serverSaved: null, serverTe: null, notified: false };
 
     var wrap = doc.createElement('div');
     wrap.className = 'tl-wrap';
     wrap.setAttribute('role', 'dialog'); wrap.setAttribute('aria-modal', 'true'); wrap.setAttribute('aria-labelledby', 'tlTitle');
     doc.body.appendChild(wrap);
 
-    function close() { if (S.timer) clearTimeout(S.timer); doc.removeEventListener('keydown', onKey); wrap.remove(); }
+    function close() {
+      if (S.timer) clearTimeout(S.timer);
+      doc.removeEventListener('keydown', onKey);
+      wrap.remove();
+      // Whatever closes the dialog after the server saved a TotalEnergies answer, the page reads the meter back.
+      if (S.serverSaved && !S.notified) {
+        S.notified = true;
+        var t = S.serverTe || {};
+        if (deps.onSaved) {
+          deps.onSaved({ mode: 'saved', source: 'totalenergies', found: teRow(t), te: t,
+                         result: { mpan: want0, outcome: S.serverSaved.outcome, changes: S.serverSaved.changes, meter_type: t.meter_type || null } });
+        }
+      }
+    }
     function onKey(e) { if (e.key === 'Escape') close(); }
     doc.addEventListener('keydown', onKey);
     wrap.addEventListener('click', function (e) { if (e.target === wrap) close(); });   // the backdrop, once
@@ -695,6 +844,7 @@
       S.rows = parseText(S.text, { mpan: meter && meter.mpan });
       S.claude = false;
       S.te = null;                         // a paste replaces a TotalEnergies lookup on screen
+      S.saved = null;                      // (what the server already saved stays saved: see close())
       choose();
       paint();
     }
@@ -725,6 +875,11 @@
         S.source = 'totalenergies';
         S.te = res;
         S.claude = false;
+        // te-lookup v2 saves the answer to the meter itself; a typed-in meter (no_meter) is not on file.
+        S.saved = res.applied === true && res.apply_outcome !== 'no_meter'
+          ? { outcome: res.apply_outcome || null, changes: Array.isArray(res.changes) ? res.changes.filter(Boolean).map(str) : [] }
+          : null;
+        if (S.saved) { S.serverSaved = S.saved; S.serverTe = res; }
         choose();
       }).catch(function (e) { S.err = e.message || String(e); })
         .then(function () { S.busy = false; paint(); });
@@ -770,9 +925,10 @@
       var changed = p && compareParts(stored, p).some(function (r) { return r.status === 'differs' || r.status === 'new'; });
       var h = '<div class="tl-card">'
         + '<h2 id="tlTitle">Check the top line against a portal</h2>'
-        + '<p>Look MPAN <b class="mono">' + esc(meter && meter.mpan) + '</b> up on TotalEnergies with the button, or search it in the Drax '
-        + 'or TotalEnergies broker portal yourself, copy what it shows (selecting the whole result and copying is fine) and paste it below. '
-        + 'Nothing is saved until you press ' + (canSave ? 'Save' : 'Use') + '.</p>'
+        + '<p>Look MPAN <b class="mono">' + esc(meter && meter.mpan) + '</b> up on TotalEnergies with the button: what TotalEnergies has '
+        + (meter && meter.id && !meter.manual ? 'is saved to the meter straight away.' : 'is used on this quote (this meter is not on file).')
+        + ' Or search it in the Drax portal (or any other) yourself, copy what it shows (selecting the whole result and copying is fine) '
+        + 'and paste it below: a paste is not saved until you press ' + (canSave ? 'Save' : 'Use') + '.</p>'
         + '<div class="tl-btns" style="margin:0 0 12px"><button class="act' + (S.te ? ' ghost' : '') + '" data-tl="te"'
         + (S.busy || !wantOk ? ' disabled' : '') + '>' + (S.te ? 'Look up on TotalEnergies again' : 'Look up on TotalEnergies') + '</button>'
         + '<span class="tl-small">' + (wantOk ? 'TotalEnergies\' own MPAN search, done for you in a few seconds.'
@@ -799,13 +955,22 @@
         if (S.claude) h += '<div class="tl-small" style="margin-top:4px">Read by Claude. Check it against the portal before saving.</div>';
         if (warns.length) h += '<div class="note warn" style="margin-top:10px">' + warns.map(esc).join('<br>') + '</div>';
       }
+      if (S.saved) {
+        // Round 3: the server saved TotalEnergies' answer to the meter (and its meter type) already.
+        var mtc = S.te ? str(S.te.meter_type) : '';
+        var mt = MT_LABEL[mtc] && mtc !== 'hh' && mtc !== 'unknown' ? ' Meter type: ' + meterTypeLabel(mtc) + '.' : '';
+        h += '<div class="note good" style="margin-top:10px">Saved to the meter: '
+          + esc(S.saved.changes.length ? S.saved.changes.join('; ') : 'it already matched') + '.' + esc(mt) + '</div>';
+      }
       h += '<div class="tl-btns">'
-        + (canSave
-          ? '<button class="act" data-tl="save"' + (p && !S.busy ? '' : ' disabled') + '>' + (changed ? 'Save to the meter' : 'Mark as checked') + '</button>'
-          : '<button class="act" data-tl="local"' + (p && !S.busy ? '' : ' disabled') + '>Use on this quote</button>')
-        + '<button class="act ghost" data-tl="close">Cancel</button>'
-        + (!canSave ? '<span class="tl-small">' + (pricing ? 'A typed-in meter is not saved anywhere: this is for this quote only.'
-            : 'Saving to the meter is the pricing team\'s: this is for this quote only.') + '</span>' : '')
+        + (S.saved
+          ? '<button class="act" data-tl="done"' + (S.busy ? ' disabled' : '') + '>Done</button>'
+          : (canSave
+            ? '<button class="act" data-tl="save"' + (p && !S.busy ? '' : ' disabled') + '>' + (changed ? 'Save to the meter' : 'Mark as checked') + '</button>'
+            : '<button class="act" data-tl="local"' + (p && !S.busy ? '' : ' disabled') + '>Use on this quote</button>')
+            + '<button class="act ghost" data-tl="close">Cancel</button>'
+            + (!canSave ? '<span class="tl-small">' + (pricing ? 'A typed-in meter is not saved anywhere: this is for this quote only.'
+                : 'Saving to the meter is the pricing team\'s: this is for this quote only.') + '</span>' : ''))
         + (S.busy ? '<span class="tl-small">Working&hellip;</span>' : '')
         + '</div></div>';
       var pos = null, ta = doc.getElementById('tlPaste');
@@ -827,7 +992,7 @@
       wrap.querySelectorAll('[data-tl]').forEach(function (b) {
         b.addEventListener('click', function () {
           var a = b.getAttribute('data-tl');
-          if (a === 'close') return close();
+          if (a === 'close' || a === 'done') return close();
           if (a === 'te') return lookUpTe();
           if (a === 'claude') return readWithClaude();
           if (a === 'save') return save();
@@ -856,6 +1021,7 @@
           if (r && (r.outcome === 'invalid' || r.outcome === 'no_meter')) {
             throw new Error(r.outcome === 'invalid' ? 'The database refused it as not a valid MPAN.' : 'No electricity meter on file has that MPAN.');
           }
+          S.notified = true;                 // this save is the one the page reads back
           close();
           if (deps.onSaved) deps.onSaved({ mode: 'saved', result: r, found: S.pick, source: S.source, te: S.te });
         })
@@ -865,6 +1031,7 @@
       if (!S.pick) return;
       var p = S.pick;
       var tl = [p.pc || stored.pc || '··', p.ssc || stored.ssc || '····', p.llfc || stored.llfc || '···'].join(' ');
+      S.notified = true;
       close();
       if (deps.onSaved) deps.onSaved({ mode: 'local', found: p, topLine: tl, source: S.source, te: S.te });
     }
@@ -885,7 +1052,9 @@
               busy: false, err: '', msg: '', applied: null, info: {},
               // The TotalEnergies queue (topline_lookup_* RPCs): sum is topline_lookup_summary(), null for
               // anyone outside the pricing team; missing when the RPCs are not installed yet.
-              te: { sum: null, loaded: false, busy: false, err: '', msg: '', missing: false } };
+              te: { sum: null, loaded: false, busy: false, err: '', msg: '', missing: false },
+              // Meter types (round 3): pricing_meter_types() rows, the chip that filters them, the sort.
+              mt: { rows: null, loaded: false, busy: false, err: '', missing: false, filter: '', sort: 'type', dir: 1 } };
 
     /** An RPC that may not be installed yet: {data, missing} or a thrown sentence. */
     function rpcSoft(name, args, what) {
@@ -952,6 +1121,92 @@
         .then(function (x) { if (x.missing) S.te.missing = true; })
         .catch(function (e) { S.te.err = 'Applied, but the TotalEnergies lookups could not be marked as done: ' + e.message; })
         .then(teLoad);
+    }
+
+    // ---- Meter types (28 Nov 2026, round 3) -------------------------------------------------------
+    function mtLoad() {
+      S.mt.busy = true; paint();
+      return rpcSoft('pricing_meter_types', {}, 'the meter types').then(function (x) {
+        S.mt.missing = x.missing;
+        S.mt.rows = x.missing ? null : (Array.isArray(x.data) ? x.data : []);
+        S.mt.err = '';
+      }).catch(function (e) { S.mt.err = e.message; })
+        .then(function () { S.mt.loaded = true; S.mt.busy = false; paint(); });
+    }
+    function mtCounts() {
+      var c = {};
+      MT.forEach(function (m) { c[m[0]] = 0; });
+      (S.mt.rows || []).forEach(function (r) { c[meterTypeKey(r)]++; });
+      return c;
+    }
+    function mtShown() {
+      var rows = (S.mt.rows || []).filter(function (r) { return !S.mt.filter || meterTypeKey(r) === S.mt.filter; });
+      return sortMeterTypes(rows, S.mt.sort, S.mt.dir);
+    }
+    function mtSort(col) {
+      if (S.mt.sort === col) S.mt.dir = -S.mt.dir;
+      else { S.mt.sort = col; S.mt.dir = 1; }
+      paint();
+    }
+    function mtExport() {
+      var list = mtShown();
+      var rows = [['MPAN', 'Customer', 'Site', 'Postcode', 'Supplier', 'Contract end', 'Top line (PC SSC LLFC)', 'Meter type',
+                   'How we know', 'Checked on TotalEnergies']];
+      list.forEach(function (r) {
+        var st = storedParts(r);
+        rows.push([r.mpan, r.customer_name || r.customer_id || '', r.site_name || '', r.postcode || '', r.supplier || '',
+                   r.contract_end_date || '', [st.pc || '..', st.ssc || '....', st.llfc || '...'].join(' '),
+                   meterTypeLabel(meterTypeKey(r)), howWeKnow(r.rate_structure_src), whenUk(r.te_checked_at)]);
+      });
+      var tag = S.mt.filter ? meterTypeLabel(S.mt.filter).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : 'all';
+      download(doc, 'meter-types-' + tag + '-' + todayIso() + '.csv', toCsv(rows));
+    }
+    /** Every electricity meter by the type it is priced as, in CES's words and order. */
+    function mtSection() {
+      var M = S.mt, h = '<h3 style="font-size:13px;margin:18px 0 6px">Meter types</h3>';
+      if (M.missing) return h + '<div class="note">The meter type list is not installed yet.</div>';
+      if (M.err) h += '<div class="note bad" style="margin:0 0 10px">' + esc(M.err) + '</div>';
+      if (!M.loaded) return h + '<div class="note">Reading the meters&hellip;</div>';
+      var all = M.rows || [];
+      h += '<div class="sub keep" style="margin-bottom:8px">Every electricity meter on file by the type it is priced as. Once TotalEnergies has '
+        + 'checked a meter, its type comes from its SSC: TotalEnergies\' own pricebook says which SSC is which type.</div>';
+      if (!all.length) {
+        return h + '<div class="note">No meters to show.</div>'
+          + '<div class="tl-btns"><button class="act ghost" data-mtx="refresh"' + (M.busy ? ' disabled' : '') + '>Refresh</button></div>';
+      }
+      var c = mtCounts();
+      h += '<div class="tl-sum" role="group" aria-label="Filter by meter type">'
+        + '<button type="button" class="act ' + (M.filter ? 'ghost ' : '') + 'sm" data-mt="" aria-pressed="' + (!M.filter) + '">All ' + fmtN(all.length) + '</button>'
+        + MT.map(function (m) {
+          var on = M.filter === m[0];
+          return '<button type="button" class="act ' + (on ? '' : 'ghost ') + 'sm" data-mt="' + m[0] + '" aria-pressed="' + on + '"'
+            + (c[m[0]] ? '' : ' disabled') + '>' + esc(m[1]) + ' <b>' + fmtN(c[m[0]]) + '</b></button>';
+        }).join('')
+        + '</div>';
+      var list = mtShown();
+      var cols = [['mpan', 'MPAN'], ['customer', 'Customer'], ['site', 'Site'], ['postcode', 'Postcode'], ['top', 'Top line'],
+                  ['type', 'Meter type'], ['how', 'How we know'], ['checked', 'Checked on TotalEnergies']];
+      h += '<div class="scroll" style="max-height:420px;overflow-y:auto"><table><thead><tr>'
+        + cols.map(function (k) {
+          var on = M.sort === k[0];
+          return '<th aria-sort="' + (on ? (M.dir === 1 ? 'ascending' : 'descending') : 'none') + '">'
+            + '<button type="button" class="act ghost sm" data-mt-sort="' + k[0] + '" style="padding:0 4px">' + esc(k[1])
+            + (on ? (M.dir === 1 ? ' &#9650;' : ' &#9660;') : '') + '</button></th>';
+        }).join('')
+        + '</tr></thead><tbody>'
+        + (list.length ? list.slice(0, MT_SHOW).map(function (r) {
+          var st = storedParts(r), k = meterTypeKey(r);
+          return '<tr><td class="mono">' + esc(r.mpan) + '</td><td>' + esc(r.customer_name || r.customer_id || '') + '</td><td>'
+            + esc(r.site_name || '') + '</td><td>' + esc(r.postcode || '') + '</td><td class="mono">'
+            + esc([st.pc || '··', st.ssc || '····', st.llfc || '···'].join(' ')) + '</td><td>'
+            + '<span class="pill ' + (k === 'unknown' ? 'p-warn' : 'p-mute') + '">' + esc(meterTypeLabel(k)) + '</span></td><td>'
+            + esc(howWeKnow(r.rate_structure_src)) + '</td><td>' + esc(whenUk(r.te_checked_at)) + '</td></tr>';
+        }).join('') : '<tr><td colspan="8" style="color:var(--muted)">No meters of this type.</td></tr>')
+        + '</tbody></table></div>'
+        + (list.length > MT_SHOW ? '<div class="tl-small" style="margin-top:6px">Showing ' + fmtN(MT_SHOW) + ' of ' + fmtN(list.length) + '. The export has them all.</div>' : '')
+        + '<div class="tl-btns"><button class="act" data-mtx="export"' + (list.length ? '' : ' disabled') + '>Export CSV</button>'
+        + '<button class="act ghost" data-mtx="refresh"' + (M.busy ? ' disabled' : '') + '>Refresh</button></div>';
+      return h;
     }
 
     function suspectsLoad() {
@@ -1160,6 +1415,8 @@
       }
       // TotalEnergies, automatically.
       h += teSection();
+      // Every meter by type (round 3).
+      h += mtSection();
       // 2. Bring the results back.
       h += '<h3 style="font-size:13px;margin:18px 0 6px">2. Bring the portal results back</h3>'
         + '<div class="tl-row"><div style="flex:0 0 auto;min-width:240px"><label for="tlSrc2">Where they came from</label><select id="tlSrc2">'
@@ -1250,8 +1507,25 @@
           else if (a === 'refresh') teLoad();
         });
       });
+      host.querySelectorAll('[data-mt]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var k = b.getAttribute('data-mt') || '';
+          S.mt.filter = S.mt.filter === k ? '' : k;
+          paint();
+        });
+      });
+      host.querySelectorAll('[data-mt-sort]').forEach(function (b) {
+        b.addEventListener('click', function () { mtSort(b.getAttribute('data-mt-sort')); });
+      });
+      host.querySelectorAll('[data-mtx]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var a = b.getAttribute('data-mtx');
+          if (a === 'export') mtExport();
+          else if (a === 'refresh') mtLoad();
+        });
+      });
     }
-    function refresh() { return Promise.all([suspectsLoad(), teLoad()]); }
+    function refresh() { return Promise.all([suspectsLoad(), teLoad(), mtLoad()]); }
     paint();
     refresh();
     return { VERSION: VERSION, state: S, refresh: refresh, paint: paint };
@@ -1260,12 +1534,16 @@
   root.ToplineDesk = {
     VERSION: VERSION, openPasteDialog: openPasteDialog, mountPage: mountPage,
     parseText: parseText, parseTable: parseTable, normMpan: normMpan, topLineOf: topLineOf,
+    // Round 3: Price a meter's automatic TotalEnergies check, and the words pricing.html shows with it.
+    autoLookup: autoLookup, autoNote: autoNote, meterTypeLabel: meterTypeLabel, whenUk: whenUk,
     _test: { mpanOk: mpanOk, supplyNumbers: supplyNumbers, normMpan: normMpan, partOf: partOf, sscOrMtc: sscOrMtc,
              readTopLine: readTopLine, parseText: parseText, parseTable: parseTable, findHeader: findHeader, headerMap: headerMap,
              textTable: textTable, csvRows: csvRows, topLineOf: topLineOf, printedTopLineOf: printedTopLineOf,
              storedParts: storedParts, compareParts: compareParts, readWarnings: readWarnings, applyRow: applyRow,
              toCsv: toCsv, ucCorrections: ucCorrections, fromClaude: fromClaude,
-             teRow: teRow, teErrorText: teErrorText, missingFn: missingFn, whenUk: whenUk },
+             teRow: teRow, teErrorText: teErrorText, missingFn: missingFn, whenUk: whenUk,
+             teError: teError, autoNote: autoNote, meterTypeKey: meterTypeKey, meterTypeLabel: meterTypeLabel,
+             howWeKnow: howWeKnow, sortMeterTypes: sortMeterTypes, MT: MT },
   };
 })(typeof window !== 'undefined' ? window : globalThis);
 if (typeof module !== 'undefined' && module.exports) module.exports = (typeof window !== 'undefined' ? window : globalThis).ToplineDesk;

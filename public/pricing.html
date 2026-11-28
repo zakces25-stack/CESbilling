@@ -734,10 +734,12 @@
           Every broker's portfolio, not just yours. Search by MPAN, MPRN, customer or site.
         </div>
         <div class="row">
-          <div style="flex:3">
+          <!-- 28 Nov 2026 (round 4): a drop-down of matching meters, customers and sites as you type
+               (pricing-meter-tools.js); Enter or Search still lists everything. -->
+          <div style="flex:3;position:relative">
             <label for="mSearch">MPAN / MPRN / customer / site</label>
-            <input id="mSearch" placeholder="1900006321054, or UKO Glass, or Rye Harbour"
-                   onkeydown="if(event.key==='Enter')findMeters()" />
+            <input id="mSearch" placeholder="1900006321054, or UKO Glass, or Rye Harbour" autocomplete="off"
+                   oninput="mSearchInput()" onkeydown="mSearchKey(event)" />
           </div>
           <div style="flex:0 0 auto;display:flex;align-items:flex-end">
             <button class="act" id="findBtn" onclick="findMeters()">Search</button>
@@ -753,6 +755,9 @@
             Everything here is used exactly as typed and nothing is saved against a customer.
             The distributor is taken from the first two digits of the MPAN if you leave it
             blank.
+            <!-- 28 Nov 2026 (round 4) -->
+            Type the MPAN or MPRN and press <b>Search</b>: TotalEnergies fills in the rest. Only the
+            current supplier, and the contract start date on the next step, are left for you.
           </div>
           <div class="row">
             <div><label for="xFuel">Fuel</label>
@@ -760,10 +765,30 @@
                 <option value="electricity">Electricity</option>
                 <option value="gas">Gas</option>
               </select></div>
-            <div><label for="xId">MPAN / MPRN</label>
-              <input id="xId" class="mono" placeholder="1900006321054" oninput="autofillDno()" /></div>
+            <div style="flex:1.5"><label for="xId">MPAN / MPRN</label>
+              <!-- 28 Nov 2026 (round 4): Search looks the number up on TotalEnergies (leaving the box does too) -->
+              <div style="display:flex;gap:6px">
+                <input id="xId" class="mono" placeholder="1900006321054" autocomplete="off"
+                       oninput="autofillDno();manualIdTyped()" onblur="manualIdLeft()"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();manualTeLookup(false)}" />
+                <button type="button" class="act" id="xTeBtn" onclick="manualTeLookup(false)"
+                        style="flex:0 0 auto;height:var(--field-h);padding:0 14px"
+                        title="Look this MPAN or MPRN up on TotalEnergies and fill in what it knows">Search</button>
+              </div></div>
             <div><label for="xAq">Annual consumption (kWh)</label>
               <input id="xAq" class="mono" placeholder="40000" /></div>
+          </div>
+          <div id="xTeNote" class="note hide" style="margin-top:10px"></div>
+          <!-- 28 Nov 2026 (round 4): the site, for both fuels (the postcode box moved here from the gas row) -->
+          <div class="row" id="xSiteRow" style="margin-top:10px">
+            <div style="flex:2"><label for="xSite">Site name</label>
+              <input id="xSite" placeholder="Ambience Furniture Ltd" /></div>
+            <div style="flex:3"><label for="xAddr">Site address</label>
+              <input id="xAddr" placeholder="Peartree Lane, Dudley" /></div>
+            <div><label for="xPostcode">Site postcode</label>
+              <input id="xPostcode" class="mono" placeholder="HD6 1QF" oninput="autofillZones()" /></div>
+            <div><label for="xSerial">Serial number</label>
+              <input id="xSerial" class="mono" placeholder="M016K0132325D6" /></div>
           </div>
           <div class="row" id="xElecRow">
             <div><label for="xDno">Distributor</label>
@@ -776,11 +801,11 @@
                 <option value="1">1</option><option value="2">2</option>
               </select></div>
             <div><label for="xStruct">Registers</label>
-              <select id="xStruct">
-                <option value="single">Single rate</option>
-                <option value="day_night">Day / night</option>
-                <option value="eve_weekend">Day + evening/weekend</option>
-                <option value="day_night_ew">Day + night + evening/weekend</option>
+              <select id="xStruct"><!-- 28 Nov 2026 (round 3): CES's names, same values -->
+                <option value="single">Standard</option>
+                <option value="day_night">Economy 7</option>
+                <option value="eve_weekend">Evening / weekend</option>
+                <option value="day_night_ew">Evening / weekend / night</option>
               </select></div>
             <div><label for="xSsc">SSC</label>
               <input id="xSsc" class="mono" maxlength="4" placeholder="0393" /></div>
@@ -794,8 +819,6 @@
               </select></div>
           </div>
           <div class="row" id="xGasRow">
-            <div><label for="xPostcode">Site postcode</label>
-              <input id="xPostcode" class="mono" placeholder="HD6 1QF" oninput="autofillZones()" /></div>
             <div><label for="xLdz">LDZ</label>
               <input id="xLdz" class="mono" placeholder="EA" /></div>
             <div><label for="xZone">Exit zone</label>
@@ -955,11 +978,11 @@
               <option>1</option><option>2</option><option>3</option><option>4</option>
               <option value="0">0 (half hourly)</option></select></div>
           <div><label for="aqStruct">Registers</label>
-            <select id="aqStruct" onchange="aqPaintMissing()"><option value="">unknown</option>
-              <option value="single">Single rate</option>
-              <option value="day_night">Day / night</option>
-              <option value="day_night_ew">Day / night / E&amp;W</option>
-              <option value="day_ew">Day + evening/weekend</option></select></div>
+            <select id="aqStruct" onchange="aqPaintMissing()"><option value="">unknown</option><!-- 28 Nov 2026 (round 3): CES's names -->
+              <option value="single">Standard</option>
+              <option value="day_night">Economy 7</option>
+              <option value="day_night_ew">Evening / weekend / night</option>
+              <option value="day_ew">Evening / weekend</option></select></div>
           <div><label for="aqBand">TCR band</label>
             <select id="aqBand" onchange="aqPaintMissing()"><option value="">unknown</option>
               <option value="band_1">Band 1</option><option value="band_2">Band 2</option>
@@ -1160,6 +1183,18 @@
         <div id="admStatusMsg" style="margin-top:10px"></div>
       </div>
 
+      <!-- 28 Nov 2026 (round 4), CES: "if anything comes back and needs review then these can be checked by claude api
+           first, then if even after this something looks wrong, add in the admin portal which is locked a manual review
+           section". pricing-meter-tools.js (mountReview) draws it. -->
+      <div class="card adm" id="adm-review">
+        <h2>Manual review</h2>
+        <div class="sub">What TotalEnergies' answers threw up that Claude could not settle: a postcode that differs from
+          ours, a meter TotalEnergies cannot find, a consumption that jumped, a meter type we do not know. Everything else
+          TotalEnergies said is already on the meters. Claude reads each item first; only what still looks wrong waits here.
+          Keep ours, take TotalEnergies', or dismiss it.</div>
+        <div id="admReview"><div class="note">Loading&hellip;</div></div>
+      </div>
+
       <div class="card adm" id="adm-password">
         <h2>Settings password</h2>
         <div class="sub">One password for everyone on the desk who may change settings. It is checked by the database, not by this
@@ -1285,7 +1320,9 @@
 <!-- 28 Nov 2026: Supplier notices (what the mailbox watcher read in supplier emails) and the top line check
      against a supplier portal (Drax, TotalEnergies). -->
 <script src="/pricing-supplier-notes.js?v=2026-11-28.1"></script>
-<script src="/pricing-topline.js?v=2026-11-28.1"></script>
+<script src="/pricing-topline.js?v=2026-11-28.4"></script>
+<!-- 28 Nov 2026 (round 4): the search drop-down, TotalEnergies filling a meter typed in, Meter details, Manual review -->
+<script src="/pricing-meter-tools.js?v=2026-11-28.4"></script>
 <script src="/portal-switch.js?v=2026-11-08.1" data-portal="pricing"></script>
 <script>
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -1748,7 +1785,7 @@ const SECTIONS = {
   reference: { title: 'Reference', subs: [['ref:ldz', 'Gas postcode to LDZ'], ['ref:band', 'MPAN top line'], ['ref:topline', 'Top line check']] },
   settings:  { title: 'Settings', subs: [['team:staff', 'People'], ['admin:team', 'Account managers'], ['admin:customers', 'Add a customer'], ['admin:status', 'Status bar'],
                                          ['admin:products', 'Products'], ['admin:import', 'Import data'], ['admin:storage', 'Storage'],
-                                         ['admin:password', 'Password']] },
+                                         ['admin:review', 'Manual review'], ['admin:password', 'Password']] },   // 28 Nov 2026 (round 4): Manual review
 };
 const SIDE_ID = { mine: 'tab-mine', today: 'tab-today', requests: 'tab-req', pricing: 'tab-price', renewals: 'tab-ren', customers: 'tab-crm',
                   upload: 'tab-upload', nocontract: 'tab-nc', books: 'tab-books', reference: 'tab-ref' };
@@ -1843,6 +1880,7 @@ function openSection(sec, sub, arg) {
     if (sub === 'admin:team') admLoadTeam();
     if (sub === 'admin:customers') admLoadCustomers();
     if (sub === 'admin:status') admLoadStatus();
+    if (sub === 'admin:review') reviewInit();   // 28 Nov 2026 (round 4)
   }
   if (pane === 'aq') aqInit();
   if (pane === 'contracts') contractsInit();
@@ -2544,12 +2582,18 @@ function applyUcRegisters(m) {
     METER.rate_structure_src = 'utilityclick';
   }
 }
-const STRUCT_OPTIONS = [['', 'Not known'], ['single', 'Single rate'], ['day_night', 'Day / night (Economy 7)'],
-                        ['eve_weekend', 'Day / evening-weekend'], ['day_night_ew', 'Day / night / evening-weekend'],
-                        ['off_peak', 'Off-peak only']];
+// 28 Nov 2026 (round 3): the meter types in CES's own words ("economy 7, standard, evening/weekend,
+// evening/weekend/night, off peak"). The values are meters.rate_structure's and do not change.
+const STRUCT_OPTIONS = [['', 'Not known'], ['single', 'Standard'], ['day_night', 'Economy 7'],
+                        ['eve_weekend', 'Evening / weekend'], ['day_night_ew', 'Evening / weekend / night'],
+                        ['off_peak', 'Off peak']];
 const STRUCT_LABEL = Object.fromEntries(STRUCT_OPTIONS.filter(o => o[0]));
 function structBadge() {
   const s = METER && METER.rate_structure_src;
+  // 28 Nov 2026 (round 3): set from the SSC, by TotalEnergies' own list of which SSC is which type.
+  if (s === 'ssc') return ' <span class="pill p-ok" title="Set from this meter\'s SSC: TotalEnergies\' own pricebook says which meter type each SSC is.">from the SSC</span>';
+  // 28 Nov 2026 (round 4): TotalEnergies' MPAN search named the meter type itself (te_apply_details).
+  if (s === 'totalenergies') return ` <span class="pill p-ok" title="${esc('TotalEnergies\' MPAN search says this meter is ' + (METER.te_meter_type || STRUCT_LABEL[METER.rate_structure] || 'of this type') + '.')}">TotalEnergies</span>`;
   if (s === 'pricing_desk') return ' <span class="pill p-ok">set on the desk</span>';
   if (s === 'saving') return ' <span class="pill p-mute">saving&hellip;</span>';
   if (s === 'this quote only') return ' <span class="pill p-mute">this quote only, not saved to the meter</span>';
@@ -2610,7 +2654,10 @@ async function setMeterStructure(v) {
 const METER_COLS = 'id,customer_id,mpan,utility,supply_type,site_name,site_address,postcode,'
   + 'est_annual_consumption,profile_class,rate_structure,rate_structure_src,tcr_band,tcr_band_src,'
   + 'ssc,ssc_status,ssc_note,ssc_src,top_line,meter_serial,'
-  + 'dno_id,llfc,ldz,exit_zone,priceable,price_block_reason,supplier,contract_end_date';
+  + 'dno_id,llfc,ldz,exit_zone,priceable,price_block_reason,supplier,contract_end_date,'
+  // 28 Nov 2026 (round 4): what TotalEnergies told us (migration 05), for the first-time check, the kWh boxes and
+  // Meter details. The search reads these too, so a meter picked from it has them.
+  + 'mtc,usage_split,usage_src,te_checked_at,te_status,te_meter_type,te_postcode,te_address';
 async function priceFromCrm(m) {
   openSection('pricing', 'price');
   let rows = [];
@@ -2631,6 +2678,8 @@ async function priceFromCrm(m) {
   }
   const gas = m.fuel === 'gas';
   $('manualWrap').open = true;
+  // 28 Nov 2026 (round 4): nothing TotalEnergies filled in for another meter is carried over; the site comes from UC.
+  manualTeReset({ site: m.site_name, address: m.address_1, postcode: m.postcode });
   $('xFuel').value = gas ? 'gas' : 'electricity';
   manualFuelChanged();
   $('xId').value = m.mpan || '';
@@ -4794,39 +4843,24 @@ function custName(m) {
 // ═══════════════════════════════════════════════════════════════════════════════════════
 // Price a meter
 // ═══════════════════════════════════════════════════════════════════════════════════════
-async function findMeters() {
+async function findMeters(preset) {
   const out = $('mResults');
+  // 28 Nov 2026 (round 4): the drop-down closes (a late answer is dropped). A pick from it (preset) lists exactly what
+  // was picked: {rows} one meter, {customer_id} a customer's meters, {customer_id, site_name or postcode} a site's.
+  if (MSUGGEST) MSUGGEST.cancel();
   const term = ($('mSearch').value || '').trim();
-  if (term.length < 3) { out.innerHTML = '<div class="note warn">Three characters or more.</div>'; return; }
+  if (!preset && term.length < 3) { out.innerHTML = '<div class="note warn">Three characters or more.</div>'; return; }
   out.innerHTML = '<div class="note">Searching…</div>';
   window.__FOUND = [];
-  // A comma or bracket would end the .or() filter early (PostgREST syntax) and the search
-  // errored on "Smith, Jones & Co" or "Acme (UK) Ltd": they become wildcards instead.
-  const like = `%${term.replace(/[%_]/g,'').replace(/[,()]/g, '%')}%`;
-  // The customer's real name finds it too (7 Nov 2026), and words find a slug ("tidemill yacht").
-  let nameIds = [];
+  let like = '', rows;
   try {
-    nameIds = (await q(sb.rpc('customer_ids_by_name', { p_like: like }), 'customer search'))
-      .map((r) => (typeof r === 'string' ? r : r && (r.customer_id || r.customer_ids_by_name))).filter((id) => /^[\w.-]+$/.test(String(id || '')));
-  } catch (_) { nameIds = []; }
-  const slugLike = like.replace(/\s+/g, '%');
-  let rows;
-  try {
-    rows = await q(sb.from('meters')
-      .select('id,customer_id,mpan,utility,supply_type,site_name,site_address,postcode,'
-            + 'est_annual_consumption,profile_class,rate_structure,rate_structure_src,tcr_band,tcr_band_src,'
-            + 'ssc,ssc_status,ssc_note,ssc_src,top_line,meter_serial,'
-            + 'dno_id,llfc,ldz,exit_zone,priceable,price_block_reason,supplier,contract_end_date')
-      .or(`mpan.ilike.${like},customer_id.ilike.${slugLike},site_name.ilike.${like},site_address.ilike.${like}`
-        + (nameIds.length ? `,customer_id.in.(${nameIds.join(',')})` : ''))
-      .in('utility', ['electricity','gas'])
-      .limit(50), 'meter search');
+    if (preset) rows = await presetMeterRows(preset);
+    else ({ like, rows } = await meterSearchRows(term));
   } catch (e) { return fail(out, e.message); }
-  await loadCustNames(rows.map((m) => m.customer_id));
   if (!rows.length) {
     out.innerHTML = '<div class="note">Nothing in a broker portfolio matched.</div>';
     window.__FOUND = [];
-    return findCrmMeters(like, rows, out);
+    return preset ? undefined : findCrmMeters(like, rows, out);
   }
   out.innerHTML = `<div class="scroll"><table><thead><tr>
       <th>Customer</th><th>MPAN / MPRN</th><th>Fuel</th><th>Type</th><th>Site</th>
@@ -4845,7 +4879,92 @@ async function findMeters() {
       <td><button class="act sm" onclick="chooseMeter(${i})">Select</button></td>
     </tr>`).join('') + '</tbody></table></div>';
   window.__FOUND = rows;
-  await findCrmMeters(like, rows, out);
+  if (!preset) await findCrmMeters(like, rows, out);
+}
+
+/**
+ * 28 Nov 2026 (round 4): the search's own query, shared by Search and the drop-down so the two cannot drift: the
+ * portfolio meters for what was typed, with their customers' names loaded. {like, rows}; a failed query throws.
+ */
+async function meterSearchRows(term) {
+  // A comma or bracket would end the .or() filter early (PostgREST syntax) and the search
+  // errored on "Smith, Jones & Co" or "Acme (UK) Ltd": they become wildcards instead.
+  const like = `%${term.replace(/[%_]/g,'').replace(/[,()]/g, '%')}%`;
+  // The customer's real name finds it too (7 Nov 2026), and words find a slug ("tidemill yacht").
+  let nameIds = [];
+  try {
+    nameIds = (await q(sb.rpc('customer_ids_by_name', { p_like: like }), 'customer search'))
+      .map((r) => (typeof r === 'string' ? r : r && (r.customer_id || r.customer_ids_by_name))).filter((id) => /^[\w.-]+$/.test(String(id || '')));
+  } catch (_) { nameIds = []; }
+  const slugLike = like.replace(/\s+/g, '%');
+  // The postcode finds a site too (round 4: "sites by site name or postcode").
+  const rows = await q(sb.from('meters')
+    .select(METER_COLS)
+    .or(`mpan.ilike.${like},customer_id.ilike.${slugLike},site_name.ilike.${like},site_address.ilike.${like},postcode.ilike.${like}`
+      + (nameIds.length ? `,customer_id.in.(${nameIds.join(',')})` : ''))
+    .in('utility', ['electricity','gas'])
+    .limit(50), 'meter search');
+  await loadCustNames(rows.map((m) => m.customer_id));
+  return { like, rows };
+}
+
+/** 28 Nov 2026 (round 4): what a pick from the drop-down lists (findMeters(preset)). */
+async function presetMeterRows(p) {
+  if (Array.isArray(p.rows)) { await loadCustNames(p.rows.map((m) => m.customer_id)); return p.rows; }
+  let b = sb.from('meters').select(METER_COLS).eq('customer_id', p.customer_id).in('utility', ['electricity', 'gas']);
+  if (p.kind === 'site') b = p.site_name ? b.eq('site_name', p.site_name) : b.eq('postcode', p.postcode);
+  const rows = await q(b.limit(200), 'meter search');
+  await loadCustNames(rows.map((m) => m.customer_id));
+  return rows;
+}
+
+/** 28 Nov 2026 (round 4): the UtilityClick side of the search (findCrmMeters and the drop-down). */
+async function crmSearchRows(like) {
+  return q(sb.from('crm_meters_v')
+    .select('uc_meter_id,uc_customer_id,customer_name,account_manager,mpan,mpan_valid,fuel,supply_type,'
+          + 'utility,meter_type,registers,aq,aq_unit,profile_class,ssc,llfc,site_name,address_1,postcode,'
+          + 'active,is_lead,customer_is_lead,cur_supplier,cur_end,next_supplier,next_start,next_end,'
+          + 'last_supplier,last_end,contract_state,supplied_until')
+    .or(`mpan.ilike.${like},site_name.ilike.${like},postcode.ilike.${like},customer_name.ilike.${like}`)
+    .in('fuel', ['electricity', 'gas']).limit(40), 'meter search');
+}
+
+/**
+ * 28 Nov 2026 (round 4), CES: "where it says 'MPAN / MPRN / customer / site', right now we need to type something in,
+ * then hit search, lets change this to also have a drop down feature". From three characters (debounced) the box
+ * suggests up to 12 meters (by the start of the MPAN / MPRN), customers and sites, from the same query as Search.
+ * Picking one does what picking it from the results does: a meter is selected, a customer or site lists its meters,
+ * a UtilityClick meter no portfolio holds is priced from its record.
+ */
+let MSUGGEST = null;
+function mSearchInput() {
+  if (typeof MeterTools === 'undefined' || !MeterTools.typeahead) return;
+  if (!MSUGGEST) MSUGGEST = MeterTools.typeahead($('mSearch'), { fetch: suggestMeters, pick: pickSuggestion, esc, minChars: 3, max: 12 });
+  MSUGGEST.onInput();
+}
+function mSearchKey(e) {
+  if (MSUGGEST && MSUGGEST.onKey(e)) return;
+  if (e.key === 'Enter') findMeters();
+}
+async function suggestMeters(term) {
+  const { like, rows } = await meterSearchRows(term);
+  let crm = [];
+  try { crm = await crmSearchRows(like); } catch (_) { crm = []; }
+  const have = new Set(rows.map((r) => r.mpan));
+  crm = (crm || []).filter((r) => !have.has(r.mpan) && r.mpan_valid !== false);
+  return MeterTools.rankSuggestions(term, { rows, crm, nameOf: custName }, { max: 12 });
+}
+async function pickSuggestion(s) {
+  if (!s) return;
+  if (s.kind === 'crm' && s.crm) { $('mSearch').value = s.crm.mpan || ''; return priceFromCrm(s.crm); }
+  if (s.kind === 'meter' && s.row) {
+    $('mSearch').value = s.row.mpan || '';
+    await findMeters({ rows: [s.row] });
+    if (window.__FOUND && window.__FOUND[0] === s.row) chooseMeter(0);
+    return;
+  }
+  $('mSearch').value = s.label || '';
+  await findMeters({ kind: s.kind, customer_id: s.customer_id, site_name: s.site_name || null, postcode: s.postcode || null });
 }
 
 /**
@@ -4857,13 +4976,7 @@ async function findMeters() {
 async function findCrmMeters(like, have, out) {
   let crm = [];
   try {
-    crm = await q(sb.from('crm_meters_v')
-      .select('uc_meter_id,uc_customer_id,customer_name,account_manager,mpan,mpan_valid,fuel,supply_type,'
-            + 'utility,meter_type,registers,aq,aq_unit,profile_class,ssc,llfc,site_name,address_1,postcode,'
-            + 'active,is_lead,customer_is_lead,cur_supplier,cur_end,next_supplier,next_start,next_end,'
-            + 'last_supplier,last_end,contract_state,supplied_until')
-      .or(`mpan.ilike.${like},site_name.ilike.${like},postcode.ilike.${like},customer_name.ilike.${like}`)
-      .in('fuel', ['electricity', 'gas']).limit(40), 'meter search');
+    crm = await crmSearchRows(like);   // 28 Nov 2026 (round 4): the query is shared with the drop-down
   } catch (e) {
     out.insertAdjacentHTML('beforeend', `<div class="note warn" style="margin-top:10px">Searching the customer records failed: ${esc(e.message)}</div>`);
     return;
@@ -4970,6 +5083,161 @@ function manualFuelChanged() {
   $('xGasRow').classList.toggle('hide', !gas);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// 28 Nov 2026 (round 4), CES: "when it says price a meter that is not in the portfolio, I would like to type in MPAN,
+// hit search and have it grab the address, top line, meter type, and EAC from totalportal. That should leave us to
+// only enter the contract start date, current supplier and then lets stretch this to also work with gas".
+//
+// The number decides the fuel (13 digits an MPAN, 6 to 10 an MPRN). Search (or leaving the box) asks te-lookup with
+// auto, so a meter TotalEnergies answered for before is not asked again ("once its been done for the first time");
+// "Ask TotalEnergies again" in the note asks afresh. Every box it fills is marked "from TotalEnergies" until somebody
+// types in it. Not found, or TotalEnergies down: a calm note, and the boxes are typed by hand as before.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+let XTE = null;   // { id, fuel, state: 'busy'|'done'|'not_found'|'failed', result }
+const X_TE_FIELDS = ['xAq', 'xPc', 'xStruct', 'xSsc', 'xLlfc', 'xSite', 'xAddr', 'xPostcode', 'xSerial'];
+
+function manualTeNote(kind, html) {
+  const n = $('xTeNote');
+  if (!n) return;
+  if (kind == null) { n.className = 'note hide'; n.innerHTML = ''; return; }
+  n.className = 'note' + (kind ? ' ' + kind : '');
+  n.innerHTML = html;
+}
+/** The number in the box changed: what TotalEnergies filled in for the old one goes (anything typed by hand stays). */
+function manualIdTyped() {
+  if (!XTE || typeof MeterTools === 'undefined') return;
+  if (MeterTools.idKind($('xId').value).id === XTE.id) return;
+  manualTeClear();
+}
+function manualTeClear() {
+  XTE = null;
+  for (const id of X_TE_FIELDS.concat(['xBand'])) {
+    const el = $(id);
+    if (!el || !el.classList.contains('te-filled')) continue;
+    if (el.tagName !== 'SELECT') el.value = '';
+    if (typeof MeterTools !== 'undefined') MeterTools.markFilled(el, false);
+  }
+  manualTeNote(null);
+}
+/** A meter brought in from the Customers tab (priceFromCrm): a clean slate, with the site as UtilityClick has it. */
+function manualTeReset(site) {
+  manualTeClear();
+  const s = site || {};
+  const put = (id, v) => { const el = $(id); if (el) el.value = v == null ? '' : String(v); };
+  put('xSite', s.site); put('xAddr', s.address); put('xPostcode', s.postcode); put('xSerial', '');
+}
+/**
+ * Leaving the box with a whole, valid number in it looks it up, once. Only a number that fits the fuel picked: seven
+ * digits of an MPAN typed so far look just like an MPRN. Search always goes by the number.
+ */
+function manualIdLeft() {
+  if (typeof MeterTools === 'undefined') return;
+  const k = MeterTools.idKind($('xId').value);
+  if (!k.fuel || !k.ok || k.fuel !== $('xFuel').value) return;
+  if (XTE && XTE.id === k.id) return;
+  manualTeLookup(false);
+}
+async function manualTeLookup(fresh) {
+  if (typeof MeterTools === 'undefined' || !MeterTools.lookupOne) return;
+  const k = MeterTools.idKind($('xId').value);
+  if (!k.fuel) return manualTeNote('warn', 'Type the 13-digit MPAN or the MPRN (6 to 10 digits), then Search.');
+  if (!k.ok) return manualTeNote('warn', esc(`MPAN ${k.id} fails its check digit, so it was not looked up. Check the number against a bill.`));
+  if (XTE && XTE.id === k.id && XTE.state === 'busy') return;
+  if (!fresh && XTE && XTE.id === k.id && XTE.state === 'done' && XTE.result) { await manualTeFill(XTE.result); return; }
+  XTE = { id: k.id, fuel: k.fuel, state: 'busy', result: null };
+  manualTeNote('', esc(`Looking ${k.fuel === 'gas' ? 'MPRN' : 'MPAN'} ${k.id} up on TotalEnergies`) + '&hellip;');
+  const btn = $('xTeBtn');
+  if (btn) btn.disabled = true;
+  const out = await MeterTools.lookupOne(sb, k.id, { fuel: k.fuel, auto: !fresh });
+  if (btn) btn.disabled = false;
+  if (!XTE || XTE.id !== k.id) return;
+  if (MeterTools.idKind($('xId').value).id !== k.id) { XTE = null; manualTeNote(null); return; }   // the box changed meanwhile
+  if (!out.ok) {
+    XTE.state = out.code === 'not_found' ? 'not_found' : 'failed';
+    manualTeNote(out.code === 'not_found' || out.code === 'invalid' ? '' : 'warn', esc(MeterTools.lookupWords(out, k.fuel)));
+    return;
+  }
+  XTE.state = 'done';
+  XTE.result = out.result;
+  await manualTeFill(out.result);
+}
+/** Put a TotalEnergies answer in the boxes, mark them, and say what was filled. */
+async function manualTeFill(res) {
+  const f = MeterTools.manualFromTe(res, { recase: tradingName });
+  if (!f) return;
+  $('xFuel').value = f.fuel;
+  manualFuelChanged();
+  for (const id of X_TE_FIELDS) {
+    const el = $(id), v = f.values[id];
+    if (!el) continue;
+    if (v == null || v === '') { if (el.classList.contains('te-filled')) { if (el.tagName !== 'SELECT') el.value = ''; MeterTools.markFilled(el, false); } continue; }
+    if (el.tagName === 'SELECT' && ![...el.options].some((o) => o.value === v)) {
+      const o = document.createElement('option');
+      o.value = v; o.textContent = id === 'xStruct' ? (STRUCT_LABEL[v] || v) : v;
+      el.appendChild(o);
+    }
+    el.value = v;
+    MeterTools.markFilled(el, true);
+  }
+  let band = '';
+  if (f.fuel === 'electricity') {
+    const dno = $('xDno');
+    if (dno) { dno.dataset.typed = ''; autofillDno(); }
+    band = await manualBandFromLlfc();
+  } else if (f.values.xPostcode) await autofillZones();
+  const when = MeterTools.whenUk(f.looked_up_at);
+  const what = MeterTools.filledWords(f);
+  const bits = [`Filled from TotalEnergies${when ? ' (' + esc(when) + ')' : ''}: ${esc(what || 'nothing it could use')}.`];
+  if (band) bits.push(`TCR band ${esc(band.replace('band_', ''))} from the LLFC.`);
+  bits.push(`Choose the current supplier, then <b>Use these details</b>; the contract start date is set on the next step.`);
+  if (f.supported === false) bits.push(esc(`TotalEnergies says it cannot supply this meter${f.unsupported_reason ? ': ' + f.unsupported_reason : ''}.`));
+  if (f.cached) bits.push(`TotalEnergies answered for this meter before, so that answer was used. <a href="#" onclick="manualTeLookup(true);return false">Ask TotalEnergies again</a>`);
+  manualTeNote('good', bits.join(' '));
+  const sup = $('xSupplier');
+  if (sup && !sup.value && typeof sup.focus === 'function') sup.focus();
+}
+/** The TCR band from the LLFC (ref_llfc_band), as priceFromCrm does. Returns the band set, or ''. */
+async function manualBandFromLlfc() {
+  const band = $('xBand');
+  if (!band) return '';
+  const dno = ($('xDno').value || '').trim(), ll = String($('xLlfc').value || '').trim().toUpperCase();
+  if (!dno || !ll) return '';
+  try {
+    const b = await q(sb.from('ref_llfc_band').select('band').eq('dno_id', dno)
+      .eq('llfc', /^\d{1,3}$/.test(ll) ? ll.padStart(3, '0') : ll).limit(1), 'TCR band');
+    if (b && b.length && [...band.options].some((o) => o.value && o.value === b[0].band)) { band.value = b[0].band; return b[0].band; }
+  } catch (_) { /* unknown band: every band is shown */ }
+  return '';
+}
+/** What TotalEnergies filled in travels with the typed-in meter (useManualMeter): the site, the serial, the split. */
+function manualTeExtras(m) {
+  const v = (id) => { const el = $(id); return el ? String(el.value || '').trim() : ''; };
+  m.site_name = v('xSite') || null;
+  m.site_address = v('xAddr') || null;
+  m.meter_serial = v('xSerial') || null;
+  if (typeof MeterTools === 'undefined' || !XTE || XTE.state !== 'done' || !XTE.result) return;
+  if (MeterTools.idKind(m.mpan).id !== XTE.id) return;
+  const r = XTE.result;
+  m.te_checked_at = r.looked_up_at || new Date().toISOString();
+  m.te_status = 'found';
+  m.te_meter_type = r.te_meter_type || null;
+  m.te_postcode = r.postcode || null;
+  m.te_address = r.address || null;
+  if (m.utility === 'electricity') {
+    m.mtc = r.mtc || null;
+    if (r.split) { m.usage_split = r.split; m.usage_src = 'totalenergies: fixed share of the EAC'; }
+    // The top line is TotalEnergies' while its boxes still say what it said; a box typed over is the person's.
+    const untouched = ['xPc', 'xSsc', 'xLlfc'].every((id) => { const el = $(id); return !el || el.classList.contains('te-filled'); });
+    m.te_check = untouched ? { state: 'local', at: m.te_checked_at, cached: !!r.cached } : { state: 'stored', at: m.te_checked_at };
+    if (untouched && m.profile_class != null && m.ssc && m.llfc) {
+      m.top_line = `${String(m.profile_class).padStart(2, '0')} ${m.ssc} ${m.llfc}`;
+      m.top_line_src = 'totalenergies';
+    }
+  } else {
+    m.te_check = { state: 'local', at: m.te_checked_at, cached: !!r.cached };
+  }
+}
+
 /**
  * Build a meter out of typed details.
  *
@@ -5016,6 +5284,7 @@ function useManualMeter() {
     contract_end_date: null,
     priceable: null, manual: true,
   };
+  manualTeExtras(METER);   // 28 Nov 2026 (round 4): the site, the serial and what TotalEnergies said go with it
   // Filled in from the Customers tab: keep the UC record so the start date and the names
   // come from it (priceFromCrm sets this just before calling here).
   if (PENDING_CRM) { METER.crm = PENDING_CRM; PENDING_CRM = null; }
@@ -5245,6 +5514,10 @@ const REGISTERS = {
 const REGISTER_LABEL = { total: 'Annual consumption (kWh)', day: 'Day kWh', night: 'Night kWh',
                          ew: 'Evening / weekend kWh' };
 let KWH_SOURCE = null;      // { kind:'hhd', days, from, to, file } once measured, else null
+// 28 Nov 2026 (round 4): KWH_SOURCE {kind:'te'} is TotalEnergies' usage split (a fixed share of the EAC), {kind:'saved'}
+// a split somebody saved on the meter. KWH_AUTO is what the boxes held when the page filled them, so a later
+// TotalEnergies answer only refills boxes nobody has typed in since.
+let KWH_AUTO = null;
 
 function meterRegisters() {
   const rs = String((METER && METER.rate_structure) || '').toLowerCase();
@@ -5297,6 +5570,9 @@ function splitText(k, long) {
   if (k.regs.includes('ew'))    parts.push(`${pct(k.ew)}% evening/weekend`);
   const how = k.source && k.source.kind === 'hhd'
     ? `measured from ${k.source.days} days of half-hourly data (${uk(k.source.from)} to ${uk(k.source.to)}), scaled to a year`
+    // 28 Nov 2026 (round 4): TotalEnergies' split, worded for the customer's document too (no supplier named)
+    : k.source && k.source.kind === 'te' ? 'a fixed share of the annual consumption, not measured'
+    : k.source && k.source.kind === 'saved' ? 'as held on the meter'
     : 'as entered';
   return `${parts.join(' / ')}${long ? ', ' + how : ''}`;
 }
@@ -5312,7 +5588,46 @@ function paintKwhNote() {
        'No meter type is held for this meter, so it is priced as single rate on the total.')
     : (k.source && k.source.kind === 'hhd'
        ? `Split ${splitText(k, true)}.`
+       // 28 Nov 2026 (round 4)
+       : k.source && k.source.kind === 'te' ? 'Split from TotalEnergies (a fixed share of the EAC). Type over it if the real split is known.'
+       : k.source && k.source.kind === 'saved' ? 'Split as held on the meter. Type over it if the real split is known.'
        : 'Type the kWh each register is expected to use. The split is worked out from the boxes.');
+}
+
+/** 28 Nov 2026 (round 4): what the kWh boxes hold, as one string, to tell whether anybody has typed in them. */
+function kwhSig() {
+  const k = readKwh();
+  return [k.regs.join('+'), k.total, k.day, k.night, k.ew].join('|');
+}
+/** 28 Nov 2026 (round 4): the meter's usage split on its kWh boxes (scaled to its annual figure), or null. */
+function kwhFromSplit(m) {
+  if (!m || m.utility === 'gas' || typeof MeterTools === 'undefined' || !MeterTools.splitToBoxes) return null;
+  return MeterTools.splitToBoxes(m.usage_split, meterRegisters(), m.est_annual_consumption);
+}
+/** 28 Nov 2026 (round 4): where a meter's split came from, for the note under the boxes. */
+function kwhSourceOf(m) {
+  return /^totalenergies/i.test(String((m && m.usage_src) || 'totalenergies')) ? { kind: 'te' } : { kind: 'saved' };
+}
+/** 28 Nov 2026 (round 4): fill the kWh boxes from the meter: its split when it has one, else its annual figure. */
+function paintKwhFromMeter(m) {
+  const split = kwhFromSplit(m);
+  const regs = meterRegisters();
+  const est = Number(m && m.est_annual_consumption) > 0 ? Math.round(Number(m.est_annual_consumption)) : '';
+  KWH_SOURCE = split ? kwhSourceOf(m) : null;
+  paintKwhBoxes(split || (regs.length === 1 ? { total: est } : { [regs[0]]: est }));
+  KWH_AUTO = kwhSig();
+}
+/**
+ * 28 Nov 2026 (round 4): after TotalEnergies wrote to the meter, boxes nobody has typed in since the meter was shown
+ * are filled again from it (its split, or its new EAC). Returns true when the boxes changed.
+ */
+function teKwhAfter(m) {
+  if (METER !== m || KWH_AUTO == null || kwhSig() !== KWH_AUTO) return false;
+  const was = KWH_AUTO;
+  paintKwhFromMeter(m);
+  if (KWH_AUTO === was) return false;
+  if ($('quoteCard') && !$('quoteCard').classList.contains('hide')) $('priceMsg').textContent = 'TotalEnergies corrected this meter: price it again.';
+  return true;
 }
 
 /**
@@ -5600,7 +5915,10 @@ function parseTopLine(v) {
  * (measured: zero rows). A partial line — one part still a gap — is kept on the desk only,
  * and the badge says so.
  */
-async function setMeterTopLine(v) {
+async function setMeterTopLine(v, opts) {
+  // 28 Nov 2026 (round 3): opts {src:'totalenergies', save:false} is TotalEnergies' top line on a meter
+  // that is not on file: used on this quote only, badged as TotalEnergies', never saved from here.
+  opts = opts || {};
   const p = parseTopLine(v);
   if (!p || 'error' in p) {
     $('mTop').value = meterTopLine(METER).text;
@@ -5616,7 +5934,7 @@ async function setMeterTopLine(v) {
   METER.ssc_note = null;
   const llfcChanged = (METER.llfc || null) !== (p.llfc || null);
   METER.llfc = p.llfc;
-  METER.top_line_src = 'edited';
+  METER.top_line_src = opts.src || 'edited';
   METER.top_line = (p.pc && p.ssc && p.llfc) ? `${p.pc} ${p.ssc} ${p.llfc}` : null;
   if (llfcChanged) {
     // The band belonged to the old LLFC. Look the new one up; unknown stays unknown.
@@ -5630,7 +5948,7 @@ async function setMeterTopLine(v) {
     }
   }
   // A broker's top line is for this quote only (08a): saving it to the meter is the pricing team's.
-  if (!METER.manual && METER.id && METER.top_line && isPricing()) {
+  if (opts.save !== false && !METER.manual && METER.id && METER.top_line && isPricing()) {
     try {
       const saved = await q(sb.rpc('pricing_set_top_line', { p_meter_id: METER.id, p_top_line: METER.top_line }), 'save the top line');
       const s = Array.isArray(saved) ? saved[0] : saved;
@@ -5664,25 +5982,224 @@ async function topLineChecked(res) {
   if (!METER || !res) return;
   if (res.mode === 'local') { await setMeterTopLine(res.topLine); return; }
   // Saved: read back only the top line's own columns, so the meter type and anything else the desk
-  // worked out for this quote stays as it is.
-  try {
-    const rows = await q(sb.from('meters')
-      .select('profile_class,ssc,ssc_status,ssc_note,ssc_src,llfc,top_line,tcr_band,tcr_band_src,dno_id')
-      .eq('id', METER.id).limit(1), 'the checked meter');
-    if (rows && rows[0]) {
-      const r = rows[0];
-      Object.assign(METER, { profile_class: r.profile_class, ssc: r.ssc, ssc_status: r.ssc_status, ssc_note: r.ssc_note,
-                             ssc_src: r.ssc_src, llfc: r.llfc, top_line: r.top_line, tcr_band: r.tcr_band,
-                             tcr_band_src: r.tcr_band_src, dno_id: METER.dno_id || r.dno_id });
-    }
-  } catch (e) { console.warn('top line re-read:', e.message); }
+  // worked out for this quote stays as it is. 28 Nov 2026 (round 3): a TotalEnergies save also set the
+  // meter type that goes with the SSC, so that is read back too and the kWh boxes follow it.
+  const m = METER, te = res.source === 'totalenergies';
+  const before = te ? readKwh() : null, typeBefore = m.rate_structure || null;
+  try { await rereadTopLine(m, te); } catch (e) { console.warn('top line re-read:', e.message); }
+  if (METER !== m) return;
   METER.top_line_src = null;
+  if (te) {
+    METER.te_check = { state: 'done', at: (res.te && res.te.looked_up_at) || null, cached: !!(res.te && res.te.cached) };
+    // 28 Nov 2026 (round 4): boxes nobody has typed in take TotalEnergies' split or EAC; otherwise the type refolds them.
+    if (!teKwhAfter(m) && (METER.rate_structure || null) !== typeBefore) teTypeChanged(before);
+  }
   paintMeterFacts();
   paintSscNote();
 }
 
+/**
+ * 28 Nov 2026 (round 3): read a portfolio meter's top line columns back after a save (and its meter type,
+ * when withType). Returns true when the meter was read.
+ */
+async function rereadTopLine(m, withType) {
+  // 28 Nov 2026 (round 4): a TotalEnergies answer also wrote the EAC (AQ), the usage split, the serial and when it
+  // answered (te_apply_details), so those come back with the meter type.
+  const cols = 'profile_class,ssc,ssc_status,ssc_note,ssc_src,llfc,top_line,tcr_band,tcr_band_src,dno_id'
+    + (withType ? ',rate_structure,rate_structure_src,mtc,est_annual_consumption,usage_split,usage_src,meter_serial,'
+                + 'te_checked_at,te_status,te_postcode,postcode,site_address' : '');
+  const rows = await q(sb.from('meters').select(cols).eq('id', m.id).limit(1), 'the checked meter');
+  if (!rows || !rows[0]) return false;
+  const r = rows[0];
+  Object.assign(m, { profile_class: r.profile_class, ssc: r.ssc, ssc_status: r.ssc_status, ssc_note: r.ssc_note,
+                     ssc_src: r.ssc_src, llfc: r.llfc, top_line: r.top_line, tcr_band: r.tcr_band,
+                     tcr_band_src: r.tcr_band_src, dno_id: m.dno_id || r.dno_id });
+  if (withType && 'rate_structure' in r) {
+    m.rate_structure = r.rate_structure || null;
+    m.rate_structure_src = r.rate_structure_src || null;
+  }
+  if (withType) {
+    for (const k of ['mtc', 'est_annual_consumption', 'usage_split', 'usage_src', 'meter_serial', 'te_checked_at', 'te_status',
+                     'te_postcode', 'postcode', 'site_address']) if (k in r) m[k] = r[k];
+  }
+  return true;
+}
+
+/** 28 Nov 2026 (round 3): the meter type changed under the desk: the kWh boxes follow, as setMeterStructure does. */
+function teTypeChanged(before) {
+  paintKwhBoxes(foldKwh(before, meterRegisters()));
+  if ($('quoteCard') && !$('quoteCard').classList.contains('hide')) $('priceMsg').textContent = 'TotalEnergies corrected this meter: price it again.';
+}
+
+/**
+ * 28 Nov 2026 (round 3), CES: "i would like the totalenergies topline to always override whatever our portal
+ * has and save it as the new topline ... lets just have it override". When a meter is shown, the te-lookup
+ * edge function runs TotalEnergies' own MPAN search for it (or reuses an answer from the last 30 days) and
+ * saves what TotalEnergies has to the meter itself (pricing_topline_apply, audited), with the meter type that
+ * goes with the SSC. This only shows the result: the corrected top line and type, and a note of what changed.
+ * A meter typed in by hand is not on file, so TotalEnergies' top line is used on this quote only. It never
+ * blocks pricing and never alerts; if the person moves to another meter first, the answer is dropped.
+ */
+async function autoTopLineCheck() {
+  const m = METER;
+  // 28 Nov 2026 (round 4), CES: "everytime we quote, have it search the total portal the first time, then once confirmed
+  // it doesnt need to search the total portal anymore". A meter TotalEnergies has answered for (te_checked_at) shows
+  // that answer and is not asked again; a gas meter is asked by its MPRN the first time.
+  if (m && teAnsweredBefore(m)) { teShowStored(m); return; }
+  if (m && m.utility === 'gas') { await teGasCheck(m); return; }
+  if (!m || m.utility !== 'electricity' || typeof ToplineDesk === 'undefined' || !ToplineDesk.autoLookup) return;
+  const key = meterKeyOf(m);
+  m.te_check = { state: 'checking' };
+  paintMeterFacts();
+  let out;
+  try { out = await ToplineDesk.autoLookup(m, { sb }); }
+  catch (e) { out = { ok: false, code: 'error', error: (e && e.message) || String(e) }; }
+  if (METER !== m || meterKeyOf(METER) !== key) return;
+  try { await teAutoApplied(m, out); }
+  catch (e) {
+    console.warn('TotalEnergies check:', e && e.message);
+    if (METER === m) { m.te_check = { state: 'failed', code: 'error', message: (e && e.message) || String(e) }; paintMeterFacts(); }
+  }
+}
+
+/** 28 Nov 2026 (round 3): show what the automatic TotalEnergies check did to meter m (still the one on screen). */
+async function teAutoApplied(m, out) {
+  if (!out || !out.ok) {
+    // An MPAN that fails its check digit, or not electricity: nothing was asked, nothing to say.
+    if (out && (out.code === 'invalid_mpan' || out.code === 'not_electricity')) { m.te_check = null; paintMeterFacts(); return; }
+    m.te_check = { state: out && out.code === 'not_found' ? 'not_found' : 'failed', code: (out && out.code) || 'error',
+                   message: (out && out.error) || '' };
+    paintMeterFacts();
+    return;
+  }
+  const r = out.result || {};
+  const local = !!m.manual || !m.id || r.applied !== true || r.apply_outcome === 'no_meter';
+  const typeBefore = m.rate_structure || null, topBefore = meterTopLine(m).text;
+  const before = readKwh();
+  if (!local) {
+    // Saved on the server: read the meter's own columns back, the meter type with them.
+    try { await rereadTopLine(m, true); } catch (e) { console.warn('TotalEnergies re-read:', e.message); }
+    if (METER !== m) return;
+    m.top_line_src = null;
+  } else {
+    // Not on file (or not saved): TotalEnergies' top line on this quote only, never an alert.
+    const line = r.top_line || [r.pc || '··', r.ssc || '····', r.llfc || '···'].join(' ');
+    const p = parseTopLine(line);
+    if (p && !('error' in p) && !p.empty) await setMeterTopLine(line, { src: 'totalenergies', save: false });
+    if (METER !== m) return;
+    if (r.meter_type && STRUCT_LABEL[r.meter_type]) { m.rate_structure = r.meter_type; m.rate_structure_src = 'ssc'; }
+  }
+  m.te_check = { state: local ? 'local' : 'done', at: r.looked_up_at || null, cached: !!r.cached, changes: r.changes || [] };
+  const typeAfter = m.rate_structure || null;
+  // 28 Nov 2026 (round 4): boxes nobody has typed in take TotalEnergies' split or new EAC; otherwise the type refolds them.
+  if (!local && teKwhAfter(m)) { /* the boxes were filled again from the meter */ }
+  else if (typeAfter !== typeBefore) teTypeChanged(before);
+  else if (meterTopLine(m).text !== topBefore && $('quoteCard') && !$('quoteCard').classList.contains('hide')) {
+    $('priceMsg').textContent = 'TotalEnergies corrected this meter: price it again.';
+  }
+  paintMeterFacts();
+  paintSscNote();
+  if (!local && ToplineDesk.autoNote) {
+    const note = ToplineDesk.autoNote(r, typeBefore, typeAfter);
+    if (note) deskNote(note, 'good');
+  }
+}
+
+/** 28 Nov 2026 (round 4): TotalEnergies has answered for this meter before (found it, or found it is not there). */
+function teAnsweredBefore(m) {
+  return !!(m && m.te_checked_at) && String(m.te_status || 'found') !== 'failed';
+}
+/** 28 Nov 2026 (round 4): show the answer the meter already has, without asking TotalEnergies again. */
+function teShowStored(m) {
+  if (!m.te_check || m.te_check.state === 'checking') {
+    const st = String(m.te_status || 'found');
+    const when = typeof ToplineDesk !== 'undefined' && ToplineDesk.whenUk ? ToplineDesk.whenUk(m.te_checked_at) : '';
+    m.te_check = st === 'not_found'
+      ? { state: 'not_found', at: m.te_checked_at, message: 'TotalEnergies had no meter with this number when it was checked' + (when ? ' (' + when + ')' : '') + '.' }
+      : st === 'invalid' ? null
+      : { state: 'stored', at: m.te_checked_at };
+  }
+  paintMeterFacts();
+}
+/**
+ * 28 Nov 2026 (round 4): a gas meter's first-time check, by its MPRN (te-lookup with auto). The server writes the AQ,
+ * the serial and an empty postcode to the meter; the page reads them back. A meter typed in by hand keeps what was
+ * typed (TotalEnergies' AQ is offered on "Price a meter that is not in the portfolio" instead). Never blocks pricing.
+ */
+async function teGasCheck(m) {
+  if (typeof MeterTools === 'undefined' || !MeterTools.lookupOne) return;
+  const k = MeterTools.idKind(m.mpan);
+  if (k.fuel !== 'gas' || !k.ok) return;
+  const key = meterKeyOf(m);
+  m.te_check = { state: 'checking' };
+  paintMeterFacts();
+  const out = await MeterTools.lookupOne(sb, k.id, { fuel: 'gas', auto: true });
+  if (METER !== m || meterKeyOf(METER) !== key) return;
+  if (!out.ok) {
+    m.te_check = { state: out.code === 'not_found' ? 'not_found' : 'failed', code: out.code || 'error', message: out.error || '' };
+    paintMeterFacts();
+    return;
+  }
+  const r = out.result || {};
+  const local = !!m.manual || !m.id || r.applied !== true || r.apply_outcome === 'no_meter';
+  if (!local) {
+    try { await rereadTopLine(m, true); } catch (e) { console.warn('TotalEnergies re-read:', e.message); }
+    if (METER !== m) return;
+    teKwhAfter(m);
+  }
+  m.te_check = { state: local ? 'local' : 'done', at: r.looked_up_at || null, cached: !!r.cached, changes: r.changes || [] };
+  paintMeterFacts();
+  const ch = (r.changes || []).filter(Boolean);
+  if (!local && ch.length) deskNote('TotalEnergies corrected this gas meter: ' + ch.join('; ') + '.', 'good');
+}
+/** 28 Nov 2026 (round 4): the TotalEnergies line on a gas meter's facts (electricity shows it on the top line). */
+function teGasRow() {
+  const te = METER && METER.te_check;
+  if (!te) return '';
+  const when = te.at && typeof MeterTools !== 'undefined' ? MeterTools.whenUk(te.at) : '';
+  const title = 'Checked on TotalEnergies' + (when ? ' ' + when : '') + (te.cached ? ' (an earlier answer, reused)' : '');
+  const pill = te.state === 'checking' ? '<span class="pill p-mute">checking TotalEnergies&hellip;</span>'
+    : te.state === 'local' ? `<span class="pill p-mute" title="${esc(title + '. This meter is not on file, so it is used on this quote only.')}">from TotalEnergies, this quote only</span>`
+    : te.state === 'not_found' ? `<span class="pill p-mute" title="${esc(te.message || '')}">not found on TotalEnergies</span>`
+    : te.state === 'failed' ? `<span class="pill p-mute" title="${esc(te.message || '')}">${esc(teFailLabel(te.code))}</span>`
+    : `<span class="pill p-ok" title="${esc(title)}">checked${when ? ' ' + esc(when) : ''}</span>`;
+  return `<dt>TotalEnergies</dt><dd>${pill}</dd>`;
+}
+/** 28 Nov 2026 (round 4): TotalEnergies has the meter at another postcode (it is on the manual review list too). */
+function teAddressRow() {
+  const t = String((METER && METER.te_postcode) || '').toUpperCase().replace(/\s/g, '');
+  const o = String((METER && METER.postcode) || '').toUpperCase().replace(/\s/g, '');
+  if (!t || !o || t === o) return '';
+  return `<dt>TotalEnergies says</dt><dd>${esc(METER.te_postcode)} <span class="pill p-warn" title="TotalEnergies has this meter at a different postcode. It is on the manual review list; check the site before quoting.">postcode differs</span></dd>`;
+}
+
 /** How the top line is known, as a badge. */
 function topLineBadge() {
+  // 28 Nov 2026 (round 3): the automatic TotalEnergies check comes first. A top line a person typed or
+  // saved afterwards (top_line_src set) is theirs and shows as before.
+  const te = METER.te_check || null;
+  const when = te && te.at && typeof ToplineDesk !== 'undefined' && ToplineDesk.whenUk ? ToplineDesk.whenUk(te.at) : '';
+  // 28 Nov 2026 (round 4): an answer is kept for good now (te_lookup_cache_days 36500), not 30 days.
+  const title = 'Checked on TotalEnergies' + (when ? ' ' + when : '') + (te && te.cached ? ' (an earlier answer, reused)' : '');
+  if ((te && te.state === 'local') || METER.top_line_src === 'totalenergies') {
+    return `<span class="pill p-mute" title="${esc(title + '. This meter is not on file, so it is used on this quote only.')}">from TotalEnergies, this quote only</span>`;
+  }
+  if (!METER.top_line_src && ((te && te.state === 'done') || METER.ssc_src === 'portal:totalenergies')) {
+    return `<span class="pill p-ok" title="${esc(title)}">TotalEnergies</span>`;
+  }
+  let extra = '';
+  if (te && te.state === 'checking') extra = ' <span class="pill p-mute">checking TotalEnergies&hellip;</span>';
+  else if (te && te.state === 'not_found') extra = ` <span class="pill p-mute" title="${esc(te.message || '')}">not found on TotalEnergies</span>`;
+  else if (te && te.state === 'failed') extra = ` <span class="pill p-mute" title="${esc(te.message || '')}">${esc(teFailLabel(te.code))}</span>`;
+  return topLineBadgeBase() + extra;
+}
+/** 28 Nov 2026 (round 3): a quiet word for an automatic TotalEnergies check that did not happen. */
+function teFailLabel(code) {
+  return code === 'not_configured' ? 'TotalEnergies not set up'
+    : code === 'disabled' ? 'TotalEnergies checks switched off' : 'TotalEnergies check failed';
+}
+/** The badge as it was before the automatic TotalEnergies check (how the portfolio knows the line). */
+function topLineBadgeBase() {
   const t = meterTopLine(METER);
   if (METER.top_line_src === 'saved') return '<span class="pill p-ok">saved to the meter</span>';
   if (METER.top_line_src === 'edited') return t.complete
@@ -6562,10 +7079,9 @@ async function showMeter() {
   // One box per register, prefilled from the portfolio's annual figure. With no measured
   // split the whole figure lands in the first box and the desk moves it; a guessed 70/30
   // typed in for them would look like knowledge.
-  KWH_SOURCE = null;
-  const regs = meterRegisters();
-  const est = METER.est_annual_consumption ? Math.round(Number(METER.est_annual_consumption)) : '';
-  paintKwhBoxes(regs.length === 1 ? { total: est } : { [regs[0]]: est });
+  // 28 Nov 2026 (round 4): a meter TotalEnergies has answered for has a usage split (a fixed share of its EAC), and
+  // the boxes take that, labelled as exactly that; otherwise as before (paintKwhFromMeter).
+  paintKwhFromMeter(METER);
   await defaultStartDate();
 
   // The incumbent is whoever holds the supply when the new contract STARTS. With a contract
@@ -6595,6 +7111,9 @@ async function showMeter() {
        <b>every quote below is an acquisition</b>. That is the right answer — nobody else
        can offer a renewal on it.`;
   paintMeterFacts();
+  // 28 Nov 2026 (round 3): TotalEnergies' MPAN search checks this meter on its own and what it says wins.
+  // Not awaited: the page is ready to price now, and the answer redraws the facts when it comes.
+  autoTopLineCheck();
 }
 
 /**
@@ -6620,7 +7139,12 @@ function paintMeterFacts() {
     <dl class="kv">
       <dt>Customer</dt><dd><span id="meterCustName">${esc(custName(METER))}</span>${METER.manual
         ? ' <span class="pill p-warn">typed in, nothing saved</span>' : ''}</dd>
-      <dt>${METER.utility === 'gas' ? 'MPRN' : 'MPAN'}</dt><dd>${esc(METER.mpan)}</dd>
+      <dt>${METER.utility === 'gas' ? 'MPRN' : 'MPAN'}</dt><dd>${esc(METER.mpan)}
+        <!-- 28 Nov 2026 (round 4): Meter details, like UtilityClick's meter form (pricing team edits, a broker reads) -->
+        <button class="act ghost sm" type="button" id="mGear" onclick="openMeterDetails()" aria-label="Meter details"
+                title="Meter details: the top line, MTC, serial, meter type, consumption and site, as on UtilityClick's meter form"
+                style="margin-left:6px;padding:2px 8px;font-size:13px;line-height:1.2;vertical-align:1px">&#9881;&#65038;</button></dd>
+      ${METER.meter_serial ? `<dt>Serial number</dt><dd>${esc(METER.meter_serial)}</dd>` : ''}
       ${METER.utility === 'electricity' ? `
         <dt>Top line</dt><dd>
           <input id="mTop" class="mono" value="${esc(top.text)}" placeholder="03 0393 631"
@@ -6632,8 +7156,9 @@ function paintMeterFacts() {
           ${topLineBadge()}
           <!-- 28 Nov 2026: check this top line against a supplier portal's MPAN search -->
           <button class="act ghost sm" type="button" onclick="checkTopLineAgainstPortal()" style="margin-left:6px"
-                  title="Paste what the Drax or TotalEnergies MPAN search shows and check this top line against it">Check against portal</button></dd>` : ''}
+                  title="TotalEnergies checks this meter by itself. Use this to look it up on TotalEnergies again, or to paste what the Drax (or any other) MPAN search shows">Check against portal</button></dd>` : ''}
       <dt>Site</dt><dd>${esc(METER.site_name || '—')} ${esc(METER.postcode || '')}</dd>
+      ${teAddressRow()}
       ${METER.utility === 'electricity' ? `
         <dt>Distributor</dt><dd>${esc(dno || '—')}${idno ? ' <span class="pill p-fail">independent network</span>' : ''}${
           METER.dno_src === 'mpan' ? ' <span class="pill p-mute">from the MPAN</span>' : ''}</dd>
@@ -6654,6 +7179,7 @@ function paintMeterFacts() {
       : `<dt>LDZ</dt><dd>${esc(METER.ldz || '—')}${
              METER.zone_src === 'postcode' ? ' <span class="pill p-mute">from the postcode</span>' : ''}</dd>
          <dt>Exit zone</dt><dd>${esc(METER.exit_zone || '—')}</dd>`}
+      ${METER.utility === 'gas' ? teGasRow() : ''}
       <dt>Current supplier</dt><dd>${esc(METER.supplier || '—')} ${METER.contract_end_date ? 'to ' + uk(METER.contract_end_date) : ''}</dd>
     </dl>
     ${idno ? `<div class="note bad" style="margin-top:12px">This meter is on an independent
@@ -6666,6 +7192,86 @@ function paintMeterFacts() {
        METER.utility === 'electricity' && missing.includes('profile class')
          ? ' — the profile class is the first two digits of the top line above; type the line from the customer\'s bill and it is saved to the meter'
          : ''}.</div>` : ''}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// 28 Nov 2026 (round 4), CES: "We also need a little settings button next to each MPAN which allows us to manually
+// edit the details like this in UC". The gear next to the MPAN opens Meter details (pricing-meter-tools.js): the
+// pricing team saves to the meter through pricing_meter_update (only what changed, logged in meter_detail_changes);
+// a broker sees it read only; a meter typed in by hand changes this quote only.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+function openMeterDetails() {
+  if (!METER) return;
+  if (typeof MeterTools === 'undefined' || !MeterTools.openMeterDialog) {
+    alert('Meter details did not load (pricing-meter-tools.js). Hold Shift and reload.');
+    return;
+  }
+  const onFile = !METER.manual && !!METER.id;
+  MeterTools.openMeterDialog(METER, {
+    sb, esc, onFile, canEdit: onFile ? isPricing() : true,
+    structOptions: STRUCT_OPTIONS, registers: REGISTERS, registerLabel: REGISTER_LABEL,
+    suppliers: [...new Set((ALIASES || []).map((a) => a.alias).filter(Boolean))].sort(),
+    whenUk: typeof ToplineDesk !== 'undefined' && ToplineDesk.whenUk ? ToplineDesk.whenUk : null,
+    onSaved: meterDetailsSaved, onLocal: meterDetailsLocal,
+  });
+}
+/** Saved to the meter: read it back and redraw what the change touches. */
+async function meterDetailsSaved(res) {
+  const m = METER;
+  if (!m || !m.id) return;
+  const changed = (res && res.changed) || [];
+  let row = null;
+  try {
+    const rows = await q(sb.from('meters').select(METER_COLS).eq('id', m.id).limit(1), 'the saved meter');
+    row = rows && rows[0];
+  } catch (e) { console.warn('meter re-read:', e.message); }
+  if (METER !== m) return;
+  if (!row && res && res.meter && typeof res.meter === 'object') row = res.meter;
+  Object.assign(m, row || (res && res.patch) || {});
+  if (changed.some((k) => ['profile_class', 'ssc', 'llfc'].includes(k))) m.top_line_src = 'saved';
+  deskNote('Meter details saved: ' + MeterTools.changedWords(changed) + '.', 'good');
+  meterDetailsRepaint(changed);
+}
+/** A meter typed in by hand: the change is for this quote only. */
+async function meterDetailsLocal(patch, changed) {
+  const m = METER;
+  if (!m || !patch) return;
+  const TOP = ['profile_class', 'ssc', 'llfc'];
+  for (const k of Object.keys(patch)) if (!TOP.includes(k)) m[k] = patch[k];
+  if (m.utility === 'electricity' && (changed || []).some((k) => TOP.includes(k))) {
+    const pc = 'profile_class' in patch ? patch.profile_class : m.profile_class;
+    const ssc = 'ssc' in patch ? patch.ssc : m.ssc;
+    const llfc = 'llfc' in patch ? patch.llfc : m.llfc;
+    await setMeterTopLine([pc == null || pc === '' ? '··' : String(pc).padStart(2, '0'), ssc || '····', llfc || '···'].join(' '),
+                          { save: false });
+  }
+  if ((changed || []).includes('rate_structure')) m.rate_structure_src = 'this quote only';
+  meterDetailsRepaint(changed || Object.keys(patch));
+}
+function meterDetailsRepaint(changed) {
+  const has = (k) => (changed || []).includes(k);
+  // Who quotes a renewal, and when the supply comes free, follow these two: the meter is drawn again.
+  if (has('supplier') || has('contract_end_date')) { showMeter(); return; }
+  if (has('rate_structure') || has('est_annual_consumption') || has('usage_split')) paintKwhFromMeter(METER);
+  paintMeterFacts();
+  paintSscNote();
+  if ($('quoteCard') && !$('quoteCard').classList.contains('hide')) $('priceMsg').textContent = 'The meter details changed: price it again.';
+}
+
+/** 28 Nov 2026 (round 4): Settings > Manual review (pricing-meter-tools.js, mountReview). */
+let REVIEW_API = null;
+function reviewInit() {
+  const host = $('admReview');
+  if (!host) return;
+  if (typeof MeterTools === 'undefined' || !MeterTools.mountReview) {
+    host.innerHTML = '<div class="note bad">Manual review did not load (pricing-meter-tools.js). Hold Shift and reload.</div>';
+    return;
+  }
+  if (REVIEW_API) { REVIEW_API.refresh(); return; }
+  REVIEW_API = MeterTools.mountReview(host, {
+    sb, esc, typeLabel: (c) => STRUCT_LABEL[c] || c || '',
+    whenUk: typeof ToplineDesk !== 'undefined' && ToplineDesk.whenUk ? ToplineDesk.whenUk : null,
+  });
 }
 
 /**
@@ -7111,8 +7717,8 @@ function renderQuotes() {
       together; where they differ you are seeing more than one band's price and only the
       band this meter is really in applies. Decode the LLFC on the Reference tab to settle
       it.</div>` : ''}
-    ${Q.kwh.regs.length > 1 ? `<div class="note${Q.kwh.source ? '' : ' warn'}" style="margin-top:10px">
-      Consumption split <b>${esc(splitText(Q.kwh, true))}</b>${Q.kwh.source ? '.'
+    ${Q.kwh.regs.length > 1 ? `<div class="note${Q.kwh.source && Q.kwh.source.kind === 'hhd' ? '' : ' warn'}" style="margin-top:10px">
+      Consumption split <b>${esc(splitText(Q.kwh, true))}</b>${Q.kwh.source && Q.kwh.source.kind === 'hhd' ? '.'
         : '. If the real split is known, type it above and price again; a measured split from a Stark export is better still.'}</div>` : ''}
     ${Q.singleWins ? `<div class="note" style="margin-top:10px"><b>A single-rate product is the
       cheapest option on this split</b> (${esc(Q.singleWins)}). On a multi-register meter that
